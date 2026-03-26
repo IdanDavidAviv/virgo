@@ -35,7 +35,17 @@
       {
         "command": "readme-preview-read-aloud.show-dashboard",
         "title": "Show Read Aloud Dashboard",
-        "icon": "$(megaphone)"
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "readme-preview-read-aloud.read-selection",
+        "title": "Read Selection",
+        "icon": "$(play)"
+      },
+      {
+        "command": "antigravity.openMissionControl",
+        "title": "Open Mission Control (Editor Tab)",
+        "icon": "$(rocket)"
       }
     ],
     "viewsContainers": {
@@ -43,7 +53,7 @@
         {
           "id": "readme-read-aloud",
           "title": "Read Aloud",
-          "icon": "$(megaphone)"
+          "icon": "$(unmute)"
         }
       ]
     },
@@ -53,7 +63,7 @@
           "id": "readme-preview-read-aloud.speech-engine",
           "type": "webview",
           "name": "Audio Engine",
-          "icon": "$(megaphone)"
+          "icon": "$(unmute)"
         }
       ]
     },
@@ -82,12 +92,45 @@
           "group": "navigation@2"
         },
         {
+          "command": "readme-preview-read-aloud.read-selection",
+          "when": "editorHasSelection",
+          "group": "navigation@3"
+        },
+        {
           "command": "readme-preview-read-aloud.show-dashboard",
           "when": "editorLangId == markdown",
-          "group": "navigation@3"
+          "group": "navigation@4"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "readme-preview-read-aloud.read-selection",
+          "group": "modification",
+          "when": "editorHasSelection"
         }
       ]
-    }
+    },
+    "configuration": {
+      "title": "Read Aloud",
+      "properties": {
+        "readAloud.bridgePort": {
+          "type": "number",
+          "default": 3001,
+          "description": "Port used by the internal audio engine bridge."
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "readme-preview-read-aloud.play",
+        "key": "alt+r",
+        "when": "editorLangId == markdown"
+      },
+      {
+        "command": "readme-preview-read-aloud.stop",
+        "key": "alt+s"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -97,9 +140,11 @@
   "devDependencies": {
     "@types/node": "20.x",
     "@types/vscode": "^1.80.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "say": "^0.16.0"
+    "say": "^0.16.0",
+    "ws": "^8.20.0"
   }
 }

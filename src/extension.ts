@@ -2,12 +2,15 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as child_process from 'child_process';
+import { MissionControlPanel } from './missionControl';
+import { BridgeServer } from './bridgeServer';
 
 let playBarItem: vscode.StatusBarItem;
 let pauseBarItem: vscode.StatusBarItem;
 let stopBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 let logFilePath: string;
+let bridgeServer: BridgeServer;
 
 function log(msg: string) {
     const time = new Date().toLocaleTimeString();
@@ -29,7 +32,41 @@ function log(msg: string) {
     console.log(`[READ ALOUD] ${formatted}`);
 }
 
-export function activate(context: vscode.ExtensionContext) {
+/**
+ * Antigravity Platform Guard:
+ * Ensures the internal UnleashProvider is ready before the extension begins its work.
+ * This prevents the "UnleashProvider must be initialized first!" error in the host.
+ */
+async function waitForUnleashReady(log: (m: string) => void): Promise<boolean> {
+    const MAX_RETRIES = 15; // Increased retries
+    const RETRY_DELAY = 1000;
+    
+    log("Checking Antigravity Core state...");
+    
+    for (let i = 0; i < MAX_RETRIES; i++) {
+        const agExt = vscode.extensions.getExtension('google.antigravity');
+        
+        if (agExt) {
+            if (agExt.isActive) {
+                log("Antigravity Core ACTIVE. Waiting 1s for service warm-up...");
+                await new Promise(r => setTimeout(r, 1000)); // Extra safety buffer
+                log("Antigravity Core ready. Proceeding.");
+                return true;
+            }
+            log(`Antigravity Core found but INACTIVE (Attempt ${i+1}/${MAX_RETRIES})...`);
+        } else {
+            log(`Antigravity Core extension NOT FOUND (Attempt ${i+1}/${MAX_RETRIES})...`);
+        }
+        
+        await new Promise(r => setTimeout(r, RETRY_DELAY));
+    }
+    
+    log("TIMED OUT waiting for Antigravity Core.");
+    return false;
+}
+
+
+export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('Read Aloud Diagnostics');
     outputChannel.show(true); 
     
@@ -42,15 +79,39 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     log('--- BOOTING READ ALOUD ENGINE ---');
+    
+    // Wait for platform readiness
+    await waitForUnleashReady(log);
+
     const speechProvider = new SpeechProvider(context.extensionUri, context.extensionPath);
     
+    const config = vscode.workspace.getConfiguration('readAloud');
+    const port = config.get<number>('bridgePort') || 3001;
+    
+    // Initialize Local Bridge for Antigravity Workspace (Environment Aware)
+    bridgeServer = new BridgeServer(path.join(context.extensionPath, 'media'));
+    
+    log(`Initializing BridgeServer (Config: ${process.env.ANTIGRAVITY_BRIDGE_HOST || '127.0.0.1'}:${port})...`);
+    
+    bridgeServer.start(port).then(actualPort => {
+        log(`BRIDGE ACTIVE on port ${actualPort}`);
+        speechProvider.setBridge(bridgeServer);
+    }).catch(err => {
+        log(`BRIDGE FAILURE: ${err}`);
+    });
+
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             'readme-preview-read-aloud.speech-engine',
             speechProvider,
-            { webviewOptions: { retainContextWhenHidden: true } }
+            { 
+                webviewOptions: { 
+                    retainContextWhenHidden: true
+                }
+            }
         )
     );
+
 
     // Play Button
     playBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -77,13 +138,11 @@ export function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push(
             playBarItem, pauseBarItem, stopBarItem,
             vscode.commands.registerCommand('readme-preview-read-aloud.show-dashboard', () => {
-                try {
-                    log('Open Dashboard triggered.');
-                    speechProvider.openDashboard();
-                } catch (err) {
-                    log(`DASHBOARD ERROR: ${err}`);
-                }
+                log('Focusing Sidebar Dashboard...');
+                vscode.commands.executeCommand('readme-preview-read-aloud.speech-engine.focus');
+                speechProvider.refresh();
             }),
+
             vscode.commands.registerCommand('readme-preview-read-aloud.play', async () => {
                 try {
                     log('Play command triggered.');
@@ -114,48 +173,34 @@ export function activate(context: vscode.ExtensionContext) {
                                 try {
                                     const doc = await vscode.workspace.openTextDocument(uri);
                                     text = doc.getText();
-                                } catch (e) {
-                                    log(`ERROR: Failed to read ${uri.fsPath}: ${e}`);
+                                } catch (err) {
+                                    log(`TAB OPEN ERROR: ${err}`);
                                 }
                             }
                         }
                     }
 
                     if (text) {
-                        const stripped = stripMarkdown(text);
-                        log(`Extracted ${text.length} chars. Stripped to ${stripped.length}.`);
-                        speechProvider.play(stripped);
+                        speechProvider.play(text);
                     } else {
-                        log('WARNING: No text found to read.');
-                        vscode.window.showInformationMessage('No readable text found.');
+                        vscode.window.showWarningMessage('No text found to read.');
                     }
                 } catch (err) {
-                    log(`CRITICAL PLAY COMMAND ERROR: ${err}`);
+                    log(`PLAY COMMAND ERROR: ${err}`);
                 }
             }),
-            vscode.commands.registerCommand('readme-preview-read-aloud.pause', () => {
-                try {
-                    log('Pause triggered.');
-                    speechProvider.pause();
-                } catch (err) {
-                    log(`PAUSE ERROR: ${err}`);
-                }
-            }),
-            vscode.commands.registerCommand('readme-preview-read-aloud.stop', () => {
-                try {
-                    log('Stop triggered.');
-                    speechProvider.stop();
-                } catch (err) {
-                    log(`STOP ERROR: ${err}`);
-                }
-            })
+
+            vscode.commands.registerCommand('readme-preview-read-aloud.pause', () => speechProvider.pause()),
+            vscode.commands.registerCommand('readme-preview-read-aloud.stop', () => speechProvider.stop())
         );
     } catch (err) {
-        log(`CRITICAL ACTIVATION ERROR (SUBSCRIPTIONS): ${err}`);
+        log(`ACTIVATION ERROR: ${err}`);
     }
 
-    log('Readme Preview Read Aloud: Sidebar Sanctuary Active!');
-    vscode.window.showInformationMessage('Read Aloud: Ready!');
+    // EXPORT: Provide the bridge to other modules (like MissionControl)
+    return {
+        bridge: bridgeServer
+    };
 }
 
 class SpeechProvider implements vscode.WebviewViewProvider {
@@ -163,10 +208,12 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     private _panel?: vscode.WebviewPanel;
     private _isReady: boolean = false;
     private _isPanelReady: boolean = false;
+    private _isRefreshing: boolean = false;
+    private _voices: any[] = [];
+    private _bridge?: BridgeServer;
     private _messageQueue: any[] = [];
-    private _nativeProcess: child_process.ChildProcess | null = null;
-    private _lastText: string = '';
-    private _voices: string[] = [];
+    private _nativeProcess: any = null;
+    private _lastText = '';
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -174,6 +221,13 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     ) {
         this._loadVoices();
     }
+
+    public setBridge(bridge: BridgeServer) {
+        this._bridge = bridge; 
+        log('Bridge attached to SpeechProvider. Refreshing view...');
+        this.refresh();
+    }
+
 
     private async _loadVoices() {
         try {
@@ -193,11 +247,15 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     private _broadcastVoices() {
         if (this._voices.length === 0) return;
         
-        if (this._view && this._isReady) {
+        // Performance: Only send to webview if it is actually visible
+        if (this._view && this._view.visible && this._isReady) {
             this._view.webview.postMessage({ command: 'voices', voices: this._voices });
         }
-        if (this._panel && this._isPanelReady) {
+        if (this._panel && this._panel.visible && this._isPanelReady) {
             this._panel.webview.postMessage({ command: 'voices', voices: this._voices });
+        }
+        if (this._bridge) {
+            this._bridge.broadcast({ command: 'voices', voices: this._voices });
         }
     }
 
@@ -216,20 +274,17 @@ class SpeechProvider implements vscode.WebviewViewProvider {
                 enableScripts: true,
                 enableCommandUris: true,
                 enableForms: true,
-                // Removed localResourceRoots to bypass ServiceWorker registration failure
+                localResourceRoots: [
+                    vscode.Uri.joinPath(this._extensionUri, 'media')
+                ],
                 retainContextWhenHidden: false
             }
         );
 
-        // Wait-and-Push Protocol: 1000ms delay allows the host to stabilize 
-        // its internal ServiceWorker before we inject HTML content.
-        setTimeout(() => {
-            if (this._panel) {
-                const html = this._getHtmlContent(this._panel.webview);
-                this._panel.webview.html = html;
-                log('Dashboard Injected after 1000ms.');
-            }
-        }, 1000);
+        // Synchronous Occupancy: Set HTML immediately to stabilize ServiceWorker
+        const html = this._getHtmlContent(this._panel.webview);
+        this._panel.webview.html = html;
+        log('Dashboard Injected Synchronously.');
 
         this._panel.webview.onDidReceiveMessage(data => {
             switch (data.command) {
@@ -259,47 +314,108 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         this._view = webviewView;
 
         webviewView.webview.options = {
-            enableScripts: true
-            // Removed localResourceRoots to bypass ServiceWorker registration failure
+            enableScripts: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(this._extensionUri, 'media')
+            ]
         };
 
-        // Wait-and-Push Protocol: 1000ms delay for the Sidebar
-        setTimeout(() => {
-            if (this._view) {
-                const html = this._getHtmlContent(this._view.webview);
-                this._view.webview.html = html;
-                log(`Sidebar Engine Injected: ${html.length} chars. Timestamp: ${new Date().toISOString()}`);
+        // Handshake: Listen for dashboard signals
+        webviewView.webview.onDidReceiveMessage(data => {
+            switch (data.command) {
+                case 'ready':
+                    log('Sidebar Dashboard: READY.');
+                    this._isReady = true;
+                    this._broadcastVoices();
+                    this._flushQueue();
+                    break;
+                case 'voiceChanged':
+                    log(`User selected voice: ${data.voice}`);
+                    // Future: this._selectedVoice = data.voice;
+                    break;
+                case 'log': 
+                    log(`[SIDEBAR] ${data.message}`); 
+                    break;
             }
-        }, 1000);
+        });
+
+        webviewView.onDidChangeVisibility(() => {
+            if (webviewView.visible) {
+                log('Sidebar became visible. Refreshing state...');
+                this._broadcastVoices();
+            }
+        });
+
+        // Synchronous Safety Occupancy: Set a minimal loader to anchor the ServiceWorker
+        webviewView.webview.html = `<!DOCTYPE html><html><body style="background:transparent;color:#888;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">Initializing Handshake...</body></html>`;
+
+        // Initial load (Increased delay to 500ms to allow workbench stable state)
+        setTimeout(() => this.refresh(), 500);
     }
 
-    private _getHtmlContent(webview: vscode.Webview, fileName: string = 'speechEngine.html'): string {
-        const htmlPath = path.join(this._extensionPath, 'media', fileName);
-        const scriptPath = path.join(this._extensionPath, 'media', 'dashboard.js');
-        
-        log(`--- ENGINE HTML REQUEST (${fileName}) ---`);
+    /**
+     * Force a full UI re-render from the backend with safety locks and retries
+     */
+    public async refresh() {
+        if (!this._view) {
+            log('Refresh requested but view not resolved yet.');
+            return;
+        }
+
+        if (this._isRefreshing) {
+            log('Refresh skipped: Concurrent update already in progress.');
+            return;
+        }
+
+        if (!this._bridge) {
+            log('Refresh requested but bridge not initialized.');
+            return;
+        }
+
+        this._isRefreshing = true;
+        log('--- FORCING HERMETIC REFRESH (Unified Bridge) ---');
         
         try {
-            if (!fs.existsSync(htmlPath)) {
-                log(`CRITICAL: File missing at ${htmlPath}`);
-                return `<h1>Missing File</h1><p>Expected at: ${htmlPath}</p>`;
-            }
+            // REBUILD: The bridge now generates the CSP and all inlines internally.
+            const html = this._bridge.getHtml(this._view.webview);
             
-            let content = fs.readFileSync(htmlPath, 'utf8');
-            
-            // Only process templates if we are using the main engine file
-            if (fileName === 'speechEngine.html') {
-                const inlineScript = fs.readFileSync(scriptPath, 'utf8');
-                content = content.replace(/\$\{inlineScript\}/g, inlineScript);
-                content = content.replace(/\$\{cspSource\}/g, webview.cspSource);
-            }
-            
-            return content;
-        } catch (err) {
-            log(`CRITICAL ERROR: Failed to read assets: ${err}`);
-            return `<h1>Load Error</h1><p>${err}</p>`;
+            this._view.webview.html = html;
+            log(`Sidebar Engine Injected: ${html.length} chars. Handshake Re-established.`);
+        } catch (e) {
+            log(`[CRITICAL] Webview refresh failed (InvalidState?): ${e}. Retrying in 1s...`);
+            setTimeout(() => this.refresh(), 1000);
+        } finally {
+            this._isRefreshing = false;
         }
     }
+
+    private _getHtmlContent(webview: vscode.Webview): string {
+        if (!this._bridge) {
+            return `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <style>
+                        body { 
+                            background: var(--vscode-sideBar-background); 
+                            color: var(--vscode-sideBar-foreground); 
+                            display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div style="text-align: center;">
+                        <h3>Connecting to Bridge...</h3>
+                        <p style="opacity: 0.6;">Establishing secure local loopback</p>
+                    </div>
+                </body>
+                </html>
+            `;
+        }
+
+        return this._bridge.getHtml(webview);
+    }
+
 
     private _flushQueue() {
         const hasSidebar = this._view && this._isReady;
@@ -311,6 +427,7 @@ class SpeechProvider implements vscode.WebviewViewProvider {
             const msg = this._messageQueue.shift();
             if (hasSidebar) this._view!.webview.postMessage(msg);
             if (hasPanel) this._panel!.webview.postMessage(msg);
+            if (this._bridge) this._bridge.broadcast(msg);
         }
     }
 
@@ -318,12 +435,22 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         log(`PLAY REQUEST: ${text.substring(0, 30)}...`);
         this._lastText = text;
 
-        // 1. Visual Sync (UI)
-        if (this._view && this._isReady) {
+        // 1. Visual Sync (UI) - Only if visible
+        if (this._view && this._view.visible && this._isReady) {
             this._view.webview.postMessage({ command: 'play', text });
         }
-        if (this._panel && this._isPanelReady) {
+        if (this._panel && this._panel.visible && this._isPanelReady) {
             this._panel.webview.postMessage({ command: 'play', text });
+        }
+
+        // Bridge Sync
+        if (this._bridge) {
+            this._bridge.broadcast({ command: 'play', text });
+        }
+        
+        // Editor Sanctuary Sync
+        if (MissionControlPanel.currentPanel) {
+            MissionControlPanel.currentPanel.postMessage({ command: 'play', text });
         }
         
         if (!this._isReady && !this._isPanelReady) {
@@ -341,11 +468,11 @@ class SpeechProvider implements vscode.WebviewViewProvider {
             log('Spawning Native PowerShell Voice...');
             this._nativeProcess = child_process.spawn('powershell', ['-Command', command]);
             
-            this._nativeProcess.on('error', (err) => {
+            this._nativeProcess.on('error', (err: Error) => {
                 log(`NATIVE ERROR: ${err.message}`);
             });
 
-            this._nativeProcess.on('exit', (code) => {
+            this._nativeProcess.on('exit', (code: number | null) => {
                 log(`Native Speech Exit Code: ${code}`);
                 this._nativeProcess = null;
             });
@@ -372,6 +499,12 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         }
         this._view?.webview.postMessage({ command: 'stop' });
         this._panel?.webview.postMessage({ command: 'stop' });
+        this._bridge?.broadcast({ command: 'stop' });
+        
+        // Editor Sanctuary Sync
+        if (MissionControlPanel.currentPanel) {
+            MissionControlPanel.currentPanel.postMessage({ command: 'stop' });
+        }
     }
 }
 
