@@ -448,6 +448,7 @@ class SpeechProvider implements vscode.WebviewViewProvider {
             if (data.command === 'ready') {
                 log('Dashboard Signal: READY.');
                 this._isPanelReady = true;
+                this._sendInitialState(); // PUSH startup context (cached filename)
                 this._broadcastVoices();
                 this._flushQueue();
                 return;
@@ -482,6 +483,7 @@ class SpeechProvider implements vscode.WebviewViewProvider {
             if (data.command === 'ready') {
                 log('Sidebar Dashboard: READY.');
                 this._isReady = true;
+                this._sendInitialState(); // PUSH startup context (cached filename)
                 this._broadcastVoices();
                 this._flushQueue();
                 return;
