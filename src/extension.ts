@@ -10,7 +10,8 @@ interface Chapter {
     level: number;
     lineStart: number;
     lineEnd: number;
-    text: string;
+    text: string;           // Cleaned speech text
+    originalMarkdown: string; // Pre-cleaned source for future editing
     sentences: string[];
 }
 
@@ -702,6 +703,7 @@ function parseChapters(rawText: string): Chapter[] {
                 lineStart, 
                 lineEnd, 
                 text: stripped,
+                originalMarkdown: chunkText,
                 sentences: sentences
             });
         }
@@ -716,6 +718,7 @@ function parseChapters(rawText: string): Chapter[] {
             lineStart: 0,
             lineEnd: lines.length - 1,
             text: stripped,
+            originalMarkdown: rawText,
             sentences: splitIntoSentences(stripped)
         });
     }
@@ -724,23 +727,50 @@ function parseChapters(rawText: string): Chapter[] {
 }
 
 function splitIntoSentences(text: string): string[] {
-    // Split by punctuation followed by space, or end of string
-    const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g);
-    return (sentences || [text]).map(s => s.trim()).filter(s => s.length > 0);
+    // Advanced sentence splitting that respects common abbreviations
+    const abbreviations = [
+        'Dr', 'Mr', 'Mrs', 'Ms', 'Jr', 'Sr', 'Prof', 'St', 
+        'e\\.g', 'i\\.e', 'vs', 'etc', 'Vol', 'Fig', 'p\\.', 'pp\\.'
+    ];
+    const abbrRegex = `(?<!\\b(?:${abbreviations.join('|')}))`;
+    const splitter = new RegExp(`${abbrRegex}[.!?]+(?:\\s+|$)`, 'g');
+
+    const result: string[] = [];
+    let match;
+    let lastIndex = 0;
+
+    while ((match = splitter.exec(text)) !== null) {
+        result.push(text.slice(lastIndex, match.index + match[0].length).trim());
+        lastIndex = splitter.lastIndex;
+    }
+
+    if (lastIndex < text.length) {
+        const remaining = text.slice(lastIndex).trim();
+        if (remaining) result.push(remaining);
+    }
+
+    return result.length > 0 ? result : [text];
 }
 
 function stripMarkdown(md: string): string {
     return md
-        .replace(/^#+\s+/gm, '') 
+        .replace(/^#+\s+(.+)$/gm, '$1. ') 
         .replace(/\*\*|__/g, '') 
         .replace(/\*|_/g, '') 
-        .replace(/!\[.*?\]\(.*?\)/g, '') 
+        // Images: Keep alt-text for meaningful context
+        .replace(/!\[(.*?)\]\(.*?\)/g, '$1. ') 
+        // Links: Keep text
         .replace(/\[(.*?)\]\(.*?\)/g, '$1') 
-        .replace(/`{3,}[\s\S]*?`{3,}/g, '') 
+        // Code Blocks: Option B - Omit with marker
+        .replace(/`{3,}[\s\S]*?`{3,}/g, '\n[Code block omitted].\n') 
+        // Tables: Omit with marker
+        .replace(/^\|.*?|$/gm, '') // Crude table line removal
         .replace(/`(.+?)`/g, '$1') 
-        .replace(/^\s*[-*+]\s+/gm, '') 
-        .replace(/^\s*>\s+/gm, '') 
+        // Lists: Add punctuation to force SAPI pause between items
+        .replace(/^\s*[-*+]\s+(.+)$/gm, '$1. ') 
+        .replace(/^\s*(>\s+)+(.+)$/gm, 'Quote: $2. ') 
         .replace(/<[^>]*>/g, '') 
+        .replace(/\n{2,}/g, '\n') // Collapse excessive newlines
         .trim();
 }
 
