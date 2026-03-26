@@ -49,6 +49,53 @@ body {
     justify-content: space-between;
 }
 
+.settings-toggle-btn {
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--primary);
+    transition: transform 0.3s ease;
+    opacity: 0.6;
+}
+
+.settings-toggle-btn:hover {
+    opacity: 1;
+    transform: rotate(45deg);
+}
+
+.settings-drawer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), margin 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.settings-drawer.open {
+    max-height: 300px;
+    margin-top: 12px;
+    padding-bottom: 8px;
+}
+
+.setting-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.setting-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    color: #94a3b8;
+    font-weight: 600;
+}
+
+.setting-label span:last-child {
+    color: var(--primary);
+    font-family: monospace;
+}
+
 h1 {
     font-size: 11px;
     margin: 0;
@@ -136,6 +183,31 @@ select:focus {
     box-shadow: 0 0 0 2px var(--ring);
 }
 
+/* Premium Sliders */
+input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: #334155;
+    border-radius: 2px;
+    outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    background: var(--primary);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 10px var(--ring);
+    transition: transform 0.1s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
 .reload-icon {
     display: inline-block;
     cursor: pointer;
@@ -200,6 +272,47 @@ select:focus {
     border-color: var(--primary);
     color: var(--primary);
     box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+}
+
+.ctrl-btn.primary {
+    background: linear-gradient(135deg, var(--primary), #0ea5e9);
+    color: white;
+    border: none;
+}
+
+.ctrl-btn.secondary {
+    background: rgba(148, 163, 184, 0.1);
+}
+
+.controls-row.mini {
+    margin: 5px 0 15px;
+    gap: 8px;
+}
+
+.controls-row.mini .ctrl-btn {
+    font-size: 9px;
+    padding: 3px 6px;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+}
+
+.current-sentence {
+    background: rgba(15, 23, 42, 0.4);
+    border: 1px solid rgba(56, 189, 248, 0.1);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 12px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: #e2e8f0;
+    min-height: 40px;
+}
+
+.sentence-placeholder {
+    color: #475569;
+    font-style: italic;
+    font-size: 10px;
 }
 
 .chapter-list {

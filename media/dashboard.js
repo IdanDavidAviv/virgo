@@ -27,6 +27,18 @@
     const btnNext         = document.getElementById('btn-next');
     const btnFollow       = document.getElementById('btn-follow');
     const btnAutoplay     = document.getElementById('btn-autoplay');
+    
+    // V2 References
+    const settingsToggle  = document.getElementById('settings-toggle');
+    const settingsDrawer  = document.getElementById('settings-drawer');
+    const rateSlider      = document.getElementById('rate-slider');
+    const rateVal         = document.getElementById('rate-val');
+    const volumeSlider    = document.getElementById('volume-slider');
+    const volumeVal       = document.getElementById('volume-val');
+    const btnRestart      = document.getElementById('btn-restart');
+    const btnPlay         = document.getElementById('btn-play');
+    const btnPause        = document.getElementById('btn-pause');
+    const currentSentence = document.getElementById('current-sentence');
 
     // --- State ---
     let state = (vscode && vscode.getState()) || { selectedVoice: null, followEnabled: false, autoPlayEnabled: true };
@@ -108,6 +120,8 @@
             case 'stop':
             case 'pause':
                 if (waveContainer) waveContainer.classList.remove('speaking');
+                btnPlay.style.display = 'inline-block';
+                btnPause.style.display = 'none';
                 break;
             case 'voices':
                 if (!voiceSelect) return;
@@ -119,6 +133,28 @@
                     if (name === state.selectedVoice) opt.selected = true;
                     voiceSelect.appendChild(opt);
                 });
+                break;
+            case 'initialState':
+                // Sync sliders and toggles with backend SSOT
+                if (rateSlider) {
+                    rateSlider.value = message.rate;
+                    rateVal.textContent = (message.rate > 0 ? '+' : '') + message.rate;
+                }
+                if (volumeSlider) {
+                    volumeSlider.value = message.volume;
+                    volumeVal.textContent = message.volume + '%';
+                }
+                if (voiceSelect && message.voice) {
+                    voiceSelect.value = message.voice;
+                }
+                break;
+            case 'playingSentence':
+                if (currentSentence) {
+                    currentSentence.innerHTML = `<span>${escapeHtml(message.text)}</span>`;
+                }
+                if (waveContainer) waveContainer.classList.add('speaking');
+                btnPlay.style.display = 'none';
+                btnPause.style.display = 'inline-block';
                 break;
         }
     }
@@ -141,6 +177,31 @@
             postMsg({ command: 'voiceChanged', voice: state.selectedVoice });
         };
     }
+
+    // --- V2 Control Events ---
+    if (settingsToggle) {
+        settingsToggle.onclick = () => settingsDrawer.classList.toggle('open');
+    }
+
+    if (rateSlider) {
+        rateSlider.oninput = () => {
+            const val = parseInt(rateSlider.value);
+            rateVal.textContent = (val > 0 ? '+' : '') + val;
+            postMsg({ command: 'rateChanged', rate: val });
+        };
+    }
+
+    if (volumeSlider) {
+        volumeSlider.oninput = () => {
+            const val = parseInt(volumeSlider.value);
+            volumeVal.textContent = val + '%';
+            postMsg({ command: 'volumeChanged', volume: val });
+        };
+    }
+
+    if (btnRestart) btnRestart.onclick = () => postMsg({ command: 'startOver' });
+    if (btnPlay)    btnPlay.onclick    = () => postMsg({ command: 'continue' });
+    if (btnPause)   btnPause.onclick   = () => postMsg({ command: 'pause' });
 
     // --- Control Buttons ---
     if (btnPrev)  btnPrev.addEventListener('click',  () => postMsg({ command: 'prevChapter' }));

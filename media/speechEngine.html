@@ -24,11 +24,35 @@
 
     <div class="card">
         <div class="header">
-            <span><span class="reload-icon" onclick="window.location.reload()" title="Force Refresh">↻</span> Voice Profile</span>
+            <span><span class="reload-icon" onclick="window.location.reload()" title="Force Refresh">↻</span> Audio Settings</span>
+            <span id="settings-toggle" class="settings-toggle-btn">⚙</span>
         </div>
-        <select id="voice-select">
-            <option>Detecting Native Voices...</option>
-        </select>
+        <div id="settings-drawer" class="settings-drawer">
+            <div class="setting-item">
+                <div class="setting-label">
+                    <span>Voice Profile</span>
+                </div>
+                <select id="voice-select">
+                    <option>Detecting Native Voices...</option>
+                </select>
+            </div>
+            
+            <div class="setting-item">
+                <div class="setting-label">
+                    <span>Speed</span>
+                    <span id="rate-val">1.0x</span>
+                </div>
+                <input type="range" id="rate-slider" min="-10" max="10" value="0" step="1">
+            </div>
+
+            <div class="setting-item">
+                <div class="setting-label">
+                    <span>Volume</span>
+                    <span id="volume-val">100%</span>
+                </div>
+                <input type="range" id="volume-slider" min="0" max="100" value="100">
+            </div>
+        </div>
     </div>
 
     <div class="card">
@@ -37,10 +61,18 @@
             <span id="chapter-progress" class="chapter-progress-label">—</span>
         </div>
         <div class="controls-row">
+            <button id="btn-restart"  class="ctrl-btn secondary" title="Start Over">↺</button>
             <button id="btn-prev"     class="ctrl-btn" title="Previous Chapter">⏮</button>
-            <button id="btn-follow"   class="ctrl-btn toggle" title="Follow voice in editor" data-active="false">📍</button>
-            <button id="btn-autoplay" class="ctrl-btn toggle active" title="Auto-advance chapters" data-active="true">🔁</button>
+            <button id="btn-play"     class="ctrl-btn primary" title="Play/Resume">▶</button>
+            <button id="btn-pause"    class="ctrl-btn" title="Pause" style="display:none">⏸</button>
             <button id="btn-next"     class="ctrl-btn" title="Next Chapter">⏭</button>
+        </div>
+        <div class="controls-row mini">
+            <button id="btn-follow"   class="ctrl-btn toggle" title="Follow voice in editor" data-active="false">📍 Follow</button>
+            <button id="btn-autoplay" class="ctrl-btn toggle active" title="Auto-advance chapters" data-active="true">🔁 Auto</button>
+        </div>
+        <div id="current-sentence" class="current-sentence">
+            <span class="sentence-placeholder">Ready to read...</span>
         </div>
         <div id="chapter-list" class="chapter-list">
             <div class="chapter-placeholder">Press Play to load chapters...</div>
