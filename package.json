@@ -1,0 +1,31 @@
+﻿{
+  "name": "readme-preview-read-aloud",
+  "displayName": "README Preview Read Aloud",
+  "description": "Reads markdown previews aloud using speech synthesis",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "markdown.previewScripts": [
+      "./media/main.js"
+    ],
+    "markdown.previewStyles": [
+      "./media/main.css"
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "20.x",
+    "typescript": "^5.3.3"
+  }
+}
