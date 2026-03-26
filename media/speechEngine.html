@@ -32,8 +32,19 @@
     </div>
 
     <div class="card">
-        <div class="header">📜 Data Stream</div>
-        <div id="text-display" class="text-preview">Waiting for playback...</div>
+        <div class="header">
+            <span>📑 Chapters</span>
+            <span id="chapter-progress" class="chapter-progress-label">—</span>
+        </div>
+        <div class="controls-row">
+            <button id="btn-prev"     class="ctrl-btn" title="Previous Chapter">⏮</button>
+            <button id="btn-follow"   class="ctrl-btn toggle" title="Follow voice in editor" data-active="false">📍</button>
+            <button id="btn-autoplay" class="ctrl-btn toggle active" title="Auto-advance chapters" data-active="true">🔁</button>
+            <button id="btn-next"     class="ctrl-btn" title="Next Chapter">⏭</button>
+        </div>
+        <div id="chapter-list" class="chapter-list">
+            <div class="chapter-placeholder">Press Play to load chapters...</div>
+        </div>
     </div>
 
     <div class="footer">ENGINE: NATIVE | UI: HERMETIC V1</div>

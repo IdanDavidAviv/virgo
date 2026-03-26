@@ -5,6 +5,14 @@ import * as child_process from 'child_process';
 import { MissionControlPanel } from './missionControl';
 import { BridgeServer } from './bridgeServer';
 
+interface Chapter {
+    title: string;
+    level: number;
+    lineStart: number;
+    lineEnd: number;
+    text: string;
+}
+
 let playBarItem: vscode.StatusBarItem;
 let pauseBarItem: vscode.StatusBarItem;
 let stopBarItem: vscode.StatusBarItem;
@@ -191,7 +199,26 @@ export async function activate(context: vscode.ExtensionContext) {
             }),
 
             vscode.commands.registerCommand('readme-preview-read-aloud.pause', () => speechProvider.pause()),
-            vscode.commands.registerCommand('readme-preview-read-aloud.stop', () => speechProvider.stop())
+            vscode.commands.registerCommand('readme-preview-read-aloud.stop', () => speechProvider.stop()),
+
+            vscode.commands.registerCommand('readme-preview-read-aloud.read-from-cursor', async () => {
+                try {
+                    log('Read-From-Cursor triggered.');
+                    const editor = vscode.window.activeTextEditor;
+                    if (!editor) { vscode.window.showWarningMessage('No active editor.'); return; }
+                    const text = editor.document.getText();
+                    const cursorLine = editor.selection.active.line;
+                    const chapters = parseChapters(text);
+                    let targetIndex = 0;
+                    for (let i = 0; i < chapters.length; i++) {
+                        if (chapters[i].lineStart <= cursorLine) { targetIndex = i; }
+                    }
+                    log(`Read-From-Cursor: chapter ${targetIndex + 1} (cursor line ${cursorLine})`);
+                    speechProvider.play(text, targetIndex);
+                } catch (err) {
+                    log(`READ-FROM-CURSOR ERROR: ${err}`);
+                }
+            })
         );
     } catch (err) {
         log(`ACTIVATION ERROR: ${err}`);
@@ -214,6 +241,10 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     private _messageQueue: any[] = [];
     private _nativeProcess: any = null;
     private _lastText = '';
+    private _chapters: Chapter[] = [];
+    private _currentChapterIndex: number = 0;
+    private _followMode: boolean = false;
+    private _autoAdvance: boolean = true;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -294,6 +325,11 @@ class SpeechProvider implements vscode.WebviewViewProvider {
                     this._broadcastVoices();
                     this._flushQueue();
                     break;
+                case 'jumpToChapter': this.jumpToChapter(data.index); break;
+                case 'nextChapter':   this.nextChapter(); break;
+                case 'prevChapter':   this.prevChapter(); break;
+                case 'toggleFollow':  this.setFollowMode(data.enabled); break;
+                case 'toggleAutoPlay': this.setAutoAdvance(data.enabled); break;
                 case 'log': log(`[DASHBOARD] ${data.message}`); break;
             }
         });
@@ -331,8 +367,12 @@ class SpeechProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'voiceChanged':
                     log(`User selected voice: ${data.voice}`);
-                    // Future: this._selectedVoice = data.voice;
                     break;
+                case 'jumpToChapter': this.jumpToChapter(data.index); break;
+                case 'nextChapter':   this.nextChapter(); break;
+                case 'prevChapter':   this.prevChapter(); break;
+                case 'toggleFollow':  this.setFollowMode(data.enabled); break;
+                case 'toggleAutoPlay': this.setAutoAdvance(data.enabled); break;
                 case 'log': 
                     log(`[SIDEBAR] ${data.message}`); 
                     break;
@@ -431,54 +471,128 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    public play(text: string) {
-        log(`PLAY REQUEST: ${text.substring(0, 30)}...`);
-        this._lastText = text;
-
-        // 1. Visual Sync (UI) - Only if visible
+    /** Broadcast a message to all active UI surfaces */
+    private _postToAll(msg: any) {
         if (this._view && this._view.visible && this._isReady) {
-            this._view.webview.postMessage({ command: 'play', text });
+            this._view.webview.postMessage(msg);
         }
         if (this._panel && this._panel.visible && this._isPanelReady) {
-            this._panel.webview.postMessage({ command: 'play', text });
+            this._panel.webview.postMessage(msg);
         }
-
-        // Bridge Sync
         if (this._bridge) {
-            this._bridge.broadcast({ command: 'play', text });
+            this._bridge.broadcast(msg);
         }
-        
-        // Editor Sanctuary Sync
         if (MissionControlPanel.currentPanel) {
-            MissionControlPanel.currentPanel.postMessage({ command: 'play', text });
+            MissionControlPanel.currentPanel.postMessage(msg);
         }
-        
-        if (!this._isReady && !this._isPanelReady) {
-            log('No UI ready for visual feedback. Continuing with Native audio...');
+    }
+
+    public play(text: string, startFromChapter: number = 0) {
+        log(`PLAY REQUEST from chapter ${startFromChapter}: ${text.substring(0, 30)}...`);
+        this._lastText = text;
+
+        // Parse document into chapters
+        this._chapters = parseChapters(text);
+        log(`Parsed ${this._chapters.length} chapters.`);
+
+        // Broadcast chapter list to all UI surfaces
+        this._postToAll({
+            command: 'chapters',
+            chapters: this._chapters.map((c, i) => ({ title: c.title, level: c.level, index: i })),
+            current: startFromChapter,
+            total: this._chapters.length
+        });
+
+        // Start playback from target chapter
+        this._playChapter(startFromChapter);
+    }
+
+    private _playChapter(index: number) {
+        if (index < 0 || index >= this._chapters.length) {
+            log(`Chapter index ${index} out of range (total: ${this._chapters.length}).`);
+            return;
         }
 
-        // 2. Native Audio (Reliability)
+        this._currentChapterIndex = index;
+        const chapter = this._chapters[index];
+        log(`Playing chapter ${index + 1}/${this._chapters.length}: "${chapter.title}"`);
+
+        // Notify all surfaces of current chapter
+        this._postToAll({
+            command: 'chapterChanged',
+            index,
+            total: this._chapters.length,
+            title: chapter.title
+        });
+
+        // Follow mode: scroll editor to chapter heading
+        if (this._followMode) {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                const pos = new vscode.Position(chapter.lineStart, 0);
+                editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+            }
+        }
+
+        // Kill any running native process
+        if (this._nativeProcess) {
+            try { child_process.exec(`taskkill /F /T /PID ${this._nativeProcess.pid}`); } catch (e) {}
+            this._nativeProcess = null;
+        }
+
+        // Spawn SAPI for this chapter's text
         try {
-            this.stop(); // Stop any existing speech
-            
-            // Limit text size for CLI safety
-            const safeText = text.replace(/["']/g, '').substring(0, 5000); 
+            const safeText = chapter.text.replace(/["']/g, '').substring(0, 5000);
             const command = `(New-Object -ComObject SAPI.SpVoice).Speak('${safeText}')`;
-            
             log('Spawning Native PowerShell Voice...');
             this._nativeProcess = child_process.spawn('powershell', ['-Command', command]);
-            
+
             this._nativeProcess.on('error', (err: Error) => {
                 log(`NATIVE ERROR: ${err.message}`);
             });
 
             this._nativeProcess.on('exit', (code: number | null) => {
-                log(`Native Speech Exit Code: ${code}`);
+                log(`Chapter ${index + 1} Exit Code: ${code}`);
                 this._nativeProcess = null;
+                // Auto-advance when chapter completes normally
+                if (this._autoAdvance && code === 0) {
+                    const next = this._currentChapterIndex + 1;
+                    if (next < this._chapters.length) {
+                        setTimeout(() => this._playChapter(next), 500);
+                    } else {
+                        log('All chapters complete.');
+                        this._postToAll({ command: 'stop' });
+                    }
+                }
             });
         } catch (err) {
-            log(`CRITICAL NATIVE PLAY ERROR: ${err}`);
+            log(`CRITICAL PLAY ERROR: ${err}`);
         }
+    }
+
+    public jumpToChapter(index: number) {
+        if (index < 0 || index >= this._chapters.length) {
+            log(`jumpToChapter: index ${index} out of range`);
+            return;
+        }
+        if (this._nativeProcess) {
+            try { child_process.exec(`taskkill /F /T /PID ${this._nativeProcess.pid}`); } catch (e) {}
+            this._nativeProcess = null;
+        }
+        setTimeout(() => this._playChapter(index), 100);
+    }
+
+    public nextChapter() { this.jumpToChapter(this._currentChapterIndex + 1); }
+    public prevChapter() { this.jumpToChapter(this._currentChapterIndex - 1); }
+
+    public setFollowMode(enabled: boolean) {
+        this._followMode = enabled;
+        log(`Follow mode: ${enabled}`);
+    }
+
+    public setAutoAdvance(enabled: boolean) {
+        this._autoAdvance = enabled;
+        log(`Auto-advance: ${enabled}`);
     }
 
     public pause() {
@@ -506,6 +620,44 @@ class SpeechProvider implements vscode.WebviewViewProvider {
             MissionControlPanel.currentPanel.postMessage({ command: 'stop' });
         }
     }
+}
+
+function parseChapters(rawText: string): Chapter[] {
+    const lines = rawText.split('\n');
+    // Match only #, ##, ### headings (not #### or deeper)
+    const headingRegex = /^(#{1,3})(?!#)\s+(.+)/;
+    const headings: { level: number; title: string; lineIndex: number }[] = [];
+
+    lines.forEach((line, i) => {
+        const match = line.match(headingRegex);
+        if (match) {
+            headings.push({ level: match[1].length, title: match[2].trim(), lineIndex: i });
+        }
+    });
+
+    const chapters: Chapter[] = [];
+    headings.forEach((h, i) => {
+        const lineStart = h.lineIndex;
+        const lineEnd = i + 1 < headings.length ? headings[i + 1].lineIndex - 1 : lines.length - 1;
+        const chunkText = lines.slice(lineStart, lineEnd + 1).join('\n');
+        const stripped = stripMarkdown(chunkText);
+        if (stripped.trim().length > 0) {
+            chapters.push({ title: h.title, level: h.level, lineStart, lineEnd, text: stripped });
+        }
+    });
+
+    // Fallback: no headings found → treat entire doc as one chapter
+    if (chapters.length === 0) {
+        chapters.push({
+            title: 'Document',
+            level: 1,
+            lineStart: 0,
+            lineEnd: lines.length - 1,
+            text: stripMarkdown(rawText)
+        });
+    }
+
+    return chapters;
 }
 
 function stripMarkdown(md: string): string {

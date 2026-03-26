@@ -46,6 +46,11 @@
         "command": "antigravity.openMissionControl",
         "title": "Open Mission Control (Editor Tab)",
         "icon": "$(rocket)"
+      },
+      {
+        "command": "readme-preview-read-aloud.read-from-cursor",
+        "title": "Read Aloud From Here",
+        "icon": "$(debug-start-from-here)"
       }
     ],
     "viewsContainers": {
@@ -107,6 +112,11 @@
           "command": "readme-preview-read-aloud.read-selection",
           "group": "modification",
           "when": "editorHasSelection"
+        },
+        {
+          "command": "readme-preview-read-aloud.read-from-cursor",
+          "group": "modification",
+          "when": "editorLangId == markdown"
         }
       ]
     },
@@ -129,6 +139,11 @@
       {
         "command": "readme-preview-read-aloud.stop",
         "key": "alt+s"
+      },
+      {
+        "command": "readme-preview-read-aloud.read-from-cursor",
+        "key": "alt+shift+r",
+        "when": "editorLangId == markdown"
       }
     ]
   },
