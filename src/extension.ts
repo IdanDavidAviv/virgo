@@ -11,6 +11,7 @@ interface Chapter {
     lineStart: number;
     lineEnd: number;
     text: string;
+    sentences: string[];
 }
 
 let playBarItem: vscode.StatusBarItem;
@@ -124,8 +125,14 @@ export async function activate(context: vscode.ExtensionContext) {
                     let text = '';
                     
                     if (editor) {
-                        log(`Extracting text from editor: ${editor.document.fileName}`);
-                        text = editor.document.getText();
+                        const selection = editor.selection;
+                        if (!selection.isEmpty) {
+                            text = editor.document.getText(selection);
+                            log('Playing user selection...');
+                        } else {
+                            text = editor.document.getText();
+                            log(`Extracting full text from editor: ${editor.document.fileName}`);
+                        }
                     } else {
                         log('No active editor. Searching tabs...');
                         const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
@@ -209,8 +216,15 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     private _lastText = '';
     private _chapters: Chapter[] = [];
     private _currentChapterIndex: number = 0;
+    private _currentSentenceIndex: number = 0;
     private _followMode: boolean = false;
     private _autoAdvance: boolean = true;
+    private _isPaused: boolean = false;
+    
+    // Audio Precision Sync
+    private _selectedVoice: string = '';
+    private _rate: number = 0;
+    private _volume: number = 100;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -249,14 +263,82 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     /** Unified handler for messages from any webview surface */
     private _handleWebviewMessage(data: any, source: 'sidebar' | 'panel') {
         switch (data.command) {
-            case 'jumpToChapter':  this.jumpToChapter(data.index); break;
-            case 'nextChapter':   this.nextChapter(); break;
-            case 'prevChapter':   this.prevChapter(); break;
-            case 'toggleFollow':  this.setFollowMode(data.enabled); break;
-            case 'toggleAutoPlay': this.setAutoAdvance(data.enabled); break;
-            case 'voiceChanged':  log(`Voice selected: ${data.voice}`); break;
-            case 'log':           log(`[${source.toUpperCase()}] ${data.message}`); break;
+            case 'ready':
+                this._sendInitialState();
+                break;
+            case 'jumpToChapter':
+                this.jumpToChapter(data.index);
+                break;
+            case 'nextChapter':
+                this.nextChapter();
+                break;
+            case 'prevChapter':
+                this.prevChapter();
+                break;
+            case 'toggleFollow':
+                this.setFollowMode(data.enabled);
+                break;
+            case 'toggleAutoPlay':
+                this.setAutoAdvance(data.enabled);
+                break;
+            case 'voiceChanged':
+                this._selectedVoice = data.voice;
+                log(`Voice set to: ${this._selectedVoice}`);
+                break;
+            case 'rateChanged':
+                this._rate = data.rate;
+                log(`Audio Rate: ${this._rate}`);
+                break;
+            case 'volumeChanged':
+                this._volume = data.volume;
+                log(`Audio Volume: ${this._volume}`);
+                break;
+            case 'continue':
+                this.continue();
+                break;
+            case 'pause':
+                this.pause();
+                break;
+            case 'stop':
+                this.stop();
+                break;
+            case 'startOver':
+                this.startOver();
+                break;
+            case 'log':
+                log(`[${source.toUpperCase()}] ${data.message}`);
+                break;
         }
+    }
+
+    private _sendInitialState() {
+        this._postToAll({
+            command: 'initialState',
+            voice: this._selectedVoice,
+            rate: this._rate,
+            volume: this._volume,
+            follow: this._followMode,
+            autoPlay: this._autoAdvance,
+            isPaused: this._isPaused
+        });
+    }
+
+    public setFollowMode(enabled: boolean) {
+        this._followMode = enabled;
+        log(`Follow mode: ${enabled}`);
+    }
+
+    public setAutoAdvance(enabled: boolean) {
+        this._autoAdvance = enabled;
+        log(`Auto-advance: ${enabled}`);
+    }
+
+    public nextChapter() {
+        this.jumpToChapter(this._currentChapterIndex + 1);
+    }
+
+    public prevChapter() {
+        this.jumpToChapter(this._currentChapterIndex - 1);
     }
 
     public openDashboard() {
@@ -432,114 +514,158 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         });
 
         // Start playback from target chapter
-        this._playChapter(startFromChapter);
+        this._isPaused = false;
+        this._playChapter(startFromChapter, 0);
     }
 
-    private _playChapter(index: number) {
-        if (index < 0 || index >= this._chapters.length) {
-            log(`Chapter index ${index} out of range (total: ${this._chapters.length}).`);
+    private _playChapter(chapterIndex: number, sentenceIndex: number = 0) {
+        if (chapterIndex < 0 || chapterIndex >= this._chapters.length) {
+            log(`Chapter index ${chapterIndex} out of range.`);
             return;
         }
 
-        this._currentChapterIndex = index;
-        const chapter = this._chapters[index];
-        log(`Playing chapter ${index + 1}/${this._chapters.length}: "${chapter.title}"`);
+        this._currentChapterIndex = chapterIndex;
+        this._currentSentenceIndex = sentenceIndex;
+        const chapter = this._chapters[chapterIndex];
 
-        // Notify all surfaces of current chapter
-        this._postToAll({
-            command: 'chapterChanged',
-            index,
-            total: this._chapters.length,
-            title: chapter.title
-        });
+        // Notify UI of chapter change only at the start of chapter
+        if (sentenceIndex === 0) {
+            this._postToAll({
+                command: 'chapterChanged',
+                index: chapterIndex,
+                total: this._chapters.length,
+                title: chapter.title
+            });
 
-        // Follow mode: scroll editor to chapter heading
-        if (this._followMode) {
-            const editor = vscode.window.activeTextEditor;
-            if (editor) {
-                const pos = new vscode.Position(chapter.lineStart, 0);
-                editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+            // Follow mode: scroll editor
+            if (this._followMode) {
+                const editor = vscode.window.activeTextEditor;
+                if (editor) {
+                    const pos = new vscode.Position(chapter.lineStart, 0);
+                    editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+                }
             }
         }
 
-        // Kill any running native process
+        if (!chapter.sentences || chapter.sentences.length === 0) {
+            this._moveNext();
+            return;
+        }
+
+        const sentence = chapter.sentences[sentenceIndex];
+        log(`Playing [C${chapterIndex} S${sentenceIndex}]: "${sentence.substring(0, 40)}..."`);
+        
+        this._postToAll({
+            command: 'sentenceChanged',
+            text: sentence,
+            chapterIndex,
+            sentenceIndex,
+            totalSentences: chapter.sentences.length
+        });
+
+        this._executeSAPI(sentence);
+    }
+
+    private _executeSAPI(text: string) {
         if (this._nativeProcess) {
-            try { child_process.exec(`taskkill /F /T /PID ${this._nativeProcess.pid}`); } catch (e) {}
+            try { child_process.execSync(`taskkill /F /T /PID ${this._nativeProcess.pid}`); } catch (e) {}
             this._nativeProcess = null;
         }
 
-        // Spawn SAPI for this chapter's text
-        try {
-            const safeText = chapter.text.replace(/["']/g, '').substring(0, 5000);
-            const command = `(New-Object -ComObject SAPI.SpVoice).Speak('${safeText}')`;
-            log('Spawning Native PowerShell Voice...');
-            this._nativeProcess = child_process.spawn('powershell', ['-Command', command]);
+        const safeText = text.replace(/["']/g, '');
+        
+        // Multi-line PowerShell script for SAPI control
+        const psScript = `
+            $v = New-Object -ComObject SAPI.SpVoice;
+            $v.Volume = ${this._volume};
+            $v.Rate = ${this._rate};
+            if ('${this._selectedVoice}') {
+                $v.Voice = $v.GetVoices() | Where-Object { $_.GetDescription() -eq '${this._selectedVoice}' };
+            }
+            $v.Speak('${safeText}')
+        `.trim().replace(/\n/g, ' ');
 
-            this._nativeProcess.on('error', (err: Error) => {
-                log(`NATIVE ERROR: ${err.message}`);
-            });
+        this._nativeProcess = child_process.spawn('powershell', ['-Command', psScript]);
 
-            this._nativeProcess.on('exit', (code: number | null) => {
-                log(`Chapter ${index + 1} Exit Code: ${code}`);
-                this._nativeProcess = null;
-                // Auto-advance when chapter completes normally
-                if (this._autoAdvance && code === 0) {
-                    const next = this._currentChapterIndex + 1;
-                    if (next < this._chapters.length) {
-                        setTimeout(() => this._playChapter(next), 500);
-                    } else {
-                        log('All chapters complete.');
-                        this._postToAll({ command: 'stop' });
-                    }
-                }
-            });
-        } catch (err) {
-            log(`CRITICAL PLAY ERROR: ${err}`);
+        this._nativeProcess.on('exit', (code: number | null) => {
+            this._nativeProcess = null;
+            if (code === 0 && !this._isPaused) {
+                this._moveNext();
+            }
+        });
+    }
+
+    private _moveNext() {
+        const chapter = this._chapters[this._currentChapterIndex];
+        const nextSent = this._currentSentenceIndex + 1;
+
+        if (nextSent < chapter.sentences.length) {
+            // Next sentence in current chapter
+            setTimeout(() => this._playChapter(this._currentChapterIndex, nextSent), 100);
+        } else if (this._autoAdvance) {
+            // Next chapter
+            const nextChap = this._currentChapterIndex + 1;
+            if (nextChap < this._chapters.length) {
+                setTimeout(() => this._playChapter(nextChap, 0), 300);
+            } else {
+                log('End of document reached.');
+                this.stop();
+            }
+        } else {
+            this.stop();
         }
     }
 
     public jumpToChapter(index: number) {
-        if (index < 0 || index >= this._chapters.length) {
-            log(`jumpToChapter: index ${index} out of range`);
-            return;
-        }
-        if (this._nativeProcess) {
-            try { child_process.exec(`taskkill /F /T /PID ${this._nativeProcess.pid}`); } catch (e) {}
-            this._nativeProcess = null;
-        }
-        setTimeout(() => this._playChapter(index), 100);
+        if (index < 0 || index >= this._chapters.length) return;
+        this._isPaused = false;
+        this.stopProcess();
+        setTimeout(() => this._playChapter(index, 0), 100);
     }
 
-    public nextChapter() { this.jumpToChapter(this._currentChapterIndex + 1); }
-    public prevChapter() { this.jumpToChapter(this._currentChapterIndex - 1); }
-
-    public setFollowMode(enabled: boolean) {
-        this._followMode = enabled;
-        log(`Follow mode: ${enabled}`);
+    public jumpToSentence(sentenceIndex: number) {
+        this._isPaused = false;
+        this.stopProcess();
+        setTimeout(() => this._playChapter(this._currentChapterIndex, sentenceIndex), 100);
     }
 
-    public setAutoAdvance(enabled: boolean) {
-        this._autoAdvance = enabled;
-        log(`Auto-advance: ${enabled}`);
+    public continue() {
+        if (this._isPaused) {
+            log('Continuing playback...');
+            this._isPaused = false;
+            this._playChapter(this._currentChapterIndex, this._currentSentenceIndex);
+        }
+    }
+
+    public startOver() {
+        log('Starting over from beginning...');
+        this.play(this._lastText, 0);
     }
 
     public pause() {
-        log('Pause: Stop and Clear (Native MVP)');
-        this.stop(); // SAPI pause is complex via CLI, easier to just stop/clear
+        log('Pausing playback...');
+        this._isPaused = true;
+        this.stopProcess();
+        this._postToAll({ command: 'pause' });
     }
 
     public stop() {
+        log('Stopping playback...');
+        this._isPaused = false;
+        this._currentChapterIndex = 0;
+        this._currentSentenceIndex = 0;
+        this.stopProcess();
+        this._postToAll({ command: 'stop' });
+    }
+
+    private stopProcess() {
         if (this._nativeProcess) {
             try {
-                log('Silencing Native Voice...');
                 // Windows specific kill sequence
-                child_process.exec(`taskkill /F /T /PID ${this._nativeProcess.pid}`);
-                this._nativeProcess = null;
-            } catch (err) {
-                log(`STOP ERROR: ${err}`);
-            }
+                child_process.execSync(`taskkill /F /T /PID ${this._nativeProcess.pid}`);
+            } catch (err) {}
+            this._nativeProcess = null;
         }
-        this._postToAll({ command: 'stop' });
     }
 }
 
@@ -563,22 +689,38 @@ function parseChapters(rawText: string): Chapter[] {
         const chunkText = lines.slice(lineStart, lineEnd + 1).join('\n');
         const stripped = stripMarkdown(chunkText);
         if (stripped.trim().length > 0) {
-            chapters.push({ title: h.title, level: h.level, lineStart, lineEnd, text: stripped });
+            const sentences = splitIntoSentences(stripped);
+            chapters.push({ 
+                title: h.title, 
+                level: h.level, 
+                lineStart, 
+                lineEnd, 
+                text: stripped,
+                sentences: sentences
+            });
         }
     });
 
     // Fallback: no headings found → treat entire doc as one chapter
     if (chapters.length === 0) {
+        const stripped = stripMarkdown(rawText);
         chapters.push({
             title: 'Document',
             level: 1,
             lineStart: 0,
             lineEnd: lines.length - 1,
-            text: stripMarkdown(rawText)
+            text: stripped,
+            sentences: splitIntoSentences(stripped)
         });
     }
 
     return chapters;
+}
+
+function splitIntoSentences(text: string): string[] {
+    // Split by punctuation followed by space, or end of string
+    const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g);
+    return (sentences || [text]).map(s => s.trim()).filter(s => s.length > 0);
 }
 
 function stripMarkdown(md: string): string {
