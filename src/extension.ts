@@ -40,38 +40,7 @@ function log(msg: string) {
     console.log(`[READ ALOUD] ${formatted}`);
 }
 
-/**
- * Antigravity Platform Guard:
- * Ensures the internal UnleashProvider is ready before the extension begins its work.
- * This prevents the "UnleashProvider must be initialized first!" error in the host.
- */
-async function waitForUnleashReady(log: (m: string) => void): Promise<boolean> {
-    const MAX_RETRIES = 15; // Increased retries
-    const RETRY_DELAY = 1000;
-    
-    log("Checking Antigravity Core state...");
-    
-    for (let i = 0; i < MAX_RETRIES; i++) {
-        const agExt = vscode.extensions.getExtension('google.antigravity');
-        
-        if (agExt) {
-            if (agExt.isActive) {
-                log("Antigravity Core ACTIVE. Waiting 1s for service warm-up...");
-                await new Promise(r => setTimeout(r, 1000)); // Extra safety buffer
-                log("Antigravity Core ready. Proceeding.");
-                return true;
-            }
-            log(`Antigravity Core found but INACTIVE (Attempt ${i+1}/${MAX_RETRIES})...`);
-        } else {
-            log(`Antigravity Core extension NOT FOUND (Attempt ${i+1}/${MAX_RETRIES})...`);
-        }
-        
-        await new Promise(r => setTimeout(r, RETRY_DELAY));
-    }
-    
-    log("TIMED OUT waiting for Antigravity Core.");
-    return false;
-}
+
 
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -87,9 +56,6 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     log('--- BOOTING READ ALOUD ENGINE ---');
-    
-    // Wait for platform readiness
-    await waitForUnleashReady(log);
 
     const speechProvider = new SpeechProvider(context.extensionUri, context.extensionPath);
     
@@ -277,16 +243,19 @@ class SpeechProvider implements vscode.WebviewViewProvider {
 
     private _broadcastVoices() {
         if (this._voices.length === 0) return;
-        
-        // Performance: Only send to webview if it is actually visible
-        if (this._view && this._view.visible && this._isReady) {
-            this._view.webview.postMessage({ command: 'voices', voices: this._voices });
-        }
-        if (this._panel && this._panel.visible && this._isPanelReady) {
-            this._panel.webview.postMessage({ command: 'voices', voices: this._voices });
-        }
-        if (this._bridge) {
-            this._bridge.broadcast({ command: 'voices', voices: this._voices });
+        this._postToAll({ command: 'voices', voices: this._voices });
+    }
+
+    /** Unified handler for messages from any webview surface */
+    private _handleWebviewMessage(data: any, source: 'sidebar' | 'panel') {
+        switch (data.command) {
+            case 'jumpToChapter':  this.jumpToChapter(data.index); break;
+            case 'nextChapter':   this.nextChapter(); break;
+            case 'prevChapter':   this.prevChapter(); break;
+            case 'toggleFollow':  this.setFollowMode(data.enabled); break;
+            case 'toggleAutoPlay': this.setAutoAdvance(data.enabled); break;
+            case 'voiceChanged':  log(`Voice selected: ${data.voice}`); break;
+            case 'log':           log(`[${source.toUpperCase()}] ${data.message}`); break;
         }
     }
 
@@ -313,25 +282,20 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         );
 
         // Synchronous Occupancy: Set HTML immediately to stabilize ServiceWorker
-        const html = this._getHtmlContent(this._panel.webview);
-        this._panel.webview.html = html;
+        this._panel.webview.html = this._bridge
+            ? this._bridge.getHtml(this._panel.webview)
+            : '<body>Connecting to Bridge...</body>';
         log('Dashboard Injected Synchronously.');
 
         this._panel.webview.onDidReceiveMessage(data => {
-            switch (data.command) {
-                case 'ready':
-                    log('Dashboard Signal: READY.');
-                    this._isPanelReady = true;
-                    this._broadcastVoices();
-                    this._flushQueue();
-                    break;
-                case 'jumpToChapter': this.jumpToChapter(data.index); break;
-                case 'nextChapter':   this.nextChapter(); break;
-                case 'prevChapter':   this.prevChapter(); break;
-                case 'toggleFollow':  this.setFollowMode(data.enabled); break;
-                case 'toggleAutoPlay': this.setAutoAdvance(data.enabled); break;
-                case 'log': log(`[DASHBOARD] ${data.message}`); break;
+            if (data.command === 'ready') {
+                log('Dashboard Signal: READY.');
+                this._isPanelReady = true;
+                this._broadcastVoices();
+                this._flushQueue();
+                return;
             }
+            this._handleWebviewMessage(data, 'panel');
         });
 
         this._panel.onDidDispose(() => {
@@ -358,25 +322,14 @@ class SpeechProvider implements vscode.WebviewViewProvider {
 
         // Handshake: Listen for dashboard signals
         webviewView.webview.onDidReceiveMessage(data => {
-            switch (data.command) {
-                case 'ready':
-                    log('Sidebar Dashboard: READY.');
-                    this._isReady = true;
-                    this._broadcastVoices();
-                    this._flushQueue();
-                    break;
-                case 'voiceChanged':
-                    log(`User selected voice: ${data.voice}`);
-                    break;
-                case 'jumpToChapter': this.jumpToChapter(data.index); break;
-                case 'nextChapter':   this.nextChapter(); break;
-                case 'prevChapter':   this.prevChapter(); break;
-                case 'toggleFollow':  this.setFollowMode(data.enabled); break;
-                case 'toggleAutoPlay': this.setAutoAdvance(data.enabled); break;
-                case 'log': 
-                    log(`[SIDEBAR] ${data.message}`); 
-                    break;
+            if (data.command === 'ready') {
+                log('Sidebar Dashboard: READY.');
+                this._isReady = true;
+                this._broadcastVoices();
+                this._flushQueue();
+                return;
             }
+            this._handleWebviewMessage(data, 'sidebar');
         });
 
         webviewView.onDidChangeVisibility(() => {
@@ -429,32 +382,7 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _getHtmlContent(webview: vscode.Webview): string {
-        if (!this._bridge) {
-            return `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <style>
-                        body { 
-                            background: var(--vscode-sideBar-background); 
-                            color: var(--vscode-sideBar-foreground); 
-                            display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div style="text-align: center;">
-                        <h3>Connecting to Bridge...</h3>
-                        <p style="opacity: 0.6;">Establishing secure local loopback</p>
-                    </div>
-                </body>
-                </html>
-            `;
-        }
 
-        return this._bridge.getHtml(webview);
-    }
 
 
     private _flushQueue() {
@@ -611,14 +539,7 @@ class SpeechProvider implements vscode.WebviewViewProvider {
                 log(`STOP ERROR: ${err}`);
             }
         }
-        this._view?.webview.postMessage({ command: 'stop' });
-        this._panel?.webview.postMessage({ command: 'stop' });
-        this._bridge?.broadcast({ command: 'stop' });
-        
-        // Editor Sanctuary Sync
-        if (MissionControlPanel.currentPanel) {
-            MissionControlPanel.currentPanel.postMessage({ command: 'stop' });
-        }
+        this._postToAll({ command: 'stop' });
     }
 }
 
