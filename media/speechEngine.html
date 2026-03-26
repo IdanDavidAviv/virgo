@@ -10,8 +10,14 @@
 <body>
     <div class="card">
         <div class="header">
-            <div id="status-dot" title="Handshake Status"></div>
-            <h1>Mission Control</h1>
+            <div id="status-dot" title="Handshake Status" class="status-dot-mini"></div>
+            <div id="doc-info" class="doc-info">
+                <span id="doc-icon">📄</span>
+                <div class="doc-title-container">
+                    <span id="doc-dir" class="doc-dir"></span>
+                    <span id="doc-filename" class="doc-filename">No File Selected</span>
+                </div>
+            </div>
         </div>
         <div id="wave-container" class="waveform">
             <div class="bar"></div>
@@ -24,10 +30,10 @@
 
     <div class="card">
         <div class="header">
-            <span><span class="reload-icon" onclick="window.location.reload()" title="Force Refresh">↻</span> Audio Settings</span>
+            <span>Audio Settings</span> 
             <span id="settings-toggle" class="settings-toggle-btn">⚙</span>
         </div>
-        <div id="settings-drawer" class="settings-drawer">
+        <div id="settings-drawer" class="settings-drawer open">
             <div class="setting-item">
                 <div class="setting-label">
                     <span>Voice Profile</span>
@@ -36,7 +42,7 @@
                     <option>Detecting Native Voices...</option>
                 </select>
             </div>
-            
+
             <div class="setting-item">
                 <div class="setting-label">
                     <span>Speed</span>
@@ -48,9 +54,9 @@
             <div class="setting-item">
                 <div class="setting-label">
                     <span>Volume</span>
-                    <span id="volume-val">100%</span>
+                    <span id="volume-val">4%</span>
                 </div>
-                <input type="range" id="volume-slider" min="0" max="100" value="100">
+                <input type="range" id="volume-slider" min="0" max="100" value="4">
             </div>
         </div>
     </div>
@@ -61,17 +67,19 @@
             <span id="chapter-progress" class="chapter-progress-label">—</span>
         </div>
         <div class="controls-row">
-            <button id="btn-prev"     class="ctrl-btn" title="Previous Chapter">⏮</button>
+            <button id="btn-prev" class="ctrl-btn" title="Previous Chapter">⏮</button>
             <div class="play-pause-container" style="flex:2; display: flex;">
-                <button id="btn-play"     class="ctrl-btn primary" title="Play/Resume" style="width:100%">▶</button>
-                <button id="btn-pause"    class="ctrl-btn" title="Pause" style="display:none; width:100%">⏸</button>
+                <button id="btn-play" class="ctrl-btn primary" title="Play/Resume" style="width:100%">▶</button>
+                <button id="btn-pause" class="ctrl-btn" title="Pause" style="display:none; width:100%">⏸</button>
             </div>
-            <button id="btn-next"     class="ctrl-btn" title="Next Chapter">⏭</button>
-            <button id="btn-stop"     class="ctrl-btn" title="Stop">⏹</button>
+            <button id="btn-next" class="ctrl-btn" title="Next Chapter">⏭</button>
+            <button id="btn-stop" class="ctrl-btn" title="Stop">⏹</button>
         </div>
         <div class="controls-row mini">
-            <button id="btn-follow"   class="ctrl-btn toggle" title="Follow voice in editor" data-active="false">📍 Follow</button>
-            <button id="btn-autoplay" class="ctrl-btn toggle active" title="Auto-advance chapters" data-active="true">🔁 Auto</button>
+            <button id="btn-follow" class="ctrl-btn toggle" title="Follow voice in editor" data-active="false">📍
+                Follow</button>
+            <button id="btn-autoplay" class="ctrl-btn toggle active" title="Auto-advance chapters" data-active="true">🔁
+                Auto</button>
         </div>
         <div id="current-sentence" class="current-sentence">
             <span class="sentence-placeholder">Ready to read...</span>
