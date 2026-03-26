@@ -1,22 +1,52 @@
-﻿{
+{
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
   "version": "0.0.1",
+  "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
   },
   "categories": [
     "Other"
   ],
-  "main": "./out/extension.js",
   "contributes": {
-    "markdown.previewScripts": [
-      "./media/main.js"
+    "commands": [
+      {
+        "command": "readme-preview-read-aloud.play",
+        "title": "Read Aloud: Play",
+        "icon": "$(play)"
+      },
+      {
+        "command": "readme-preview-read-aloud.pause",
+        "title": "Read Aloud: Pause",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "readme-preview-read-aloud.stop",
+        "title": "Read Aloud: Stop",
+        "icon": "$(debug-stop)"
+      }
     ],
-    "markdown.previewStyles": [
-      "./media/main.css"
-    ]
+    "menus": {
+      "editor/title": [
+        {
+          "command": "readme-preview-read-aloud.play",
+          "when": "resourceLangId == markdown",
+          "group": "navigation"
+        },
+        {
+          "command": "readme-preview-read-aloud.pause",
+          "when": "resourceLangId == markdown",
+          "group": "navigation"
+        },
+        {
+          "command": "readme-preview-read-aloud.stop",
+          "when": "resourceLangId == markdown",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech Engine</title>
+</head>
+<body>
+    <script>
+        (function() {
+            const vscode = acquireVsCodeApi();
+            const synth = window.speechSynthesis;
+            let utterance = null;
+
+            window.addEventListener('message', (event) => {
+                const message = event.data;
+                switch (message.command) {
+                    case 'play':
+                        if (synth.paused) {
+                            synth.resume();
+                        } else {
+                            synth.cancel();
+                            utterance = new SpeechSynthesisUtterance(message.text);
+                            // Best effort: wait for voices to load if needed
+                            if (synth.getVoices().length === 0) {
+                                synth.onvoiceschanged = () => {
+                                    synth.speak(utterance);
+                                    synth.onvoiceschanged = null;
+                                };
+                            } else {
+                                synth.speak(utterance);
+                            }
+                            
+                            utterance.onend = () => vscode.postMessage({ command: 'onEnd' });
+                            utterance.onerror = (e) => vscode.postMessage({ command: 'onError', error: e });
+                            synth.speak(utterance);
+                        }
+                        break;
+                    case 'pause':
+                        if (synth.speaking && !synth.paused) {
+                            synth.pause();
+                        }
+                        break;
+                    case 'stop':
+                        synth.cancel();
+                        break;
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
