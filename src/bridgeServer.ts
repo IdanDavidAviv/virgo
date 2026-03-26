@@ -140,6 +140,7 @@ export class BridgeServer extends EventEmitter {
             `script-src 'unsafe-inline' 'unsafe-eval' ${cspSource} https:`,
             `style-src 'unsafe-inline' ${cspSource} https:`,
             `connect-src ${connectSources} https:`,
+            `media-src ${cspSource} data: blob:`,
             "font-src *",
             "worker-src 'self' blob:;"
         ].join('; ');

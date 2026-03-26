@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as child_process from 'child_process';
 import { MissionControlPanel } from './missionControl';
 import { BridgeServer } from './bridgeServer';
+import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
 interface Chapter {
     title: string;
@@ -271,18 +272,23 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     private _followMode: boolean = false;
     private _autoAdvance: boolean = true;
     private _isPaused: boolean = false;
+    private _isPlaying: boolean = false;
     
     // Audio Precision Sync
-    private _selectedVoice: string = '';
+    private _selectedVoice: string = 'en-US-AriaNeural';
     private _rate: number = 0;
-    private _volume: number = 4;
+    private _volume: number = 100;
     private _currentFileName: string = 'No Document';
     private _currentRelativeDir: string = '';
+    private _engineMode: 'local' | 'neural' = 'neural';
+    private _tts: MsEdgeTTS;
+    private _neuralVoices: any[] = [];
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
         private readonly _extensionPath: string
     ) {
+        this._tts = new MsEdgeTTS();
         this._loadVoices();
     }
 
@@ -296,21 +302,36 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     private async _loadVoices() {
         try {
             const command = 'Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.GetInstalledVoices().VoiceInfo.Name';
-            child_process.exec(`powershell -Command "${command}"`, (err, stdout) => {
-                if (!err && stdout) {
-                    this._voices = stdout.split('\r\n').filter(v => v.trim());
-                    log(`Detected ${this._voices.length} native voices.`);
+            child_process.exec(`powershell -Command "${command}"`, (error, stdout, stderr) => {
+                if (!error && stdout) {
+                    this._voices = stdout.split('\r\n').filter(v => v.trim()).map(v => v.trim());
+                    log(`Detected ${this._voices.length} local SAPI voices.`);
                     this._broadcastVoices();
                 }
             });
+
+            // Fetch Neural Voices
+            const neural = await this._tts.getVoices();
+            this._neuralVoices = neural.map(v => ({
+                name: v.FriendlyName,
+                id: v.ShortName,
+                lang: v.Locale,
+                gender: v.Gender
+            }));
+            log(`Detected ${this._neuralVoices.length} neural voices.`);
+            this._broadcastVoices();
         } catch (e) {
             log(`VOICE SCAN ERROR: ${e}`);
         }
     }
 
     private _broadcastVoices() {
-        if (this._voices.length === 0) return;
-        this._postToAll({ command: 'voices', voices: this._voices });
+        this._postToAll({ 
+            command: 'voices', 
+            voices: this._voices, 
+            neuralVoices: this._neuralVoices,
+            engineMode: this._engineMode
+        });
     }
 
     /** Unified handler for messages from any webview surface */
@@ -346,6 +367,19 @@ class SpeechProvider implements vscode.WebviewViewProvider {
                 this._volume = data.volume;
                 log(`Audio Volume: ${this._volume}`);
                 break;
+            case 'engineModeChanged':
+                this._engineMode = data.mode;
+                log(`Engine Mode Switched to: ${this._engineMode}`);
+                // Stop current if switching mid-stream
+                this._isPaused = true;
+                this.stopProcess();
+                this._broadcastVoices();
+                break;
+            case 'sentenceEnded':
+                if (!this._isPaused) {
+                    this._moveNext();
+                }
+                break;
             case 'continue':
                 this.continue();
                 break;
@@ -357,6 +391,9 @@ class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
             case 'startOver':
                 this.startOver();
+                break;
+            case 'loadDocument':
+                this.loadCurrentDocument();
                 break;
             case 'log':
                 log(`[${source.toUpperCase()}] ${data.message}`);
@@ -374,7 +411,8 @@ class SpeechProvider implements vscode.WebviewViewProvider {
             autoPlay: this._autoAdvance,
             isPaused: this._isPaused,
             fileName: this._currentFileName,
-            relativeDir: this._currentRelativeDir
+            relativeDir: this._currentRelativeDir,
+            engineMode: this._engineMode
         });
     }
 
@@ -574,6 +612,37 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    public loadCurrentDocument() {
+        log('Manual Load Document request.');
+        const editor = vscode.window.activeTextEditor;
+        let text = '';
+        let fileName = '';
+
+        if (editor) {
+            text = editor.document.getText();
+            fileName = editor.document.fileName;
+            this.updateWorkingDocument(editor.document);
+        }
+
+        if (text) {
+            this._lastText = text;
+            this._chapters = parseChapters(text);
+            log(`Loaded ${this._chapters.length} chapters.`);
+
+            // Broadcast chapter list to all UI surfaces
+            this._postToAll({
+                command: 'chapters',
+                chapters: this._chapters.map((c, i) => ({ title: c.title, level: c.level, index: i })),
+                current: 0,
+                total: this._chapters.length
+            });
+            
+            vscode.window.showInformationMessage(`Loaded ${this._chapters.length} chapters from ${this._currentFileName || 'document'}`);
+        } else {
+            vscode.window.showWarningMessage('No active document found to load.');
+        }
+    }
+
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
         if (fileName) {
             this._currentFileName = path.basename(fileName);
@@ -604,6 +673,7 @@ class SpeechProvider implements vscode.WebviewViewProvider {
 
         // Start playback from target chapter
         this._isPaused = false;
+        this._isPlaying = true;
         this._playChapter(startFromChapter, 0);
     }
 
@@ -647,12 +717,75 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         this._postToAll({
             command: 'sentenceChanged',
             text: sentence,
-            chapterIndex,
-            sentenceIndex,
+            chapterIndex: chapterIndex,
+            sentenceIndex: sentenceIndex,
             totalSentences: chapter.sentences.length
         });
 
-        this._executeSAPI(sentence);
+        if (this._engineMode === 'neural') {
+            this._executeNeural(sentence);
+        } else {
+            this._executeSAPI(sentence);
+        }
+    }
+
+    private async _executeNeural(text: string) {
+        log(`Streaming Neural Audio for: "${text.substring(0, 30)}..."`);
+        try {
+            // Configure TTS for current sentence
+            // Ensure the voice name is a valid neural voice (ShortName format: xx-XX-NameNeural)
+            let voiceId = this._selectedVoice || "en-US-AriaNeural";
+            const isNeuralVoice = this._neuralVoices.some(v => v.id === voiceId);
+            if (!isNeuralVoice) {
+                log(`[NEURAL] Voice "${voiceId}" is not a neural voice. Defaulting to Aria.`);
+                voiceId = "en-US-AriaNeural";
+            }
+
+            log(`[NEURAL] Initializing voice: ${voiceId}`);
+            // [FIX] msedge-tts library throws if 3rd arg is missing: "reading voiceLocale of undefined"
+            await this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
+            
+            // Note: Volume and Rate are now handled client-side in the webview for immediate feedback.
+            // We synthesize at default parameters to allow dynamic adjustments in the browser.
+            log(`[NEURAL] Requesting stream (Standard Prosody)...`);
+            const { audioStream } = this._tts.toStream(text);
+            const chunks: any[] = [];
+            
+            audioStream.on("data", (data) => chunks.push(data));
+            
+            await new Promise((resolve, reject) => {
+                audioStream.on("end", () => {
+                    log(`[NEURAL] Stream ended. Collected ${chunks.length} chunks.`);
+                    resolve(null);
+                });
+                audioStream.on("error", (err) => {
+                    log(`[NEURAL] Stream Error: ${err}`);
+                    reject(err);
+                });
+            });
+
+            const buffer = Buffer.concat(chunks);
+            log(`[NEURAL] Buffer ready: ${buffer.length} bytes.`);
+            
+            // Broadcast the audio to the webview only if we're still playing
+            if (this._isPlaying) {
+                this._postToAll({
+                    command: 'playAudio',
+                    data: buffer.toString('base64'),
+                    text: text
+                });
+            } else {
+                log(`[NEURAL] Playback was stopped during synthesis. Ignoring buffer.`);
+            }
+
+        } catch (err) {
+            if (!this._isPlaying) return;
+            log(`NEURAL TTS ERROR: ${err}`);
+            vscode.window.showErrorMessage(`Neural TTS Failed: ${err}. Falling back to Native.`);
+            this._engineMode = 'local';
+            this._broadcastVoices();
+            this._executeSAPI(text);
+        }
     }
 
     private _executeSAPI(text: string) {
@@ -740,6 +873,7 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     public pause() {
         log('Pausing playback...');
         this._isPaused = true;
+        this._isPlaying = false;
         this.stopProcess();
         this._postToAll({ command: 'pause' });
     }
@@ -747,6 +881,7 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     public stop() {
         log('Stopping playback...');
         this._isPaused = false;
+        this._isPlaying = false;
         this._currentChapterIndex = 0;
         this._currentSentenceIndex = 0;
         this.stopProcess();
