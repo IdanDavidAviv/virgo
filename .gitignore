@@ -2,3 +2,8 @@
 out/
 .vscode-test/
 *.vsix
+
+NAVIGATION_PLAN.md
+TASK.md
+*.log
+diagnostics.log
