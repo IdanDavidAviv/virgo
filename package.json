@@ -13,8 +13,7 @@
   "main": "./out/extension.js",
   "activationEvents": [
     "onLanguage:markdown",
-    "onStartupFinished",
-    "onView:readme-preview-read-aloud.speech-engine"
+    "onStartupFinished"
   ],
   "contributes": {
     "commands": [
@@ -55,6 +54,37 @@
           "type": "webview",
           "name": "Audio Engine",
           "icon": "$(megaphone)"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "readme-preview-read-aloud.show-dashboard",
+          "when": "view == readme-preview-read-aloud.speech-engine",
+          "group": "navigation@1"
+        },
+        {
+          "command": "readme-preview-read-aloud.stop",
+          "when": "view == readme-preview-read-aloud.speech-engine",
+          "group": "navigation@2"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "readme-preview-read-aloud.play",
+          "when": "editorLangId == markdown",
+          "group": "navigation@1"
+        },
+        {
+          "command": "readme-preview-read-aloud.stop",
+          "when": "editorLangId == markdown",
+          "group": "navigation@2"
+        },
+        {
+          "command": "readme-preview-read-aloud.show-dashboard",
+          "when": "editorLangId == markdown",
+          "group": "navigation@3"
         }
       ]
     }
