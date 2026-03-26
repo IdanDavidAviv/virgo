@@ -163,7 +163,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     }
 
                     if (text) {
-                        speechProvider.play(text);
+                        speechProvider.play(text, 0, editor?.document.fileName);
                     } else {
                         vscode.window.showWarningMessage('No text found to read.');
                     }
@@ -188,7 +188,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         if (chapters[i].lineStart <= cursorLine) { targetIndex = i; }
                     }
                     log(`Read-From-Cursor: chapter ${targetIndex + 1} (cursor line ${cursorLine})`);
-                    speechProvider.play(text, targetIndex);
+                    speechProvider.play(text, targetIndex, editor.document.fileName);
                 } catch (err) {
                     log(`READ-FROM-CURSOR ERROR: ${err}`);
                 }
@@ -198,7 +198,57 @@ export async function activate(context: vscode.ExtensionContext) {
         log(`ACTIVATION ERROR: ${err}`);
     }
 
-    // EXPORT: Provide the bridge to other modules (like MissionControl)
+    // PASSIVE SYNC: Watch for tab changes to update the "Mission Control" context automatically
+    const syncActiveTab = async () => {
+        let tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+        
+        // Helper to extract URI from any tab input
+        const getUri = (t: vscode.Tab | undefined): vscode.Uri | undefined => {
+            const input = t?.input as any;
+            if (!input) return undefined;
+            if (input.uri instanceof vscode.Uri) return input.uri;
+            if (input.resource instanceof vscode.Uri) return input.resource;
+            if (input.sourceUri) return typeof input.sourceUri === 'string' ? vscode.Uri.parse(input.sourceUri) : input.sourceUri;
+            return undefined;
+        };
+
+        const isMD = (uri: vscode.Uri | undefined) => uri && (uri.path.endsWith('.md') || uri.path.endsWith('.markdown'));
+
+        let activeUri = getUri(tab);
+        
+        // DEEP SCAN FALLBACK: If current tab is NOT Markdown, hunt for the first open MD tab
+        if (!isMD(activeUri)) {
+            for (const group of vscode.window.tabGroups.all) {
+                for (const t of group.tabs) {
+                    const u = getUri(t);
+                    if (isMD(u)) {
+                        activeUri = u;
+                        break;
+                    }
+                }
+                if (isMD(activeUri)) break;
+            }
+        }
+
+        if (isMD(activeUri)) {
+            try {
+                const doc = await vscode.workspace.openTextDocument(activeUri!);
+                speechProvider.updateWorkingDocument(doc);
+            } catch (e) {
+                // Ignore errors for non-textual tabs
+            }
+        }
+    };
+
+    context.subscriptions.push(
+        vscode.window.tabGroups.onDidChangeTabs(syncActiveTab),
+        vscode.window.tabGroups.onDidChangeTabGroups(syncActiveTab),
+        vscode.window.onDidChangeActiveTextEditor(syncActiveTab)
+    );
+
+    // Initial Sync
+    syncActiveTab();
+
     return {
         bridge: bridgeServer
     };
@@ -225,7 +275,9 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     // Audio Precision Sync
     private _selectedVoice: string = '';
     private _rate: number = 0;
-    private _volume: number = 100;
+    private _volume: number = 4;
+    private _currentFileName: string = 'No Document';
+    private _currentRelativeDir: string = '';
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -320,7 +372,29 @@ class SpeechProvider implements vscode.WebviewViewProvider {
             volume: this._volume,
             follow: this._followMode,
             autoPlay: this._autoAdvance,
-            isPaused: this._isPaused
+            isPaused: this._isPaused,
+            fileName: this._currentFileName,
+            relativeDir: this._currentRelativeDir
+        });
+    }
+
+    public updateWorkingDocument(document: vscode.TextDocument) {
+        this._currentFileName = path.basename(document.fileName);
+        const folder = vscode.workspace.getWorkspaceFolder(document.uri);
+        if (folder) {
+            const rel = path.relative(folder.uri.fsPath, path.dirname(document.fileName));
+            this._currentRelativeDir = (rel && rel !== '.') ? rel : '';
+        } else {
+            this._currentRelativeDir = '';
+        }
+        this.broadcastDocumentInfo(this._currentFileName, this._currentRelativeDir);
+    }
+
+    public broadcastDocumentInfo(fileName: string, relativeDir: string = '') {
+        this._postToAll({
+            command: 'documentInfo',
+            fileName: fileName,
+            relativeDir: relativeDir
         });
     }
 
@@ -498,7 +572,19 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    public play(text: string, startFromChapter: number = 0) {
+    public play(text: string, startFromChapter: number = 0, fileName?: string) {
+        if (fileName) {
+            this._currentFileName = path.basename(fileName);
+            // Get relative path from workspace root if possible
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(fileName));
+            if (workspaceFolder) {
+                const relativePath = path.relative(workspaceFolder.uri.fsPath, path.dirname(fileName));
+                this._currentRelativeDir = relativePath && relativePath !== '.' ? relativePath : '';
+            } else {
+                this._currentRelativeDir = '';
+            }
+            this.broadcastDocumentInfo(this._currentFileName, this._currentRelativeDir);
+        }
         log(`PLAY REQUEST from chapter ${startFromChapter}: ${text.substring(0, 30)}...`);
         this._lastText = text;
 

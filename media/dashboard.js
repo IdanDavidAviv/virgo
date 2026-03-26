@@ -39,6 +39,8 @@
     const btnPause        = document.getElementById('btn-pause');
     const btnStop         = document.getElementById('btn-stop');
     const currentSentence = document.getElementById('current-sentence');
+    const docFilename     = document.getElementById('doc-filename');
+    const docDir          = document.getElementById('doc-dir');
 
     // --- State ---
     let state = (vscode && vscode.getState()) || { selectedVoice: null, followEnabled: false, autoPlayEnabled: true };
@@ -146,6 +148,23 @@
                 }
                 if (voiceSelect && message.voice) {
                     voiceSelect.value = message.voice;
+                }
+                if (docFilename && message.fileName) {
+                    docFilename.textContent = message.fileName;
+                }
+                if (docDir && message.relativeDir) {
+                    docDir.textContent = message.relativeDir + ' /';
+                }
+                break;
+            case 'documentInfo':
+                if (docFilename) {
+                    docFilename.textContent = message.fileName;
+                    if (docDir) {
+                        docDir.textContent = message.relativeDir ? message.relativeDir + ' /' : '';
+                    }
+                    // Flash effect for update visibility
+                    docFilename.style.opacity = '0.5';
+                    setTimeout(() => docFilename.style.opacity = '1', 200);
                 }
                 break;
             case 'sentenceChanged':
