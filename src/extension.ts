@@ -76,6 +76,14 @@ export function activate(context: vscode.ExtensionContext) {
     try {
         context.subscriptions.push(
             playBarItem, pauseBarItem, stopBarItem,
+            vscode.commands.registerCommand('readme-preview-read-aloud.show-dashboard', () => {
+                try {
+                    log('Open Dashboard triggered.');
+                    speechProvider.openDashboard();
+                } catch (err) {
+                    log(`DASHBOARD ERROR: ${err}`);
+                }
+            }),
             vscode.commands.registerCommand('readme-preview-read-aloud.play', async () => {
                 try {
                     log('Play command triggered.');
@@ -140,14 +148,6 @@ export function activate(context: vscode.ExtensionContext) {
                 } catch (err) {
                     log(`STOP ERROR: ${err}`);
                 }
-            }),
-            vscode.commands.registerCommand('readme-preview-read-aloud.show-dashboard', () => {
-                try {
-                    log('Forcing Dashboard Visibility...');
-                    vscode.commands.executeCommand('workbench.view.extension.readme-read-aloud');
-                } catch (err) {
-                    log(`SHOW DASHBOARD ERROR: ${err}`);
-                }
             })
         );
     } catch (err) {
@@ -160,80 +160,157 @@ export function activate(context: vscode.ExtensionContext) {
 
 class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
+    private _panel?: vscode.WebviewPanel;
     private _isReady: boolean = false;
+    private _isPanelReady: boolean = false;
     private _messageQueue: any[] = [];
     private _nativeProcess: child_process.ChildProcess | null = null;
     private _lastText: string = '';
+    private _voices: string[] = [];
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
         private readonly _extensionPath: string
-    ) {}
+    ) {
+        this._loadVoices();
+    }
+
+    private async _loadVoices() {
+        try {
+            const command = 'Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.GetInstalledVoices().VoiceInfo.Name';
+            child_process.exec(`powershell -Command "${command}"`, (err, stdout) => {
+                if (!err && stdout) {
+                    this._voices = stdout.split('\r\n').filter(v => v.trim());
+                    log(`Detected ${this._voices.length} native voices.`);
+                    this._broadcastVoices();
+                }
+            });
+        } catch (e) {
+            log(`VOICE SCAN ERROR: ${e}`);
+        }
+    }
+
+    private _broadcastVoices() {
+        if (this._voices.length === 0) return;
+        
+        if (this._view && this._isReady) {
+            this._view.webview.postMessage({ command: 'voices', voices: this._voices });
+        }
+        if (this._panel && this._isPanelReady) {
+            this._panel.webview.postMessage({ command: 'voices', voices: this._voices });
+        }
+    }
+
+    public openDashboard() {
+        if (this._panel) {
+            this._panel.reveal(vscode.ViewColumn.Beside);
+            return;
+        }
+
+        log('--- OPENING FLOATING MISSION CONTROL ---');
+        this._panel = vscode.window.createWebviewPanel(
+            'readAloudDashboard',
+            'Read Aloud: Mission Control',
+            vscode.ViewColumn.Beside,
+            {
+                enableScripts: true,
+                enableCommandUris: true,
+                enableForms: true,
+                // Removed localResourceRoots to bypass ServiceWorker registration failure
+                retainContextWhenHidden: false
+            }
+        );
+
+        // Wait-and-Push Protocol: 1000ms delay allows the host to stabilize 
+        // its internal ServiceWorker before we inject HTML content.
+        setTimeout(() => {
+            if (this._panel) {
+                const html = this._getHtmlContent(this._panel.webview);
+                this._panel.webview.html = html;
+                log('Dashboard Injected after 1000ms.');
+            }
+        }, 1000);
+
+        this._panel.webview.onDidReceiveMessage(data => {
+            switch (data.command) {
+                case 'ready':
+                    log('Dashboard Signal: READY.');
+                    this._isPanelReady = true;
+                    this._broadcastVoices();
+                    this._flushQueue();
+                    break;
+                case 'log': log(`[DASHBOARD] ${data.message}`); break;
+            }
+        });
+
+        this._panel.onDidDispose(() => {
+            log('Dashboard Closed.');
+            this._panel = undefined;
+            this._isPanelReady = false;
+        });
+    }
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         _context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
     ) {
-        log('--- ACTIVATING SIDEBAR SANCTUARY ---');
+        log('--- ACTIVATING MISSION CONTROL (Sidebar) ---');
         this._view = webviewView;
 
         webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [this._extensionUri]
+            enableScripts: true
+            // Removed localResourceRoots to bypass ServiceWorker registration failure
         };
 
-        const html = this._getHtmlContent();
-        log(`Sidebar: Injecting HTML (${html.length} chars)`);
-        webviewView.webview.html = html;
-        log('Sidebar: Waiting for Engine Ready signal...');
-
-        webviewView.webview.onDidReceiveMessage(data => {
-            switch (data.command) {
-                case 'log':
-                    log(`[ENGINE] ${data.message}`);
-                    break;
-                case 'error':
-                    log(`[ENGINE ERROR] ${data.message}`);
-                    break;
-                case 'ready':
-                    log(`Engine Signal: READY (Level: ${data.final ? 'FINAL' : 'BOOT'}).`);
-                    this._isReady = true;
-                    this._flushQueue();
-                    break;
-                case 'onEnd':
-                    log('Playback Finished.');
-                    break;
+        // Wait-and-Push Protocol: 1000ms delay for the Sidebar
+        setTimeout(() => {
+            if (this._view) {
+                const html = this._getHtmlContent(this._view.webview);
+                this._view.webview.html = html;
+                log(`Sidebar Engine Injected: ${html.length} chars. Timestamp: ${new Date().toISOString()}`);
             }
-        });
+        }, 1000);
     }
 
-    private _getHtmlContent(): string {
-        const htmlPath = path.join(this._extensionPath, 'media', 'speechEngine.html');
-        log(`Sidebar: Searching for HTML at: ${htmlPath}`);
+    private _getHtmlContent(webview: vscode.Webview, fileName: string = 'speechEngine.html'): string {
+        const htmlPath = path.join(this._extensionPath, 'media', fileName);
+        const scriptPath = path.join(this._extensionPath, 'media', 'dashboard.js');
+        
+        log(`--- ENGINE HTML REQUEST (${fileName}) ---`);
+        
         try {
-            const content = fs.readFileSync(htmlPath, 'utf8');
-            // Visual Marker for rendering confirmation
-            return `
-                <div style="padding: 15px; color: #fff; background: #2ecc71; font-family: sans-serif; border-bottom: 2px solid #555; text-align: center; font-weight: bold; font-size: 16px;">
-                    🟢 SYSTEM HEARTBEAT: ALIVE
-                </div>
-                <div style="padding: 10px; color: #fff; background: #333; font-family: sans-serif; border-bottom: 2px solid #555;">
-                    📣 Read Aloud Engine Active
-                </div>
-                ${content}
-            `;
+            if (!fs.existsSync(htmlPath)) {
+                log(`CRITICAL: File missing at ${htmlPath}`);
+                return `<h1>Missing File</h1><p>Expected at: ${htmlPath}</p>`;
+            }
+            
+            let content = fs.readFileSync(htmlPath, 'utf8');
+            
+            // Only process templates if we are using the main engine file
+            if (fileName === 'speechEngine.html') {
+                const inlineScript = fs.readFileSync(scriptPath, 'utf8');
+                content = content.replace(/\$\{inlineScript\}/g, inlineScript);
+                content = content.replace(/\$\{cspSource\}/g, webview.cspSource);
+            }
+            
+            return content;
         } catch (err) {
-            log(`CRITICAL ERROR: Failed to read HTML file: ${err}`);
-            return `<h1>Speech Engine Load Error</h1><p>${err}</p>`;
+            log(`CRITICAL ERROR: Failed to read assets: ${err}`);
+            return `<h1>Load Error</h1><p>${err}</p>`;
         }
     }
 
     private _flushQueue() {
-        if (!this._view || !this._isReady) return;
+        const hasSidebar = this._view && this._isReady;
+        const hasPanel = this._panel && this._isPanelReady;
+        
+        if (!hasSidebar && !hasPanel) return;
+
         while (this._messageQueue.length > 0) {
             const msg = this._messageQueue.shift();
-            this._view.webview.postMessage(msg);
+            if (hasSidebar) this._view!.webview.postMessage(msg);
+            if (hasPanel) this._panel!.webview.postMessage(msg);
         }
     }
 
@@ -241,14 +318,16 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         log(`PLAY REQUEST: ${text.substring(0, 30)}...`);
         this._lastText = text;
 
-        // 1. Visual Sync (Sidebar)
+        // 1. Visual Sync (UI)
         if (this._view && this._isReady) {
             this._view.webview.postMessage({ command: 'play', text });
-        } else {
-            log('Sidebar not ready for visual feedback. Continuing with Native audio...');
-            if (this._view) {
-                this._view.show?.(true); 
-            }
+        }
+        if (this._panel && this._isPanelReady) {
+            this._panel.webview.postMessage({ command: 'play', text });
+        }
+        
+        if (!this._isReady && !this._isPanelReady) {
+            log('No UI ready for visual feedback. Continuing with Native audio...');
         }
 
         // 2. Native Audio (Reliability)
@@ -292,6 +371,7 @@ class SpeechProvider implements vscode.WebviewViewProvider {
             }
         }
         this._view?.webview.postMessage({ command: 'stop' });
+        this._panel?.webview.postMessage({ command: 'stop' });
     }
 }
 
