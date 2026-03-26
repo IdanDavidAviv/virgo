@@ -620,12 +620,14 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         if (index < 0 || index >= this._chapters.length) return;
         this._isPaused = false;
         this.stopProcess();
+        this._postToAll({ command: 'playbackStateChanged', state: 'playing' });
         setTimeout(() => this._playChapter(index, 0), 100);
     }
 
     public jumpToSentence(sentenceIndex: number) {
         this._isPaused = false;
         this.stopProcess();
+        this._postToAll({ command: 'playbackStateChanged', state: 'playing' });
         setTimeout(() => this._playChapter(this._currentChapterIndex, sentenceIndex), 100);
     }
 
@@ -633,7 +635,11 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         if (this._isPaused) {
             log('Continuing playback...');
             this._isPaused = false;
+            this._postToAll({ command: 'playbackStateChanged', state: 'playing' });
             this._playChapter(this._currentChapterIndex, this._currentSentenceIndex);
+        } else if (!this._nativeProcess) {
+            // If nothing is playing, trigger the global play command (which picks up selection)
+            vscode.commands.executeCommand('readme-preview-read-aloud.play');
         }
     }
 

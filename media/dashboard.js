@@ -38,6 +38,7 @@
     const btnRestart      = document.getElementById('btn-restart');
     const btnPlay         = document.getElementById('btn-play');
     const btnPause        = document.getElementById('btn-pause');
+    const btnStop         = document.getElementById('btn-stop');
     const currentSentence = document.getElementById('current-sentence');
 
     // --- State ---
@@ -148,7 +149,7 @@
                     voiceSelect.value = message.voice;
                 }
                 break;
-            case 'playingSentence':
+            case 'sentenceChanged':
                 if (currentSentence) {
                     currentSentence.innerHTML = `<span>${escapeHtml(message.text)}</span>`;
                 }
@@ -202,6 +203,7 @@
     if (btnRestart) btnRestart.onclick = () => postMsg({ command: 'startOver' });
     if (btnPlay)    btnPlay.onclick    = () => postMsg({ command: 'continue' });
     if (btnPause)   btnPause.onclick   = () => postMsg({ command: 'pause' });
+    if (btnStop)    btnStop.onclick    = () => postMsg({ command: 'stop' });
 
     // --- Control Buttons ---
     if (btnPrev)  btnPrev.addEventListener('click',  () => postMsg({ command: 'prevChapter' }));

@@ -61,13 +61,16 @@
             <span id="chapter-progress" class="chapter-progress-label">—</span>
         </div>
         <div class="controls-row">
-            <button id="btn-restart"  class="ctrl-btn secondary" title="Start Over">↺</button>
             <button id="btn-prev"     class="ctrl-btn" title="Previous Chapter">⏮</button>
-            <button id="btn-play"     class="ctrl-btn primary" title="Play/Resume">▶</button>
-            <button id="btn-pause"    class="ctrl-btn" title="Pause" style="display:none">⏸</button>
+            <div class="play-pause-container" style="flex:2; display: flex;">
+                <button id="btn-play"     class="ctrl-btn primary" title="Play/Resume" style="width:100%">▶</button>
+                <button id="btn-pause"    class="ctrl-btn" title="Pause" style="display:none; width:100%">⏸</button>
+            </div>
             <button id="btn-next"     class="ctrl-btn" title="Next Chapter">⏭</button>
+            <button id="btn-stop"     class="ctrl-btn" title="Stop">⏹</button>
         </div>
         <div class="controls-row mini">
+            <button id="btn-restart"  class="ctrl-btn secondary" title="Start Over">↺ Start Over</button>
             <button id="btn-follow"   class="ctrl-btn toggle" title="Follow voice in editor" data-active="false">📍 Follow</button>
             <button id="btn-autoplay" class="ctrl-btn toggle active" title="Auto-advance chapters" data-active="true">🔁 Auto</button>
         </div>
