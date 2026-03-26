@@ -3,50 +3,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Speech Engine</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+    <style>
+        body { 
+            background-color: #0c0c0c; 
+            color: #d1d1d1; 
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace; 
+            margin: 0; 
+            padding: 10px; 
+            font-size: 13px;
+            line-height: 1.5;
+            overflow-x: hidden;
+        }
+        .header {
+            color: #007acc;
+            border-bottom: 1px solid #333;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+        }
+        .log-entry { margin-bottom: 4px; display: flex; }
+        .log-time { color: #569cd6; margin-right: 10px; flex-shrink: 0; }
+        .log-msg { word-break: break-all; }
+        .log-error { color: #f44747; }
+        .log-info { color: #b5cea8; }
+        .log-cmd { color: #ce9178; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #333; }
+    </style>
 </head>
 <body>
+    <div class="header">
+        <span>🛰️ MISSION CONTROL</span>
+        <span id="status" style="color: #2ecc71;">ONLINE</span>
+    </div>
+    <div id="terminal"></div>
+
     <script>
         (function() {
             const vscode = acquireVsCodeApi();
-            const synth = window.speechSynthesis;
-            let utterance = null;
+            const terminal = document.getElementById('terminal');
 
-            window.addEventListener('message', (event) => {
+            function log(msg, type = 'info') {
+                const entry = document.createElement('div');
+                entry.className = `log-entry log-${type}`;
+                
+                const time = document.createElement('span');
+                time.className = 'log-time';
+                time.textContent = new Date().toLocaleTimeString([], { hour12: false });
+                
+                const content = document.createElement('span');
+                content.className = 'log-msg';
+                content.textContent = msg;
+
+                entry.appendChild(time);
+                entry.appendChild(content);
+                terminal.appendChild(entry);
+                window.scrollTo(0, document.body.scrollHeight);
+            }
+
+            log('--- HYBRID CORE INITIALIZED ---', 'info');
+            log('Audio: Native PowerShell SpVoice', 'cmd');
+            log('UI: Diagnostic Terminal Active', 'info');
+
+            window.addEventListener('message', event => {
                 const message = event.data;
                 switch (message.command) {
                     case 'play':
-                        if (synth.paused) {
-                            synth.resume();
-                        } else {
-                            synth.cancel();
-                            utterance = new SpeechSynthesisUtterance(message.text);
-                            // Best effort: wait for voices to load if needed
-                            if (synth.getVoices().length === 0) {
-                                synth.onvoiceschanged = () => {
-                                    synth.speak(utterance);
-                                    synth.onvoiceschanged = null;
-                                };
-                            } else {
-                                synth.speak(utterance);
-                            }
-                            
-                            utterance.onend = () => vscode.postMessage({ command: 'onEnd' });
-                            utterance.onerror = (e) => vscode.postMessage({ command: 'onError', error: e });
-                            synth.speak(utterance);
-                        }
-                        break;
-                    case 'pause':
-                        if (synth.speaking && !synth.paused) {
-                            synth.pause();
-                        }
+                        log(`📥 INCOMING: PLAY (${message.text.substring(0, 20)}...)`, 'cmd');
                         break;
                     case 'stop':
-                        synth.cancel();
+                        log('📥 INCOMING: STOP', 'error');
+                        break;
+                    case 'pause':
+                        log('📥 INCOMING: PAUSE', 'error');
                         break;
                 }
             });
-        })();
+
+            // Signal ready
+            vscode.postMessage({ command: 'ready', final: true });
+            log('READY SIGNAL SENT', 'cmd');
+        }());
     </script>
 </body>
 </html>

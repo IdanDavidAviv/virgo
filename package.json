@@ -10,40 +10,51 @@
   "categories": [
     "Other"
   ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:markdown",
+    "onStartupFinished",
+    "onView:readme-preview-read-aloud.speech-engine"
+  ],
   "contributes": {
     "commands": [
       {
         "command": "readme-preview-read-aloud.play",
-        "title": "Read Aloud: Play",
+        "title": "Read Aloud",
         "icon": "$(play)"
       },
       {
         "command": "readme-preview-read-aloud.pause",
-        "title": "Read Aloud: Pause",
+        "title": "Pause",
         "icon": "$(debug-pause)"
       },
       {
         "command": "readme-preview-read-aloud.stop",
-        "title": "Read Aloud: Stop",
+        "title": "Stop",
         "icon": "$(debug-stop)"
+      },
+      {
+        "command": "readme-preview-read-aloud.show-dashboard",
+        "title": "Show Read Aloud Dashboard",
+        "icon": "$(megaphone)"
       }
     ],
-    "menus": {
-      "editor/title": [
+    "viewsContainers": {
+      "activitybar": [
         {
-          "command": "readme-preview-read-aloud.play",
-          "when": "resourceLangId == markdown",
-          "group": "navigation"
-        },
+          "id": "readme-read-aloud",
+          "title": "Read Aloud",
+          "icon": "$(megaphone)"
+        }
+      ]
+    },
+    "views": {
+      "readme-read-aloud": [
         {
-          "command": "readme-preview-read-aloud.pause",
-          "when": "resourceLangId == markdown",
-          "group": "navigation"
-        },
-        {
-          "command": "readme-preview-read-aloud.stop",
-          "when": "resourceLangId == markdown",
-          "group": "navigation"
+          "id": "readme-preview-read-aloud.speech-engine",
+          "type": "webview",
+          "name": "Audio Engine",
+          "icon": "$(megaphone)"
         }
       ]
     }
@@ -54,8 +65,11 @@
     "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
-    "@types/vscode": "^1.80.0",
     "@types/node": "20.x",
+    "@types/vscode": "^1.80.0",
     "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "say": "^0.16.0"
   }
 }
