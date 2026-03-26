@@ -17,6 +17,7 @@
                     <span id="doc-dir" class="doc-dir"></span>
                     <span id="doc-filename" class="doc-filename">No File Selected</span>
                 </div>
+                <button id="btn-load-file" class="btn-load">Load File</button>
             </div>
         </div>
         <div id="wave-container" class="waveform">
@@ -37,6 +38,10 @@
             <div class="setting-item">
                 <div class="setting-label">
                     <span>Voice Profile</span>
+                </div>
+                <div class="engine-toggle-group">
+                    <button id="engine-local" class="toggle-pill active">Local</button>
+                    <button id="engine-neural" class="toggle-pill">Neural</button>
                 </div>
                 <select id="voice-select">
                     <option>Detecting Native Voices...</option>
@@ -91,6 +96,7 @@
 
     <div class="footer">ENGINE: NATIVE | UI: HERMETIC V1</div>
 
+    <audio id="neural-player" style="display:none"></audio>
     <script>${inlineScript}</script>
 </body>
 

@@ -134,6 +134,32 @@ body {
     letter-spacing: -0.01em;
 }
 
+.btn-load {
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    color: var(--primary);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    margin-left: auto;
+}
+
+.btn-load:hover {
+    background: rgba(56, 189, 248, 0.2);
+    border-color: var(--primary);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+.btn-load:active {
+    transform: translateY(1px);
+}
+
 #status-dot.status-dot-mini {
     width: 6px;
     height: 6px;
@@ -447,3 +473,35 @@ input[type="range"]::-webkit-slider-thumb:hover {
     flex: 1;
 }
 
+
+/* ---- Engine Toggle ---- */
+.engine-toggle-group {
+    display: flex;
+    background: rgba(15, 23, 42, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 20px;
+    padding: 2px;
+    margin-bottom: 8px;
+    align-self: flex-start;
+}
+
+.toggle-pill {
+    background: transparent;
+    border: none;
+    color: #64748b;
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 18px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    letter-spacing: 0.05em;
+    outline: none;
+}
+
+.toggle-pill.active {
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 2px 8px var(--ring);
+}

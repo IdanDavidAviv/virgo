@@ -41,6 +41,10 @@
     const currentSentence = document.getElementById('current-sentence');
     const docFilename     = document.getElementById('doc-filename');
     const docDir          = document.getElementById('doc-dir');
+    const engineLocal     = document.getElementById('engine-local');
+    const engineNeural    = document.getElementById('engine-neural');
+    const neuralPlayer    = document.getElementById('neural-player');
+    const btnLoadFile     = document.getElementById('btn-load-file');
 
     // --- State ---
     let state = (vscode && vscode.getState()) || { selectedVoice: null, followEnabled: false, autoPlayEnabled: true };
@@ -128,13 +132,52 @@
             case 'voices':
                 if (!voiceSelect) return;
                 voiceSelect.innerHTML = '';
-                message.voices.forEach(name => {
-                    const opt = document.createElement('option');
-                    opt.value = name;
-                    opt.textContent = name;
-                    if (name === state.selectedVoice) opt.selected = true;
-                    voiceSelect.appendChild(opt);
-                });
+                
+                // Show/Hide engines based on incoming mode
+                if (message.engineMode === 'neural') {
+                    engineNeural.classList.add('active');
+                    engineLocal.classList.remove('active');
+                    postMsg({ command: 'log', message: `[DASHBOARD] Rendering ${message.neuralVoices.length} neural voices.` });
+                    message.neuralVoices.forEach(v => {
+                        const opt = document.createElement('option');
+                        opt.value = v.id;
+                        opt.textContent = `✨ ${v.name} (${v.lang})`;
+                        if (v.id === state.selectedVoice) opt.selected = true;
+                        voiceSelect.appendChild(opt);
+                    });
+                } else {
+                    engineLocal.classList.add('active');
+                    engineNeural.classList.remove('active');
+                    message.voices.forEach(name => {
+                        const opt = document.createElement('option');
+                        opt.value = name;
+                        opt.textContent = name;
+                        if (name === state.selectedVoice) opt.selected = true;
+                        voiceSelect.appendChild(opt);
+                    });
+                }
+                break;
+            case 'playAudio':
+                if (neuralPlayer) {
+                    postMsg({ command: 'log', message: `[DASHBOARD] Starting playback: ${message.text.substring(0, 30)}...` });
+                    neuralPlayer.src = `data:audio/mpeg;base64,${message.data}`;
+                    
+                    // Apply current volume/rate settings immediately
+                    neuralPlayer.volume = (state.volume || 100) / 100;
+                    const r = state.rate || 0;
+                    neuralPlayer.playbackRate = r >= 0 ? 1 + (r / 10) : 1 + (r / 20);
+
+                    neuralPlayer.play().catch(e => {
+                        console.error('Audio Playback Blocked:', e);
+                        postMsg({ command: 'log', message: `[DASHBOARD] Playback Error: ${e.message}` });
+                    });
+                    if (currentSentence) {
+                        currentSentence.innerHTML = `<span>${escapeHtml(message.text)}</span>`;
+                    }
+                    if (waveContainer) waveContainer.classList.add('speaking');
+                    btnPlay.style.display = 'none';
+                    btnPause.style.display = 'inline-block';
+                }
                 break;
             case 'initialState':
                 // Sync sliders and toggles with backend SSOT
@@ -149,6 +192,12 @@
                 if (voiceSelect && message.voice) {
                     voiceSelect.value = message.voice;
                 }
+                
+                // Sync internal dashboard state with backend values
+                state.rate = message.rate;
+                state.volume = message.volume;
+                if (vscode) vscode.setState(state);
+
                 if (docFilename && message.fileName) {
                     docFilename.textContent = message.fileName;
                 }
@@ -205,7 +254,14 @@
     if (rateSlider) {
         rateSlider.oninput = () => {
             const val = parseInt(rateSlider.value);
+            state.rate = val;
             rateVal.textContent = (val > 0 ? '+' : '') + val;
+            
+            // Sync current playback if active
+            if (neuralPlayer && !neuralPlayer.paused) {
+                neuralPlayer.playbackRate = val >= 0 ? 1 + (val / 10) : 1 + (val / 20);
+            }
+            
             postMsg({ command: 'rateChanged', rate: val });
         };
     }
@@ -213,14 +269,44 @@
     if (volumeSlider) {
         volumeSlider.oninput = () => {
             const val = parseInt(volumeSlider.value);
+            state.volume = val;
             volumeVal.textContent = val + '%';
+            
+            // Sync current playback if active
+            if (neuralPlayer) {
+                neuralPlayer.volume = val / 100;
+            }
+            
             postMsg({ command: 'volumeChanged', volume: val });
         };
     }
 
     if (btnPlay)    btnPlay.onclick    = () => postMsg({ command: 'continue' });
-    if (btnPause)   btnPause.onclick   = () => postMsg({ command: 'pause' });
-    if (btnStop)    btnStop.onclick    = () => postMsg({ command: 'stop' });
+    
+    if (btnPause) {
+        btnPause.onclick = () => {
+            if (neuralPlayer) {
+                neuralPlayer.pause();
+                if (waveContainer) waveContainer.classList.remove('speaking');
+                btnPlay.style.display = 'inline-block';
+                btnPause.style.display = 'none';
+            }
+            postMsg({ command: 'pause' });
+        };
+    }
+
+    if (btnStop) {
+        btnStop.onclick = () => {
+            if (neuralPlayer) {
+                neuralPlayer.pause();
+                neuralPlayer.currentTime = 0;
+                if (waveContainer) waveContainer.classList.remove('speaking');
+                btnPlay.style.display = 'inline-block';
+                btnPause.style.display = 'none';
+            }
+            postMsg({ command: 'stop' });
+        };
+    }
 
     // --- Control Buttons ---
     if (btnPrev)  btnPrev.addEventListener('click',  () => postMsg({ command: 'prevChapter' }));
@@ -257,6 +343,39 @@
             if (vscode) vscode.setState(state);
             postMsg({ command: 'toggleAutoPlay', enabled: next });
         });
+    }
+
+
+    // --- Audio Synchronization ---
+    if (neuralPlayer) {
+        neuralPlayer.onended = () => {
+            postMsg({ command: 'sentenceEnded' });
+        };
+    }
+
+    // --- Engine Switching ---
+    if (engineLocal) {
+        engineLocal.onclick = () => {
+            engineLocal.classList.add('active');
+            engineNeural.classList.remove('active');
+            postMsg({ command: 'engineModeChanged', mode: 'local' });
+        };
+    }
+
+    if (engineNeural) {
+        engineNeural.onclick = () => {
+            engineNeural.classList.add('active');
+            engineLocal.classList.remove('active');
+            postMsg({ command: 'engineModeChanged', mode: 'neural' });
+        };
+
+        // Initialize default UI state for Neural
+        engineNeural.classList.add('active');
+        engineLocal.classList.remove('active');
+    }
+
+    if (btnLoadFile) {
+        btnLoadFile.onclick = () => postMsg({ command: 'loadDocument' });
     }
 
     // --- Connection Mode: Internal Webview vs External Browser ---
