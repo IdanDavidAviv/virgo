@@ -38,13 +38,18 @@
     const btnPlay         = document.getElementById('btn-play');
     const btnPause        = document.getElementById('btn-pause');
     const btnStop         = document.getElementById('btn-stop');
-    const currentSentence = document.getElementById('current-sentence');
-    const docFilename     = document.getElementById('doc-filename');
-    const docDir          = document.getElementById('doc-dir');
-    const engineLocal     = document.getElementById('engine-local');
-    const engineNeural    = document.getElementById('engine-neural');
-    const neuralPlayer    = document.getElementById('neural-player');
-    const btnLoadFile     = document.getElementById('btn-load-file');
+    const sentenceNavigator = document.getElementById('sentence-navigator');
+    const sentencePrev      = document.getElementById('sentence-prev');
+    const sentenceCurrent   = document.getElementById('sentence-current');
+    const sentenceNext      = document.getElementById('sentence-next');
+    const btnPrevSentence   = document.getElementById('btn-prev-sentence');
+    const btnNextSentence   = document.getElementById('btn-next-sentence');
+    const docFilename       = document.getElementById('doc-filename');
+    const docDir            = document.getElementById('doc-dir');
+    const engineLocal       = document.getElementById('engine-local');
+    const engineNeural      = document.getElementById('engine-neural');
+    const neuralPlayer      = document.getElementById('neural-player');
+    const btnLoadFile       = document.getElementById('btn-load-file');
 
     // --- State ---
     let state = (vscode && vscode.getState()) || { selectedVoice: null, followEnabled: false, autoPlayEnabled: true };
@@ -108,7 +113,47 @@
     }
 
     function escapeHtml(str) {
+        if (!str) return '';
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // --- Sentence Navigator ---
+    function updateSentenceNavigator(sentences, currentIndex) {
+        if (!sentenceCurrent) return;
+
+        const prevIdx = currentIndex - 1;
+        const nextIdx = currentIndex + 1;
+
+        const prevText = prevIdx >= 0 ? sentences[prevIdx] : '';
+        const currText = sentences[currentIndex] || '';
+        const nextText = nextIdx < sentences.length ? sentences[nextIdx] : '';
+
+        updateRow(sentencePrev, prevText, prevIdx >= 0 ? prevIdx : null);
+        updateRow(sentenceCurrent, currText, currentIndex);
+        updateRow(sentenceNext, nextText, nextIdx < sentences.length ? nextIdx : null);
+    }
+
+    function updateRow(el, text, idx) {
+        if (!el) return;
+        if (!text) {
+            el.innerHTML = '';
+            el.style.display = 'none';
+            el.onclick = null;
+            return;
+        }
+        el.style.display = 'flex';
+        el.innerHTML = `<span>${escapeHtml(text)}</span>`;
+        
+        // Interaction: Click to jump
+        if (idx !== null) {
+            el.onclick = () => postMsg({ command: 'jumpToSentence', index: idx });
+        } else {
+            el.onclick = null;
+        }
+
+        // RTL Detection
+        const isHebrew = /[\u0590-\u05FF]/.test(text);
+        el.classList.toggle('rtl', isHebrew);
     }
 
     // --- Message Handler ---
@@ -171,9 +216,13 @@
                         console.error('Audio Playback Blocked:', e);
                         postMsg({ command: 'log', message: `[DASHBOARD] Playback Error: ${e.message}` });
                     });
-                    if (currentSentence) {
-                        currentSentence.innerHTML = `<span>${escapeHtml(message.text)}</span>`;
+                    
+                    if (message.sentences) {
+                        updateSentenceNavigator(message.sentences, message.sentenceIndex || 0);
+                    } else if (sentenceCurrent) {
+                        updateRow(sentenceCurrent, message.text);
                     }
+                    
                     if (waveContainer) waveContainer.classList.add('speaking');
                     btnPlay.style.display = 'none';
                     btnPause.style.display = 'inline-block';
@@ -217,8 +266,10 @@
                 }
                 break;
             case 'sentenceChanged':
-                if (currentSentence) {
-                    currentSentence.innerHTML = `<span>${escapeHtml(message.text)}</span>`;
+                if (message.sentences) {
+                    updateSentenceNavigator(message.sentences, message.sentenceIndex);
+                } else if (sentenceCurrent) {
+                    updateRow(sentenceCurrent, message.text);
                 }
                 if (waveContainer) waveContainer.classList.add('speaking');
                 btnPlay.style.display = 'none';
@@ -311,6 +362,9 @@
     // --- Control Buttons ---
     if (btnPrev)  btnPrev.addEventListener('click',  () => postMsg({ command: 'prevChapter' }));
     if (btnNext)  btnNext.addEventListener('click',  () => postMsg({ command: 'nextChapter' }));
+
+    if (btnPrevSentence) btnPrevSentence.onclick = () => postMsg({ command: 'prevSentence' });
+    if (btnNextSentence) btnNextSentence.onclick = () => postMsg({ command: 'nextSentence' });
 
     if (btnFollow) {
         // Restore persisted state

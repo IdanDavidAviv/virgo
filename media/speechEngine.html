@@ -31,7 +31,7 @@
 
     <div class="card">
         <div class="header">
-            <span>Audio Settings</span> 
+            <span>Audio Settings</span>
             <span id="settings-toggle" class="settings-toggle-btn">⚙</span>
         </div>
         <div id="settings-drawer" class="settings-drawer open">
@@ -86,17 +86,25 @@
             <button id="btn-autoplay" class="ctrl-btn toggle active" title="Auto-advance chapters" data-active="true">🔁
                 Auto</button>
         </div>
-        <div id="current-sentence" class="current-sentence">
-            <span class="sentence-placeholder">Ready to read...</span>
+            <div id="sentence-navigator" class="sentence-navigator">
+                <div class="sentence-row prev" id="sentence-prev"></div>
+                <div class="sentence-row current" id="sentence-current">
+                    <span class="sentence-placeholder">Ready to read...</span>
+                </div>
+                <div class="sentence-row next" id="sentence-next"></div>
+                <div class="sentence-controls">
+                    <button id="btn-prev-sentence" class="sentence-ctrl-btn" title="Previous Sentence">◀</button>
+                    <button id="btn-next-sentence" class="sentence-ctrl-btn" title="Next Sentence">▶</button>
+                </div>
+            </div>
+            <div id="chapter-list" class="chapter-list">
+                <div class="chapter-placeholder">Press Play to load chapters...</div>
+            </div>
         </div>
-        <div id="chapter-list" class="chapter-list">
-            <div class="chapter-placeholder">Press Play to load chapters...</div>
-        </div>
-    </div>
 
-    <div class="footer">ENGINE: NATIVE | UI: HERMETIC V1</div>
+        <div class="footer">ENGINE: NATIVE | UI: HERMETIC V1</div>
 
-    <audio id="neural-player" style="display:none"></audio>
+        <audio id="neural-player" style="display:none"></audio>
     <script>${inlineScript}</script>
 </body>
 

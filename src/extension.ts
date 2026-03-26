@@ -380,6 +380,15 @@ class SpeechProvider implements vscode.WebviewViewProvider {
                     this._moveNext();
                 }
                 break;
+            case 'prevSentence':
+                this.prevSentence();
+                break;
+            case 'nextSentence':
+                this.nextSentence();
+                break;
+            case 'jumpToSentence':
+                this.jumpToSentence(data.index);
+                break;
             case 'continue':
                 this.continue();
                 break;
@@ -719,7 +728,8 @@ class SpeechProvider implements vscode.WebviewViewProvider {
             text: sentence,
             chapterIndex: chapterIndex,
             sentenceIndex: sentenceIndex,
-            totalSentences: chapter.sentences.length
+            totalSentences: chapter.sentences.length,
+            sentences: chapter.sentences
         });
 
         if (this._engineMode === 'neural') {
@@ -846,11 +856,41 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         setTimeout(() => this._playChapter(index, 0), 100);
     }
 
-    public jumpToSentence(sentenceIndex: number) {
+    public prevSentence() {
+        this.jumpToSentence(this._currentSentenceIndex - 1);
+    }
+
+    public nextSentence() {
+        this.jumpToSentence(this._currentSentenceIndex + 1);
+    }
+
+    public jumpToSentence(index: number) {
+        log(`Jumping to sentence ${index}`);
         this._isPaused = false;
         this.stopProcess();
         this._postToAll({ command: 'playbackStateChanged', state: 'playing' });
-        setTimeout(() => this._playChapter(this._currentChapterIndex, sentenceIndex), 100);
+        
+        const chapter = this._chapters[this._currentChapterIndex];
+        if (!chapter) return;
+
+        if (index < 0) {
+            // Boundary crossing: previous chapter
+            if (this._currentChapterIndex > 0) {
+                const prevChap = this._chapters[this._currentChapterIndex - 1];
+                setTimeout(() => this._playChapter(this._currentChapterIndex - 1, prevChap.sentences.length - 1), 100);
+            }
+            return;
+        }
+
+        if (index >= chapter.sentences.length) {
+            // Boundary crossing: next chapter
+            if (this._currentChapterIndex < this._chapters.length - 1) {
+                setTimeout(() => this._playChapter(this._currentChapterIndex + 1, 0), 100);
+            }
+            return;
+        }
+
+        setTimeout(() => this._playChapter(this._currentChapterIndex, index), 100);
     }
 
     public continue() {
@@ -972,11 +1012,18 @@ function splitIntoSentences(text: string): string[] {
         if (remaining) result.push(remaining);
     }
 
-    return result.length > 0 ? result : [text];
+    // Filter results to ensure we don't send "empty" or punctuation-only strings to TTS
+    return result
+        .map(s => s.trim())
+        .filter(s => {
+            // Must contain at least one letter or number (Universal support for Hebrew, English, etc.)
+            return s.length > 0 && /[\p{L}\p{N}]/u.test(s);
+        });
 }
 
 function stripMarkdown(md: string): string {
     return md
+        .replace(/^[*-]{3,}$/gm, '') // Filter horizontal rules (---, ***)
         .replace(/^#+\s+(.+)$/gm, '$1. ') 
         .replace(/\*\*|__/g, '') 
         .replace(/\*|_/g, '') 
