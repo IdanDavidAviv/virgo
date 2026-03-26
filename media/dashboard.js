@@ -35,7 +35,6 @@
     const rateVal         = document.getElementById('rate-val');
     const volumeSlider    = document.getElementById('volume-slider');
     const volumeVal       = document.getElementById('volume-val');
-    const btnRestart      = document.getElementById('btn-restart');
     const btnPlay         = document.getElementById('btn-play');
     const btnPause        = document.getElementById('btn-pause');
     const btnStop         = document.getElementById('btn-stop');
@@ -200,7 +199,6 @@
         };
     }
 
-    if (btnRestart) btnRestart.onclick = () => postMsg({ command: 'startOver' });
     if (btnPlay)    btnPlay.onclick    = () => postMsg({ command: 'continue' });
     if (btnPause)   btnPause.onclick   = () => postMsg({ command: 'pause' });
     if (btnStop)    btnStop.onclick    = () => postMsg({ command: 'stop' });
