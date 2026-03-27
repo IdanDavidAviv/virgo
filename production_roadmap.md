@@ -7,7 +7,7 @@ The current regex-based document parsing is brittle and fails on complex Markdow
 - **Missing**: Proper integration of `markdown-it`.
 - **Action**: Migrate `documentParser.ts` to use an AST parser. This allows for "pixel-perfect" mapping where every sentence knows its exact character offset in the source file.
 
-## 2. Portability: Cross-Platform Parity
+## 2. Portability: Cross-Platform Parity (DONE)
 The local voice fallback is currently specific to Windows (using PowerShell).
 - **Missing**: macOS (`say`) and Linux (`espeak`) implementations.
 - **Action**: Create a `LocalVoiceProvider` strategy that detects the OS and selects the appropriate native TTS binary.

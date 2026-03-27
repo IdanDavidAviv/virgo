@@ -600,12 +600,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     command: 'engineStatus',
                     status: 'local-fallback'
                 });
-                this._playbackEngine.speakSAPI(sentence, options, (code) => this._onSAPIExit(code));
+                this._playbackEngine.speakLocal(sentence, options, (code: number | null) => this._onSAPIExit(code));
             });
             // Pre-fetch
             this._triggerPreFetch(chapterIndex, sentenceIndex + 1, options);
         } else {
-            this._playbackEngine.speakSAPI(sentence, options, (code) => this._onSAPIExit(code));
+            this._playbackEngine.speakLocal(sentence, options, (code: number | null) => this._onSAPIExit(code));
         }
     }
 

@@ -56,8 +56,11 @@ export class PlaybackEngine {
     public stopProcess() {
         if (this._nativeProcess) {
             try {
-                // Windows specific kill sequence
-                child_process.execSync(`taskkill /F /T /PID ${this._nativeProcess.pid}`);
+                if (process.platform === 'win32') {
+                    child_process.execSync(`taskkill /F /T /PID ${this._nativeProcess.pid}`);
+                } else {
+                    this._nativeProcess.kill('SIGKILL');
+                }
             } catch (err) {}
             this._nativeProcess = null;
         }
@@ -81,14 +84,41 @@ export class PlaybackEngine {
 
     public async getVoices() {
         const localPromise = new Promise<string[]>((resolve) => {
-            const command = 'Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.GetInstalledVoices().VoiceInfo.Name';
-            child_process.exec(`powershell -Command "${command}"`, (error: Error | null, stdout: string) => {
-                if (!error && stdout) {
-                    resolve(stdout.split('\r\n').filter((v: string) => v.trim()).map((v: string) => v.trim()));
-                } else {
-                    resolve([]);
-                }
-            });
+            if (process.platform === 'win32') {
+                const command = 'Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.GetInstalledVoices().VoiceInfo.Name';
+                child_process.exec(`powershell -Command "${command}"`, (error: Error | null, stdout: string) => {
+                    if (!error && stdout) {
+                        resolve(stdout.split('\r\n').filter((v: string) => v.trim()).map((v: string) => v.trim()));
+                    } else {
+                        resolve([]);
+                    }
+                });
+            } else if (process.platform === 'darwin') {
+                child_process.exec('say -v "?"', (error, stdout) => {
+                    if (!error && stdout) {
+                        // "Alex                en_US    # Most people would specify..."
+                        const voices = stdout.split('\n')
+                            .filter(line => line.trim())
+                            .map(line => line.split('  ')[0].trim());
+                        resolve(voices);
+                    } else {
+                        resolve([]);
+                    }
+                });
+            } else {
+                // Linux / espeak fallback
+                child_process.exec('espeak --voices', (error, stdout) => {
+                    if (!error && stdout) {
+                        const lines = stdout.split('\n').slice(1); // skip header
+                        const voices = lines
+                            .filter(line => line.trim())
+                            .map(line => line.trim().split(/\s+/)[1]); // Voice name is usually 2nd col
+                        resolve(voices);
+                    } else {
+                        resolve([]);
+                    }
+                });
+            }
         });
 
         const neuralPromise = this._tts.getVoices().then(voices => voices.map(v => ({
@@ -229,23 +259,47 @@ export class PlaybackEngine {
         }
     }
 
-    public speakSAPI(text: string, options: PlaybackOptions, onExit: (code: number | null) => void) {
+    public speakLocal(text: string, options: PlaybackOptions, onExit: (code: number | null) => void) {
         this.stopProcess();
         const safeText = text.replace(/["']/g, '');
-        const psScript = `
-            $v = New-Object -ComObject SAPI.SpVoice;
-            $v.Volume = ${options.volume};
-            $v.Rate = ${options.rate};
-            if ('${options.voice}') {
-                $v.Voice = $v.GetVoices() | Where-Object { $_.GetDescription() -eq '${options.voice}' };
+        
+        if (process.platform === 'win32') {
+            const psScript = `
+                $v = New-Object -ComObject SAPI.SpVoice;
+                $v.Volume = ${options.volume};
+                $v.Rate = ${options.rate};
+                if ('${options.voice}') {
+                    $v.Voice = $v.GetVoices() | Where-Object { $_.GetDescription() -eq '${options.voice}' };
+                }
+                $v.Speak('${safeText}')
+            `.trim().replace(/\n/g, ' ');
+            this._nativeProcess = child_process.spawn('powershell', ['-Command', psScript]);
+        } else if (process.platform === 'darwin') {
+            // macOS 'say' command. Rate is in WPM (Words Per Minute). Default around 175.
+            // options.rate is -10 to 10. We'll map to 100-300 WPM approx.
+            const wpm = 175 + (options.rate * 15); 
+            const args = ['-r', wpm.toString()];
+            if (options.voice) {
+                args.push('-v', options.voice);
             }
-            $v.Speak('${safeText}')
-        `.trim().replace(/\n/g, ' ');
+            args.push(safeText);
+            this._nativeProcess = child_process.spawn('say', args);
+        } else {
+            // Linux espeak. -s is speed, -a is amplitude (volume), -v is voice name
+            const speed = 160 + (options.rate * 10);
+            const args = ['-s', speed.toString(), '-a', (options.volume * 2).toString()];
+            if (options.voice) {
+                args.push('-v', options.voice);
+            }
+            args.push(safeText);
+            this._nativeProcess = child_process.spawn('espeak', args);
+        }
 
-        this._nativeProcess = child_process.spawn('powershell', ['-Command', psScript]);
         this._nativeProcess.on('exit', (code: number | null) => {
             this._nativeProcess = null;
             onExit(code);
         });
+        
+        Telemetry.track('synthesis_success', { mode: 'local', platform: process.platform });
     }
 }
