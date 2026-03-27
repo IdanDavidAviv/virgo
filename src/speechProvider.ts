@@ -4,6 +4,7 @@ import { BridgeServer } from './bridgeServer';
 import { MissionControlPanel } from './missionControl';
 import { Chapter, parseChapters } from './documentParser';
 import { PlaybackEngine, PlaybackOptions } from './playbackEngine';
+import { Telemetry } from './telemetry';
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
@@ -48,6 +49,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     ) {
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
         this._statusBarItems = statusBarItems;
+
+        Telemetry.init(_logger);
+        Telemetry.track('extension_activated');
 
         this._loadVoices();
     }
@@ -372,7 +376,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         const text = document.getText();
         this.updateWorkingDocument(document);
+        
+        const startTime = Date.now();
         this._chapters = parseChapters(text);
+        const duration = Date.now() - startTime;
+        
+        Telemetry.track('document_loaded', { 
+            fileName: this._currentFileName, 
+            chapterCount: this._chapters.length,
+            parseDurationMs: duration
+        });
         
         // --- Reset Indices and Stop Playback on Document Change ---
         this._currentChapterIndex = 0;
@@ -469,6 +482,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._currentChapterIndex = 0;
         this._currentSentenceIndex = 0;
         this._postToAll({ command: 'stop' });
+        Telemetry.track('playback_stop');
     }
 
     public continue() {

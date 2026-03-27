@@ -1,5 +1,6 @@
 import * as child_process from 'child_process';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
+import { Telemetry } from './telemetry';
 
 export type EngineMode = 'local' | 'neural';
 
@@ -81,9 +82,9 @@ export class PlaybackEngine {
     public async getVoices() {
         const localPromise = new Promise<string[]>((resolve) => {
             const command = 'Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.GetInstalledVoices().VoiceInfo.Name';
-            child_process.exec(`powershell -Command "${command}"`, (error, stdout) => {
+            child_process.exec(`powershell -Command "${command}"`, (error: Error | null, stdout: string) => {
                 if (!error && stdout) {
-                    resolve(stdout.split('\r\n').filter(v => v.trim()).map(v => v.trim()));
+                    resolve(stdout.split('\r\n').filter((v: string) => v.trim()).map((v: string) => v.trim()));
                 } else {
                     resolve([]);
                 }
@@ -157,6 +158,7 @@ export class PlaybackEngine {
             const data = await task;
             if (data) {
                 this._addToCache(cacheKey, data);
+                Telemetry.track('synthesis_success', { key: cacheKey, mode: 'neural' });
             }
             return data;
         } finally {
@@ -215,12 +217,14 @@ export class PlaybackEngine {
                     }
                 }, 10000);
             });
-        } catch (err) {
+        } catch (err: any) {
             resolveLock!();
             if (retryCount > 0) {
                 this.logger(`[NEURAL] Synthesis failed. Retrying... (${err})`);
+                Telemetry.track('synthesis_retry', { error: err.message || String(err) });
                 return this._getNeuralAudio(text, voiceId, retryCount - 1);
             }
+            Telemetry.track('synthesis_failure', { error: err.message || String(err), mode: 'neural' });
             throw err;
         }
     }

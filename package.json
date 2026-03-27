@@ -159,6 +159,8 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "markdown-it": "^14.1.1",
     "msedge-tts": "^2.0.4",
     "say": "^0.16.0",
     "ws": "^8.20.0"
