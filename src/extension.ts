@@ -272,6 +272,8 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     private _followMode: boolean = false;
     private _autoAdvance: boolean = true;
     private _isPaused: boolean = false;
+    private _prefetchedAudio: Map<string, string> = new Map();
+    private _isPrefetching: boolean = false;
     private _isPlaying: boolean = false;
     
     // Audio Precision Sync
@@ -733,69 +735,107 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         });
 
         if (this._engineMode === 'neural') {
-            this._executeNeural(sentence);
+            this._executeNeural(sentence, sentenceIndex);
+            // Pre-fetch next sentence in current chapter
+            this._triggerPrefetch(chapterIndex, sentenceIndex + 1);
         } else {
             this._executeSAPI(sentence);
         }
     }
 
-    private async _executeNeural(text: string) {
-        log(`Streaming Neural Audio for: "${text.substring(0, 30)}..."`);
-        try {
-            // Configure TTS for current sentence
-            // Ensure the voice name is a valid neural voice (ShortName format: xx-XX-NameNeural)
-            let voiceId = this._selectedVoice || "en-US-AriaNeural";
-            const isNeuralVoice = this._neuralVoices.some(v => v.id === voiceId);
-            if (!isNeuralVoice) {
-                log(`[NEURAL] Voice "${voiceId}" is not a neural voice. Defaulting to Aria.`);
-                voiceId = "en-US-AriaNeural";
+    private async _triggerPrefetch(chapterIndex: number, sentenceIndex: number) {
+        if (this._engineMode !== 'neural' || this._isPrefetching) return;
+
+        const chapter = this._chapters[chapterIndex];
+        if (!chapter || sentenceIndex >= chapter.sentences.length) {
+            // End of chapter: pre-fetch first sentence of NEXT chapter if autoAdvance is on
+            if (this._autoAdvance && chapterIndex + 1 < this._chapters.length) {
+                this._triggerPrefetch(chapterIndex + 1, 0);
             }
+            return;
+        }
 
-            log(`[NEURAL] Initializing voice: ${voiceId}`);
-            // [FIX] msedge-tts library throws if 3rd arg is missing: "reading voiceLocale of undefined"
-            await this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
-            
-            // Note: Volume and Rate are now handled client-side in the webview for immediate feedback.
-            // We synthesize at default parameters to allow dynamic adjustments in the browser.
-            log(`[NEURAL] Requesting stream (Standard Prosody)...`);
-            const { audioStream } = this._tts.toStream(text);
-            const chunks: any[] = [];
-            
-            audioStream.on("data", (data) => chunks.push(data));
-            
-            await new Promise((resolve, reject) => {
-                audioStream.on("end", () => {
-                    log(`[NEURAL] Stream ended. Collected ${chunks.length} chunks.`);
-                    resolve(null);
-                });
-                audioStream.on("error", (err) => {
-                    log(`[NEURAL] Stream Error: ${err}`);
-                    reject(err);
-                });
-            });
+        const text = chapter.sentences[sentenceIndex];
+        const cacheKey = `${chapterIndex}-${sentenceIndex}`;
+        if (this._prefetchedAudio.has(cacheKey)) return;
 
-            const buffer = Buffer.concat(chunks);
-            log(`[NEURAL] Buffer ready: ${buffer.length} bytes.`);
-            
-            // Broadcast the audio to the webview only if we're still playing
+        this._isPrefetching = true;
+        try {
+            log(`[PREFETCH] Background synthesis for: [${cacheKey}]`);
+            const data = await this._getNeuralAudio(text);
+            if (data) {
+                this._prefetchedAudio.set(cacheKey, data);
+                log(`[PREFETCH] Cache Ready: [${cacheKey}] (${data.length} bytes)`);
+            }
+        } catch (err) {
+            log(`[PREFETCH] Failed for [${cacheKey}]: ${err}`);
+        } finally {
+            this._isPrefetching = false;
+        }
+    }
+
+    private async _executeNeural(text: string, sentenceIndex: number) {
+        if (this._nativeProcess) {
+            this.stopProcess();
+        }
+
+        const cacheKey = `${this._currentChapterIndex}-${sentenceIndex}`;
+        const cachedData = this._prefetchedAudio.get(cacheKey);
+
+        if (cachedData) {
+            log(`[NEURAL] CACHE HIT! Playing pre-fetched [${cacheKey}]`);
             if (this._isPlaying) {
                 this._postToAll({
                     command: 'playAudio',
-                    data: buffer.toString('base64'),
-                    text: text
+                    data: cachedData,
+                    text: text,
+                    sentenceIndex: sentenceIndex,
+                    sentences: this._chapters[this._currentChapterIndex].sentences
                 });
-            } else {
-                log(`[NEURAL] Playback was stopped during synthesis. Ignoring buffer.`);
             }
+            this._prefetchedAudio.delete(cacheKey); // Consumed
+            return;
+        }
 
-        } catch (err) {
+        log(`[NEURAL] Cache Miss. Fetching primary stream for: [${cacheKey}]`);
+        try {
+            const data = await this._getNeuralAudio(text);
+            if (data && this._isPlaying) {
+                this._postToAll({
+                    command: 'playAudio',
+                    data: data,
+                    text: text,
+                    sentenceIndex: sentenceIndex,
+                    sentences: this._chapters[this._currentChapterIndex].sentences
+                });
+            }
+        } catch (err: any) {
             if (!this._isPlaying) return;
-            log(`NEURAL TTS ERROR: ${err}`);
-            vscode.window.showErrorMessage(`Neural TTS Failed: ${err}. Falling back to Native.`);
-            this._engineMode = 'local';
-            this._broadcastVoices();
+            log(`[NEURAL] FATAL ERROR: ${err.message}. Falling back to SAPI.`);
             this._executeSAPI(text);
         }
+    }
+
+    private _getNeuralAudio(text: string): Promise<string | null> {
+        return new Promise((resolve, reject) => {
+            try {
+                const voiceId = this._selectedVoice || "en-US-AriaNeural";
+                // Note: We use fixed quality for pre-fetching consistency
+                this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
+                
+                const { audioStream } = this._tts.toStream(text);
+                const chunks: Buffer[] = [];
+
+                audioStream.on("data", (data: Buffer) => chunks.push(data));
+                audioStream.on("end", () => {
+                    const buffer = Buffer.concat(chunks);
+                    resolve(buffer.toString('base64'));
+                });
+                audioStream.on("error", (err: any) => reject(err));
+            } catch (err) {
+                reject(err);
+            }
+        });
     }
 
     private _executeSAPI(text: string) {
@@ -832,13 +872,13 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         const nextSent = this._currentSentenceIndex + 1;
 
         if (nextSent < chapter.sentences.length) {
-            // Next sentence in current chapter
-            setTimeout(() => this._playChapter(this._currentChapterIndex, nextSent), 100);
+            // Next sentence in current chapter (ZERO DELAY)
+            this._playChapter(this._currentChapterIndex, nextSent);
         } else if (this._autoAdvance) {
             // Next chapter
             const nextChap = this._currentChapterIndex + 1;
             if (nextChap < this._chapters.length) {
-                setTimeout(() => this._playChapter(nextChap, 0), 300);
+                this._playChapter(nextChap, 0);
             } else {
                 log('End of document reached.');
                 this.stop();
@@ -877,7 +917,7 @@ class SpeechProvider implements vscode.WebviewViewProvider {
             // Boundary crossing: previous chapter
             if (this._currentChapterIndex > 0) {
                 const prevChap = this._chapters[this._currentChapterIndex - 1];
-                setTimeout(() => this._playChapter(this._currentChapterIndex - 1, prevChap.sentences.length - 1), 100);
+                this._playChapter(this._currentChapterIndex - 1, prevChap.sentences.length - 1);
             }
             return;
         }
@@ -885,12 +925,12 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         if (index >= chapter.sentences.length) {
             // Boundary crossing: next chapter
             if (this._currentChapterIndex < this._chapters.length - 1) {
-                setTimeout(() => this._playChapter(this._currentChapterIndex + 1, 0), 100);
+                this._playChapter(this._currentChapterIndex + 1, 0);
             }
             return;
         }
 
-        setTimeout(() => this._playChapter(this._currentChapterIndex, index), 100);
+        this._playChapter(this._currentChapterIndex, index);
     }
 
     public continue() {

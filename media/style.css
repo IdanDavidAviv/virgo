@@ -1,8 +1,8 @@
 :root {
     --primary: hsl(199, 89%, 48%);    /* Electric Blue */
     --accent: hsl(142, 71%, 45%);     /* High-fidelity Emerald */
-    --bg: #0f172a;                    /* Deep Space Blueprint */
-    --glass: rgba(30, 41, 59, 0.7);   /* Translucent Slate */
+    --bg: #080c14;                    /* Deeper Space Space */
+    --glass: rgba(15, 23, 42, 0.85);  /* More opaque glass */
     --border: rgba(255, 255, 255, 0.05);
     --ring: rgba(56, 189, 248, 0.4);
 }
@@ -381,52 +381,65 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .sentence-navigator {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 8px;
     margin: 12px 0;
-    padding: 8px;
-    background: rgba(0, 0, 0, 0.25);
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.75);
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.06);
     position: relative;
+    height: 180px;
+    justify-content: center;
+    overflow: hidden;
+    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.5);
 }
 
 .sentence-row {
-    padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 12px;
-    line-height: 1.4;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    opacity: 0.25;
-    filter: blur(1px);
-    transform: scale(0.97);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 0.2;
+    filter: blur(1.5px);
+    transform: scale(0.95);
     background: transparent;
     border: 1px solid transparent;
     cursor: pointer;
-    min-height: 1.4em;
-    display: flex;
-    align-items: center;
+    max-height: 4.5em;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    text-overflow: ellipsis;
+    position: relative;
 }
 
 .sentence-row:hover {
     background: rgba(255, 255, 255, 0.05);
-    opacity: 0.5;
+    opacity: 0.4;
     filter: blur(0);
 }
 
 .sentence-row.current {
     opacity: 1;
     filter: blur(0);
-    transform: scale(1);
+    transform: scale(1.02);
     background: rgba(56, 189, 248, 0.1);
     border-color: rgba(56, 189, 248, 0.25);
     color: #fff;
     font-weight: 500;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    -webkit-line-clamp: 3;
+    line-clamp: 3; /* Allow a bit more for current */
+    z-index: 2;
 }
 
 .sentence-row.prev, .sentence-row.next {
-    font-size: 10px;
+    font-size: 11px;
     color: #94a3b8;
+    z-index: 1;
 }
 
 .sentence-controls {
