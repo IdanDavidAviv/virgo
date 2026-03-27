@@ -69,6 +69,7 @@
     let isSynthesizing = false;
     let collapsedIndices = new Set();
     let lastHighlightedLine = -1;
+    let currentReadingUri = null;
 
     // --- Status Dot ---
     function updateStatus(isOnline) {
@@ -186,7 +187,7 @@
     // --- Context Parsing ---
     function updateContextSlot(uri, filenameEl, dirEl) {
         if (!uri) {
-            filenameEl.textContent = 'No file selected';
+            filenameEl.textContent = filenameEl.id === 'reader-filename' ? 'No File Loaded' : 'No Selection';
             dirEl.textContent = '';
             return;
         }
@@ -271,6 +272,7 @@
                 break;
             case 'state-sync':
                 // Dual context update
+                currentReadingUri = message.readingUri;
                 updateContextSlot(message.activeUri, activeFilename, activeDir);
                 updateContextSlot(message.readingUri, readerFilename, readerDir);
 
@@ -342,6 +344,7 @@
                 if (vscode) vscode.setState(state);
 
                 // Context Slots
+                currentReadingUri = message.readingUri;
                 updateContextSlot(message.activeUri, activeFilename, activeDir);
                 updateContextSlot(message.readingUri, readerFilename, readerDir);
                 
@@ -510,7 +513,18 @@
     if (btnPlay) {
         btnPlay.onclick = () => {
             setLoading(true); // Trigger synthesis loading visual
-            postMsg({ command: 'continue' });
+            if (!currentReadingUri) {
+                postMsg({ command: 'loadAndPlay' });
+            } else {
+                postMsg({ command: 'continue' });
+            }
+        };
+    }
+
+    const btnClearReader = document.getElementById('btn-clear-reader');
+    if (btnClearReader) {
+        btnClearReader.onclick = () => {
+            postMsg({ command: 'resetContext' });
         };
     }
 

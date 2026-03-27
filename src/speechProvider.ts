@@ -195,17 +195,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private async _handleWebviewMessage(data: any, source: string) {
         this._logger(`[BRIDGE <- WEBVIEW] Command: ${data.command}`);
         
-        // --- NEW: Self-Hydrating UI (Play Intent Interceptor) ---
-        // If the user intends to play/navigate but nothing is loaded, auto-load the active file.
-        const playIntents = ['continue', 'nextChapter', 'prevChapter', 'prevSentence', 'nextSentence', 'jumpToSentence', 'jumpToChapter'];
-        if (playIntents.includes(data.command) && this._chapters.length === 0) {
-            this._logger(`[BRIDGE] Auto-hydrating engine state for command: ${data.command}`);
-            const loaded = await this.loadCurrentDocument();
-            if (!loaded) {
-                this._logger(`[BRIDGE] Auto-hydration failed. Aborting command.`);
-                return;
-            }
-        }
 
         switch (data.command) {
             case 'ready':
@@ -250,6 +239,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case 'nextSentence': this.nextSentence(); break;
             case 'jumpToSentence': this.jumpToSentence(data.index); break;
             case 'continue': this.continue(); break;
+            case 'loadAndPlay': 
+                const loaded = await this.loadCurrentDocument();
+                if (loaded) {
+                    this.continue();
+                }
+                break;
+            case 'resetContext': this._resetContext(); break;
             case 'stop': this.stop(); break;
             case 'pause': this.pause(); break;
             case 'loadDocument': this.loadCurrentDocument(); break;
@@ -379,7 +375,31 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             current: 0,
             total: this._chapters.length
         });
+        
+        // Ensure state sync after loading
+        this._broadcastState();
+        
         return true;
+    }
+
+    private _resetContext() {
+        this.stop();
+        this._currentDocumentUri = undefined;
+        this._currentFileName = 'No File Loaded';
+        this._currentRelativeDir = '';
+        this._chapters = [];
+        this._currentChapterIndex = 0;
+        this._currentSentenceIndex = 0;
+        
+        this._postToAll({
+            command: 'chapters',
+            chapters: [],
+            current: 0,
+            total: 0
+        });
+
+        this._broadcastState();
+        this._logger('[BRIDGE] Context Reset: Reader cleared.');
     }
 
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
