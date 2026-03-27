@@ -43,6 +43,7 @@
                     <button id="engine-local" class="toggle-pill active">Local</button>
                     <button id="engine-neural" class="toggle-pill">Neural</button>
                 </div>
+                <input type="text" id="voice-search" placeholder="Search voices..." spellcheck="false" autocomplete="off">
                 <select id="voice-select">
                     <option>Detecting Native Voices...</option>
                 </select>
@@ -102,9 +103,14 @@
             </div>
         </div>
 
-        <div class="footer">ENGINE: NATIVE | UI: HERMETIC V1</div>
+        <div class="footer">
+            <span id="cache-debug-tag" class="cache-debug">[ CACHE: 0/100 | 0.0 MB ]</span>
+            <span id="engine-status-tag">NATIVE</span>
+            <span>| V1.2.1-DEBUG</span>
+        </div>
 
         <audio id="neural-player" style="display:none"></audio>
+        <div id="toast-container" class="toast-container"></div>
     <script>${inlineScript}</script>
 </body>
 
