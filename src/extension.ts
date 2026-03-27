@@ -129,9 +129,8 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // Tab Sync logic: Only sync the file if the engine is empty or on initial activation
-    // Removed automatic sync on change to maintain 'Pinned Playback' state.
-    const syncActiveTab = async () => {
+    // Passive Selection Tracking: Keep the dashboard aware of what's in focus without resetting playback.
+    const updateActiveSelection = async () => {
         const editor = vscode.window.activeTextEditor;
         let uri: vscode.Uri | undefined;
 
@@ -143,25 +142,22 @@ export async function activate(context: vscode.ExtensionContext) {
             uri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
         }
         
-        // Support .md, .markdown, and artifacts like .md.resolved or .md.resolved.0
+        // Support .md, .markdown, and artifacts
         const artifactRegex = /\.(md|markdown)(\.resolved(\.\d+)?)?$/i;
         
         if (uri && (artifactRegex.test(uri.path) || artifactRegex.test(uri.fsPath))) {
-            try {
-                const doc = await vscode.workspace.openTextDocument(uri);
-                speechProvider.updateWorkingDocument(doc);
-            } catch (e) {
-                log(`Failed to sync active tab: ${e}`);
-            }
+            speechProvider.setActiveEditor(uri);
+        } else {
+            speechProvider.setActiveEditor(undefined);
         }
     };
 
     context.subscriptions.push(
-        vscode.window.tabGroups.onDidChangeTabs(() => syncActiveTab()),
-        vscode.window.onDidChangeActiveTextEditor(() => syncActiveTab())
+        vscode.window.tabGroups.onDidChangeTabs(() => updateActiveSelection()),
+        vscode.window.onDidChangeActiveTextEditor(() => updateActiveSelection())
     );
 
-    syncActiveTab();
+    updateActiveSelection();
 
     return { 
         bridge: bridgeServer,

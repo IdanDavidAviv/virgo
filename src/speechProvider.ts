@@ -28,6 +28,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _currentRelativeDir: string = '';
     private _currentDocumentUri: vscode.Uri | undefined;
     
+    // Selection state (passive)
+    private _activeFileName: string = 'No Selection';
+    private _activeRelativeDir: string = '';
+    private _activeDocumentUri: vscode.Uri | undefined;
+    
     private _playbackEngine: PlaybackEngine;
     private _localVoices: any[] = [];
     private _neuralVoices: any[] = [];
@@ -51,6 +56,28 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._bridge = bridge;
         this._logger('Bridge attached to SpeechProvider. Refreshing view...');
         this.refresh();
+    }
+
+    public setActiveEditor(uri: vscode.Uri | undefined) {
+        if (!uri) {
+            this._activeFileName = 'No Selection';
+            this._activeRelativeDir = '';
+            this._activeDocumentUri = undefined;
+        } else {
+            const fullPath = uri.fsPath;
+            this._activeFileName = path.basename(fullPath);
+            this._activeDocumentUri = uri;
+            
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
+            if (workspaceFolder) {
+                this._activeRelativeDir = path.dirname(path.relative(workspaceFolder.uri.fsPath, fullPath));
+                if (this._activeRelativeDir === '.') this._activeRelativeDir = '';
+            } else {
+                this._activeRelativeDir = path.dirname(fullPath);
+            }
+        }
+        this._logger(`ACTIVE SELECTION UPDATED: ${this._activeFileName}`);
+        this._broadcastState();
     }
 
     private async _loadVoices() {
@@ -152,8 +179,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public refreshView() {
-        this._sendInitialState();
+        this._broadcastState();
         this._broadcastVoices();
+        
         if (this._chapters.length > 0) {
             this._postToAll({
                 command: 'chapters',
@@ -235,12 +263,25 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             voice: this._selectedVoice,
             rate: this._rate,
             volume: this._volume,
-
             autoPlay: this._autoAdvance,
-            isPaused: this._playbackEngine.isPaused,
-            fileName: this._currentFileName,
-            relativeDir: this._currentRelativeDir,
             engineMode: this._engineMode
+        });
+        this._broadcastState();
+    }
+
+    private _broadcastState() {
+        this._postToAll({
+            command: 'state-sync',
+            activeUri: this._activeDocumentUri?.toString() || '',
+            activeFileName: this._activeFileName,
+            activeRelativeDir: this._activeRelativeDir,
+            readingUri: this._currentDocumentUri?.toString() || '',
+            readingFileName: this._currentFileName,
+            readingRelativeDir: this._currentRelativeDir,
+            isPlaying: this._playbackEngine.isPlaying,
+            isPaused: this._playbackEngine.isPaused,
+            currentChapterIndex: this._currentChapterIndex,
+            currentSentenceIndex: this._currentSentenceIndex
         });
     }
 

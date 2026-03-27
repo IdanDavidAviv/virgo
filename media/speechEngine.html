@@ -8,24 +8,42 @@
 </head>
 
 <body>
-    <div class="card">
-        <div class="header">
-            <div id="status-dot" title="Handshake Status" class="status-dot-mini"></div>
-            <div id="doc-info" class="doc-info">
-                <span id="doc-icon">📄</span>
-                <div class="doc-title-container">
-                    <span id="doc-dir" class="doc-dir"></span>
-                    <span id="doc-filename" class="doc-filename">No File Selected</span>
+    <div class="card context-card">
+        <!-- TOP SLOT: Active Selection (Passive) -->
+        <div id="active-selection" class="context-slot selection">
+            <div class="slot-header">
+                <span class="slot-label">SIDEBAR FOCUS</span>
+                <span id="status-dot" title="Engine Status" class="status-dot-mini"></span>
+            </div>
+            <div class="doc-info-compact">
+                <span id="active-icon">📄</span>
+                <div class="doc-title-stack">
+                    <span id="active-filename" class="filename">No Selection</span>
+                    <span id="active-dir" class="directory"></span>
                 </div>
-                <button id="btn-load-file" class="btn-load">Load File</button>
             </div>
         </div>
-        <div id="wave-container" class="waveform">
-            <div class="bar"></div>
-            <div class="bar"></div>
-            <div class="bar"></div>
-            <div class="bar"></div>
-            <div class="bar"></div>
+        
+        <!-- INTERACTION LAYER -->
+        <div class="transfer-layer">
+            <div class="transfer-line"></div>
+            <button id="btn-load-file" class="btn-load-premium" title="Load active selection into reader">
+                <span class="btn-icon">⚡</span> LOAD FILE
+            </button>
+        </div>
+
+        <!-- BOTTOM SLOT: Reading Context (Active) -->
+        <div id="reading-context" class="context-slot reader">
+            <div class="slot-header">
+                <span class="slot-label">READER CONTEXT</span>
+            </div>
+            <div class="doc-info-compact">
+                <span id="reader-icon">📖</span>
+                <div class="doc-title-stack">
+                    <span id="reader-filename" class="filename">No File Loaded</span>
+                    <span id="reader-dir" class="directory"></span>
+                </div>
+            </div>
         </div>
     </div>
 

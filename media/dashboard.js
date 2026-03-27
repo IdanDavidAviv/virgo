@@ -18,7 +18,16 @@
     try { vscode = acquireVsCodeApi(); } catch (e) { }
 
     // --- DOM References ---
-    const waveContainer = document.getElementById('wave-container');
+    // --- Context Manager References ---
+    const activeSlot = document.querySelector('.context-slot.selection');
+    const readerSlot = document.querySelector('.context-slot.reader');
+    const activeFilename = document.getElementById('active-filename');
+    const activeDir = document.getElementById('active-dir');
+    const readerFilename = document.getElementById('reader-filename');
+    const readerDir = document.getElementById('reader-dir');
+    const btnLoadFile = document.getElementById('btn-load-file');
+    
+    // Legacy / Shared References
     const voiceSelect = document.getElementById('voice-select');
     const statusDot = document.getElementById('status-dot');
     const chapterList = document.getElementById('chapter-list');
@@ -43,12 +52,9 @@
     const sentenceNext = document.getElementById('sentence-next');
     const btnPrevSentence = document.getElementById('btn-prev-sentence');
     const btnNextSentence = document.getElementById('btn-next-sentence');
-    const docFilename = document.getElementById('doc-filename');
-    const docDir = document.getElementById('doc-dir');
     const engineLocal = document.getElementById('engine-local');
     const engineNeural = document.getElementById('engine-neural');
     const neuralPlayer = document.getElementById('neural-player');
-    const btnLoadFile = document.getElementById('btn-load-file');
     const voiceSearch = document.getElementById('voice-search');
     const toastContainer = document.getElementById('toast-container');
     const engineStatusTag = document.getElementById('engine-status-tag');
@@ -175,14 +181,23 @@
         if (btnPlay) {
             loading ? btnPlay.classList.add('is-loading') : btnPlay.classList.remove('is-loading');
         }
-        if (waveContainer) {
-            // Waveform pulse is only for NEURAL synthesis
-            if (loading && engineMode === 'neural') {
-                waveContainer.classList.add('is-synthesizing');
-            } else {
-                waveContainer.classList.remove('is-synthesizing');
-            }
+    }
+
+    // --- Context Parsing ---
+    function updateContextSlot(uri, filenameEl, dirEl) {
+        if (!uri) {
+            filenameEl.textContent = 'No file selected';
+            dirEl.textContent = '';
+            return;
         }
+
+        // URI is file:///path/to/file.md
+        const parts = uri.split(/[\\\/]/);
+        const filename = parts.pop() || '';
+        const dir = parts.length > 3 ? parts.slice(-3).join('/') : parts.join('/');
+
+        filenameEl.textContent = filename;
+        dirEl.textContent = dir ? `${dir} /` : '';
     }
 
     // --- Toast Notifications ---
@@ -250,18 +265,29 @@
         switch (message.command) {
             case 'chapters':
                 renderChapters(message.chapters, message.current);
-                // Waveform active
-                if (waveContainer) waveContainer.classList.add('speaking');
                 break;
             case 'chapterChanged':
                 updateActiveChapter(message.index);
-                if (waveContainer) waveContainer.classList.add('speaking');
+                break;
+            case 'state-sync':
+                // Dual context update
+                updateContextSlot(message.activeUri, activeFilename, activeDir);
+                updateContextSlot(message.readingUri, readerFilename, readerDir);
+
+                // Mismatch Pulse
+                if (btnLoadFile) {
+                    const isMismatch = message.activeUri && message.activeUri !== message.readingUri;
+                    btnLoadFile.classList.toggle('mismatch', !!isMismatch);
+                }
                 break;
             case 'stop':
             case 'pause':
-                if (waveContainer) waveContainer.classList.remove('speaking');
                 btnPlay.style.display = 'inline-block';
                 btnPause.style.display = 'none';
+                break;
+            case 'voiceChanged':
+                state.selectedVoice = message.voice;
+                if (vscode) vscode.setState(state);
                 break;
             case 'voices':
                 if (!voiceSelect) return;
@@ -315,22 +341,21 @@
                 state.volume = message.volume;
                 if (vscode) vscode.setState(state);
 
-                if (docFilename && message.fileName) {
-                    docFilename.textContent = message.fileName;
-                }
-                if (docDir && message.relativeDir) {
-                    docDir.textContent = message.relativeDir + ' /';
+                // Context Slots
+                updateContextSlot(message.activeUri, activeFilename, activeDir);
+                updateContextSlot(message.readingUri, readerFilename, readerDir);
+                
+                if (btnLoadFile) {
+                    const isMismatch = message.activeUri && message.activeUri !== message.readingUri;
+                    btnLoadFile.classList.toggle('mismatch', !!isMismatch);
                 }
                 break;
             case 'documentInfo':
-                if (docFilename) {
-                    docFilename.textContent = message.fileName;
-                    if (docDir) {
-                        docDir.textContent = message.relativeDir ? message.relativeDir + ' /' : '';
-                    }
-                    // Flash effect for update visibility
-                    docFilename.style.opacity = '0.5';
-                    setTimeout(() => docFilename.style.opacity = '1', 200);
+                // Trigger transfer animation
+                if (readerSlot) {
+                    readerSlot.classList.remove('transfer-anim-active');
+                    void readerSlot.offsetWidth; // Trigger reflow
+                    readerSlot.classList.add('transfer-anim-active');
                 }
                 break;
             case 'sentenceChanged':
@@ -341,8 +366,6 @@
                     updateRow(sentenceCurrent, message.text);
                 }
                 
-                // If chapter/sentence changes via SAPI, we still want the "speaking" animation (bars bouncing)
-                if (waveContainer) waveContainer.classList.add('speaking');
                 btnPlay.style.display = 'none';
                 btnPause.style.display = 'inline-block';
                 break;
@@ -491,30 +514,28 @@
         };
     }
 
-    if (btnPause) {
-        btnPause.onclick = () => {
-            if (neuralPlayer) {
-                neuralPlayer.pause();
-                if (waveContainer) waveContainer.classList.remove('speaking');
-                btnPlay.style.display = 'inline-block';
-                btnPause.style.display = 'none';
+            if (btnPause) {
+                btnPause.onclick = () => {
+                    if (neuralPlayer) {
+                        neuralPlayer.pause();
+                        btnPlay.style.display = 'inline-block';
+                        btnPause.style.display = 'none';
+                    }
+                    postMsg({ command: 'pause' });
+                };
             }
-            postMsg({ command: 'pause' });
-        };
-    }
 
-    if (btnStop) {
-        btnStop.onclick = () => {
-            if (neuralPlayer) {
-                neuralPlayer.pause();
-                neuralPlayer.currentTime = 0;
-                if (waveContainer) waveContainer.classList.remove('speaking');
-                btnPlay.style.display = 'inline-block';
-                btnPause.style.display = 'none';
+            if (btnStop) {
+                btnStop.onclick = () => {
+                    if (neuralPlayer) {
+                        neuralPlayer.pause();
+                        neuralPlayer.currentTime = 0;
+                        btnPlay.style.display = 'inline-block';
+                        btnPause.style.display = 'none';
+                    }
+                    postMsg({ command: 'stop' });
+                };
             }
-            postMsg({ command: 'stop' });
-        };
-    }
 
     // --- Control Buttons ---
     if (btnPrev) btnPrev.addEventListener('click', () => postMsg({ command: 'prevChapter' }));
