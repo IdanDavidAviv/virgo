@@ -185,7 +185,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (this._chapters.length > 0) {
             this._postToAll({
                 command: 'chapters',
-                chapters: this._chapters.map((c, i) => ({ title: c.title, level: c.level, index: i })),
+                chapters: this._chapters.map((c, i) => ({ 
+                    title: c.title, 
+                    level: c.level, 
+                    index: i,
+                    count: c.sentences.length 
+                })),
                 current: this._currentChapterIndex,
                 total: this._chapters.length
             });
@@ -236,7 +241,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     this._moveNext();
                 }
                 break;
-            case 'nextSentence': this.nextSentence(); break;
+            case 'nextSentence': 
+                this._moveNext(true); 
+                break;
+            case 'prevSentence':
+                this._movePrev();
+                break;
             case 'jumpToSentence': this.jumpToSentence(data.index); break;
             case 'continue': this.continue(); break;
             case 'loadAndPlay': 
@@ -371,7 +381,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         
         this._postToAll({
             command: 'chapters',
-            chapters: this._chapters.map((c, i) => ({ title: c.title, level: c.level, index: i })),
+            chapters: this._chapters.map((c, i) => ({ 
+                title: c.title, 
+                level: c.level, 
+                index: i,
+                count: c.sentences.length 
+            })),
             current: 0,
             total: this._chapters.length
         });
@@ -430,7 +445,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._chapters = parseChapters(text);
         this._postToAll({
             command: 'chapters',
-            chapters: this._chapters.map((c, i) => ({ title: c.title, level: c.level, index: i })),
+            chapters: this._chapters.map((c, i) => ({ 
+                title: c.title, 
+                level: c.level, 
+                index: i,
+                count: c.sentences.length
+            })),
             current: startFromChapter,
             total: this._chapters.length
         });
@@ -618,11 +638,24 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    private _moveNext() {
+    private _movePrev() {
+        if (this._currentSentenceIndex > 0) {
+            this._playChapter(this._currentChapterIndex, this._currentSentenceIndex - 1);
+        } else if (this._currentChapterIndex > 0) {
+            const prevChapterIdx = this._currentChapterIndex - 1;
+            const prevChapter = this._chapters[prevChapterIdx];
+            // Start from the last sentence of the previous chapter
+            this._playChapter(prevChapterIdx, prevChapter.sentences.length - 1);
+        } else {
+            this._logger('[BRIDGE] Start of document reached.');
+        }
+    }
+
+    private _moveNext(manual: boolean = false) {
         const chapter = this._chapters[this._currentChapterIndex];
         if (this._currentSentenceIndex + 1 < chapter.sentences.length) {
             this._playChapter(this._currentChapterIndex, this._currentSentenceIndex + 1);
-        } else if (this._autoAdvance) {
+        } else if (this._autoAdvance || manual) {
             this.jumpToChapter(this._currentChapterIndex + 1);
         } else {
             this.stop();

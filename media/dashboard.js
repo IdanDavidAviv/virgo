@@ -117,10 +117,12 @@
             }
 
             const chevronIcon = isParent ? '▼' : '';
+            const rowCount = ch.count || 0;
             item.innerHTML = `
                 <span class="chevron">${chevronIcon}</span>
-                <span class="chapter-play-icon">▶</span>
                 <span class="chapter-title">${escapeHtml(ch.title)}</span>
+                <span class="chapter-row-count">${rowCount} rows</span>
+                <span class="chapter-play-icon">▶</span>
             `;
 
             // Click Logic: Chevron ONLY toggles; Row selection ONLY plays

@@ -90,29 +90,26 @@
             <span id="chapter-progress" class="chapter-progress-label">—</span>
         </div>
         
-        <div class="controls-row">
-            <button id="btn-prev" class="ctrl-btn" title="Previous Chapter">⏮</button>
-            <div class="play-pause-container" style="flex:2; display: flex;">
-                <button id="btn-play" class="ctrl-btn primary" title="Play/Resume" style="width:100%">▶</button>
-                <button id="btn-pause" class="ctrl-btn" title="Pause" style="display:none; width:100%">⏸</button>
-            </div>
-            <button id="btn-next" class="ctrl-btn" title="Next Chapter">⏭</button>
-            <button id="btn-stop" class="ctrl-btn" title="Stop">⏹</button>
-        </div>
-        <div class="controls-row mini">
-            <button id="btn-autoplay" class="ctrl-btn toggle active" title="Auto-advance chapters" data-active="true">🔁
-                Auto</button>
-        </div>
         <div id="sentence-navigator" class="sentence-navigator">
             <div class="sentence-row prev" id="sentence-prev"></div>
             <div class="sentence-row current" id="sentence-current">
                 <span class="sentence-placeholder">Ready to read...</span>
             </div>
             <div class="sentence-row next" id="sentence-next"></div>
-            <div class="sentence-controls">
-                <button id="btn-prev-sentence" class="sentence-ctrl-btn" title="Previous Sentence">◀</button>
-                <button id="btn-next-sentence" class="sentence-ctrl-btn" title="Next Sentence">▶</button>
+        </div>
+
+        <div class="controls-row">
+            <button id="btn-autoplay" class="ctrl-btn toggle active" title="Auto-advance chapters" data-active="true">🔁
+                Auto</button>
+            <button id="btn-prev" class="ctrl-btn" title="Previous Chapter">⏮ Ch</button>
+            <button id="btn-prev-sentence" class="ctrl-btn" title="Last Row (Previous Sentence)">◀ Row</button>
+            <div class="play-pause-container" style="flex:2; display: flex;">
+                <button id="btn-play" class="ctrl-btn primary" title="Play/Resume" style="width:100%">▶</button>
+                <button id="btn-pause" class="ctrl-btn" title="Pause" style="display:none; width:100%">⏸</button>
             </div>
+            <button id="btn-next-sentence" class="ctrl-btn" title="Next Row (Next Sentence)">Row ▶</button>
+            <button id="btn-next" class="ctrl-btn" title="Next Chapter">⏭ Ch</button>
+            <button id="btn-stop" class="ctrl-btn" title="Stop">⏹</button>
         </div>
         <div id="chapter-list" class="chapter-list">
             <div class="chapter-placeholder">Press Play to load chapters...</div>
