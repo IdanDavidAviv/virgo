@@ -275,6 +275,7 @@ class SpeechProvider implements vscode.WebviewViewProvider {
     private _prefetchedAudio: Map<string, string> = new Map();
     private _isPrefetching: boolean = false;
     private _isPlaying: boolean = false;
+    private _synthesisLock: Promise<void> = Promise.resolve();
     
     // Audio Precision Sync
     private _selectedVoice: string = 'en-US-AriaNeural';
@@ -816,13 +817,23 @@ class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _getNeuralAudio(text: string): Promise<string | null> {
-        return new Promise((resolve, reject) => {
-            try {
-                const voiceId = this._selectedVoice || "en-US-AriaNeural";
-                // Note: We use fixed quality for pre-fetching consistency
-                this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
-                
+    private async _getNeuralAudio(text: string): Promise<string | null> {
+        // Sequential Synthesis Lock: msedge-tts uses a single WS internally. 
+        // We must ensure only one metadata/stream request is active.
+        const release = this._synthesisLock;
+        let resolveLock: () => void;
+        this._synthesisLock = new Promise(r => resolveLock = r);
+
+        try {
+            await release; // Wait for previous synthesis to finish
+            
+            const voiceId = this._selectedVoice || "en-US-AriaNeural";
+            log(`[NEURAL] Configuring voice: ${voiceId}`);
+            
+            // CRITICAL: Must AWAIT metadata to establish WS connection
+            await this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
+            
+            return await new Promise((resolve, reject) => {
                 const { audioStream } = this._tts.toStream(text);
                 const chunks: Buffer[] = [];
 
@@ -830,12 +841,17 @@ class SpeechProvider implements vscode.WebviewViewProvider {
                 audioStream.on("end", () => {
                     const buffer = Buffer.concat(chunks);
                     resolve(buffer.toString('base64'));
+                    resolveLock(); // Release the lock
                 });
-                audioStream.on("error", (err: any) => reject(err));
-            } catch (err) {
-                reject(err);
-            }
-        });
+                audioStream.on("error", (err: any) => {
+                    reject(err);
+                    resolveLock(); // Release the lock
+                });
+            });
+        } catch (err) {
+            resolveLock!();
+            throw err;
+        }
     }
 
     private _executeSAPI(text: string) {
