@@ -605,7 +605,12 @@
     }
 
     if (btnLoadFile) {
-        btnLoadFile.onclick = () => postMsg({ command: 'loadDocument' });
+        btnLoadFile.onclick = () => {
+            postMsg({ command: 'loadDocument' });
+            if (settingsDrawer) {
+                settingsDrawer.classList.remove('open');
+            }
+        };
     }
 
     // --- Keyboard Shortcuts ---
