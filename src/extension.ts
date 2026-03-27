@@ -5,7 +5,6 @@ import { BridgeServer } from './bridgeServer';
 import { SpeechProvider } from './speechProvider';
 import { findChapterAtLine, findSentenceAtLine, parseChapters } from './documentParser';
 import { MissionControlPanel } from './missionControl';
-import { extendMarkdownIt as extendMarkdown } from './markdownPlugin';
 
 let playBarItem: vscode.StatusBarItem;
 let pauseBarItem: vscode.StatusBarItem;
@@ -167,7 +166,7 @@ export async function activate(context: vscode.ExtensionContext) {
     return { 
         bridge: bridgeServer,
         extendMarkdownIt(md: any) {
-            return extendMarkdown(md);
+            return md;
         }
     };
 }

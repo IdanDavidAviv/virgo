@@ -145,14 +145,7 @@
         "key": "alt+shift+r",
         "when": "editorLangId == markdown"
       }
-    ],
-    "markdown.previewStyles": [
-      "media/active-line.css"
-    ],
-    "markdown.previewScripts": [
-      "media/preview.js"
-    ],
-    "markdown.markdownItPlugins": true
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
