@@ -473,7 +473,10 @@
 
     // --- V2 Control Events ---
     if (settingsToggle) {
-        settingsToggle.onclick = () => settingsDrawer.classList.toggle('open');
+        settingsToggle.onclick = () => {
+            settingsDrawer.classList.toggle('open');
+            settingsToggle.classList.toggle('active');
+        };
     }
 
     if (voiceSearch) {
