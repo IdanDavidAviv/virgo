@@ -132,23 +132,34 @@ export async function activate(context: vscode.ExtensionContext) {
     // Tab Sync logic: Only sync the file if the engine is empty or on initial activation
     // Removed automatic sync on change to maintain 'Pinned Playback' state.
     const syncActiveTab = async () => {
-        const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
-        const input = tab?.input as any;
-        const uri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
+        const editor = vscode.window.activeTextEditor;
+        let uri: vscode.Uri | undefined;
+
+        if (editor) {
+            uri = editor.document.uri;
+        } else {
+            const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+            const input = tab?.input as any;
+            uri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
+        }
         
-        if (uri && (uri.path.endsWith('.md') || uri.path.endsWith('.markdown'))) {
+        // Support .md, .markdown, and artifacts like .md.resolved or .md.resolved.0
+        const artifactRegex = /\.(md|markdown)(\.resolved(\.\d+)?)?$/i;
+        
+        if (uri && (artifactRegex.test(uri.path) || artifactRegex.test(uri.fsPath))) {
             try {
                 const doc = await vscode.workspace.openTextDocument(uri);
-                // We keep the sync logic here, but we will call it only on activation or if the provider is empty
                 speechProvider.updateWorkingDocument(doc);
-            } catch (e) {}
+            } catch (e) {
+                log(`Failed to sync active tab: ${e}`);
+            }
         }
     };
 
-    // context.subscriptions.push(
-    //     vscode.window.tabGroups.onDidChangeTabs(syncActiveTab),
-    //     vscode.window.onDidChangeActiveTextEditor(syncActiveTab)
-    // );
+    context.subscriptions.push(
+        vscode.window.tabGroups.onDidChangeTabs(() => syncActiveTab()),
+        vscode.window.onDidChangeActiveTextEditor(() => syncActiveTab())
+    );
 
     syncActiveTab();
 

@@ -237,10 +237,48 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
     }
 
+    private _compressPath(rawPath: string): string {
+        // Shorten UUIDs: f7b06bbe-3ecb-450d-8db1-486bfbe69dbd -> f7b0...9dbd
+        return rawPath.replace(/([0-9a-f]{4})[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8}([0-9a-f]{4})/gi, '$1...$2');
+    }
+
     public updateWorkingDocument(document: vscode.TextDocument) {
+        // Robust display name: use path basename, or fall back to URI string if it's a virtual path
         this._currentFileName = path.basename(document.fileName);
+        if (this._currentFileName.includes('Untitled')) {
+            // Fallback for some artifact views that might use virtual names
+            this._currentFileName = document.uri.path.split('/').pop() || document.fileName;
+        }
+
         const folder = vscode.workspace.getWorkspaceFolder(document.uri);
-        this._currentRelativeDir = folder ? path.relative(folder.uri.fsPath, path.dirname(document.fileName)) : '';
+        const fsPath = document.uri.fsPath;
+        let relativeDir = '';
+
+        if (folder) {
+            // Regular File in Workspace: [WorkspaceName] / [RelPath]
+            const workspaceName = folder.name;
+            const relPath = path.relative(folder.uri.fsPath, path.dirname(fsPath));
+            relativeDir = workspaceName + (relPath && relPath !== '.' ? ' / ' + relPath.replace(/\\/g, ' / ') : '');
+        } else if (fsPath.toLowerCase().includes('.gemini') && fsPath.toLowerCase().includes('brain')) {
+            // Artifact in Brain: Brain / [Compressed_Hash] / [Subdirs]
+            const brainMatch = fsPath.match(/brain[\\\/]([^\\\/]+)(.*)/i);
+            if (brainMatch) {
+                const hash = brainMatch[1];
+                // Remove filename from the subPath part
+                const subPathWithFile = brainMatch[2].replace(/^[\\\/]/, '');
+                const subPath = path.dirname(subPathWithFile);
+                
+                relativeDir = `Brain / ${this._compressPath(hash)}${subPath !== '.' ? ' / ' + subPath.replace(/[\\\/]/g, ' / ') : ''}`;
+            } else {
+                relativeDir = 'Brain / Artifacts';
+            }
+        } else {
+            // Fallback for virtual storage or external files
+            relativeDir = document.uri.scheme === 'file' ? path.dirname(fsPath).split(/[\\\/]/).slice(-2).join(' / ') : 'Virtual Storage';
+        }
+
+        this._currentRelativeDir = relativeDir;
+        
         this._postToAll({
             command: 'documentInfo',
             fileName: this._currentFileName,
@@ -248,12 +286,34 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    public loadCurrentDocument() {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) return;
-        const text = editor.document.getText();
-        this.updateWorkingDocument(editor.document);
+    public async loadCurrentDocument() {
+        // If there's an active text editor, use its document
+        let document = vscode.window.activeTextEditor?.document;
+        
+        // Fallback: Check the active tab if editor is null or document isn't reachable
+        if (!document) {
+            const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+            const input = tab?.input as any;
+            const uri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
+            
+            if (uri) {
+                try {
+                    document = await vscode.workspace.openTextDocument(uri);
+                } catch (e) {
+                    this._logger(`Failed to load document from tab: ${e}`);
+                }
+            }
+        }
+
+        if (!document) {
+            this._logger('No active document found to load.');
+            return;
+        }
+
+        const text = document.getText();
+        this.updateWorkingDocument(document);
         this._chapters = parseChapters(text);
+        
         this._postToAll({
             command: 'chapters',
             chapters: this._chapters.map((c, i) => ({ title: c.title, level: c.level, index: i })),
