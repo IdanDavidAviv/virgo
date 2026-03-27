@@ -11,5 +11,9 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "test"
+  ]
 }

@@ -18,7 +18,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _currentSentenceIndex: number = 0;
     
     // Configuration
-    private _followMode: boolean = false;
     private _autoAdvance: boolean = true;
     private _selectedVoice: string = 'en-US-AriaNeural';
     private _rate: number = 0;
@@ -27,16 +26,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     
     private _currentFileName: string = 'No Document';
     private _currentRelativeDir: string = '';
+    private _currentDocumentUri: vscode.Uri | undefined;
     
     private _playbackEngine: PlaybackEngine;
     private _localVoices: any[] = [];
     private _neuralVoices: any[] = [];
     private _statusBarItems: { pause: vscode.StatusBarItem; stop: vscode.StatusBarItem };
     
-    // Decorations
-    private _sentenceDecoration: vscode.TextEditorDecorationType;
-    private _playheadDecoration: vscode.TextEditorDecorationType;
-    private _lastDecorationRange: vscode.Range | null = null;
     private _lastReportedProgress: number = -1;
 
     constructor(
@@ -47,19 +43,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     ) {
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
         this._statusBarItems = statusBarItems;
-
-        // Initialize Premium Decorations
-        this._sentenceDecoration = vscode.window.createTextEditorDecorationType({
-            backgroundColor: 'rgba(0, 180, 255, 0.15)', // Glass Cyan
-            isWholeLine: false,
-            rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
-            borderRadius: '2px'
-        });
-
-        this._playheadDecoration = vscode.window.createTextEditorDecorationType({
-            border: '2px solid rgba(0, 255, 255, 0.8)', // Box for now, will refine to vertical line if possible
-            backgroundColor: 'transparent'
-        });
 
         this._loadVoices();
     }
@@ -159,7 +142,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (!this._view || this._isRefreshing || !this._bridge) return;
         this._isRefreshing = true;
         try {
-            this._view.webview.html = this._bridge.getHtml(this._view.webview);
+            this._view.webview.html = this._bridge.getHtml(this._view.webview, {});
         } catch (e) {
             this._logger(`Webview refresh failed: ${e}. Retrying...`);
             setTimeout(() => this.refresh(), 1000);
@@ -182,6 +165,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _handleWebviewMessage(data: any, source: string) {
+        this._logger(`[BRIDGE <- WEBVIEW] Command: ${data.command}`);
+        
         // --- NEW: Self-Hydrating UI (Play Intent Interceptor) ---
         // If the user intends to play/navigate but nothing is loaded, auto-load the active file.
         const playIntents = ['continue', 'nextChapter', 'prevChapter', 'prevSentence', 'nextSentence', 'jumpToSentence', 'jumpToChapter'];
@@ -206,9 +191,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case 'prevChapter':
                 this.prevChapter();
                 break;
-            case 'toggleFollow':
-                this._followMode = data.enabled;
-                break;
+
             case 'toggleAutoPlay':
                 this._autoAdvance = data.enabled;
                 break;
@@ -226,20 +209,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._playbackEngine.stop();
                 this._broadcastVoices();
                 break;
-            case 'playbackProgress':
-                this._updateSweep(data.progress);
-                break;
+
             case 'sentenceEnded':
                 if (!this._playbackEngine.isPaused) {
                     this._moveNext();
                 }
                 break;
-            case 'prevSentence': this.prevSentence(); break;
             case 'nextSentence': this.nextSentence(); break;
             case 'jumpToSentence': this.jumpToSentence(data.index); break;
             case 'continue': this.continue(); break;
-            case 'pause': this.pause(); break;
             case 'stop': this.stop(); break;
+            case 'pause': this.pause(); break;
             case 'loadDocument': this.loadCurrentDocument(); break;
             case 'log': this._logger(`[${source.toUpperCase()}] ${data.message}`); break;
         }
@@ -251,7 +231,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             voice: this._selectedVoice,
             rate: this._rate,
             volume: this._volume,
-            follow: this._followMode,
+
             autoPlay: this._autoAdvance,
             isPaused: this._playbackEngine.isPaused,
             fileName: this._currentFileName,
@@ -266,6 +246,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public updateWorkingDocument(document: vscode.TextDocument) {
+        this._currentDocumentUri = document.uri;
         // Robust display name: use path basename, or fall back to URI string if it's a virtual path
         this._currentFileName = path.basename(document.fileName);
         if (this._currentFileName.includes('Untitled')) {
@@ -366,7 +347,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public pause() {
         this._playbackEngine.setPaused(true);
         this._postToAll({ command: 'playbackStateChanged', state: 'paused' });
-        this._clearDecorations();
     }
 
     public stop() {
@@ -374,7 +354,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._currentChapterIndex = 0;
         this._currentSentenceIndex = 0;
         this._postToAll({ command: 'stop' });
-        this._clearDecorations();
     }
 
     public continue() {
@@ -432,9 +411,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._currentChapterIndex = chapterIndex;
         this._currentSentenceIndex = sentenceIndex;
         
-        // Clear previous sentence highlights
-        this._clearDecorations();
-        
         const chapter = this._chapters[chapterIndex];
 
         if (sentenceIndex === 0) {
@@ -444,13 +420,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 total: this._chapters.length,
                 title: chapter.title
             });
-            if (this._followMode) {
-                const editor = vscode.window.activeTextEditor;
-                if (editor) {
-                    const pos = new vscode.Position(chapter.lineStart, 0);
-                    editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
-                }
-            }
         }
 
         if (!chapter.sentences || chapter.sentences.length === 0) {
@@ -459,6 +428,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
 
         const sentence = chapter.sentences[sentenceIndex];
+
         this._postToAll({
             command: 'sentenceChanged',
             text: sentence,
@@ -531,83 +501,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _updateSweep(progress: number) {
-        if (!this._followMode) return;
-        
-        // Throttling: only update if progress moved significantly (~1% or 100ms)
-        if (Math.abs(this._lastReportedProgress - progress) < 0.01) return;
-        this._lastReportedProgress = progress;
 
-        const editor = vscode.window.activeTextEditor;
-        if (!editor || !this._chapters[this._currentChapterIndex]) return;
 
-        const chapter = this._chapters[this._currentChapterIndex];
-        const sentence = chapter.sentences[this._currentSentenceIndex];
-        if (!sentence) return;
-
-        // 1. Ensure we have the base sentence range
-        if (!this._lastDecorationRange) {
-            this._lastDecorationRange = this._findSentenceRange(editor.document, chapter, sentence);
-        }
-
-        if (this._lastDecorationRange) {
-            // 2. Highlighting the base sentence (Glass Effect)
-            editor.setDecorations(this._sentenceDecoration, [this._lastDecorationRange]);
-            
-            // 3. Calculating the Playhead (Sweep Cursor)
-            // We map the 0.0-1.0 progress to the character offsets in the range
-            const startOffset = editor.document.offsetAt(this._lastDecorationRange.start);
-            const endOffset = editor.document.offsetAt(this._lastDecorationRange.end);
-            const currentOffset = startOffset + Math.floor((endOffset - startOffset) * progress);
-            
-            const sweepPos = editor.document.positionAt(currentOffset);
-            const sweepRange = new vscode.Range(sweepPos, sweepPos.translate(0, 1)); // Single character border
-            
-            editor.setDecorations(this._playheadDecoration, [sweepRange]);
-
-            // 4. Smooth Scrolling (Keep current line in view)
-            if (progress < 0.1 || progress > 0.9) { // Only reveal at phase changes or periodically
-                 editor.revealRange(this._lastDecorationRange, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-            }
-        }
-    }
-
-    private _findSentenceRange(doc: vscode.TextDocument, chapter: any, sentence: string): vscode.Range | null {
-        try {
-            // Scope search to chapter lines (with 2-line buffer for fuzzy parsing)
-            const startLine = Math.max(0, chapter.lineStart - 1);
-            const endLine = Math.min(doc.lineCount - 1, chapter.lineEnd + 1);
-            
-            const startPos = new vscode.Position(startLine, 0);
-            const endPos = new vscode.Position(endLine, doc.lineAt(endLine).text.length);
-            const searchArea = doc.getText(new vscode.Range(startPos, endPos));
-
-            // Clean sentence for search (strip extra whitespace from parser)
-            const cleanSentence = sentence.trim();
-            const index = searchArea.indexOf(cleanSentence);
-
-            if (index !== -1) {
-                const totalOffset = doc.offsetAt(startPos) + index;
-                return new vscode.Range(
-                    doc.positionAt(totalOffset),
-                    doc.positionAt(totalOffset + cleanSentence.length)
-                );
-            }
-        } catch (e) {
-            this._logger(`[ERR] Failed to find sentence range: ${e}`);
-        }
-        return null;
-    }
-
-    private _clearDecorations() {
-        this._lastDecorationRange = null;
-        this._lastReportedProgress = -1;
-        const editors = vscode.window.visibleTextEditors;
-        editors.forEach(e => {
-            e.setDecorations(this._sentenceDecoration, []);
-            e.setDecorations(this._playheadDecoration, []);
-        });
-    }
 
     private _onSAPIExit(code: number | null) {
         if (code === 0 && !this._playbackEngine.isPaused && this._playbackEngine.isPlaying) {

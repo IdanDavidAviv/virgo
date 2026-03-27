@@ -25,7 +25,6 @@
     const chapterProgress = document.getElementById('chapter-progress');
     const btnPrev = document.getElementById('btn-prev');
     const btnNext = document.getElementById('btn-next');
-    const btnFollow = document.getElementById('btn-follow');
     const btnAutoplay = document.getElementById('btn-autoplay');
 
     // V2 References
@@ -56,13 +55,14 @@
     const cacheDebugTag = document.getElementById('cache-debug-tag');
 
     // --- State ---
-    let state = (vscode && vscode.getState()) || { selectedVoice: null, followEnabled: false, autoPlayEnabled: true };
+    let state = (vscode && vscode.getState()) || { selectedVoice: null, autoPlayEnabled: true };
     let chapters = [];
     let currentChapterIndex = -1;
     let availableVoices = []; // Global copy for searching
     let engineMode = 'local';
     let isSynthesizing = false;
     let collapsedIndices = new Set();
+    let lastHighlightedLine = -1;
 
     // --- Status Dot ---
     function updateStatus(isOnline) {
@@ -150,26 +150,7 @@
 
         const activeEl = chapterList && chapterList.querySelector(`.chapter-item[data-index="${index}"]`);
         if (activeEl) {
-            // Auto-expand flattened ancestors if hidden
-            let expanded = false;
-            let currentLevel = chapters[index].level;
-            for (let i = index - 1; i >= 0; i--) {
-                const prev = chapters[i];
-                if (prev.level < currentLevel) {
-                    if (collapsedIndices.has(i)) {
-                        collapsedIndices.delete(i);
-                        expanded = true;
-                    }
-                    currentLevel = prev.level;
-                }
-                if (currentLevel === 1) break;
-            }
-
-            if (expanded) {
-                renderChapters(chapters, index);
-            } else {
-                activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
+            activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
         updateProgress(index);
     }
@@ -542,22 +523,6 @@
     if (btnPrevSentence) btnPrevSentence.onclick = () => postMsg({ command: 'prevSentence' });
     if (btnNextSentence) btnNextSentence.onclick = () => postMsg({ command: 'nextSentence' });
 
-    if (btnFollow) {
-        // Restore persisted state
-        if (state.followEnabled) btnFollow.classList.add('active');
-        btnFollow.dataset.active = state.followEnabled ? 'true' : 'false';
-
-        btnFollow.addEventListener('click', () => {
-            const isActive = btnFollow.dataset.active === 'true';
-            const next = !isActive;
-            btnFollow.dataset.active = next ? 'true' : 'false';
-            btnFollow.classList.toggle('active', next);
-            state.followEnabled = next;
-            if (vscode) vscode.setState(state);
-            postMsg({ command: 'toggleFollow', enabled: next });
-        });
-    }
-
     if (btnAutoplay) {
         // Restore persisted state (default: true)
         const initAuto = state.autoPlayEnabled !== false;
@@ -580,13 +545,6 @@
     if (neuralPlayer) {
         neuralPlayer.onended = () => {
             postMsg({ command: 'sentenceEnded' });
-        };
-        
-        neuralPlayer.ontimeupdate = () => {
-            if (neuralPlayer.duration) {
-                const progress = neuralPlayer.currentTime / neuralPlayer.duration;
-                postMsg({ command: 'playbackProgress', progress: progress });
-            }
         };
     }
 

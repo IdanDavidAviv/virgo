@@ -69,9 +69,10 @@
 
     <div class="card">
         <div class="header">
-            <span>📑 Chapters</span>
+            <span>Chapters</span>
             <span id="chapter-progress" class="chapter-progress-label">—</span>
         </div>
+        
         <div class="controls-row">
             <button id="btn-prev" class="ctrl-btn" title="Previous Chapter">⏮</button>
             <div class="play-pause-container" style="flex:2; display: flex;">
@@ -82,26 +83,24 @@
             <button id="btn-stop" class="ctrl-btn" title="Stop">⏹</button>
         </div>
         <div class="controls-row mini">
-            <button id="btn-follow" class="ctrl-btn toggle" title="Follow voice in editor" data-active="false">📍
-                Follow</button>
             <button id="btn-autoplay" class="ctrl-btn toggle active" title="Auto-advance chapters" data-active="true">🔁
                 Auto</button>
         </div>
-            <div id="sentence-navigator" class="sentence-navigator">
-                <div class="sentence-row prev" id="sentence-prev"></div>
-                <div class="sentence-row current" id="sentence-current">
-                    <span class="sentence-placeholder">Ready to read...</span>
-                </div>
-                <div class="sentence-row next" id="sentence-next"></div>
-                <div class="sentence-controls">
-                    <button id="btn-prev-sentence" class="sentence-ctrl-btn" title="Previous Sentence">◀</button>
-                    <button id="btn-next-sentence" class="sentence-ctrl-btn" title="Next Sentence">▶</button>
-                </div>
+        <div id="sentence-navigator" class="sentence-navigator">
+            <div class="sentence-row prev" id="sentence-prev"></div>
+            <div class="sentence-row current" id="sentence-current">
+                <span class="sentence-placeholder">Ready to read...</span>
             </div>
-            <div id="chapter-list" class="chapter-list">
-                <div class="chapter-placeholder">Press Play to load chapters...</div>
+            <div class="sentence-row next" id="sentence-next"></div>
+            <div class="sentence-controls">
+                <button id="btn-prev-sentence" class="sentence-ctrl-btn" title="Previous Sentence">◀</button>
+                <button id="btn-next-sentence" class="sentence-ctrl-btn" title="Next Sentence">▶</button>
             </div>
         </div>
+        <div id="chapter-list" class="chapter-list">
+            <div class="chapter-placeholder">Press Play to load chapters...</div>
+        </div>
+    </div>
 
         <div class="footer">
             <span id="cache-debug-tag" class="cache-debug">[ CACHE: 0/100 | 0.0 MB ]</span>

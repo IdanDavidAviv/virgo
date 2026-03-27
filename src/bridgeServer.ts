@@ -105,7 +105,7 @@ export class BridgeServer extends EventEmitter {
         });
     }
 
-    public getHtml(webview?: { cspSource: string }, options: { overrideHost?: string } = {}): string {
+    public getHtml(webview?: { cspSource: string }, options: { overrideHost?: string, markdownHtml?: string } = {}): string {
         const filePath = path.join(this._mediaPath, 'speechEngine.html');
         if (!fs.existsSync(filePath)) return '<h1>Bridge Error: speechEngine.html not found</h1>';
 
@@ -154,6 +154,8 @@ export class BridgeServer extends EventEmitter {
         content = content.replace(/\$\{inlineStyle\}/g, () => styleCss);
         content = content.replace(/\$\{inlineScript\}/g, () => `${clientConfig}\n${dashboardJs}`);
         content = content.replace(/\$\{cspSource\}/g, () => cspSource);
+        
+        content = content.replace(/\$\{teleprompterContent\}/g, () => options.markdownHtml || '<div class="ra-no-content">No Content Loaded</div>');
         
         return content;
     }

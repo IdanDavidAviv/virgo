@@ -107,7 +107,7 @@ export function stripMarkdown(md: string): string {
         .replace(/`(.+?)`/g, '$1') 
         // Lists: Add punctuation to force SAPI pause between items
         .replace(/^\s*[-*+]\s+(.+)$/gm, '$1. ') 
-        .replace(/^\s*(>\s+)+(.+)$/gm, 'Quote: $2. ') 
+        .replace(/^\s*(>\s+)+(.+)$/gm, '$2. ') 
         .replace(/<[^>]*>/g, '') 
         .replace(/\n{2,}/g, '\n') // Collapse excessive newlines
         .trim();
