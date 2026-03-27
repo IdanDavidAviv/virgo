@@ -164,7 +164,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _handleWebviewMessage(data: any, source: string) {
+    private async _handleWebviewMessage(data: any, source: string) {
         this._logger(`[BRIDGE <- WEBVIEW] Command: ${data.command}`);
         
         // --- NEW: Self-Hydrating UI (Play Intent Interceptor) ---
@@ -172,7 +172,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const playIntents = ['continue', 'nextChapter', 'prevChapter', 'prevSentence', 'nextSentence', 'jumpToSentence', 'jumpToChapter'];
         if (playIntents.includes(data.command) && this._chapters.length === 0) {
             this._logger(`[BRIDGE] Auto-hydrating engine state for command: ${data.command}`);
-            this.loadCurrentDocument();
+            const loaded = await this.loadCurrentDocument();
+            if (!loaded) {
+                this._logger(`[BRIDGE] Auto-hydration failed. Aborting command.`);
+                return;
+            }
         }
 
         switch (data.command) {
@@ -290,7 +294,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
     }
 
-    public async loadCurrentDocument() {
+    public async loadCurrentDocument(): Promise<boolean> {
         // If there's an active text editor, use its document
         let document = vscode.window.activeTextEditor?.document;
         
@@ -311,12 +315,22 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         if (!document) {
             this._logger('No active document found to load.');
-            return;
+            this._postToAll({
+                command: 'synthesisError',
+                error: 'No active document found to read.',
+                isFallingBack: false
+            });
+            return false;
         }
 
         const text = document.getText();
         this.updateWorkingDocument(document);
         this._chapters = parseChapters(text);
+        
+        // --- NEW: Reset Indices and Stop Playback on Document Change ---
+        this._currentChapterIndex = 0;
+        this._currentSentenceIndex = 0;
+        this._playbackEngine.stop();
         
         this._postToAll({
             command: 'chapters',
@@ -324,14 +338,21 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             current: 0,
             total: this._chapters.length
         });
+        return true;
     }
 
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
         if (fileName) {
+            this._currentDocumentUri = vscode.Uri.file(fileName);
             this._currentFileName = path.basename(fileName);
-            const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(fileName));
+            const folder = vscode.workspace.getWorkspaceFolder(this._currentDocumentUri);
             this._currentRelativeDir = folder ? path.relative(folder.uri.fsPath, path.dirname(fileName)) : '';
         }
+        
+        // --- FIXED: Reset sentence index to 0 when moving to a new file/start point ---
+        this._currentChapterIndex = startFromChapter;
+        this._currentSentenceIndex = 0;
+        
         this._chapters = parseChapters(text);
         this._postToAll({
             command: 'chapters',
@@ -429,6 +450,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         const sentence = chapter.sentences[sentenceIndex];
 
+        // --- NEW: File-Unique Cache Key ---
+        const docId = this._currentDocumentUri?.toString() || this._currentFileName;
+        const cacheKey = `${docId}-${chapterIndex}-${sentenceIndex}`;
+
         this._postToAll({
             command: 'sentenceChanged',
             text: sentence,
@@ -446,7 +471,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         };
 
         if (this._engineMode === 'neural') {
-            this._playbackEngine.speakNeural(sentence, `${chapterIndex}-${sentenceIndex}`, options).then(data => {
+            this._playbackEngine.speakNeural(sentence, cacheKey, options).then(data => {
                 if (data && this._playbackEngine.isPlaying) {
                     this._postToAll({
                         command: 'playAudio',
@@ -488,7 +513,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
             if (sIdx < chapter.sentences.length) {
                 const text = chapter.sentences[sIdx];
-                const cacheKey = `${cIdx}-${sIdx}`;
+                const docId = this._currentDocumentUri?.toString() || this._currentFileName;
+                const cacheKey = `${docId}-${cIdx}-${sIdx}`;
                 this._playbackEngine.triggerPrefetch(text, cacheKey, options);
                 sIdx++;
                 count++;
