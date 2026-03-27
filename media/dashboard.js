@@ -54,6 +54,7 @@
     const btnNextSentence = document.getElementById('btn-next-sentence');
     const engineLocal = document.getElementById('engine-local');
     const engineNeural = document.getElementById('engine-neural');
+    const engineToggleGroup = document.querySelector('.engine-toggle-group');
     const neuralPlayer = document.getElementById('neural-player');
     const voiceSearch = document.getElementById('voice-search');
     const toastContainer = document.getElementById('toast-container');
@@ -473,7 +474,12 @@
 
     // --- V2 Control Events ---
     if (settingsToggle) {
-        settingsToggle.onclick = () => settingsDrawer.classList.toggle('open');
+        settingsToggle.onclick = () => {
+            const isOpen = settingsDrawer.classList.toggle('open');
+            if (engineToggleGroup) {
+                engineToggleGroup.style.display = isOpen ? 'flex' : 'none';
+            }
+        };
     }
 
     if (voiceSearch) {
@@ -609,6 +615,9 @@
             postMsg({ command: 'loadDocument' });
             if (settingsDrawer) {
                 settingsDrawer.classList.remove('open');
+                if (engineToggleGroup) {
+                    engineToggleGroup.style.display = 'none';
+                }
             }
         };
     }
