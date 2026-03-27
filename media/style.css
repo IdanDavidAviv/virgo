@@ -1,3 +1,7 @@
+*, ::before, ::after {
+    box-sizing: border-box;
+}
+
 :root {
     --primary: hsl(199, 89%, 48%);
     /* Electric Blue */
@@ -79,12 +83,13 @@ body {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    padding: 0 2px;
 }
 
 .settings-drawer.open {
     max-height: 300px;
     margin-top: 12px;
-    padding-bottom: 8px;
+    padding: 0 6px 8px;
 }
 
 .setting-item {
