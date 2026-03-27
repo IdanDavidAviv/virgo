@@ -364,7 +364,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this.updateWorkingDocument(document);
         this._chapters = parseChapters(text);
         
-        // --- NEW: Reset Indices and Stop Playback on Document Change ---
+        // --- Reset Indices and Stop Playback on Document Change ---
         this._currentChapterIndex = 0;
         this._currentSentenceIndex = 0;
         this._playbackEngine.stop();
@@ -375,6 +375,19 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             current: 0,
             total: this._chapters.length
         });
+
+        if (this._chapters.length > 0) {
+            const firstChapter = this._chapters[this._currentChapterIndex];
+            this._postToAll({
+                command: 'sentenceChanged',
+                text: firstChapter.sentences[0],
+                chapterIndex: this._currentChapterIndex,
+                sentenceIndex: 0,
+                totalSentences: firstChapter.sentences.length,
+                sentences: firstChapter.sentences,
+                suppressButtonToggle: true
+            });
+        }
         
         // Ensure state sync after loading
         this._broadcastState();

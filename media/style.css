@@ -638,43 +638,60 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .sentence-navigator {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 8px;
     margin: 12px 0;
-    padding: 8px;
-    background: rgba(0, 0, 0, 0.95);
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 15px 10px;
+    background: radial-gradient(circle at center, rgba(15, 23, 42, 0.4) 0%, rgba(4, 6, 11, 0.95) 100%);
+    border-radius: 16px;
+    border: 1px solid var(--border);
     position: relative;
-    height: 190px;
+    height: 240px;
     justify-content: center;
     overflow: hidden;
-    box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.8), 0 10px 30px rgba(0, 0, 0, 0.5);
+    box-shadow: 
+        inset 0 0 50px rgba(0, 0, 0, 0.9),
+        0 20px 40px rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+}
+
+.sentence-navigator::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.4) 100%);
+    pointer-events: none;
+    z-index: 5;
 }
 
 .sentence-row {
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 13px;
-    line-height: 1.5;
-    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-    opacity: 0.2;
-    filter: blur(1.5px);
-    transform: scale(0.95);
+    padding: 8px 18px;
+    border-radius: 10px;
+    font-size: 10px;
+    line-height: 1.6;
+    transition: all 0.45s cubic-bezier(0.23, 1, 0.32, 1);
+    opacity: 0.15;
+    filter: blur(3px);
+    transform: scale(0.92);
     background: transparent;
     border: 1px solid transparent;
     cursor: pointer;
-    max-height: 4.5em;
-    overflow: hidden;
+    min-height: 1.5em;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
     -webkit-box-orient: vertical;
     text-overflow: ellipsis;
+    overflow: hidden;
     position: relative;
+    color: #94a3b8;
+    text-align: center;
+    width: 100%;
+    max-width: 90%;
+    margin: 0 auto;
 }
 
 .sentence-row:hover {
-    background: rgba(255, 255, 255, 0.05);
     opacity: 0.4;
     filter: blur(0);
 }
@@ -682,49 +699,27 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .sentence-row.current {
     opacity: 1;
     filter: blur(0);
-    transform: scale(1.03);
-    background: rgba(56, 189, 248, 0.15);
-    border-color: rgba(56, 189, 248, 0.4);
+    transform: scale(1.08); /* Stronger scale focus */
+    background: transparent; /* Box invisible as requested */
+    border: none;
+    border-left: none;
     color: #fff;
-    font-weight: 500;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    /* Allow a bit more for current */
-    z-index: 2;
-    border-left: 3px solid var(--primary);
+    text-shadow: 0 0 20px rgba(56, 189, 248, 0.4); /* Text-based focus */
+    font-weight: 700;
+    font-size: 16px;
+    -webkit-line-clamp: unset; /* Text not hide */
+    line-clamp: unset;
+    display: block; /* Allow full expansion */
+    overflow: visible; /* Prevent internal clipping */
+    z-index: 10;
+    padding: 10px;
+    box-shadow: none;
+    max-height: none;
 }
 
 .sentence-row.prev,
 .sentence-row.next {
-    font-size: 11px;
-    color: #94a3b8;
     z-index: 1;
-}
-
-.sentence-controls {
-    display: flex;
-    justify-content: center;
-    gap: 20px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.sentence-ctrl-btn {
-    background: transparent;
-    border: none;
-    color: #64748b;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    padding: 4px 10px;
-    border-radius: 4px;
-}
-
-.sentence-ctrl-btn:hover {
-    color: var(--primary);
-    background: rgba(56, 189, 248, 0.1);
 }
 
 .sentence-row.rtl {
@@ -733,9 +728,10 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .sentence-placeholder {
-    color: #475569;
+    color: #334155;
     font-style: italic;
-    font-size: 10px;
+    font-size: 11px;
+    letter-spacing: 0.02em;
 }
 
 .chapter-list {
@@ -845,6 +841,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .chapter-item.is-hidden {
     display: none;
 }
+
+
 
 .footer {
     width: 100%;

@@ -10,33 +10,33 @@ export interface Chapter {
 
 export function parseChapters(rawText: string): Chapter[] {
     const lines = rawText.split('\n');
-    // Match only #, ##, ### headings (not #### or deeper)
-    const headingRegex = /^(#{1,3})(?!#)\s+(.+)/;
-    const headings: { level: number; title: string; lineIndex: number }[] = [];
+    // Match #, ##, ###
+    const headingRegex = /^(#{1,3})\s+(.+)$/;
+    const markers: { level: number; title: string; lineIndex: number }[] = [];
 
     lines.forEach((line, i) => {
         const match = line.match(headingRegex);
         if (match) {
-            headings.push({ level: match[1].length, title: match[2].trim(), lineIndex: i });
+            markers.push({ level: match[1].length, title: match[2].trim(), lineIndex: i });
         }
     });
 
     const chapters: Chapter[] = [];
-    headings.forEach((h, i) => {
-        const lineStart = h.lineIndex;
-        const lineEnd = i + 1 < headings.length ? headings[i + 1].lineIndex - 1 : lines.length - 1;
+    markers.forEach((m, i) => {
+        const lineStart = m.lineIndex;
+        const lineEnd = i + 1 < markers.length ? markers[i + 1].lineIndex - 1 : lines.length - 1;
         const chunkText = lines.slice(lineStart, lineEnd + 1).join('\n');
         const stripped = stripMarkdown(chunkText);
+        
         if (stripped.trim().length > 0) {
-            const sentences = splitIntoSentences(stripped);
             chapters.push({ 
-                title: h.title, 
-                level: h.level, 
+                title: m.title, 
+                level: m.level, 
                 lineStart, 
                 lineEnd, 
                 text: stripped,
                 originalMarkdown: chunkText,
-                sentences: sentences
+                sentences: splitIntoSentences(stripped)
             });
         }
     });
@@ -92,7 +92,6 @@ export function splitIntoSentences(text: string): string[] {
 
 export function stripMarkdown(md: string): string {
     return md
-        .replace(/^[*-]{3,}$/gm, '') // Filter horizontal rules (---, ***)
         .replace(/^#+\s+(.+)$/gm, '$1. ') 
         .replace(/\*\*|__/g, '') 
         .replace(/\*|_/g, '') 

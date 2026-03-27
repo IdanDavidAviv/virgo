@@ -240,13 +240,20 @@
 
     function updateRow(el, text, idx) {
         if (!el) return;
+        
+        // Always show the element to maintain the 3-slot layout
+        el.style.display = 'flex';
+        
         if (!text) {
-            el.innerHTML = '';
-            el.style.display = 'none';
+            el.innerHTML = '<span class="sentence-placeholder">&nbsp;</span>';
             el.onclick = null;
+            el.style.pointerEvents = 'none';
+            el.style.opacity = '0';
             return;
         }
-        el.style.display = 'flex';
+
+        el.style.pointerEvents = 'auto';
+        el.style.opacity = el.classList.contains('current') ? '1' : '0.15';
         el.innerHTML = `<span>${escapeHtml(text)}</span>`;
 
         // Interaction: Click to jump
@@ -370,8 +377,10 @@
                     updateRow(sentenceCurrent, message.text);
                 }
                 
-                btnPlay.style.display = 'none';
-                btnPause.style.display = 'inline-block';
+                if (!message.suppressButtonToggle) {
+                    btnPlay.style.display = 'none';
+                    btnPause.style.display = 'inline-block';
+                }
                 break;
 
             case 'synthesisError':
