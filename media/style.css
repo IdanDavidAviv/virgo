@@ -43,14 +43,14 @@ body {
 .header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     margin-bottom: 12px;
     font-size: 10px;
     text-transform: uppercase;
     font-weight: 700;
     letter-spacing: 0.1em;
     color: #94a3b8;
-    justify-content: space-between;
+    justify-content: flex-start;
 }
 
 .settings-toggle-btn {
@@ -338,7 +338,6 @@ select {
     padding: 6px 10px;
     border-radius: 6px;
     font-size: 11px;
-    margin-top: 4px;
     outline: none;
     cursor: pointer;
     appearance: none;
@@ -357,7 +356,6 @@ select:focus {
     padding: 8px 12px;
     border-radius: 8px;
     font-size: 11px;
-    margin-top: 8px;
     outline: none;
     transition: all 0.2s ease;
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -843,8 +841,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 20px;
     padding: 2px;
-    margin-bottom: 8px;
-    align-self: flex-start;
+    align-self: center;
+    margin-left: auto;
 }
 
 .toggle-pill {
