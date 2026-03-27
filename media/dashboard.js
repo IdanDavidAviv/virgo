@@ -581,6 +581,13 @@
         neuralPlayer.onended = () => {
             postMsg({ command: 'sentenceEnded' });
         };
+        
+        neuralPlayer.ontimeupdate = () => {
+            if (neuralPlayer.duration) {
+                const progress = neuralPlayer.currentTime / neuralPlayer.duration;
+                postMsg({ command: 'playbackProgress', progress: progress });
+            }
+        };
     }
 
     // --- Engine Switching ---
