@@ -2,7 +2,7 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
@@ -87,7 +87,7 @@
         {
           "id": "readme-read-aloud",
           "title": "Read Aloud",
-          "icon": "$(unmute)"
+          "icon": "dist/icon.svg"
         }
       ]
     },
@@ -178,9 +178,9 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "compile": "tsc -p ./",
-    "watch": "node esbuild.js --watch",
-    "build": "node esbuild.js",
+    "compile": "node esbuild.js --mode=development",
+    "watch": "node esbuild.js --watch --mode=development",
+    "build": "node esbuild.js --mode=production",
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {
