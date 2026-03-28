@@ -84,7 +84,7 @@
 
     // --- Chapter Rendering ---
     function renderChapters(chapterData, currentIdx) {
-        if (!chapterList) return;
+        if (!chapterList) { return; }
         chapters = chapterData;
         chapterList.innerHTML = '';
 
@@ -106,13 +106,13 @@
             const item = document.createElement('div');
             item.className = 'chapter-item level-' + ch.level;
             item.dataset.index = i;
-            if (i === currentIdx) item.classList.add('now-playing');
+            if (i === currentIdx) { item.classList.add('now-playing'); }
             
             const isParent = (i < chapters.length - 1 && chapters[i + 1].level > ch.level);
             
             if (isParent && collapsedIndices.has(i)) {
                 item.classList.add('collapsed');
-                if (hideLevelAt === Infinity) hideLevelAt = ch.level;
+                if (hideLevelAt === Infinity) { hideLevelAt = ch.level; }
             }
 
             if (ch.level > hideLevelAt) {
@@ -131,7 +131,7 @@
             // Click Logic: Chevron ONLY toggles; Row selection ONLY plays
             item.onclick = (e) => {
                 if (e.target.classList.contains('chevron')) {
-                    if (isParent) toggleCollapse(i);
+                    if (isParent) { toggleCollapse(i); }
                     return;
                 }
                 
@@ -169,7 +169,7 @@
     }
 
     function updateProgress(index) {
-        if (!chapterProgress || chapters.length === 0) return;
+        if (!chapterProgress || chapters.length === 0) { return; }
         if (index < 0 || index >= chapters.length) {
             chapterProgress.textContent = '—';
         } else {
@@ -178,7 +178,7 @@
     }
 
     function escapeHtml(str) {
-        if (!str) return '';
+        if (!str) { return ''; }
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
@@ -225,13 +225,13 @@
 
     // --- Toast Notifications ---
     function showToast(message, type = 'info') {
-        if (!toastContainer) return;
+        if (!toastContainer) { return; }
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
         
         let icon = 'ℹ️';
-        if (type === 'error') icon = '❌';
-        if (type === 'warning') icon = '⚠️';
+        if (type === 'error') { icon = '❌'; }
+        if (type === 'warning') { icon = '⚠️'; }
         
         toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
         toastContainer.appendChild(toast);
@@ -245,7 +245,7 @@
 
     // --- Sentence Navigator ---
     function updateSentenceNavigator(sentences, currentIndex) {
-        if (!sentenceCurrent) return;
+        if (!sentenceCurrent) { return; }
 
         const prevIdx = currentIndex - 1;
         const nextIdx = currentIndex + 1;
@@ -260,7 +260,7 @@
     }
 
     function updateRow(el, text, idx) {
-        if (!el) return;
+        if (!el) { return; }
         
         // Always show the element to maintain the 3-slot layout
         el.style.display = 'flex';
@@ -318,10 +318,10 @@
                 break;
             case 'voiceChanged':
                 state.selectedVoice = message.voice;
-                if (vscode) vscode.setState(state);
+                if (vscode) { vscode.setState(state); }
                 break;
             case 'voices':
-                if (!voiceSelect) return;
+                if (!voiceSelect) { return; }
                 engineMode = message.engineMode;
                 availableVoices = (engineMode === 'neural') ? message.neuralVoices : message.voices;
                 renderVoiceList();
@@ -333,7 +333,10 @@
                     
                     // MEMORY MANAGEMENT: Revoke previous URL to free browser memory
                     if (currentAudioUrl) {
-                        URL.revokeObjectURL(currentAudioUrl);
+                        try {
+                            URL.revokeObjectURL(currentAudioUrl);
+                            activeObjectURLs.delete(currentAudioUrl);
+                        } catch (e) {}
                     }
 
                     const blob = base64ToBlob(message.data, 'audio/mpeg');
@@ -358,7 +361,7 @@
                         updateRow(sentenceCurrent, message.text);
                     }
 
-                    if (waveContainer) waveContainer.classList.add('speaking');
+                    if (waveContainer) { waveContainer.classList.add('speaking'); }
                     btnPlay.style.display = 'none';
                     btnPause.style.display = 'inline-block';
                 }
@@ -380,7 +383,7 @@
                 // Sync internal dashboard state with backend values
                 state.rate = message.rate;
                 state.volume = message.volume;
-                if (vscode) vscode.setState(state);
+                if (vscode) { vscode.setState(state); }
 
                 // Context Slots
                 currentReadingUri = message.readingUri;
@@ -452,37 +455,39 @@
             
             case 'PURGE_MEMORY':
                 console.log('[DASHBOARD] PURGING ALL AUDIO OBJECTS...');
+                if (neuralPlayer) {
+                    neuralPlayer.pause();
+                    neuralPlayer.src = '';
+                    neuralPlayer.load();
+                }
                 activeObjectURLs.forEach(url => {
                     try { URL.revokeObjectURL(url); } catch(e) {}
                 });
                 activeObjectURLs.clear();
                 currentAudioUrl = null;
-                if (neuralPlayer) {
-                    neuralPlayer.src = '';
-                    neuralPlayer.load();
-                }
                 break;
         }
     }
 
 
     // --- Post message helper (works in both webview and websocket modes) ---
-    let _socket = null;
+    let socket = null;
     function postMsg(msg) {
         if (vscode) {
             vscode.postMessage(msg);
-        } else if (_socket && _socket.readyState === WebSocket.OPEN) {
-            _socket.send(JSON.stringify(msg));
+        } else if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(msg));
         }
     }
 
     // --- Voice Rendering Logic ---
     function renderVoiceList(filterTerm = '') {
-        if (!voiceSelect) return;
+        if (!voiceSelect) { return; }
         const term = filterTerm.toLowerCase();
         voiceSelect.innerHTML = '';
 
         if (engineMode === 'neural') {
+            if (neuralPlayer) { neuralPlayer.pause(); }
             engineNeural.classList.add('active');
             engineLocal.classList.remove('active');
             if (engineStatusTag) {
@@ -494,7 +499,7 @@
                     const opt = document.createElement('option');
                     opt.value = v.id;
                     opt.textContent = `✨ ${v.name} (${v.lang})`;
-                    if (v.id === state.selectedVoice) opt.selected = true;
+                    if (v.id === state.selectedVoice) { opt.selected = true; }
                     voiceSelect.appendChild(opt);
                 }
             });
@@ -510,7 +515,7 @@
                     const opt = document.createElement('option');
                     opt.value = name;
                     opt.textContent = name;
-                    if (name === state.selectedVoice) opt.selected = true;
+                    if (name === state.selectedVoice) { opt.selected = true; }
                     voiceSelect.appendChild(opt);
                 }
             });
@@ -520,9 +525,10 @@
     // --- Voice select ---
     if (voiceSelect) {
         voiceSelect.onchange = () => {
-            state.selectedVoice = voiceSelect.value;
-            if (vscode) vscode.setState(state);
-            postMsg({ command: 'voiceChanged', voice: state.selectedVoice });
+            const voice = voiceSelect.value;
+            state.selectedVoice = voice;
+            if (vscode) { vscode.setState(state); }
+            postMsg({ command: 'setVoice', voice });
         };
     }
 
@@ -537,7 +543,7 @@
     }
 
     if (voiceSearch) {
-        voiceSearch.oninput = (e) => renderVoiceList(e.target.value);
+        voiceSearch.oninput = (e) => { renderVoiceList(e.target.value); };
     }
 
     if (rateSlider) {
@@ -547,7 +553,7 @@
             rateVal.textContent = (val > 0 ? '+' : '') + val;
 
             // Sync current playback if active
-            if (neuralPlayer && !neuralPlayer.paused) {
+            if (engineMode === 'neural' && neuralPlayer && !neuralPlayer.paused) {
                 neuralPlayer.playbackRate = val >= 0 ? 1 + (val / 10) : 1 + (val / 20);
             }
 
@@ -612,11 +618,11 @@
             }
 
     // --- Control Buttons ---
-    if (btnPrev) btnPrev.addEventListener('click', () => postMsg({ command: 'prevChapter' }));
-    if (btnNext) btnNext.addEventListener('click', () => postMsg({ command: 'nextChapter' }));
+    if (btnPrev) { btnPrev.addEventListener('click', () => { postMsg({ command: 'prevChapter' }); }); }
+    if (btnNext) { btnNext.addEventListener('click', () => { postMsg({ command: 'nextChapter' }); }); }
 
-    if (btnPrevSentence) btnPrevSentence.onclick = () => postMsg({ command: 'prevSentence' });
-    if (btnNextSentence) btnNextSentence.onclick = () => postMsg({ command: 'nextSentence' });
+    if (btnPrevSentence) { btnPrevSentence.onclick = () => { postMsg({ command: 'prevSentence' }); }; }
+    if (btnNextSentence) { btnNextSentence.onclick = () => { postMsg({ command: 'nextSentence' }); }; }
 
     if (btnAutoplay) {
         // Restore persisted state (default: true)
@@ -630,7 +636,7 @@
             btnAutoplay.dataset.active = next ? 'true' : 'false';
             btnAutoplay.classList.toggle('active', next);
             state.autoPlayEnabled = next;
-            if (vscode) vscode.setState(state);
+            if (vscode) { vscode.setState(state); }
             postMsg({ command: 'toggleAutoPlay', enabled: next });
         });
     }
@@ -679,7 +685,7 @@
     // --- Keyboard Shortcuts ---
     window.addEventListener('keydown', (e) => {
         // Don't trigger if typing in search input
-        if (document.activeElement === voiceSearch) return;
+        if (document.activeElement === voiceSearch) { return; }
 
         switch (e.code) {
             case 'Space':
@@ -692,11 +698,11 @@
                 break;
             case 'ArrowRight':
                 e.preventDefault();
-                if (btnNextSentence) btnNextSentence.click();
+                if (btnNextSentence) { btnNextSentence.click(); }
                 break;
             case 'ArrowLeft':
                 e.preventDefault();
-                if (btnPrevSentence) btnPrevSentence.click();
+                if (btnPrevSentence) { btnPrevSentence.click(); }
                 break;
         }
     });
@@ -708,20 +714,20 @@
         vscode.postMessage({ command: 'ready' });
     } else {
         const config = window.__BRIDGE_CONFIG__ || { host: '127.0.0.1', port: 3001 };
-        _socket = new WebSocket(`ws://${config.host}:${config.port}`);
+        socket = new WebSocket(`ws://${config.host}:${config.port}`);
 
-        _socket.onopen = () => {
+        socket.onopen = () => {
             updateStatus(true);
-            _socket.send(JSON.stringify({ command: 'ready' }));
+            socket.send(JSON.stringify({ command: 'ready' }));
         };
 
-        _socket.onmessage = (event) => {
+        socket.onmessage = (event) => {
             try { handleCommand(JSON.parse(event.data)); } catch (e) { }
         };
 
-        _socket.onclose = () => {
+        socket.onclose = () => {
             updateStatus(false);
-            setTimeout(() => window.location.reload(), 3000);
+            setTimeout(() => { window.location.reload(); }, 3000);
         };
     }
 }());
