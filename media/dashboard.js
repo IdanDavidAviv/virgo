@@ -62,7 +62,7 @@
     const cacheDebugTag = document.getElementById('cache-debug-tag');
 
     // --- State ---
-    let state = (vscode && vscode.getState()) || { selectedVoice: null, autoPlayEnabled: true };
+    let state = (vscode && vscode.getState()) || { selectedVoice: null, autoPlayMode: 'auto' };
     let chapters = [];
     let currentChapterIndex = -1;
     let availableVoices = []; // Global copy for searching
@@ -142,7 +142,7 @@
             chapterList.appendChild(item);
         });
 
-        updateProgress(currentIdx);
+        syncPlaybackUI(data.currentChapterIndex, data.currentSentenceIndex, data.totalSentences);
     }
 
     function toggleCollapse(index) {
@@ -152,28 +152,32 @@
             collapsedIndices.add(index);
         }
         renderChapters(chapters, currentChapterIndex);
+        syncPlaybackUI();
     }
 
-    function updateActiveChapter(index) {
-        currentChapterIndex = index;
+    function syncPlaybackUI(chapterIndex, sentenceIndex, totalSentences) {
+        // 1. Update internal tracking if provided
+        if (chapterIndex !== undefined) { currentChapterIndex = chapterIndex; }
+
+        // 2. Update Progress Header (Title Bar)
+        if (!chapterProgress || chapters.length === 0) {
+            chapterProgress.innerHTML = '—';
+        } else {
+            const chStr = `${currentChapterIndex + 1} / ${chapters.length}`;
+            const rowStr = totalSentences ? `<span style="opacity: 0.5; margin: 0 8px;">•</span><span style="font-weight: 400; opacity: 0.8;">ROW ${sentenceIndex + 1} / ${totalSentences}</span>` : '';
+            chapterProgress.innerHTML = `${chStr}${rowStr}`;
+        }
+
+        // 3. Update Chapter List Highlights
         const allItems = chapterList ? chapterList.querySelectorAll('.chapter-item') : [];
-        allItems.forEach((el, i) => {
-            el.classList.toggle('now-playing', parseInt(el.dataset.index) === index);
+        allItems.forEach((el) => {
+            el.classList.toggle('now-playing', parseInt(el.dataset.index) === currentChapterIndex);
         });
 
-        const activeEl = chapterList && chapterList.querySelector(`.chapter-item[data-index="${index}"]`);
+        // 4. Managed Scrolling
+        const activeEl = chapterList && chapterList.querySelector(`.chapter-item[data-index="${currentChapterIndex}"]`);
         if (activeEl) {
             activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-        updateProgress(index);
-    }
-
-    function updateProgress(index) {
-        if (!chapterProgress || chapters.length === 0) { return; }
-        if (index < 0 || index >= chapters.length) {
-            chapterProgress.textContent = '—';
-        } else {
-            chapterProgress.textContent = `${index + 1} / ${chapters.length}`;
         }
     }
 
@@ -297,13 +301,14 @@
                 renderChapters(message.chapters, message.current);
                 break;
             case 'chapterChanged':
-                updateActiveChapter(message.index);
+                syncPlaybackUI(message.index);
                 break;
             case 'state-sync':
                 // Dual context update
                 currentReadingUri = message.readingUri;
                 updateContextSlot(message.activeUri, activeFilename, activeDir);
                 updateContextSlot(message.readingUri, readerFilename, readerDir);
+                syncPlaybackUI(message.currentChapterIndex, message.currentSentenceIndex, message.totalSentences);
 
                 // Mismatch Pulse
                 if (btnLoadFile) {
@@ -394,6 +399,12 @@
                     const isMismatch = message.activeUri && message.activeUri !== message.readingUri;
                     btnLoadFile.classList.toggle('mismatch', !!isMismatch);
                 }
+
+                // --- NEW CENTRALIZED SYNC ---
+                if (message.autoPlayMode) {
+                    updateAutoPlayUI(message.autoPlayMode);
+                }
+                syncPlaybackUI(message.currentChapterIndex, message.currentSentenceIndex, message.totalSentences);
                 break;
             case 'documentInfo':
                 // Trigger transfer animation
@@ -477,6 +488,29 @@
             vscode.postMessage(msg);
         } else if (socket && socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify(msg));
+        }
+    }
+
+    function updateAutoPlayModeUI(mode) {
+        if (!btnAutoplay) { return; }
+        
+        // Remove all mode classes
+        btnAutoplay.classList.remove('mode-auto', 'mode-chapter', 'mode-row');
+        
+        switch (mode) {
+            case 'chapter':
+                btnAutoplay.textContent = '1 CH';
+                btnAutoplay.classList.add('active', 'mode-chapter');
+                break;
+            case 'row':
+                btnAutoplay.textContent = '1 ROW';
+                btnAutoplay.classList.add('active', 'mode-row');
+                break;
+            case 'auto':
+            default:
+                btnAutoplay.textContent = 'AUTO';
+                btnAutoplay.classList.add('active', 'mode-auto');
+                break;
         }
     }
 
@@ -625,19 +659,23 @@
     if (btnNextSentence) { btnNextSentence.onclick = () => { postMsg({ command: 'nextSentence' }); }; }
 
     if (btnAutoplay) {
-        // Restore persisted state (default: true)
-        const initAuto = state.autoPlayEnabled !== false;
-        btnAutoplay.dataset.active = initAuto ? 'true' : 'false';
-        btnAutoplay.classList.toggle('active', initAuto);
+        // Restore persisted state (default: auto)
+        const initMode = state.autoPlayMode || 'auto';
+        updateAutoPlayModeUI(initMode);
 
         btnAutoplay.addEventListener('click', () => {
-            const isActive = btnAutoplay.dataset.active === 'true';
-            const next = !isActive;
-            btnAutoplay.dataset.active = next ? 'true' : 'false';
-            btnAutoplay.classList.toggle('active', next);
-            state.autoPlayEnabled = next;
+            const current = state.autoPlayMode || 'auto';
+            let next = 'auto';
+            
+            if (current === 'auto') { next = 'chapter'; }
+            else if (current === 'chapter') { next = 'row'; }
+            else { next = 'auto'; }
+            
+            state.autoPlayMode = next;
+            updateAutoPlayModeUI(next);
+            
             if (vscode) { vscode.setState(state); }
-            postMsg({ command: 'toggleAutoPlay', enabled: next });
+            postMsg({ command: 'setAutoPlayMode', mode: next });
         });
     }
 

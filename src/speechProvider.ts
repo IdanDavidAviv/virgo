@@ -21,7 +21,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _currentSentenceIndex: number = 0;
     
     // Configuration
-    private _autoAdvance: boolean = true;
+    private _autoPlayMode: 'auto' | 'chapter' | 'row' = 'auto';
     private _selectedVoice: string = 'en-US-AriaNeural';
     private _rate: number = 0;
     private _volume: number = 100;
@@ -231,8 +231,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this.prevChapter();
                 break;
 
+            case 'setAutoPlayMode':
+                this._autoPlayMode = data.mode;
+                break;
             case 'toggleAutoPlay':
-                this._autoAdvance = data.enabled;
+                // Backward compatibility for old calls if any
+                this._autoPlayMode = data.enabled ? 'auto' : 'row';
                 break;
             case 'voiceChanged':
                 this._selectedVoice = data.voice;
@@ -280,10 +284,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _sendInitialState() {
         this._postToAll({
             command: 'initialState',
-            voice: this._selectedVoice,
-            rate: this._rate,
-            volume: this._volume,
-            autoPlay: this._autoAdvance,
+            currentChapterIndex: this._currentChapterIndex,
+            currentSentenceIndex: this._currentSentenceIndex,
+            totalChapters: this._chapters.length,
+            totalSentences: this._chapters[this._currentChapterIndex]?.sentences.length || 0,
+            autoPlayMode: this._autoPlayMode,
             engineMode: this._engineMode
         });
         this._broadcastState();
@@ -301,7 +306,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             isPlaying: this._playbackEngine.isPlaying,
             isPaused: this._playbackEngine.isPaused,
             currentChapterIndex: this._currentChapterIndex,
-            currentSentenceIndex: this._currentSentenceIndex
+            currentSentenceIndex: this._currentSentenceIndex,
+            totalSentences: this._chapters[this._currentChapterIndex]?.sentences.length || 0
         });
     }
 
@@ -410,16 +416,18 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 index: i,
                 count: c.sentences.length 
             })),
-            current: 0,
-            total: this._chapters.length
+            currentChapterIndex: 0,
+            totalChapters: this._chapters.length,
+            currentSentenceIndex: 0,
+            totalSentences: this._chapters[0]?.sentences.length || 0
         });
 
         if (this._chapters.length > 0) {
-            const firstChapter = this._chapters[this._currentChapterIndex];
+            const firstChapter = this._chapters[0];
             this._postToAll({
                 command: 'sentenceChanged',
                 text: firstChapter.sentences[0],
-                chapterIndex: this._currentChapterIndex,
+                chapterIndex: 0,
                 sentenceIndex: 0,
                 totalSentences: firstChapter.sentences.length,
                 sentences: firstChapter.sentences,
@@ -669,7 +677,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 // Move to next chapter
                 cIdx++;
                 sIdx = 0;
-                if (!this._autoAdvance) {break;} // Don't prefetch next chapter if auto-advance is off
+                if (this._autoPlayMode !== 'auto') {break;} // Don't prefetch next chapter if auto-advance is not fully enabled
             }
         }
     }
@@ -705,13 +713,36 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _moveNext(manual: boolean = false) {
+        if (manual) {
+            this._advanceNormally();
+            return;
+        }
+
+        switch (this._autoPlayMode) {
+            case 'row':
+                this.stop();
+                break;
+            case 'chapter':
+                const chapter = this._chapters[this._currentChapterIndex];
+                if (this._currentSentenceIndex + 1 < chapter.sentences.length) {
+                    this._playChapter(this._currentChapterIndex, this._currentSentenceIndex + 1);
+                } else {
+                    this.stop();
+                }
+                break;
+            case 'auto':
+            default:
+                this._advanceNormally();
+                break;
+        }
+    }
+
+    private _advanceNormally() {
         const chapter = this._chapters[this._currentChapterIndex];
         if (this._currentSentenceIndex + 1 < chapter.sentences.length) {
             this._playChapter(this._currentChapterIndex, this._currentSentenceIndex + 1);
-        } else if (this._autoAdvance || manual) {
-            this.jumpToChapter(this._currentChapterIndex + 1);
         } else {
-            this.stop();
+            this.jumpToChapter(this._currentChapterIndex + 1);
         }
     }
 }
