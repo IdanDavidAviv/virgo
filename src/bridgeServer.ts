@@ -36,6 +36,7 @@ export class BridgeServer extends EventEmitter {
         if (port) {
             this._port = port;
         }
+        this._retryCount = this._retryCount || 0;
         return new Promise((resolve, reject) => {
             this._server = http.createServer((req, res) => {
                 // PNA & CORS Headers: Required by Chromium's Private Network Access policy
@@ -89,31 +90,33 @@ export class BridgeServer extends EventEmitter {
                             this.emit('ready');
                         }
                     } catch (e) {
-                        this.logger(`[BRIDGE] Malformed JSON received: ${e}`);
                     }
                 });
             });
 
             // VPN-SAFE: Bind to all interfaces (0.0.0.0) so that VPN-rerouted loopback
-            // can still connect. 127.0.0.1 alone is unreachable when a VPN captures
-            // the loopback adapter. We keep _host in the URL for the CSP/config.
-            this._server.listen(this._port, '0.0.0.0', () => {
-                resolve(this._port);
-            });
-
-
             this._server.on('error', (err: any) => {
                 if (err.code === 'EADDRINUSE' && this._retryCount < 10) {
                     this._retryCount++;
-                    this.logger(`[BRIDGE] Port ${this._port} busy. Retrying with ${this._port + 1} (Attempt ${this._retryCount}/10)`);
-                    this._port++;
-                    this._server?.close();
-                    this.start().then(resolve).catch(reject);
+                    const nextPort = this._port + 1;
+                    this.logger(`[BRIDGE] PORT COLLISION: ${this._port} is taken. Moving to ${nextPort} (Retry ${this._retryCount}/10)`);
+                    this._port = nextPort;
+                    this.stop(); 
+                    setTimeout(() => {
+                        this.start().then(resolve).catch(reject);
+                    }, 100);
                 } else {
-                    this._retryCount = 0; // Reset for next explicit start if any
+                    this._retryCount = 0;
                     reject(err);
                 }
             });
+
+            this._server.on('listening', () => {
+                this.logger(`[BRIDGE] HTTP Server successfully listening on port ${this._port}`);
+                resolve(this._port);
+            });
+
+            this._server.listen(this._port, this._host);
         });
     }
 
@@ -143,6 +146,14 @@ export class BridgeServer extends EventEmitter {
         // 3. Handshake Configuration
         const host = options.overrideHost || '127.0.0.1';
         const clientConfig = `window.__BRIDGE_CONFIG__ = { host: '${host}', port: ${this._port} };`;
+
+        // 4. Version from package.json (live SSOT, never hardcoded)
+        let extensionVersion = '?.?.?';
+        try {
+            const pkgPath = path.join(this._mediaPath, '..', '..', 'package.json');
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            extensionVersion = pkg.version || extensionVersion;
+        } catch (e) { /* non-fatal */ }
         
         // 4. Centralized CSP: Unified Security Pattern
         // AUDIT-CONFIRMED (2026-03-26): Only 127.0.0.1 and 0.0.0.0 are bound on the host.
@@ -175,6 +186,7 @@ export class BridgeServer extends EventEmitter {
         content = content.replace(/\$\{inlineStyle\}/g, () => styleCss);
         content = content.replace(/\$\{inlineScript\}/g, () => `${clientConfig}\n${dashboardJs}`);
         content = content.replace(/\$\{cspSource\}/g, () => cspSource);
+        content = content.replace(/\$\{extensionVersion\}/g, () => extensionVersion);
         
         content = content.replace(/\$\{teleprompterContent\}/g, () => options.markdownHtml || '<div class="ra-no-content">No Content Loaded</div>');
         

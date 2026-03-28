@@ -174,17 +174,58 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             }
         });
 
-        webviewView.webview.html = `<!DOCTYPE html><html><body style="background:transparent;color:#888;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">Initializing Handshake...</body></html>`;
-        setTimeout(() => this.refresh(), 500);
+        webviewView.webview.html = this._getLoadingHtml();
+        if (this._bridge) {
+            this.refresh();
+        }
     }
 
-    public async refresh() {
-        if (!this._view || this._isRefreshing || !this._bridge) {return;}
-        this._isRefreshing = true;
+    private _getLoadingHtml(): string {
+        return `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { 
+                        background: transparent; 
+                        color: #888; 
+                        display: flex; 
+                        flex-direction: column;
+                        justify-content: center; 
+                        align-items: center; 
+                        height: 100vh; 
+                        font-family: sans-serif; 
+                        gap: 16px;
+                    }
+                    .loader {
+                        width: 24px;
+                        height: 24px;
+                        border: 2px solid #333;
+                        border-top: 2px solid #555;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                    }
+                    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                </style>
+            </head>
+            <body>
+                <div class="loader"></div>
+                <div style="font-size: 13px; letter-spacing: 0.5px;">INITIALIZING AUDIO ENGINE...</div>
+            </body>
+            </html>
+        `;
+    }
+
+    public refresh(): void {
+        if (!this._view || this._isRefreshing || !this._bridge) {
+            return;
+        }
+
         try {
-            this._view.webview.html = this._bridge.getHtml(this._view.webview, {});
+            this._isRefreshing = true;
+            this._view.webview.html = this._bridge.getHtml(this._view.webview);
         } catch (e) {
-            this._logger(`Webview refresh failed: ${e}. Retrying...`);
+            this._logger(`[REFRESH] FAILED: ${e}`);
             setTimeout(() => this.refresh(), 1000);
         } finally {
             this._isRefreshing = false;
