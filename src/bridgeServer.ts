@@ -10,8 +10,9 @@ export class BridgeServer extends EventEmitter {
     private _port: number;
     private _host: string;
     private _clients: Set<WebSocket> = new Set();
+    private _retryCount: number = 0;
 
-    constructor(private readonly _mediaPath: string) {
+    constructor(private readonly _mediaPath: string, private readonly logger: (msg: string) => void) {
         super();
         this._port = parseInt(process.env.ANTIGRAVITY_BRIDGE_PORT || '3001');
         this._host = process.env.ANTIGRAVITY_BRIDGE_HOST || '127.0.0.1';
@@ -83,12 +84,14 @@ export class BridgeServer extends EventEmitter {
 
 
             this._server.on('error', (err: any) => {
-                if (err.code === 'EADDRINUSE') {
-                    // Try next port if 3001 is busy
+                if (err.code === 'EADDRINUSE' && this._retryCount < 10) {
+                    this._retryCount++;
+                    this.logger(`[BRIDGE] Port ${this._port} busy. Retrying with ${this._port + 1} (Attempt ${this._retryCount}/10)`);
                     this._port++;
                     this._server?.close();
                     this.start().then(resolve).catch(reject);
                 } else {
+                    this._retryCount = 0; // Reset for next explicit start if any
                     reject(err);
                 }
             });
@@ -106,7 +109,7 @@ export class BridgeServer extends EventEmitter {
 
     public getHtml(webview?: { cspSource: string }, options: { overrideHost?: string, markdownHtml?: string } = {}): string {
         const filePath = path.join(this._mediaPath, 'speechEngine.html');
-        if (!fs.existsSync(filePath)) return '<h1>Bridge Error: speechEngine.html not found</h1>';
+        if (!fs.existsSync(filePath)) {return '<h1>Bridge Error: speechEngine.html not found</h1>';}
 
         let content = fs.readFileSync(filePath, 'utf8');
         
@@ -136,7 +139,7 @@ export class BridgeServer extends EventEmitter {
         const cspStr = [
             "default-src 'none'",
             `img-src ${cspSource} * data: blob:`,
-            `script-src 'unsafe-inline' 'unsafe-eval' ${cspSource} https:`,
+            `script-src 'unsafe-inline' ${cspSource} https:`,
             `style-src 'unsafe-inline' ${cspSource} https:`,
             `connect-src ${connectSources} https:`,
             `media-src ${cspSource} data: blob:`,

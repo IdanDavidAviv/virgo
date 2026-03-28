@@ -17,7 +17,7 @@ export class PlaybackEngine {
     
     // Unified LRU Cache for all synthesized audio
     private _audioCache: Map<string, string> = new Map();
-    private readonly MAX_CACHE_SIZE = 100;
+    private readonly MAX_CACHE_BYTES = 50 * 1024 * 1024; // 50MB Cap
 
     // Track ongoing synthesis to prevent duplicates
     private _pendingTasks: Map<string, Promise<string | null>> = new Map();
@@ -39,12 +39,12 @@ export class PlaybackEngine {
 
     public setPlaying(val: boolean) { 
         this._isPlaying = val; 
-        if (val) this._isPaused = false;
+        if (val) {this._isPaused = false;}
     }
     
     public setPaused(val: boolean) { 
         this._isPaused = val; 
-        if (val) this._isPlaying = false;
+        if (val) {this._isPlaying = false;}
     }
 
     public stop() {
@@ -134,25 +134,37 @@ export class PlaybackEngine {
         return { local, neural };
     }
 
+    private _getSegmentSizeBytes(base64: string): number {
+        // Base64 to raw bytes approx calculation
+        return Math.floor(base64.length * 0.75);
+    }
+
     private _addToCache(key: string, data: string) {
-        // Simple LRU: if full, remove oldest (first inserted)
-        if (this._audioCache.size >= this.MAX_CACHE_SIZE) {
+        const segmentSize = this._getSegmentSizeBytes(data);
+
+        // LRU Eviction: while total size exceeds 50MB, remove oldest
+        while (this._audioCache.size > 0 && (this._cacheSizeBytes + segmentSize > this.MAX_CACHE_BYTES)) {
             const firstKey = this._audioCache.keys().next().value;
             if (firstKey !== undefined) {
-                this.logger(`[LRU] Evicting: ${firstKey} (Cache Full)`);
+                const evictedData = this._audioCache.get(firstKey);
+                if (evictedData) {
+                    this._cacheSizeBytes -= this._getSegmentSizeBytes(evictedData);
+                }
+                this.logger(`[LRU] Evicting: ${firstKey} (Memory Cap Reach)`);
                 this._audioCache.delete(firstKey);
             }
         }
+
         this._audioCache.set(key, data);
-        this._cacheSizeBytes += data.length;
-        if (this._onCacheUpdate) this._onCacheUpdate();
+        this._cacheSizeBytes += segmentSize;
+        if (this._onCacheUpdate) {this._onCacheUpdate();}
     }
 
     public async triggerPrefetch(text: string, cacheKey: string, options: PlaybackOptions) {
-        if (options.mode !== 'neural') return;
+        if (options.mode !== 'neural') {return;}
         
         // If already cached or synthesis is in flight, do nothing
-        if (this._audioCache.has(cacheKey) || this._pendingTasks.has(cacheKey)) return;
+        if (this._audioCache.has(cacheKey) || this._pendingTasks.has(cacheKey)) {return;}
 
         try {
             this.logger(`[PREFETCH] Starting background synthesis: [${cacheKey}]`);
@@ -225,7 +237,7 @@ export class PlaybackEngine {
                 });
 
                 audioStream.on("end", () => {
-                    if (hasErrored) return;
+                    if (hasErrored) {return;}
                     this.logger(`[TTS STREAM] COMPLETE. Received ${chunks.length} total chunks.`);
                     const buffer = Buffer.concat(chunks);
                     resolve(buffer.toString('base64'));
@@ -261,9 +273,17 @@ export class PlaybackEngine {
         }
     }
 
+    private _getSafeText(text: string): string {
+        // PRODUCTION HARDENING: Neutralize shell injection by whitelisting character set
+        // Allow: Alphanumeric, spaces, basic punctuation (.,!?-:;()'")
+        // Deny: Symbols used for shell expansion/redirection ($, `, |, &, <, >, \, {, }, [, ])
+        return text.replace(/[^a-zA-Z0-9\s.,!?-——:;()'"\u0590-\u05FF]/g, ' ')
+                   .replace(/["']/g, ''); // Specifically strip quotes for command safety
+    }
+
     public speakLocal(text: string, options: PlaybackOptions, onExit: (code: number | null) => void) {
         this.stopProcess();
-        const safeText = text.replace(/["']/g, '');
+        const safeText = this._getSafeText(text);
         
         if (process.platform === 'win32') {
             const psScript = `
@@ -297,10 +317,20 @@ export class PlaybackEngine {
             this._nativeProcess = child_process.spawn('espeak', args);
         }
 
+        const timeout = setTimeout(() => {
+            if (this._nativeProcess) {
+                this.logger(`[LOCAL] Synthesis TIMEOUT (60s). Killing process ${this._nativeProcess.pid}`);
+                this.stopProcess();
+                onExit(-1);
+            }
+        }, 60000);
+
         this._nativeProcess.on('exit', (code: number | null) => {
+            clearTimeout(timeout);
             this._nativeProcess = null;
             onExit(code);
         });
+
         
         Telemetry.track('synthesis_success', { mode: 'local', platform: process.platform });
     }

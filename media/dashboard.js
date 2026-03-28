@@ -71,6 +71,9 @@
     let collapsedIndices = new Set();
     let lastHighlightedLine = -1;
     let currentReadingUri = null;
+    let currentAudioUrl = null;
+    let activeObjectURLs = new Set();
+
 
     // --- Status Dot ---
     function updateStatus(isOnline) {
@@ -177,6 +180,22 @@
     function escapeHtml(str) {
         if (!str) return '';
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function base64ToBlob(base64, mime) {
+        const sliceSize = 1024;
+        const byteCharacters = atob(base64);
+        const byteArrays = [];
+        for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+            const slice = byteCharacters.slice(offset, offset + sliceSize);
+            const byteNumbers = new Array(slice.length);
+            for (let i = 0; i < slice.length; i++) {
+                byteNumbers[i] = slice.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            byteArrays.push(byteArray);
+        }
+        return new Blob(byteArrays, { type: mime });
     }
 
     // --- Loading UI Helpers ---
@@ -311,7 +330,17 @@
                 setLoading(false); // Clear synthesis loading
                 if (neuralPlayer) {
                     postMsg({ command: 'log', message: `[DASHBOARD] Starting playback: ${message.text.substring(0, 30)}...` });
-                    neuralPlayer.src = `data:audio/mpeg;base64,${message.data}`;
+                    
+                    // MEMORY MANAGEMENT: Revoke previous URL to free browser memory
+                    if (currentAudioUrl) {
+                        URL.revokeObjectURL(currentAudioUrl);
+                    }
+
+                    const blob = base64ToBlob(message.data, 'audio/mpeg');
+                    currentAudioUrl = URL.createObjectURL(blob);
+                    activeObjectURLs.add(currentAudioUrl);
+                    neuralPlayer.src = currentAudioUrl;
+
 
                     // Apply current volume/rate settings immediately
                     neuralPlayer.volume = (state.volume || 100) / 100;
@@ -420,8 +449,22 @@
                     cacheDebugTag.classList.add('pulse');
                 }
                 break;
+            
+            case 'PURGE_MEMORY':
+                console.log('[DASHBOARD] PURGING ALL AUDIO OBJECTS...');
+                activeObjectURLs.forEach(url => {
+                    try { URL.revokeObjectURL(url); } catch(e) {}
+                });
+                activeObjectURLs.clear();
+                currentAudioUrl = null;
+                if (neuralPlayer) {
+                    neuralPlayer.src = '';
+                    neuralPlayer.load();
+                }
+                break;
         }
     }
+
 
     // --- Post message helper (works in both webview and websocket modes) ---
     let _socket = null;

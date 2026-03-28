@@ -37,7 +37,7 @@ export function parseChapters(rawText: string): Chapter[] {
             // If the current chapter has content, push it before starting new one
             if (currentChapter.tokens && currentChapter.tokens.length > 0) {
                 const finished = finalizeChapter(currentChapter, lines);
-                if (finished) chapters.push(finished);
+                if (finished) {chapters.push(finished);}
             }
 
             currentChapter = {
@@ -62,7 +62,7 @@ export function parseChapters(rawText: string): Chapter[] {
     // Finalize last chapter
     if (currentChapter.tokens && currentChapter.tokens.length > 0) {
         const finished = finalizeChapter(currentChapter, lines);
-        if (finished) chapters.push(finished);
+        if (finished) {chapters.push(finished);}
     }
 
     // Fallback: No chapters? (should not happen with finalizeChapter logic, but safety first)
@@ -101,7 +101,7 @@ function finalizeChapter(raw: any, lines: string[]): Chapter | null {
         }
     });
 
-    if (sentences.length === 0 && !raw.title) return null;
+    if (sentences.length === 0 && !raw.title) {return null;}
 
     const lineStart = raw.lineStart || 0;
     const lineEnd = raw.lineEnd || lines.length - 1;
@@ -172,7 +172,7 @@ export function splitIntoSentences(text: string): string[] {
 
     if (lastIndex < text.length) {
         const remaining = text.slice(lastIndex).trim();
-        if (remaining) result.push(remaining);
+        if (remaining) {result.push(remaining);}
     }
 
     return result
@@ -190,8 +190,8 @@ export function findChapterAtLine(chapters: Chapter[], line: number): number {
 }
 
 export function findSentenceAtLine(chapter: Chapter, line: number): number {
-    if (!chapter.sentences || chapter.sentences.length === 0) return 0;
-    if (!chapter.sentenceLines) return 0;
+    if (!chapter.sentences || chapter.sentences.length === 0) {return 0;}
+    if (!chapter.sentenceLines) {return 0;}
 
     // Use absolute line mapping
     let bestIndex = 0;

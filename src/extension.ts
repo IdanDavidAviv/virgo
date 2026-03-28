@@ -16,7 +16,7 @@ let bridgeServer: BridgeServer;
 function log(msg: string) {
     const time = new Date().toLocaleTimeString();
     const formatted = `[${time}] ${msg}`;
-    if (outputChannel) outputChannel.appendLine(formatted);
+    if (outputChannel) {outputChannel.appendLine(formatted);}
     if (logFilePath) {
         try { fs.appendFileSync(logFilePath, formatted + '\n'); } catch (e) {}
     }
@@ -46,7 +46,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('readAloud');
     const port = config.get<number>('bridgePort') || 3001;
     
-    bridgeServer = new BridgeServer(path.join(context.extensionPath, 'dist', 'media'));
+    bridgeServer = new BridgeServer(path.join(context.extensionPath, 'dist', 'media'), log);
     log(`Initializing BridgeServer (Config: 127.0.0.1:${port})...`);
     
     bridgeServer.start(port).then(actualPort => {
@@ -107,7 +107,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         vscode.commands.registerCommand('readme-preview-read-aloud.read-from-cursor', async () => {
             const editor = vscode.window.activeTextEditor;
-            if (!editor) return;
+            if (!editor) {return;}
             const text = editor.document.getText();
             const cursorLine = editor.selection.active.line;
             
@@ -166,4 +166,9 @@ export async function activate(context: vscode.ExtensionContext) {
     };
 }
 
-export function deactivate() {}
+export function deactivate() {
+    if (bridgeServer) {
+        bridgeServer.stop();
+    }
+}
+

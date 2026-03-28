@@ -13,6 +13,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _isPanelReady: boolean = false;
     private _isRefreshing: boolean = false;
     private _bridge?: BridgeServer;
+    private _isSynthesisInProgress: boolean = false;
+
     
     private _chapters: Chapter[] = [];
     private _currentChapterIndex: number = 0;
@@ -75,7 +77,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
             if (workspaceFolder) {
                 this._activeRelativeDir = path.dirname(path.relative(workspaceFolder.uri.fsPath, fullPath));
-                if (this._activeRelativeDir === '.') this._activeRelativeDir = '';
+                if (this._activeRelativeDir === '.') {this._activeRelativeDir = '';}
             } else {
                 this._activeRelativeDir = path.dirname(fullPath);
             }
@@ -159,6 +161,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._handleWebviewMessage(data, 'sidebar');
         });
 
+        webviewView.onDidDispose(() => {
+            this._logger('MISSION CONTROL DISPOSED. Purging memory...');
+            this._postToAll({ command: 'PURGE_MEMORY' });
+            this._isReady = false;
+        });
+
+
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
                 this._broadcastVoices();
@@ -170,7 +179,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public async refresh() {
-        if (!this._view || this._isRefreshing || !this._bridge) return;
+        if (!this._view || this._isRefreshing || !this._bridge) {return;}
         this._isRefreshing = true;
         try {
             this._view.webview.html = this._bridge.getHtml(this._view.webview, {});
@@ -445,6 +454,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
+        if (this._isSynthesisInProgress) {
+            this._logger('[GUARD] Synthesis already in flight. Ignoring play request.');
+            return;
+        }
+
         if (fileName) {
             this._currentDocumentUri = vscode.Uri.file(fileName);
             this._currentFileName = path.basename(fileName);
@@ -504,7 +518,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public jumpToChapter(index: number) {
-        if (index < 0 || index >= this._chapters.length) return;
+        if (index < 0 || index >= this._chapters.length) {return;}
         this._playbackEngine.setPlaying(true);
         this._playChapter(index, 0);
     }
@@ -536,7 +550,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _playChapter(chapterIndex: number, sentenceIndex: number = 0) {
-        if (chapterIndex < 0 || chapterIndex >= this._chapters.length) return;
+        if (chapterIndex < 0 || chapterIndex >= this._chapters.length) {return;}
         
         this._currentChapterIndex = chapterIndex;
         this._currentSentenceIndex = sentenceIndex;
@@ -580,7 +594,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         };
 
         if (this._engineMode === 'neural') {
+            this._isSynthesisInProgress = true;
             this._playbackEngine.speakNeural(sentence, cacheKey, options).then(data => {
+                this._isSynthesisInProgress = false;
+
                 if (data && this._playbackEngine.isPlaying) {
                     this._postToAll({
                         command: 'playAudio',
@@ -591,7 +608,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     });
                 }
             }).catch(err => {
+                this._isSynthesisInProgress = false;
                 this._logger(`[ERR] Neural synthesis failed: ${err.message || err}. Falling back to SAPI.`);
+
                 this._postToAll({
                     command: 'synthesisError',
                     error: err.message || String(err),
@@ -606,9 +625,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             // Pre-fetch
             this._triggerPreFetch(chapterIndex, sentenceIndex + 1, options);
         } else {
-            this._playbackEngine.speakLocal(sentence, options, (code: number | null) => this._onLocalExit(code));
+            this._isSynthesisInProgress = true;
+            this._playbackEngine.speakLocal(sentence, options, (code: number | null) => {
+                this._isSynthesisInProgress = false;
+                this._onLocalExit(code);
+            });
         }
     }
+
 
     private _triggerPreFetch(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions) {
         let count = 0;
@@ -618,7 +642,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         // Prefetch a window of 5 sentences
         while (count < 5) {
             const chapter = this._chapters[cIdx];
-            if (!chapter) break;
+            if (!chapter) {break;}
 
             if (sIdx < chapter.sentences.length) {
                 const text = chapter.sentences[sIdx];
@@ -631,7 +655,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 // Move to next chapter
                 cIdx++;
                 sIdx = 0;
-                if (!this._autoAdvance) break; // Don't prefetch next chapter if auto-advance is off
+                if (!this._autoAdvance) {break;} // Don't prefetch next chapter if auto-advance is off
             }
         }
     }
