@@ -2,6 +2,16 @@
 
 All notable changes to the "Readme Preview Read Aloud" extension will be documented in this file.
 
+## [1.0.2] - 2026-03-28
+
+### Fixed
+- **Architectural Cleanup**: Stripped the extension of legacy artifacts and redundant logic for a lean, high-integrity V1.0.2 codebase.
+- **Engine Optimization**: Purged 6 orphaned private properties and streamlined logic in `SpeechProvider`.
+
+### Removed
+- **Redundant Commands**: Removed `readme-preview-read-aloud.read-selection` as selection handling is now integrated into the main flow.
+- **Legacy Assets**: Deleted `media/simple.html`.
+
 ## [1.0.1] - 2026-03-28
 
 ### Fixed

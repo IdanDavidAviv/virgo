@@ -3,15 +3,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { EventEmitter } from 'events';
-import { z } from 'zod';
 
-const WsMessageSchema = z.discriminatedUnion("command", [
-    z.object({ command: z.literal("ready") }),
-    z.object({ command: z.literal("playbackStarted"), sentenceIndex: z.number().optional() }),
-    z.object({ command: z.literal("playbackFinished") }),
-    z.object({ command: z.literal("error"), message: z.string() }),
-    z.object({ command: z.literal("pong") }),
-]);
+export interface BridgeMessage {
+    command: string;
+    [key: string]: any;
+}
+
 
 export class BridgeServer extends EventEmitter {
     private _server: http.Server | null = null;
@@ -81,9 +78,8 @@ export class BridgeServer extends EventEmitter {
                 ws.on('close', () => this._clients.delete(ws));
                 ws.on('message', (data) => {
                     try {
-                        const raw = JSON.parse(data.toString());
-                        const result = WsMessageSchema.safeParse(raw);
-                        if (result.success && result.data.command === 'ready') {
+                        const raw = JSON.parse(data.toString()) as BridgeMessage;
+                        if (raw && raw.command === 'ready') {
                             this.emit('ready');
                         }
                     } catch (e) {}

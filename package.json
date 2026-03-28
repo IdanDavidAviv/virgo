@@ -2,7 +2,7 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
@@ -67,11 +67,6 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "readme-preview-read-aloud.read-selection",
-        "title": "Read Selection",
-        "icon": "$(play)"
-      },
-      {
         "command": "readme-preview-read-aloud.read-from-cursor",
         "title": "Read Aloud From Here",
         "icon": "$(debug-start-from-here)"
@@ -121,22 +116,12 @@
           "group": "navigation@2"
         },
         {
-          "command": "readme-preview-read-aloud.read-selection",
-          "when": "editorHasSelection",
-          "group": "navigation@3"
-        },
-        {
           "command": "readme-preview-read-aloud.show-dashboard",
           "when": "editorLangId == markdown",
           "group": "navigation@4"
         }
       ],
       "editor/context": [
-        {
-          "command": "readme-preview-read-aloud.read-selection",
-          "group": "modification",
-          "when": "editorHasSelection"
-        },
         {
           "command": "readme-preview-read-aloud.read-from-cursor",
           "group": "modification",
@@ -187,14 +172,12 @@
     "esbuild": "^0.27.4",
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^9.1.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "@types/markdown-it": "^14.1.2"
   },
   "dependencies": {
-    "@types/markdown-it": "^14.1.2",
     "markdown-it": "^14.1.1",
     "msedge-tts": "^2.0.4",
-    "say": "^0.16.0",
-    "ws": "^8.20.0",
-    "zod": "^4.3.6"
+    "ws": "^8.20.0"
   }
 }
