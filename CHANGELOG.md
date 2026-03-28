@@ -5,9 +5,10 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [1.0.2] - 2026-03-28
 
 ### Fixed
-- **Architectural Cleanup**: Stripped the extension of legacy artifacts and redundant logic for a lean, high-integrity V1.0.2 codebase.
-- **Webview Diagnostics**: Implemented a console-to-host bridge and visual debug overlay to identify silent webview ReferenceErrors.
-- **Engine Optimization**: Purged 6 orphaned private properties and streamlined logic in `SpeechProvider`.
+- **Webview Scoping**: Resolved fatal `ReferenceError` caused by incorrect block-scoping of DOM elements in `dashboard.js`.
+- **Initialization Protocol**: Consolidated `acquireVsCodeApi()` calls and added a defensive handshake sequence to prevent startup crashes.
+- **Expanded Recognition**: Relaxed document filters to support `.txt` and `.log` files in the Sidebar.
+- **Diagnostic Layer**: Implemented a console-to-host logging bridge to capture and persist webview errors for rapid recovery.
 
 ### Removed
 - **Redundant Commands**: Removed `readme-preview-read-aloud.read-selection` as selection handling is now integrated into the main flow.

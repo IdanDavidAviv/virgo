@@ -9,15 +9,21 @@
     window.onerror = function (msg, url, line, col) {
         const errorDetail = `[DASHBOARD] CRITICAL ERROR: ${msg} at line ${line}:${col}`;
         console.error(errorDetail);
-        if (typeof acquireVsCodeApi !== 'undefined') {
-            try { acquireVsCodeApi().postMessage({ command: 'error', message: errorDetail }); } catch (e) { }
+        if (window.vscode) {
+            try { window.vscode.postMessage({ command: 'error', message: errorDetail }); } catch (e) { }
         }
     };
 
-    let vscode;
-    try { vscode = acquireVsCodeApi(); } catch (e) { }
+    const vscode = window.vscode;
 
     // --- DOM References ---
+    let activeSlot, readerSlot, activeFilename, activeDir, readerFilename, readerDir, btnLoadFile;
+    let voiceSelect, statusDot, chapterList, chapterProgress, btnPrev, btnNext, btnAutoplay;
+    let settingsToggle, settingsDrawer, rateSlider, rateVal, volumeSlider, volumeVal;
+    let btnPlay, btnPause, btnStop, sentenceNavigator, sentencePrev, sentenceCurrent, sentenceNext;
+    let btnPrevSentence, btnNextSentence, engineLocal, engineNeural, engineToggleGroup;
+    let neuralPlayer, voiceSearch, toastContainer, engineStatusTag, cacheDebugTag, waveContainer;
+
     function getEl(id) {
         const el = document.getElementById(id);
         if (!el) { console.warn(`[DOM] Missing expected element: #${id}`); }
@@ -25,46 +31,46 @@
     }
 
     try {
-        const activeSlot = document.querySelector('.context-slot.selection');
-        const readerSlot = document.querySelector('.context-slot.reader');
-        const activeFilename = getEl('active-filename');
-        const activeDir = getEl('active-dir');
-        const readerFilename = getEl('reader-filename');
-        const readerDir = getEl('reader-dir');
-        const btnLoadFile = getEl('btn-load-file');
+        activeSlot = document.querySelector('.context-slot.selection');
+        readerSlot = document.querySelector('.context-slot.reader');
+        activeFilename = getEl('active-filename');
+        activeDir = getEl('active-dir');
+        readerFilename = getEl('reader-filename');
+        readerDir = getEl('reader-dir');
+        btnLoadFile = getEl('btn-load-file');
         
-        const voiceSelect = getEl('voice-select');
-        const statusDot = getEl('status-dot');
-        const chapterList = getEl('chapter-list');
-        const chapterProgress = getEl('chapter-progress');
-        const btnPrev = getEl('btn-prev');
-        const btnNext = getEl('btn-next');
-        const btnAutoplay = getEl('btn-autoplay');
+        voiceSelect = getEl('voice-select');
+        statusDot = getEl('status-dot');
+        chapterList = getEl('chapter-list');
+        chapterProgress = getEl('chapter-progress');
+        btnPrev = getEl('btn-prev');
+        btnNext = getEl('btn-next');
+        btnAutoplay = getEl('btn-autoplay');
 
-        const settingsToggle = getEl('settings-toggle');
-        const settingsDrawer = getEl('settings-drawer');
-        const rateSlider = getEl('rate-slider');
-        const rateVal = getEl('rate-val');
-        const volumeSlider = getEl('volume-slider');
-        const volumeVal = getEl('volume-val');
-        const btnPlay = getEl('btn-play');
-        const btnPause = getEl('btn-pause');
-        const btnStop = getEl('btn-stop');
-        const sentenceNavigator = getEl('sentence-navigator');
-        const sentencePrev = getEl('sentence-prev');
-        const sentenceCurrent = getEl('sentence-current');
-        const sentenceNext = getEl('sentence-next');
-        const btnPrevSentence = getEl('btn-prev-sentence');
-        const btnNextSentence = getEl('btn-next-sentence');
-        const engineLocal = getEl('engine-local');
-        const engineNeural = getEl('engine-neural');
-        const engineToggleGroup = document.querySelector('.engine-toggle-group');
-        const neuralPlayer = getEl('neural-player');
-        const voiceSearch = getEl('voice-search');
-        const toastContainer = getEl('toast-container');
-        const engineStatusTag = getEl('engine-status-tag');
-        const cacheDebugTag = getEl('cache-debug-tag');
-        const waveContainer = document.querySelector('.wave-container');
+        settingsToggle = getEl('settings-toggle');
+        settingsDrawer = getEl('settings-drawer');
+        rateSlider = getEl('rate-slider');
+        rateVal = getEl('rate-val');
+        volumeSlider = getEl('volume-slider');
+        volumeVal = getEl('volume-val');
+        btnPlay = getEl('btn-play');
+        btnPause = getEl('btn-pause');
+        btnStop = getEl('btn-stop');
+        sentenceNavigator = getEl('sentence-navigator');
+        sentencePrev = getEl('sentence-prev');
+        sentenceCurrent = getEl('sentence-current');
+        sentenceNext = getEl('sentence-next');
+        btnPrevSentence = getEl('btn-prev-sentence');
+        btnNextSentence = getEl('btn-next-sentence');
+        engineLocal = getEl('engine-local');
+        engineNeural = getEl('engine-neural');
+        engineToggleGroup = document.querySelector('.engine-toggle-group');
+        neuralPlayer = getEl('neural-player');
+        voiceSearch = getEl('voice-search');
+        toastContainer = getEl('toast-container');
+        engineStatusTag = getEl('status-dot');
+        cacheDebugTag = getEl('cache-debug-tag');
+        waveContainer = document.querySelector('.wave-container');
 
         console.log('[DASHBOARD] DOM Selection complete.');
     } catch (e) {
@@ -541,7 +547,6 @@
             engineNeural.classList.add('active');
             engineLocal.classList.remove('active');
             if (engineStatusTag) {
-                engineStatusTag.textContent = 'NEURAL';
                 engineStatusTag.classList.remove('fallback');
             }
             availableVoices.forEach(v => {
@@ -557,7 +562,6 @@
             engineLocal.classList.add('active');
             engineNeural.classList.remove('active');
             if (engineStatusTag) {
-                engineStatusTag.textContent = 'NATIVE';
                 engineStatusTag.classList.remove('fallback');
             }
             availableVoices.forEach(name => {

@@ -137,7 +137,8 @@ export class BridgeServer extends EventEmitter {
         // 2. Diagnostic Bootstrap (Redirect logs to VS Code)
         const diagnosticScript = `
             (function() {
-                const vscode = acquireVsCodeApi();
+                const vscode = window.vscode || acquireVsCodeApi();
+                window.vscode = vscode;
                 const _log = console.log, _warn = console.warn, _error = console.error;
                 
                 function send(type, args) {
@@ -154,18 +155,7 @@ export class BridgeServer extends EventEmitter {
                     vscode.postMessage({ command: 'log', type: 'error', message: err });
                 };
 
-                // Visual Overlay
-                document.addEventListener('DOMContentLoaded', () => {
-                    const overlay = document.createElement('div');
-                    overlay.id = 'debug-overlay';
-                    overlay.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:rgba(0,0,0,0.8);color:#0f0;font-family:monospace;font-size:9px;padding:4px;z-index:9999;border-top:1px solid #333;pointer-events:none;opacity:0.7;max-height:40px;overflow:hidden;';
-                    overlay.innerText = 'DEBUG ENGINE: ACTIVE';
-                    document.body.appendChild(overlay);
-
-                    window._updateDebugOverlay = (msg) => {
-                       overlay.innerText = '> ' + msg;
-                    };
-                });
+                // Visual Overlay removed per user request
             })();
         `;
 
@@ -177,9 +167,13 @@ export class BridgeServer extends EventEmitter {
         content = content.replace('/* CSS_INJECTION */', styleCss);
         content = content.replace('/* JS_INJECTION */', dashboardJs);
         
-        // Handle template literals if they still exist in the HTML template
+        // Handle template literals
+        const pkgPath = path.join(this._mediaPath, '..', '..', 'package.json');
+        const pkg = fs.existsSync(pkgPath) ? JSON.parse(fs.readFileSync(pkgPath, 'utf8')) : { version: '0.0.0' };
+        
         content = content.replace(/\$\{inlineStyle\}/g, () => styleCss);
         content = content.replace(/\$\{inlineScript\}/g, () => diagnosticScript + '\n' + clientConfig + '\n' + dashboardJs);
+        content = content.replace(/\$\{extensionVersion\}/g, () => pkg.version || '0.0.0');
 
         return content;
     }

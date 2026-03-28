@@ -141,8 +141,8 @@ export async function activate(context: vscode.ExtensionContext) {
             uri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
         }
         
-        // Support .md, .markdown, and artifacts
-        const artifactRegex = /\.(md|markdown)(\.resolved(\.\d+)?)?$/i;
+        // Support .md, .markdown, .txt, .log and resolved artifacts
+        const artifactRegex = /\.(md|markdown|txt|log)(\.resolved(\.\d+)?)?$/i;
         
         if (uri && (artifactRegex.test(uri.path) || artifactRegex.test(uri.fsPath))) {
             speechProvider.setActiveEditor(uri);
