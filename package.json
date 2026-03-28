@@ -163,6 +163,7 @@
     "build": "node esbuild.js --mode=production",
     "lint": "eslint src --ext ts",
     "package": "node scripts/package.js",
+    "release": "npm run lint && npm run build && npm run package && node .agent/skills/release_prestige/scripts/verify_artifact.js",
     "postversion": "npm run package"
   },
   "devDependencies": {

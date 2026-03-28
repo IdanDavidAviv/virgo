@@ -35,4 +35,4 @@ To verify the installation experience, perform the following manual checks:
 
 ## 2. Release Integrity Script
 Invoke the following to verify the final package:
-`node .agent/skills/release_prestige/scripts/verify_artifact.js`
+`npm run release`
