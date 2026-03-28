@@ -38,7 +38,7 @@ export async function activate(context: vscode.ExtensionContext) {
     pauseBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
     stopBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
 
-    const speechProvider = new SpeechProvider(context.extensionUri, context.extensionPath, log, {
+    const speechProvider = new SpeechProvider(context, log, {
         pause: pauseBarItem,
         stop: stopBarItem
     });
