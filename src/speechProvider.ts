@@ -238,6 +238,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._engineMode = data.mode;
                 this._playbackEngine.stop();
                 this._broadcastVoices();
+                this._broadcastCacheStats();
                 break;
 
             case 'sentenceEnded':
@@ -600,12 +601,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     command: 'engineStatus',
                     status: 'local-fallback'
                 });
-                this._playbackEngine.speakLocal(sentence, options, (code: number | null) => this._onSAPIExit(code));
+                this._playbackEngine.speakLocal(sentence, options, (code: number | null) => this._onLocalExit(code));
             });
             // Pre-fetch
             this._triggerPreFetch(chapterIndex, sentenceIndex + 1, options);
         } else {
-            this._playbackEngine.speakLocal(sentence, options, (code: number | null) => this._onSAPIExit(code));
+            this._playbackEngine.speakLocal(sentence, options, (code: number | null) => this._onLocalExit(code));
         }
     }
 
@@ -638,7 +639,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
 
 
-    private _onSAPIExit(code: number | null) {
+    private _onLocalExit(code: number | null) {
         if (code === 0 && !this._playbackEngine.isPaused && this._playbackEngine.isPlaying) {
             this._moveNext();
         }

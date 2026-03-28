@@ -72,13 +72,15 @@ export class PlaybackEngine {
     }
 
     public getCacheStats() {
-        let totalBytes = 0;
+        let totalBase64Chars = 0;
         this._audioCache.forEach(value => {
-            totalBytes += value.length;
+            totalBase64Chars += value.length;
         });
+        const bytes = Math.floor(totalBase64Chars * 0.75);
+        this.logger(`[CACHE STATS] Count: ${this._audioCache.size} | Total Chars: ${totalBase64Chars} | Est Bytes: ${bytes}`);
         return {
             count: this._audioCache.size,
-            sizeMB: (totalBytes * 0.75 / (1024 * 1024)).toFixed(2) // Base64 to raw bytes approx
+            sizeBytes: bytes
         };
     }
 
