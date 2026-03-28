@@ -9,6 +9,13 @@
       "presentation": {
         "reveal": "never"
       },
+      "group": "build"
+    },
+    {
+      "type": "npm",
+      "script": "compile",
+      "problemMatcher": "$tsc",
+      "label": "npm: compile",
       "group": {
         "kind": "build",
         "isDefault": true
@@ -16,8 +23,9 @@
     },
     {
       "type": "npm",
-      "script": "compile",
+      "script": "build",
       "problemMatcher": "$tsc",
+      "label": "npm: build",
       "group": "build"
     }
   ]
