@@ -147,6 +147,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._broadcastVoices();
                 return;
             }
+            if (data.command === 'log') {
+                this._logger(`[WEBVIEW ${data.type.toUpperCase()}] ${data.message}`);
+                return;
+            }
             this._handleWebviewMessage(data, 'sidebar');
         });
 

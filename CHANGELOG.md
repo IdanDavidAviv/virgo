@@ -6,6 +6,7 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ### Fixed
 - **Architectural Cleanup**: Stripped the extension of legacy artifacts and redundant logic for a lean, high-integrity V1.0.2 codebase.
+- **Webview Diagnostics**: Implemented a console-to-host bridge and visual debug overlay to identify silent webview ReferenceErrors.
 - **Engine Optimization**: Purged 6 orphaned private properties and streamlined logic in `SpeechProvider`.
 
 ### Removed

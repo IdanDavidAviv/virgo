@@ -18,49 +18,58 @@
     try { vscode = acquireVsCodeApi(); } catch (e) { }
 
     // --- DOM References ---
-    // --- Context Manager References ---
-    const activeSlot = document.querySelector('.context-slot.selection');
-    const readerSlot = document.querySelector('.context-slot.reader');
-    const activeFilename = document.getElementById('active-filename');
-    const activeDir = document.getElementById('active-dir');
-    const readerFilename = document.getElementById('reader-filename');
-    const readerDir = document.getElementById('reader-dir');
-    let hasShownPortShiftToast = false;
-    const btnLoadFile = document.getElementById('btn-load-file');
-    
-    // Legacy / Shared References
-    const voiceSelect = document.getElementById('voice-select');
-    const statusDot = document.getElementById('status-dot');
-    const chapterList = document.getElementById('chapter-list');
-    const chapterProgress = document.getElementById('chapter-progress');
-    const btnPrev = document.getElementById('btn-prev');
-    const btnNext = document.getElementById('btn-next');
-    const btnAutoplay = document.getElementById('btn-autoplay');
+    function getEl(id) {
+        const el = document.getElementById(id);
+        if (!el) { console.warn(`[DOM] Missing expected element: #${id}`); }
+        return el;
+    }
 
-    // V2 References
-    const settingsToggle = document.getElementById('settings-toggle');
-    const settingsDrawer = document.getElementById('settings-drawer');
-    const rateSlider = document.getElementById('rate-slider');
-    const rateVal = document.getElementById('rate-val');
-    const volumeSlider = document.getElementById('volume-slider');
-    const volumeVal = document.getElementById('volume-val');
-    const btnPlay = document.getElementById('btn-play');
-    const btnPause = document.getElementById('btn-pause');
-    const btnStop = document.getElementById('btn-stop');
-    const sentenceNavigator = document.getElementById('sentence-navigator');
-    const sentencePrev = document.getElementById('sentence-prev');
-    const sentenceCurrent = document.getElementById('sentence-current');
-    const sentenceNext = document.getElementById('sentence-next');
-    const btnPrevSentence = document.getElementById('btn-prev-sentence');
-    const btnNextSentence = document.getElementById('btn-next-sentence');
-    const engineLocal = document.getElementById('engine-local');
-    const engineNeural = document.getElementById('engine-neural');
-    const engineToggleGroup = document.querySelector('.engine-toggle-group');
-    const neuralPlayer = document.getElementById('neural-player');
-    const voiceSearch = document.getElementById('voice-search');
-    const toastContainer = document.getElementById('toast-container');
-    const engineStatusTag = document.getElementById('engine-status-tag');
-    const cacheDebugTag = document.getElementById('cache-debug-tag');
+    try {
+        const activeSlot = document.querySelector('.context-slot.selection');
+        const readerSlot = document.querySelector('.context-slot.reader');
+        const activeFilename = getEl('active-filename');
+        const activeDir = getEl('active-dir');
+        const readerFilename = getEl('reader-filename');
+        const readerDir = getEl('reader-dir');
+        const btnLoadFile = getEl('btn-load-file');
+        
+        const voiceSelect = getEl('voice-select');
+        const statusDot = getEl('status-dot');
+        const chapterList = getEl('chapter-list');
+        const chapterProgress = getEl('chapter-progress');
+        const btnPrev = getEl('btn-prev');
+        const btnNext = getEl('btn-next');
+        const btnAutoplay = getEl('btn-autoplay');
+
+        const settingsToggle = getEl('settings-toggle');
+        const settingsDrawer = getEl('settings-drawer');
+        const rateSlider = getEl('rate-slider');
+        const rateVal = getEl('rate-val');
+        const volumeSlider = getEl('volume-slider');
+        const volumeVal = getEl('volume-val');
+        const btnPlay = getEl('btn-play');
+        const btnPause = getEl('btn-pause');
+        const btnStop = getEl('btn-stop');
+        const sentenceNavigator = getEl('sentence-navigator');
+        const sentencePrev = getEl('sentence-prev');
+        const sentenceCurrent = getEl('sentence-current');
+        const sentenceNext = getEl('sentence-next');
+        const btnPrevSentence = getEl('btn-prev-sentence');
+        const btnNextSentence = getEl('btn-next-sentence');
+        const engineLocal = getEl('engine-local');
+        const engineNeural = getEl('engine-neural');
+        const engineToggleGroup = document.querySelector('.engine-toggle-group');
+        const neuralPlayer = getEl('neural-player');
+        const voiceSearch = getEl('voice-search');
+        const toastContainer = getEl('toast-container');
+        const engineStatusTag = getEl('engine-status-tag');
+        const cacheDebugTag = getEl('cache-debug-tag');
+        const waveContainer = document.querySelector('.wave-container');
+
+        console.log('[DASHBOARD] DOM Selection complete.');
+    } catch (e) {
+        console.error('[DASHBOARD] DOM Selection failed:', e);
+    }
 
     // --- State ---
     let state = (vscode && vscode.getState()) || { selectedVoice: null, autoPlayMode: 'auto' };

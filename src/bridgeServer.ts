@@ -134,17 +134,52 @@ export class BridgeServer extends EventEmitter {
         const dashboardJs = fs.existsSync(path.join(this._mediaPath, 'dashboard.js')) 
             ? fs.readFileSync(path.join(this._mediaPath, 'dashboard.js'), 'utf8') : '';
         
-        // 2. Inject configuration
-        const clientConfig = `window.__BRIDGE_CONFIG__ = { host: '127.0.0.1', port: ${this._port} };`;
+        // 2. Diagnostic Bootstrap (Redirect logs to VS Code)
+        const diagnosticScript = `
+            (function() {
+                const vscode = acquireVsCodeApi();
+                const _log = console.log, _warn = console.warn, _error = console.error;
+                
+                function send(type, args) {
+                    const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+                    vscode.postMessage({ command: 'log', type, message: msg });
+                }
+
+                console.log = (...args) => { _log(...args); send('info', args); };
+                console.warn = (...args) => { _warn(...args); send('warn', args); };
+                console.error = (...args) => { _error(...args); send('error', args); };
+
+                window.onerror = (m, u, l, c, e) => {
+                    const err = "[GLOBAL ERROR] " + m + " at " + u + ":" + l + ":" + c;
+                    vscode.postMessage({ command: 'log', type: 'error', message: err });
+                };
+
+                // Visual Overlay
+                document.addEventListener('DOMContentLoaded', () => {
+                    const overlay = document.createElement('div');
+                    overlay.id = 'debug-overlay';
+                    overlay.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:rgba(0,0,0,0.8);color:#0f0;font-family:monospace;font-size:9px;padding:4px;z-index:9999;border-top:1px solid #333;pointer-events:none;opacity:0.7;max-height:40px;overflow:hidden;';
+                    overlay.innerText = 'DEBUG ENGINE: ACTIVE';
+                    document.body.appendChild(overlay);
+
+                    window._updateDebugOverlay = (msg) => {
+                       overlay.innerText = '> ' + msg;
+                    };
+                });
+            })();
+        `;
+
+        // 3. Inject configuration
+        const clientConfig = "window.__BRIDGE_CONFIG__ = { host: '127.0.0.1', port: " + this._port + " };";
         
         // Support both old and new injection markers
-        content = content.replace('<!-- CONFIG_INJECTION -->', `<script>${clientConfig}</script>`);
+        content = content.replace('<!-- CONFIG_INJECTION -->', '<script>' + diagnosticScript + '\n' + clientConfig + '</script>');
         content = content.replace('/* CSS_INJECTION */', styleCss);
         content = content.replace('/* JS_INJECTION */', dashboardJs);
         
         // Handle template literals if they still exist in the HTML template
         content = content.replace(/\$\{inlineStyle\}/g, () => styleCss);
-        content = content.replace(/\$\{inlineScript\}/g, () => `${clientConfig}\n${dashboardJs}`);
+        content = content.replace(/\$\{inlineScript\}/g, () => diagnosticScript + '\n' + clientConfig + '\n' + dashboardJs);
 
         return content;
     }
