@@ -999,3 +999,30 @@ input[type="range"]::-webkit-slider-thumb:hover {
     50% { opacity: 0.7; }
     100% { opacity: 1; }
 }
+
+.footer {
+    padding: 8px 12px;
+    background: rgba(15, 23, 42, 0.4);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 9px;
+    color: #475569;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+}
+
+.state-debug, .cache-debug {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    color: #64748b;
+    background: rgba(15, 23, 42, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.state-debug {
+    color: var(--primary);
+    border-color: rgba(56, 189, 248, 0.1);
+}

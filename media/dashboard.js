@@ -15,6 +15,18 @@
     };
 
     const vscode = window.vscode;
+    
+    // --- State ---
+    let state = (vscode && vscode.getState()) || { selectedVoice: null, autoPlayMode: 'auto', rate: 0, volume: 50 };
+    if (typeof state.rate === 'undefined') { state.rate = 0; }
+    if (typeof state.volume === 'undefined') { state.volume = 50; }
+    let chapters = [];
+    let currentChapterIndex = -1;
+    let availableVoices = []; // Global copy for searching
+    let engineMode = 'local';
+    let isSynthesizing = false;
+    let collapsedIndices = new Set();
+    let lastHighlightedLine = -1;
 
     // --- DOM References ---
     let activeSlot, readerSlot, activeFilename, activeDir, readerFilename, readerDir, btnLoadFile;
@@ -28,6 +40,22 @@
         const el = document.getElementById(id);
         if (!el) { console.warn(`[DOM] Missing expected element: #${id}`); }
         return el;
+    }
+
+    function syncAudioUI() {
+        if (rateSlider) {
+            rateSlider.value = state.rate;
+            if (rateVal) { rateVal.textContent = (state.rate > 0 ? '+' : '') + state.rate; }
+        }
+        if (volumeSlider) {
+            volumeSlider.value = state.volume;
+            if (volumeVal) { volumeVal.textContent = state.volume + '%'; }
+        }
+        if (neuralPlayer) {
+            neuralPlayer.volume = state.volume / 100;
+            const val = state.rate;
+            neuralPlayer.playbackRate = val >= 0 ? 1 + (val / 10) : 1 + (val / 20);
+        }
     }
 
     try {
@@ -73,19 +101,13 @@
         waveContainer = document.querySelector('.wave-container');
 
         console.log('[DASHBOARD] DOM Selection complete.');
+        
+        // Initial UI Sync from persisted state
+        syncAudioUI();
     } catch (e) {
         console.error('[DASHBOARD] DOM Selection failed:', e);
     }
 
-    // --- State ---
-    let state = (vscode && vscode.getState()) || { selectedVoice: null, autoPlayMode: 'auto' };
-    let chapters = [];
-    let currentChapterIndex = -1;
-    let availableVoices = []; // Global copy for searching
-    let engineMode = 'local';
-    let isSynthesizing = false;
-    let collapsedIndices = new Set();
-    let lastHighlightedLine = -1;
     let currentReadingUri = null;
     let currentAudioUrl = null;
     let activeObjectURLs = new Set();
@@ -158,7 +180,7 @@
             chapterList.appendChild(item);
         });
 
-        syncPlaybackUI(data.currentChapterIndex, data.currentSentenceIndex, data.totalSentences);
+        syncPlaybackUI(currentIdx, 0, chapters[currentIdx]?.count || 0);
     }
 
     function toggleCollapse(index) {
@@ -309,9 +331,90 @@
         el.classList.toggle('rtl', isHebrew);
     }
 
+    function logSafeMessage(msg) {
+        const command = msg.command;
+        // Silence high-frequency heartbeats
+        if (command === 'state-sync' || command === 'cacheStatus' || command === 'progress') {
+            return;
+        }
+
+        function compressPath(p) {
+            if (typeof p !== 'string') {
+                return p;
+            }
+            return p.replace(/([0-9a-f]{4})[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8}([0-9a-f]{4})/gi, '$1...$2');
+        }
+
+        function sanitize(payload, depth = 0) {
+            if (depth > 3) {
+                return '[MAX_DEPTH]';
+            }
+            if (payload === null || payload === undefined) {
+                return payload;
+            }
+
+            if (Array.isArray(payload)) {
+                if (payload.length > 10) {
+                    return `[COUNT: ${payload.length} items]`;
+                }
+                return payload.map(item => sanitize(item, depth + 1));
+            }
+
+            if (typeof payload === 'object') {
+                const s = {};
+                for (const k in payload) {
+                    const v = payload[k];
+                    // Redact massive data chunks
+                    if (k === 'data' && typeof v === 'string' && v.length > 1000) {
+                        s[k] = `[BINARY_DATA: ${Math.round(v.length / 1024)}KB]`;
+                        continue;
+                    }
+                    // Compress URIs/UUIDs
+                    if (typeof v === 'string' && (v.includes('file:///') || v.includes('http') || v.length > 40)) {
+                        s[k] = compressPath(v);
+                    } else if (typeof v === 'string' && v.length > 128) {
+                        s[k] = v.substring(0, 125) + '...';
+                    } else {
+                        s[k] = sanitize(v, depth + 1);
+                    }
+                }
+                return s;
+            }
+            return payload;
+        }
+
+        const s = sanitize(msg);
+        const cmdLabel = `[${command.toUpperCase()}]`;
+        const payloadString = Object.entries(s)
+            .filter(([k]) => k !== 'command')
+            .map(([k, v]) => {
+                const valStr = typeof v === 'string' ? v : JSON.stringify(v);
+                return `${k}:${valStr}`;
+            })
+            .join(' | ');
+
+        console.log(`[BRIDGE -> DASHBOARD] ${cmdLabel} ${payloadString}`);
+    }
+
+    function updateStateDebug(state) {
+        const tag = document.getElementById('state-debug-tag');
+        if (!tag) {
+            return;
+        }
+        
+        // Fallback to local state if sync doesn't have it yet
+        const vol = state.volume !== undefined ? state.volume : (localStorage.getItem('readAloud.volume') || 50);
+        const rate = state.rate !== undefined ? state.rate : (localStorage.getItem('readAloud.rate') || 0);
+        
+        // Normalize rate display to match slider (0 is 1.0x)
+        const displayRate = (1 + (rate / 10)).toFixed(1);
+        
+        tag.textContent = `[ V:${vol} | R:${displayRate}x ]`;
+    }
+
     // --- Message Handler ---
     function handleCommand(message) {
-        console.log('[DASHBOARD RECEIVED]', message);
+        logSafeMessage(message);
         switch (message.command) {
             case 'chapters':
                 renderChapters(message.chapters, message.current);
@@ -325,6 +428,7 @@
                 updateContextSlot(message.activeUri, activeFilename, activeDir);
                 updateContextSlot(message.readingUri, readerFilename, readerDir);
                 syncPlaybackUI(message.currentChapterIndex, message.currentSentenceIndex, message.totalSentences);
+                updateStateDebug(message);
 
                 // Mismatch Pulse
                 if (btnLoadFile) {
@@ -373,8 +477,8 @@
 
 
                     // Apply current volume/rate settings immediately
-                    neuralPlayer.volume = (state.volume || 100) / 100;
-                    const r = state.rate || 0;
+                    neuralPlayer.volume = state.volume / 100;
+                    const r = state.rate;
                     neuralPlayer.playbackRate = r >= 0 ? 1 + (r / 10) : 1 + (r / 20);
 
                     neuralPlayer.play().catch(e => {
@@ -395,21 +499,11 @@
                 break;
             case 'initialState':
                 // Sync sliders and toggles with backend SSOT
-                if (rateSlider) {
-                    rateSlider.value = message.rate;
-                    rateVal.textContent = (message.rate > 0 ? '+' : '') + message.rate;
-                }
-                if (volumeSlider) {
-                    volumeSlider.value = message.volume;
-                    volumeVal.textContent = message.volume + '%';
-                }
-                if (voiceSelect && message.voice) {
-                    voiceSelect.value = message.voice;
-                }
-
-                // Sync internal dashboard state with backend values
-                state.rate = message.rate;
-                state.volume = message.volume;
+                if (message.selectedVoice) { state.selectedVoice = message.selectedVoice; }
+                state.rate = typeof message.rate !== 'undefined' ? message.rate : state.rate;
+                state.volume = typeof message.volume !== 'undefined' ? message.volume : state.volume;
+                
+                syncAudioUI();
                 if (vscode) { vscode.setState(state); }
 
                 // Context Slots
@@ -424,7 +518,8 @@
 
                 // --- NEW CENTRALIZED SYNC ---
                 if (message.autoPlayMode) {
-                    updateAutoPlayUI(message.autoPlayMode);
+                    updateAutoPlayModeUI(message.autoPlayMode);
+                updateStateDebug(message);
                 }
                 syncPlaybackUI(message.currentChapterIndex, message.currentSentenceIndex, message.totalSentences);
                 break;
@@ -612,6 +707,7 @@
             }
 
             postMsg({ command: 'rateChanged', rate: val });
+            if (vscode) { vscode.setState(state); }
         };
     }
 
@@ -627,6 +723,7 @@
             }
 
             postMsg({ command: 'volumeChanged', volume: val });
+            if (vscode) { vscode.setState(state); }
         };
     }
 

@@ -82,7 +82,7 @@ export class PlaybackEngine {
             totalBase64Chars += value.length;
         });
         const bytes = Math.floor(totalBase64Chars * 0.75);
-        this.logger(`[CACHE STATS] Count: ${this._audioCache.size} | Total Chars: ${totalBase64Chars} | Est Bytes: ${bytes}`);
+        this.logger(`[CACHE] count:${this._audioCache.size} | chars:${totalBase64Chars} | bytes:${bytes}`);
         return {
             count: this._audioCache.size,
             sizeBytes: bytes
@@ -155,7 +155,7 @@ export class PlaybackEngine {
                 if (evictedData) {
                     this._cacheSizeBytes -= this._getSegmentSizeBytes(evictedData);
                 }
-                this.logger(`[LRU] Evicting: ${firstKey} (Memory Cap Reach)`);
+                this.logger(`[LRU EVIC] key:${firstKey} | bytes:${evictedData ? this._getSegmentSizeBytes(evictedData) : 0}`);
                 this._audioCache.delete(firstKey);
             }
         }
@@ -172,7 +172,7 @@ export class PlaybackEngine {
         if (this._audioCache.has(cacheKey) || this._pendingTasks.has(cacheKey)) {return;}
 
         try {
-            this.logger(`[PREFETCH] Starting background synthesis: [${cacheKey}]`);
+            this.logger(`[PREFETCH] key:${cacheKey}`);
             // Background prefetch should NEVER abort the priority task
             this.speakNeural(text, cacheKey, options, false).catch(e => {
                 this.logger(`[PREFETCH] Background task failed: ${e.message}`);
@@ -184,7 +184,7 @@ export class PlaybackEngine {
         // 1. Check persistent LRU cache
         const cached = this._audioCache.get(cacheKey);
         if (cached) {
-            this.logger(`[NEURAL] CACHE HIT: [${cacheKey}]`);
+            this.logger(`[NEURAL] CACHE HIT: ${cacheKey}`);
             // Refresh LRU position
             this._audioCache.delete(cacheKey);
             this._audioCache.set(cacheKey, cached);
@@ -194,12 +194,12 @@ export class PlaybackEngine {
         // 2. Check if synthesis for this key is already in progress
         const inFlight = this._pendingTasks.get(cacheKey);
         if (inFlight) {
-            this.logger(`[NEURAL] WAITING for in-flight synthesis: [${cacheKey}]`);
+            this.logger(`[NEURAL] WAITING: ${cacheKey}`);
             return inFlight;
         }
 
         // 3. Trigger new synthesis and track it
-        this.logger(`[NEURAL] CACHE MISS: Synthesizing [${cacheKey}]`);
+        this.logger(`[NEURAL] CACHE MISS: ${cacheKey}`);
         
         // ONLY abort if this is a priority (user-initiated) request
         if (isPriority) {
@@ -222,7 +222,7 @@ export class PlaybackEngine {
             const data = await task;
             if (data) {
                 this._addToCache(cacheKey, data);
-                this.logger(`[NEURAL] synthesis_success | key: ${cacheKey}`);
+                this.logger(`[NEURAL] success: ${cacheKey}`);
             }
             return data;
         } finally {
@@ -249,7 +249,7 @@ export class PlaybackEngine {
             
             // Escape ampersands which can break neural TTS XML wrapping
             const escapedText = text.replace(/&/g, '&amp;');
-            this.logger(`[TTS PAYLOAD] Text: "${escapedText.substring(0, 50)}..." | Voice: ${voiceId}`);
+            this.logger(`[TTS REQ] text:"${escapedText.substring(0, 30)}..." | voice:${voiceId}`);
 
             return await new Promise((resolve, reject) => {
                 if (signal?.aborted) {
@@ -273,10 +273,12 @@ export class PlaybackEngine {
                 signal?.addEventListener('abort', onAbort);
 
                 audioStream.on("data", (data: Buffer) => {
-                    if (hasErrored) {return;}
+                    if (hasErrored) {
+                        return;
+                    }
                     const count = chunks.length;
-                    if (count === 0 || count % 10 === 0) {
-                        this.logger(`[TTS STREAM] ${count === 0 ? 'STARTING' : 'PROGRESS'} (chunk ${count})`);
+                    if (count === 0) {
+                        this.logger(`[TTS STREAM] STARTING (chunk 0)`);
                     }
                     chunks.push(data);
                 });
@@ -284,7 +286,7 @@ export class PlaybackEngine {
                 audioStream.on("end", () => {
                     if (hasErrored) {return;}
                     signal?.removeEventListener('abort', onAbort);
-                    this.logger(`[TTS STREAM] COMPLETE. Received ${chunks.length} total chunks.`);
+                    this.logger(`[TTS STREAM] COMPLETE | chunks:${chunks.length}`);
                     const buffer = Buffer.concat(chunks);
                     resolve(buffer.toString('base64'));
                     resolveLock();

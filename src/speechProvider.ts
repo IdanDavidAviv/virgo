@@ -10,6 +10,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _bridge?: BridgeServer;
 
     
+    private _extensionUri: vscode.Uri;
+    private _extensionPath: string;
     private _chapters: Chapter[] = [];
     private _currentChapterIndex: number = 0;
     private _currentSentenceIndex: number = 0;
@@ -18,7 +20,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _autoPlayMode: 'auto' | 'chapter' | 'row' = 'auto';
     private _selectedVoice: string = 'en-US-AriaNeural';
     private _rate: number = 0;
-    private _volume: number = 100;
+    private _volume: number = 50;
     private _engineMode: 'local' | 'neural' = 'neural';
     
     private _currentFileName: string = 'No Document';
@@ -38,15 +40,22 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _lastReportedProgress: number = -1;
 
     constructor(
-        private readonly _extensionUri: vscode.Uri,
-        private readonly _extensionPath: string,
+        private readonly _context: vscode.ExtensionContext,
         private readonly _logger: (msg: string) => void,
         statusBarItems: { pause: vscode.StatusBarItem; stop: vscode.StatusBarItem },
         bridge?: BridgeServer
     ) {
+        this._extensionUri = _context.extensionUri;
+        this._extensionPath = _context.extensionPath;
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
         this._statusBarItems = statusBarItems;
         this._bridge = bridge;
+
+        // Load Persisted Settings
+        this._rate = this._context.globalState.get<number>('readAloud.rate', 0);
+        this._volume = this._context.globalState.get<number>('readAloud.volume', 50);
+        this._selectedVoice = this._context.globalState.get<string>('readAloud.voice', 'en-US-AriaNeural');
+
 
         // No-op for now as error handling is handled in refresh() and through postToAll
         this._logger('[BOOT] extension_activated');
@@ -78,7 +87,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._activeRelativeDir = path.dirname(fullPath);
             }
         }
-        this._logger(`ACTIVE SELECTION UPDATED: ${this._activeFileName}`);
+        this._logger(`[SELECTION] file:${this._activeFileName}`);
         this._broadcastState();
     }
 
@@ -103,8 +112,70 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
     }
 
+    private _getSanitizedPayload(payload: any, depth: number = 0): any {
+        if (depth > 3) {
+            return '[MAX_DEPTH]';
+        }
+        if (payload === null || payload === undefined) {
+            return payload;
+        }
+
+        if (Array.isArray(payload)) {
+            if (payload.length > 10) {
+                return `[COUNT: ${payload.length} items]`;
+            }
+            return payload.map(item => this._getSanitizedPayload(item, depth + 1));
+        }
+
+        if (typeof payload === 'object') {
+            const sanitized: any = {};
+            for (const key in payload) {
+                const val = payload[key];
+                
+                // DATA: Always redact massive binary/base64 strings
+                if (key === 'data' && typeof val === 'string' && val.length > 1000) {
+                    sanitized[key] = `[BINARY_DATA: ${Math.round(val.length / 1024)}KB]`;
+                    continue;
+                }
+
+                // URI/PATH: Shorten long paths/UUIDs
+                if (typeof val === 'string' && (val.includes('file:///') || val.includes('http') || val.length > 30)) {
+                    sanitized[key] = this._compressPath(val);
+                } else if (typeof val === 'string' && val.length > 128) {
+                    sanitized[key] = val.substring(0, 125) + '...';
+                } else {
+                    sanitized[key] = this._getSanitizedPayload(val, depth + 1);
+                }
+            }
+            return sanitized;
+        }
+
+        return payload;
+    }
+
     private _postToAll(msg: any) {
-        this._logger(`[BRIDGE -> WEBVIEW] Command: ${msg.command} | Data length: ${msg.data ? msg.data.length : 'N/A'}`);
+        const cmd = msg.command;
+        // SILENCE: High-frequency synchronization heartbeats
+        if (cmd !== 'state-sync' && cmd !== 'cacheStatus' && cmd !== 'progress') {
+            try {
+                const logPayload = this._getSanitizedPayload(msg);
+                const cmdLabel = `[${cmd.toUpperCase()}]`;
+                
+                // Tier-3: Compact High-Density Log Format
+                const payloadString = Object.entries(logPayload)
+                    .filter(([k]) => k !== 'command')
+                    .map(([k, v]) => {
+                        const valStr = typeof v === 'string' ? v : JSON.stringify(v);
+                        return `${k}:${valStr}`;
+                    })
+                    .join(' | ');
+                
+                this._logger(`[BRIDGE -> WEBVIEW] ${cmdLabel} ${payloadString}`);
+            } catch (e) {
+                this._logger(`[BRIDGE] Payload serialization failed (non-critical): ${e}`);
+            }
+        }
+        
         if (this._view && this._view.visible) {
             this._view.webview.postMessage(msg);
         }
@@ -148,6 +219,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 return;
             }
             if (data.command === 'log') {
+                // SILENCE: High-frequency proxied logs from webview
+                if (data.message.includes('Cache Status Update')) {
+                    return;
+                }
                 this._logger(`[WEBVIEW ${data.type.toUpperCase()}] ${data.message}`);
                 return;
             }
@@ -288,12 +363,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
             case 'voiceChanged':
                 this._selectedVoice = data.voice;
+                this._context.globalState.update('readAloud.voice', data.voice);
                 break;
             case 'rateChanged':
                 this._rate = data.rate;
+                this._context.globalState.update('readAloud.rate', data.rate);
                 break;
             case 'volumeChanged':
                 this._volume = data.volume;
+                this._context.globalState.update('readAloud.volume', data.volume);
                 break;
             case 'engineModeChanged':
                 this._engineMode = data.mode;
@@ -337,7 +415,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             totalChapters: this._chapters.length,
             totalSentences: this._chapters[this._currentChapterIndex]?.sentences.length || 0,
             autoPlayMode: this._autoPlayMode,
-            engineMode: this._engineMode
+            engineMode: this._engineMode,
+            rate: this._rate,
+            volume: this._volume
         });
         this._broadcastState();
     }
@@ -356,6 +436,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             currentChapterIndex: this._currentChapterIndex,
             currentSentenceIndex: this._currentSentenceIndex,
             totalSentences: this._chapters[this._currentChapterIndex]?.sentences.length || 0,
+            engineMode: this._engineMode,
+            rate: this._rate,
+            volume: this._volume,
             bridgeMetadata: this._bridge?.metadata
         });
     }
