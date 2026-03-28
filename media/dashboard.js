@@ -752,20 +752,40 @@
         vscode.postMessage({ command: 'ready' });
     } else {
         const config = window.__BRIDGE_CONFIG__ || { host: '127.0.0.1', port: 3001 };
-        socket = new WebSocket(`ws://${config.host}:${config.port}`);
+        let retryCount = 0;
+        const maxRetries = 5;
 
-        socket.onopen = () => {
-            updateStatus(true);
-            socket.send(JSON.stringify({ command: 'ready' }));
-        };
+        function connectSocket() {
+            console.log(`[DASHBOARD] Attempting to connect to Audio Bridge (ws://${config.host}:${config.port})... Attempt ${retryCount + 1}/${maxRetries}`);
+            socket = new WebSocket(`ws://${config.host}:${config.port}`);
 
-        socket.onmessage = (event) => {
-            try { handleCommand(JSON.parse(event.data)); } catch (e) { }
-        };
+            socket.onopen = () => {
+                console.log('[DASHBOARD] Connection established!');
+                updateStatus(true);
+                socket.send(JSON.stringify({ command: 'ready' }));
+                retryCount = 0; // Reset
+            };
 
-        socket.onclose = () => {
-            updateStatus(false);
-            setTimeout(() => { window.location.reload(); }, 3000);
-        };
+            socket.onmessage = (event) => {
+                try { handleCommand(JSON.parse(event.data)); } catch (e) { }
+            };
+
+            socket.onclose = () => {
+                updateStatus(false);
+                if (retryCount < maxRetries) {
+                    retryCount++;
+                    setTimeout(connectSocket, 1000);
+                } else {
+                    console.error('[DASHBOARD] Max handshake retries reached. Check VS Code Diagnostics output.');
+                    showToast('Connection to Audio Bridge lost.', 'error');
+                }
+            };
+
+            socket.onerror = (err) => {
+                console.warn('[DASHBOARD] Handshake socket error:', err);
+            };
+        }
+
+        connectSocket();
     }
 }());

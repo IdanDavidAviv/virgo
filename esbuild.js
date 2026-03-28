@@ -3,8 +3,11 @@ const fs = require('fs');
 const path = require('path');
 
 const watch = process.argv.includes('--watch');
+const mode = process.argv.find(arg => arg.startsWith('--mode='))?.split('=')[1] || (watch ? 'development' : 'production');
 
 async function build() {
+    console.log(`🛠️ Mode: ${mode}${watch ? ' (Watch)' : ''}`);
+
     // 0. Prepare dist/media
     const distMedia = path.join(__dirname, 'dist', 'media');
     if (!fs.existsSync(distMedia)) {
@@ -22,6 +25,16 @@ async function build() {
         }
     });
 
+    // Icon: dev build gets an orange "D" badge, prod gets the clean icon
+    const iconSrc = mode === 'development'
+        ? path.join(__dirname, 'media', 'icon-dev.svg')
+        : path.join(__dirname, 'media', 'icon.svg');
+    const iconDest = path.join(__dirname, 'dist', 'icon.svg');
+    if (fs.existsSync(iconSrc)) {
+        fs.copyFileSync(iconSrc, iconDest);
+        console.log(`✅ Icon: ${mode === 'development' ? 'icon-dev.svg [DEV badge]' : 'icon.svg [prod]'} → dist/icon.svg`);
+    }
+
     // 1. Extension Host Bundle (Node.js)
     const nodeConfig = {
         entryPoints: ['./src/extension.ts'],
@@ -30,7 +43,7 @@ async function build() {
         external: ['vscode'],
         format: 'cjs',
         platform: 'node',
-        minify: true,
+        minify: mode === 'production',
         sourcemap: true,
     };
 
@@ -41,7 +54,7 @@ async function build() {
         outfile: './dist/media/dashboard.js',
         format: 'iife',
         platform: 'browser',
-        minify: true,
+        minify: mode === 'production',
         sourcemap: true,
     };
 
@@ -49,13 +62,13 @@ async function build() {
         const nodeCtx = await esbuild.context(nodeConfig);
         const browserCtx = await esbuild.context(browserConfig);
         await Promise.all([nodeCtx.watch(), browserCtx.watch()]);
-        console.log('👀 Watching for changes...');
+        console.log('👀 Watching for changes in development mode...');
     } else {
         await Promise.all([
             esbuild.build(nodeConfig),
             esbuild.build(browserConfig)
         ]);
-        console.log('🚀 Build complete!');
+        console.log(`🚀 ${mode.charAt(0).toUpperCase() + mode.slice(1)} build complete!`);
     }
 }
 
