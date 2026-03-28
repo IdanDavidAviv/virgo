@@ -72,11 +72,6 @@
         "icon": "$(play)"
       },
       {
-        "command": "antigravity.openMissionControl",
-        "title": "Open Mission Control (Editor Tab)",
-        "icon": "$(rocket)"
-      },
-      {
         "command": "readme-preview-read-aloud.read-from-cursor",
         "title": "Read Aloud From Here",
         "icon": "$(debug-start-from-here)"

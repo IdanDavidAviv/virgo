@@ -25,6 +25,7 @@
     const activeDir = document.getElementById('active-dir');
     const readerFilename = document.getElementById('reader-filename');
     const readerDir = document.getElementById('reader-dir');
+    let hasShownPortShiftToast = false;
     const btnLoadFile = document.getElementById('btn-load-file');
     
     // Legacy / Shared References
@@ -314,6 +315,12 @@
                 if (btnLoadFile) {
                     const isMismatch = message.activeUri && message.activeUri !== message.readingUri;
                     btnLoadFile.classList.toggle('mismatch', !!isMismatch);
+                }
+
+                // Port Shift Diagnostic (Just-in-Time)
+                if (message.bridgeMetadata && message.bridgeMetadata.shifted && !hasShownPortShiftToast) {
+                    hasShownPortShiftToast = true;
+                    showToast(`Port Conflict: Running on ${message.bridgeMetadata.port} (instead of ${message.bridgeMetadata.intended})`, 'warning');
                 }
                 break;
             case 'stop':

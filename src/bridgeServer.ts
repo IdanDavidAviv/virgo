@@ -17,6 +17,7 @@ export class BridgeServer extends EventEmitter {
     private _server: http.Server | null = null;
     private _wss: WebSocketServer | null = null;
     private _port: number;
+    private _intendedPort: number = 3000;
     private _host: string;
     private _clients: Set<WebSocket> = new Set();
     private _retryCount: number = 0;
@@ -31,9 +32,18 @@ export class BridgeServer extends EventEmitter {
         return this._port;
     }
 
+    public get metadata() {
+        return {
+            port: this._port,
+            intended: this._intendedPort,
+            shifted: this._port !== this._intendedPort
+        };
+    }
+
     public start(port?: number): Promise<number> {
         if (port) {
             this._port = port;
+            this._intendedPort = port;
         }
         return new Promise((resolve, reject) => {
             this._server = http.createServer((req, res) => {

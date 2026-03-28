@@ -1,6 +1,5 @@
 import * as child_process from 'child_process';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
-import { Telemetry } from './telemetry';
 
 export type EngineMode = 'local' | 'neural';
 
@@ -223,7 +222,7 @@ export class PlaybackEngine {
             const data = await task;
             if (data) {
                 this._addToCache(cacheKey, data);
-                Telemetry.track('synthesis_success', { key: cacheKey, mode: 'neural' });
+                this.logger(`[NEURAL] synthesis_success | key: ${cacheKey}`);
             }
             return data;
         } finally {
@@ -315,10 +314,10 @@ export class PlaybackEngine {
             resolveLock!();
             if (retryCount > 0) {
                 this.logger(`[NEURAL] Synthesis failed. Retrying... (${err})`);
-                Telemetry.track('synthesis_retry', { error: err.message || String(err) });
+                this.logger(`[NEURAL] synthesis_retry | error: ${err.message || String(err)}`);
                 return this._getNeuralAudio(text, voiceId, retryCount - 1);
             }
-            Telemetry.track('synthesis_failure', { error: err.message || String(err), mode: 'neural' });
+            this.logger(`[NEURAL] synthesis_failure | error: ${err.message || String(err)}`);
             throw err;
         }
     }
@@ -382,6 +381,6 @@ export class PlaybackEngine {
         });
 
         
-        Telemetry.track('synthesis_success', { mode: 'local', platform: process.platform });
+        this.logger(`[LOCAL] synthesis_success | platform: ${process.platform}`);
     }
 }

@@ -4,7 +4,6 @@ import * as fs from 'fs';
 import { BridgeServer } from './bridgeServer';
 import { SpeechProvider } from './speechProvider';
 import { findChapterAtLine, findSentenceAtLine, parseChapters } from './documentParser';
-import { MissionControlPanel } from './missionControl';
 
 let playBarItem: vscode.StatusBarItem;
 let pauseBarItem: vscode.StatusBarItem;
@@ -44,16 +43,20 @@ export async function activate(context: vscode.ExtensionContext) {
         stop: stopBarItem
     });
     const config = vscode.workspace.getConfiguration('readAloud');
-    const port = config.get<number>('bridgePort') || 3000;
+    const intendedPort = config.get<number>('bridgePort') || 3000;
     
     bridgeServer = new BridgeServer(path.join(context.extensionPath, 'dist', 'media'), log);
-    log(`Initializing BridgeServer (Config: 127.0.0.1:${port})...`);
+    log(`Initializing BridgeServer (Config: 127.0.0.1:${intendedPort})...`);
     
-    bridgeServer.start(port).then(actualPort => {
+    bridgeServer.start(intendedPort).then(actualPort => {
         log(`BRIDGE ACTIVE on port ${actualPort}`);
+        if (actualPort !== intendedPort) {
+            vscode.window.showWarningMessage(`Read Aloud: Port ${intendedPort} occupied. Shifting to ${actualPort} to avoid conflict.`);
+        }
         speechProvider.setBridge(bridgeServer);
     }).catch(err => {
         log(`BRIDGE FAILURE: ${err}`);
+        vscode.window.showErrorMessage(`Read Aloud Bridge failed to start: ${err.message}`);
     });
 
     context.subscriptions.push(
@@ -101,9 +104,6 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('readme-preview-read-aloud.start-over', () => speechProvider.startOver()),
         vscode.commands.registerCommand('readme-preview-read-aloud.refresh-view', () => speechProvider.refreshView()),
 
-        vscode.commands.registerCommand('readme-preview-read-aloud.show-panel', () => {
-            MissionControlPanel.createOrShow(context.extensionPath, context.extensionUri);
-        }),
 
         vscode.commands.registerCommand('readme-preview-read-aloud.read-from-cursor', async () => {
             const editor = vscode.window.activeTextEditor;
@@ -159,10 +159,7 @@ export async function activate(context: vscode.ExtensionContext) {
     updateActiveSelection();
 
     return { 
-        bridge: bridgeServer,
-        extendMarkdownIt(md: any) {
-            return md;
-        }
+        bridge: bridgeServer
     };
 }
 

@@ -1,14 +1,11 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { BridgeServer } from './bridgeServer';
-import { MissionControlPanel } from './missionControl';
 import { Chapter, parseChapters } from './documentParser';
 import { PlaybackEngine, PlaybackOptions } from './playbackEngine';
-import { Telemetry } from './telemetry';
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
-    private _panel?: vscode.WebviewPanel;
     private _isReady: boolean = false;
     private _isPanelReady: boolean = false;
     private _isRefreshing: boolean = false;
@@ -63,8 +60,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             });
         }
 
-        Telemetry.init(_logger);
-        Telemetry.track('extension_activated');
+        this._logger('[BOOT] extension_activated');
 
         this._loadVoices();
     }
@@ -123,14 +119,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (this._view && this._view.visible && this._isReady) {
             this._view.webview.postMessage(msg);
         }
-        if (this._panel && this._panel.visible && this._isPanelReady) {
-            this._panel.webview.postMessage(msg);
-        }
         if (this._bridge) {
             this._bridge.broadcast(msg);
-        }
-        if (MissionControlPanel.currentPanel) {
-            MissionControlPanel.currentPanel.postMessage(msg);
         }
         this._syncStatusBars();
     }
@@ -378,7 +368,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             isPaused: this._playbackEngine.isPaused,
             currentChapterIndex: this._currentChapterIndex,
             currentSentenceIndex: this._currentSentenceIndex,
-            totalSentences: this._chapters[this._currentChapterIndex]?.sentences.length || 0
+            totalSentences: this._chapters[this._currentChapterIndex]?.sentences.length || 0,
+            bridgeMetadata: this._bridge?.metadata
         });
     }
 
@@ -468,11 +459,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._chapters = parseChapters(text);
         const duration = Date.now() - startTime;
         
-        Telemetry.track('document_loaded', { 
-            fileName: this._currentFileName, 
-            chapterCount: this._chapters.length,
-            parseDurationMs: duration
-        });
+        this._logger(`[LOAD] document: ${this._currentFileName} | chapters: ${this._chapters.length} | parsing: ${duration}ms`);
         
         // --- Reset Indices and Stop Playback on Document Change ---
         this._currentChapterIndex = 0;
@@ -576,7 +563,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._currentChapterIndex = 0;
         this._currentSentenceIndex = 0;
         this._postToAll({ command: 'stop' });
-        Telemetry.track('playback_stop');
+        this._logger('[STOP] playback_stop');
     }
 
     public continue() {
