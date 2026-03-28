@@ -101,7 +101,7 @@ export class MissionControlPanel {
         if (extension && extension.isActive) {
             const bridge = (extension.exports as any)?.bridge;
             if (bridge) {
-                return bridge.getHtml(this._panel.webview);
+                return bridge.getHtml();
             }
         }
 

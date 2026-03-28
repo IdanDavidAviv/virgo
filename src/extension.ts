@@ -44,11 +44,7 @@ export async function activate(context: vscode.ExtensionContext) {
         stop: stopBarItem
     });
     const config = vscode.workspace.getConfiguration('readAloud');
-    const configPort = config.get<number>('bridgePort');
-    // Smart Port Selection: dev sessions use 3002, installed prod uses 3001.
-    // This prevents the "handshake stuck" crash when both instances run simultaneously.
-    const defaultPort = context.extensionMode === vscode.ExtensionMode.Development ? 3002 : 3001;
-    const port = configPort || defaultPort;
+    const port = config.get<number>('bridgePort') || 3000;
     
     bridgeServer = new BridgeServer(path.join(context.extensionPath, 'dist', 'media'), log);
     log(`Initializing BridgeServer (Config: 127.0.0.1:${port})...`);

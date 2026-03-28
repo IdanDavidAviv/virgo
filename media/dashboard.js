@@ -753,17 +753,15 @@
     } else {
         const config = window.__BRIDGE_CONFIG__ || { host: '127.0.0.1', port: 3001 };
         let retryCount = 0;
-        const maxRetries = 5;
+        const maxRetries = 10;
 
         function connectSocket() {
-            console.log(`[DASHBOARD] Attempting to connect to Audio Bridge (ws://${config.host}:${config.port})... Attempt ${retryCount + 1}/${maxRetries}`);
             socket = new WebSocket(`ws://${config.host}:${config.port}`);
 
             socket.onopen = () => {
-                console.log('[DASHBOARD] Connection established!');
                 updateStatus(true);
                 socket.send(JSON.stringify({ command: 'ready' }));
-                retryCount = 0; // Reset
+                retryCount = 0;
             };
 
             socket.onmessage = (event) => {
@@ -776,8 +774,8 @@
                     retryCount++;
                     setTimeout(connectSocket, 1000);
                 } else {
-                    console.error('[DASHBOARD] Max handshake retries reached. Check VS Code Diagnostics output.');
-                    showToast('Connection to Audio Bridge lost.', 'error');
+                    console.error('[DASHBOARD] Max handshake retries reached.');
+                    showToast('Critical: Could not connect to Audio Bridge.', 'error');
                 }
             };
 

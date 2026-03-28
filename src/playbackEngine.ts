@@ -174,14 +174,14 @@ export class PlaybackEngine {
 
         try {
             this.logger(`[PREFETCH] Starting background synthesis: [${cacheKey}]`);
-            // We use the same unified logic as speakNeural but don't await it here to keep it backgrounded
-            this.speakNeural(text, cacheKey, options).catch(e => {
+            // Background prefetch should NEVER abort the priority task
+            this.speakNeural(text, cacheKey, options, false).catch(e => {
                 this.logger(`[PREFETCH] Background task failed: ${e.message}`);
             });
         } catch (err) {}
     }
 
-    public async speakNeural(text: string, cacheKey: string, options: PlaybackOptions): Promise<string | null> {
+    public async speakNeural(text: string, cacheKey: string, options: PlaybackOptions, isPriority: boolean = true): Promise<string | null> {
         // 1. Check persistent LRU cache
         const cached = this._audioCache.get(cacheKey);
         if (cached) {
@@ -202,11 +202,19 @@ export class PlaybackEngine {
         // 3. Trigger new synthesis and track it
         this.logger(`[NEURAL] CACHE MISS: Synthesizing [${cacheKey}]`);
         
-        // Abort any previous synthesis if reaching here (concurrency safety)
-        if (this._abortController) {
-            this._abortController.abort();
+        // ONLY abort if this is a priority (user-initiated) request
+        if (isPriority) {
+            if (this._abortController) {
+                this._abortController.abort();
+            }
+            this._abortController = new AbortController();
         }
-        this._abortController = new AbortController();
+        
+        // If not a priority request, a controller should already exist (from the last priority task)
+        // or we use a temporary one. But it's better to skip aborting.
+        if (!this._abortController) {
+            this._abortController = new AbortController();
+        }
 
         const task = this._getNeuralAudio(text, options.voice);
         this._pendingTasks.set(cacheKey, task);
@@ -225,21 +233,28 @@ export class PlaybackEngine {
 
     private async _getNeuralAudio(text: string, voiceId: string, retryCount = 1): Promise<string | null> {
         const release = this._synthesisLock;
-        let resolveLock: () => void;
+        let resolveLock!: () => void;
         this._synthesisLock = new Promise(r => resolveLock = r);
 
         try {
             await release;
+
+            const signal = this._abortController?.signal;
+            if (signal?.aborted) {
+                this.logger(`[NEURAL] ABORTED (Pre-flight) - Task was in queue when cancelled.`);
+                resolveLock();
+                return null;
+            }
+
             await this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
             
             // Escape ampersands which can break neural TTS XML wrapping
             const escapedText = text.replace(/&/g, '&amp;');
             this.logger(`[TTS PAYLOAD] Text: "${escapedText.substring(0, 50)}..." | Voice: ${voiceId}`);
 
-            const signal = this._abortController?.signal;
-
             return await new Promise((resolve, reject) => {
                 if (signal?.aborted) {
+                    this.logger(`[NEURAL] ABORTED (Pre-flight) - Task was cancelled right before stream.`);
                     reject(new Error("Synthesis Aborted (Pre-flight)"));
                     return;
                 }
@@ -288,13 +303,13 @@ export class PlaybackEngine {
                 // Safety timeout for synthesis
                 setTimeout(() => {
                     if (!hasErrored && chunks.length === 0) {
-                        this.logger(`[TTS STREAM] TIMEOUT (10s) - No data received.`);
+                        this.logger(`[TTS STREAM] TIMEOUT (25s) - No data received from Azure.`);
                         hasErrored = true;
                         signal?.removeEventListener('abort', onAbort);
-                        reject(new Error("Synthesis Timeout (10s)"));
+                        reject(new Error("Synthesis Timeout (25s)"));
                         resolveLock();
                     }
-                }, 10000);
+                }, 25000);
             });
         } catch (err: any) {
             resolveLock!();

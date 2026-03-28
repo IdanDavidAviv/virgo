@@ -42,15 +42,26 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _statusBarItems: { pause: vscode.StatusBarItem; stop: vscode.StatusBarItem };
     
     private _lastReportedProgress: number = -1;
+    private _error: string | null = null;
+    private _prefetchTimer?: NodeJS.Timeout;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
         private readonly _extensionPath: string,
         private readonly _logger: (msg: string) => void,
-        statusBarItems: { pause: vscode.StatusBarItem; stop: vscode.StatusBarItem }
+        statusBarItems: { pause: vscode.StatusBarItem; stop: vscode.StatusBarItem },
+        bridge?: BridgeServer
     ) {
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
         this._statusBarItems = statusBarItems;
+        this._bridge = bridge;
+
+        if (this._bridge) {
+            this._bridge.on('fatal_error', (msg: string) => {
+                this._error = msg;
+                this.refresh();
+            });
+        }
 
         Telemetry.init(_logger);
         Telemetry.track('extension_activated');
@@ -223,13 +234,32 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         try {
             this._isRefreshing = true;
-            this._view.webview.html = this._bridge.getHtml(this._view.webview);
+            if (this._error) {
+                this._view.webview.html = this._getErrorHtml(this._error);
+            } else {
+                this._view.webview.html = this._bridge.getHtml();
+            }
         } catch (e) {
             this._logger(`[REFRESH] FAILED: ${e}`);
             setTimeout(() => this.refresh(), 1000);
         } finally {
             this._isRefreshing = false;
         }
+    }
+
+    private _getErrorHtml(message: string): string {
+        return `
+            <html>
+            <body style="background:transparent;display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;font-family:sans-serif;color:#ff4d4d;margin:0;padding:0;overflow:hidden;">
+                <div style="padding:20px 30px;background:rgba(40,0,0,0.8);border-radius:12px;border:1px solid rgba(255,0,0,0.2);text-align:center;backdrop-filter:blur(8px);box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
+                    <div style="font-size:10px;letter-spacing:3px;margin-bottom:8px;opacity:0.8;font-weight:bold;color:#ffaaaa;">CRITICAL FAILURE</div>
+                    <div style="font-size:14px;font-weight:600;color:#ffffff;">ENGINE FAILED TO START</div>
+                    <div style="font-size:10px;opacity:0.6;margin-top:8px;font-family:monospace;max-width:240px;word-break:break-all;">${message}</div>
+                    <div style="margin-top:16px;font-size:11px;color:#cccccc;">Try restarting VS Code or checking for port conflicts.</div>
+                </div>
+            </body>
+            </html>
+        `;
     }
 
     public refreshView() {
@@ -698,29 +728,35 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
 
     private _triggerPreFetch(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions) {
-        let count = 0;
-        let cIdx = chapterIndex;
-        let sIdx = sentenceIndex;
-
-        // Prefetch a window of 5 sentences
-        while (count < 5) {
-            const chapter = this._chapters[cIdx];
-            if (!chapter) {break;}
-
-            if (sIdx < chapter.sentences.length) {
-                const text = chapter.sentences[sIdx];
-                const docId = this._currentDocumentUri?.toString() || this._currentFileName;
-                const cacheKey = `${docId}-${cIdx}-${sIdx}`;
-                this._playbackEngine.triggerPrefetch(text, cacheKey, options);
-                sIdx++;
-                count++;
-            } else {
-                // Move to next chapter
-                cIdx++;
-                sIdx = 0;
-                if (this._autoPlayMode !== 'auto') {break;} // Don't prefetch next chapter if auto-advance is not fully enabled
-            }
+        if (this._prefetchTimer) {
+            clearTimeout(this._prefetchTimer);
         }
+
+        this._prefetchTimer = setTimeout(() => {
+            let count = 0;
+            let cIdx = chapterIndex;
+            let sIdx = sentenceIndex;
+
+            // Prefetch a window of 5 sentences
+            while (count < 5) {
+                const chapter = this._chapters[cIdx];
+                if (!chapter) {break;}
+
+                if (sIdx < chapter.sentences.length) {
+                    const text = chapter.sentences[sIdx];
+                    const docId = this._currentDocumentUri?.toString() || this._currentFileName;
+                    const cacheKey = `${docId}-${cIdx}-${sIdx}`;
+                    this._playbackEngine.triggerPrefetch(text, cacheKey, options);
+                    sIdx++;
+                    count++;
+                } else {
+                    // Move to next chapter
+                    cIdx++;
+                    sIdx = 0;
+                    if (this._autoPlayMode !== 'auto') {break;} 
+                }
+            }
+        }, 300);
     }
 
 
