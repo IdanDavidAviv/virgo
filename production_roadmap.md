@@ -22,7 +22,7 @@ Long reading sessions currently accumulate Base64 strings in the webview.
 - **Missing**: Audio Blob revocation.
 - **Action**: Switch the dashboard to use `Blob` URLs and call `URL.revokeObjectURL()` after each segment plays to keep the footprint low.
 
-## 5. Deployment Packaging
+## 5. Deployment Packaging (DONE)
 The extension needs to be optimized for the VS Code Marketplace.
 - **Missing**: A minified bundle.
 - **Action**: Add `esbuild` to the project to bundle the extension host logic and the dashboard assets into a single clean package, reducing activation time.

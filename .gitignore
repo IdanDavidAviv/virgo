@@ -8,3 +8,5 @@ TASK.md
 *.log
 diagnostics.log
 implementation_plan.md
+
+dist/

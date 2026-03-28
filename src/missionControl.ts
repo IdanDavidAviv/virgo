@@ -106,7 +106,7 @@ export class MissionControlPanel {
         }
 
         // Fallback (redundant but safe)
-        const htmlPath = path.join(this._extensionPath, 'media', 'speechEngine.html');
+        const htmlPath = path.join(this._extensionPath, 'dist', 'media', 'speechEngine.html');
         try {
             return fs.readFileSync(htmlPath, 'utf8');
         } catch (err) {

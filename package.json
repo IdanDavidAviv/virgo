@@ -10,7 +10,7 @@
   "categories": [
     "Other"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "activationEvents": [
     "onLanguage:markdown",
     "onStartupFinished"
@@ -150,12 +150,14 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "node esbuild.js --watch",
+    "build": "node esbuild.js"
   },
   "devDependencies": {
     "@types/node": "20.x",
     "@types/vscode": "^1.80.0",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.27.4",
     "typescript": "^5.3.3"
   },
   "dependencies": {

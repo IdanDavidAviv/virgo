@@ -47,7 +47,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('readAloud');
     const port = config.get<number>('bridgePort') || 3001;
     
-    bridgeServer = new BridgeServer(path.join(context.extensionPath, 'media'));
+    bridgeServer = new BridgeServer(path.join(context.extensionPath, 'dist', 'media'));
     log(`Initializing BridgeServer (Config: 127.0.0.1:${port})...`);
     
     bridgeServer.start(port).then(actualPort => {

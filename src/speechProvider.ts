@@ -146,7 +146,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.options = {
             enableScripts: true,
-            localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'media')]
+            localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'dist', 'media')]
         };
 
         webviewView.webview.onDidReceiveMessage(data => {
