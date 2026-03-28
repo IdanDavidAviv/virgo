@@ -2,7 +2,7 @@
 
 **Transform your Markdown documentation into a premium, immersive listening experience directly inside VS Code.**
 
-![Readme Preview Read Aloud Icon](icon.png)
+<img src="icon_img.png" width="128" alt="Readme Preview Read Aloud Icon" />
 
 ## ✨ Features
 
