@@ -34,4 +34,4 @@ The extension needs to be optimized for the VS Code Marketplace.
 - [x] **Phase 1**: Robust Parsing (Migrate to `markdown-it`).
 - [x] **Phase 2**: Global Reach (Mac/Linux fallback).
 - [x] **Phase 3**: Diagnostics (Telemetry integration).
-- [ ] **Phase 4**: Efficiency (Blob revocation & Bundling).
+- [x] **Phase 4**: Efficiency (Blob revocation & Bundling).
