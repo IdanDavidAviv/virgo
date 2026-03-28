@@ -28,6 +28,7 @@ export class PlaybackEngine {
 
     private _cacheSizeBytes: number = 0;
     private _onCacheUpdate?: () => void;
+    private _abortController: AbortController | null = null;
 
     constructor(private logger: (msg: string) => void, onCacheUpdate?: () => void) {
         this._tts = new MsEdgeTTS();
@@ -50,6 +51,11 @@ export class PlaybackEngine {
     public stop() {
         this._isPlaying = false;
         this._isPaused = false;
+        if (this._abortController) {
+            this.logger(`[NEURAL] ABORTING in-flight synthesis.`);
+            this._abortController.abort();
+            this._abortController = null;
+        }
         this.stopProcess();
     }
 
@@ -195,6 +201,13 @@ export class PlaybackEngine {
 
         // 3. Trigger new synthesis and track it
         this.logger(`[NEURAL] CACHE MISS: Synthesizing [${cacheKey}]`);
+        
+        // Abort any previous synthesis if reaching here (concurrency safety)
+        if (this._abortController) {
+            this._abortController.abort();
+        }
+        this._abortController = new AbortController();
+
         const task = this._getNeuralAudio(text, options.voice);
         this._pendingTasks.set(cacheKey, task);
         
@@ -223,12 +236,30 @@ export class PlaybackEngine {
             const escapedText = text.replace(/&/g, '&amp;');
             this.logger(`[TTS PAYLOAD] Text: "${escapedText.substring(0, 50)}..." | Voice: ${voiceId}`);
 
+            const signal = this._abortController?.signal;
+
             return await new Promise((resolve, reject) => {
+                if (signal?.aborted) {
+                    reject(new Error("Synthesis Aborted (Pre-flight)"));
+                    return;
+                }
+
                 const { audioStream } = this._tts.toStream(escapedText);
                 const chunks: Buffer[] = [];
                 let hasErrored = false;
 
+                const onAbort = () => {
+                    this.logger(`[TTS STREAM] ABORT SIGNAL received.`);
+                    hasErrored = true;
+                    audioStream.destroy();
+                    reject(new Error("Synthesis Aborted"));
+                    resolveLock();
+                };
+
+                signal?.addEventListener('abort', onAbort);
+
                 audioStream.on("data", (data: Buffer) => {
+                    if (hasErrored) {return;}
                     const count = chunks.length;
                     if (count === 0 || count % 10 === 0) {
                         this.logger(`[TTS STREAM] ${count === 0 ? 'STARTING' : 'PROGRESS'} (chunk ${count})`);
@@ -238,6 +269,7 @@ export class PlaybackEngine {
 
                 audioStream.on("end", () => {
                     if (hasErrored) {return;}
+                    signal?.removeEventListener('abort', onAbort);
                     this.logger(`[TTS STREAM] COMPLETE. Received ${chunks.length} total chunks.`);
                     const buffer = Buffer.concat(chunks);
                     resolve(buffer.toString('base64'));
@@ -245,6 +277,8 @@ export class PlaybackEngine {
                 });
 
                 audioStream.on("error", (err: any) => {
+                    if (hasErrored) {return;}
+                    signal?.removeEventListener('abort', onAbort);
                     this.logger(`[TTS STREAM] ERROR: ${err}`);
                     hasErrored = true;
                     reject(err);
@@ -256,6 +290,7 @@ export class PlaybackEngine {
                     if (!hasErrored && chunks.length === 0) {
                         this.logger(`[TTS STREAM] TIMEOUT (10s) - No data received.`);
                         hasErrored = true;
+                        signal?.removeEventListener('abort', onAbort);
                         reject(new Error("Synthesis Timeout (10s)"));
                         resolveLock();
                     }

@@ -609,11 +609,25 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 }
             }).catch(err => {
                 this._isSynthesisInProgress = false;
-                this._logger(`[ERR] Neural synthesis failed: ${err.message || err}. Falling back to SAPI.`);
+                
+                // --- IGNORE Abort Error (from stop or jump) ---
+                const errorMessage = err?.message || String(err);
+                if (errorMessage.includes('Abort') || errorMessage.includes('Cancel')) {
+                    this._logger(`[NEURAL] Synthesis cancelled: ${errorMessage}`);
+                    return;
+                }
+
+                // --- Verify engine is still active before fallback ---
+                if (!this._playbackEngine.isPlaying) {
+                    this._logger('[GUARD] Synthesis failed, but engine is stopped. Ignoring fallback.');
+                    return;
+                }
+
+                this._logger(`[ERR] Neural synthesis failed: ${errorMessage}. Falling back to SAPI.`);
 
                 this._postToAll({
                     command: 'synthesisError',
-                    error: err.message || String(err),
+                    error: errorMessage,
                     isFallingBack: true
                 });
                 this._postToAll({
