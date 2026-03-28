@@ -78,7 +78,6 @@ export class BridgeServer extends EventEmitter {
             // can still connect. 127.0.0.1 alone is unreachable when a VPN captures
             // the loopback adapter. We keep _host in the URL for the CSP/config.
             this._server.listen(this._port, '0.0.0.0', () => {
-                console.log(`[BRIDGE] Server listening on 0.0.0.0:${this._port} (CSP host: ${this._host})`);
                 resolve(this._port);
             });
 

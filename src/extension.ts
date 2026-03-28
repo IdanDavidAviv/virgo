@@ -20,7 +20,6 @@ function log(msg: string) {
     if (logFilePath) {
         try { fs.appendFileSync(logFilePath, formatted + '\n'); } catch (e) {}
     }
-    console.log(`[READ ALOUD] ${formatted}`);
 }
 
 export async function activate(context: vscode.ExtensionContext) {

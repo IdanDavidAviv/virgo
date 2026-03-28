@@ -2,14 +2,43 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/IdanDavidAviv/readme-preview-read-aloud.git"
+  },
+  "homepage": "https://github.com/IdanDavidAviv/readme-preview-read-aloud#readme",
+  "bugs": {
+    "url": "https://github.com/IdanDavidAviv/readme-preview-read-aloud/issues"
+  },
   "categories": [
+    "Education",
     "Other"
   ],
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
+  "capabilities": {
+    "virtualWorkspaces": true,
+    "untrustedWorkspaces": {
+      "supported": true
+    }
+  },
+  "qna": "marketplace",
+  "keywords": [
+    "markdown",
+    "tts",
+    "read aloud",
+    "accessibility",
+    "speech",
+    "preview"
+  ],
+  "icon": "icon.png",
   "main": "./dist/extension.js",
   "activationEvents": [
     "onLanguage:markdown",
@@ -148,16 +177,21 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run build",
     "compile": "tsc -p ./",
     "watch": "node esbuild.js --watch",
-    "build": "node esbuild.js"
+    "build": "node esbuild.js",
+    "lint": "eslint src --ext ts"
   },
   "devDependencies": {
     "@types/node": "20.x",
     "@types/vscode": "^1.80.0",
     "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^6.19.1",
+    "@typescript-eslint/parser": "^6.19.1",
     "esbuild": "^0.27.4",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
     "typescript": "^5.3.3"
   },
   "dependencies": {
