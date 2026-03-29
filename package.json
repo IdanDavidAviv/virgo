@@ -2,7 +2,7 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
@@ -131,13 +131,7 @@
     },
     "configuration": {
       "title": "Read Aloud",
-      "properties": {
-        "readAloud.bridgePort": {
-          "type": "number",
-          "default": 3001,
-          "description": "Port used by the internal audio engine bridge."
-        }
-      }
+      "properties": {}
     },
     "keybindings": [
       {
@@ -172,7 +166,6 @@
     "@types/markdown-it": "^14.1.2",
     "@types/node": "20.x",
     "@types/vscode": "^1.80.0",
-    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.57.2",
     "@typescript-eslint/parser": "^8.57.2",
     "@vscode/vsce": "^3.7.1",
@@ -183,7 +176,6 @@
   },
   "dependencies": {
     "markdown-it": "^14.1.1",
-    "msedge-tts": "^2.0.4",
-    "ws": "^8.20.0"
+    "msedge-tts": "^2.0.4"
   }
 }

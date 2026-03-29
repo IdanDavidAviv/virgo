@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { BridgeServer } from './bridgeServer';
 import { SpeechProvider } from './speechProvider';
 import { findChapterAtLine, findSentenceAtLine, parseChapters } from './documentParser';
 
@@ -10,7 +9,6 @@ let pauseBarItem: vscode.StatusBarItem;
 let stopBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 let logFilePath: string;
-let bridgeServer: BridgeServer;
 
 function log(msg: string) {
     const time = new Date().toLocaleTimeString();
@@ -42,22 +40,7 @@ export async function activate(context: vscode.ExtensionContext) {
         pause: pauseBarItem,
         stop: stopBarItem
     }, () => syncSelection());
-    const config = vscode.workspace.getConfiguration('readAloud');
-    const intendedPort = config.get<number>('bridgePort') || 3000;
-    
-    bridgeServer = new BridgeServer(path.join(context.extensionPath, 'dist', 'media'), log);
-    log(`Initializing BridgeServer (Config: 127.0.0.1:${intendedPort})...`);
-    
-    bridgeServer.start(intendedPort).then(actualPort => {
-        log(`BRIDGE ACTIVE on port ${actualPort}`);
-        if (actualPort !== intendedPort) {
-            vscode.window.showWarningMessage(`Read Aloud: Port ${intendedPort} occupied. Shifting to ${actualPort} to avoid conflict.`);
-        }
-        speechProvider.setBridge(bridgeServer);
-    }).catch(err => {
-        log(`BRIDGE FAILURE: ${err}`);
-        vscode.window.showErrorMessage(`Read Aloud Bridge failed to start: ${err.message}`);
-    });
+    log('--- NATIVE WEBVIEW ARCHITECTURE ACTIVE (Serverless) ---');
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
@@ -175,14 +158,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // Initial trigger
     syncSelection();
 
-    return { 
-        bridge: bridgeServer
-    };
+    return {};
 }
 
-export function deactivate() {
-    if (bridgeServer) {
-        bridgeServer.stop();
-    }
-}
+export function deactivate() {}
 

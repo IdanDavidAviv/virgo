@@ -1,14 +1,12 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { BridgeServer } from './bridgeServer';
 import { Chapter, parseChapters } from './documentParser';
 import { PlaybackEngine, PlaybackOptions } from './playbackEngine';
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _isRefreshing: boolean = false;
-    private _bridge?: BridgeServer;
 
     
     private _extensionUri: vscode.Uri;
@@ -45,14 +43,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         private readonly _context: vscode.ExtensionContext,
         private readonly _logger: (msg: string) => void,
         statusBarItems: { pause: vscode.StatusBarItem; stop: vscode.StatusBarItem },
-        public onVisibilityChanged?: () => void,
-        bridge?: BridgeServer
+        public onVisibilityChanged?: () => void
     ) {
         this._extensionUri = _context.extensionUri;
         this._extensionPath = _context.extensionPath;
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
         this._statusBarItems = statusBarItems;
-        this._bridge = bridge;
 
         // Load Persisted Settings
         this._rate = this._context.globalState.get<number>('readAloud.rate', 0);
@@ -89,11 +85,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
 
-    public setBridge(bridge: BridgeServer) {
-        this._logger(`[PROVIDER] Bridge received (Port: ${bridge.port}). Refreshing view...`);
-        this._bridge = bridge;
-        this.refresh();
-    }
+
 
     public setActiveEditor(uri: vscode.Uri | undefined) {
         if (uri?.toString() === this._activeDocumentUri?.toString()) {
@@ -200,17 +192,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     })
                     .join(' | ');
                 
-                this._logger(`[BRIDGE -> WEBVIEW] ${cmdLabel} ${payloadString}`);
+                this._logger(`[READALOUD -> WEBVIEW] ${cmdLabel} ${payloadString}`);
             } catch (e) {
-                this._logger(`[BRIDGE] Payload serialization failed (non-critical): ${e}`);
+                this._logger(`[READALOUD] Payload serialization failed (non-critical): ${e}`);
             }
         }
         
-        if (this._view && this._view.visible && this._view.webview) {
+        if (this._view) {
             this._view.webview.postMessage(msg);
-        }
-        if (this._bridge) {
-            this._bridge.broadcast(msg);
         }
         this._syncStatusBars();
     }
@@ -277,9 +266,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
 
         webviewView.webview.html = this._getLoadingHtml();
-        if (this._bridge) {
-            this.refresh();
-        }
+        
+        // --- NEW NATIVE MODE ---
+        this._view.webview.html = this._getHtmlForWebview(webviewView.webview);
     }
 
     private _getLoadingHtml(): string {
@@ -319,21 +308,85 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public refresh(): void {
-        if (!this._view || this._isRefreshing || !this._bridge) {
+        if (!this._view || this._isRefreshing) {
             return;
         }
 
         try {
             this._isRefreshing = true;
-            const html = this._bridge.getHtml();
-            this._logger(`[REFRESH] INJECTING HTML FOR ${this._bridge.port}`);
-            this._view.webview.html = html;
+            
+            this._logger(`[REFRESH] INJECTING NATIVE WEBVIEW HTML`);
+            this._view.webview.html = this._getHtmlForWebview(this._view.webview);
         } catch (e) {
-            this._logger(`[REFRESH] FAILED TO INJECT HTML: ${e}`);
+            this._logger(`[REFRESH] ERR: ${e}`);
             setTimeout(() => this.refresh(), 1000);
         } finally {
             this._isRefreshing = false;
         }
+    }
+
+    private _getHtmlForWebview(webview: vscode.Webview): string {
+        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'dashboard.js'));
+        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'style.css'));
+        
+        const htmlPath = vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'speechEngine.html');
+        let html = fs.readFileSync(htmlPath.fsPath, 'utf8');
+
+        // Inject URIs
+        html = html.replace('${inlineStyle}', '') // Remove old injection point
+                   .replace('${inlineScript}', '') // Remove old injection point
+                   .replace('</head>', `<link rel="stylesheet" href="${styleUri}">\n</head>`)
+                   .replace('</body>', `<script src="${scriptUri}"></script>\n</body>`);
+
+        // Inject Handshake Config (Native Mode)
+        const config = {
+            native: true,
+            extensionVersion: this._context.extension.packageJSON.version,
+            debugMode: this._context.extensionMode === vscode.ExtensionMode.Development
+        };
+
+        const bootstrap = `
+            <script>
+                window.__BOOTSTRAP_CONFIG__ = ${JSON.stringify(config)};
+                (function() {
+                    const vscode = acquireVsCodeApi();
+                    window.vscode = vscode;
+
+                    // Diagnostic Redirect (console -> extension logs)
+                    const _log = console.log, _warn = console.warn, _error = console.error;
+                    function send(type, args) {
+                        try {
+                            const sanitize = (val) => {
+                                if (Array.isArray(val)) return '[ARRAY:' + val.length + ']';
+                                if (val && typeof val === 'object') {
+                                    const keys = Object.keys(val);
+                                    if (keys.length > 5) return '[OBJ:' + keys.length + ']';
+                                    if (val.command) return '[CMD:' + val.command + ']';
+                                    return JSON.stringify(val);
+                                }
+                                return String(val);
+                            };
+                            const msg = args.map(sanitize).join(' | ');
+                            vscode.postMessage({ command: 'log', type, message: msg });
+                        } catch (e) {
+                            vscode.postMessage({ command: 'log', type: 'error', message: '[LOG_ERR] ' + e.message });
+                        }
+                    }
+                    console.log = (...args) => { _log(...args); send('info', args); };
+                    console.warn = (...args) => { _warn(...args); send('warn', args); };
+                    console.error = (...args) => { _error(...args); send('error', args); };
+
+                    console.log('[BOOT] Native API Handshake OK');
+                })();
+            </script>
+        `;
+
+        html = html.replace('</head>', `${bootstrap}\n</head>`);
+
+        // Replace any remaining ${variable} in HTML
+        html = html.replace(/\${extensionVersion}/g, config.extensionVersion);
+
+        return html;
     }
 
     private _getErrorHtml(message: string): string {
@@ -344,7 +397,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     <div style="font-size:10px;letter-spacing:3px;margin-bottom:8px;opacity:0.8;font-weight:bold;color:#ffaaaa;">CRITICAL FAILURE</div>
                     <div style="font-size:14px;font-weight:600;color:#ffffff;">ENGINE FAILED TO START</div>
                     <div style="font-size:10px;opacity:0.6;margin-top:8px;font-family:monospace;max-width:240px;word-break:break-all;">${message}</div>
-                    <div style="margin-top:16px;font-size:11px;color:#cccccc;">Try restarting VS Code or checking for port conflicts.</div>
+                    <div style="margin-top:16px;font-size:11px;color:#cccccc;">Try restarting VS Code or checking the extension logs.</div>
                 </div>
             </body>
             </html>
@@ -371,7 +424,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private async _handleWebviewMessage(data: any, source: string) {
-        this._logger(`[BRIDGE <- WEBVIEW] Command: ${data.command}`);
+        this._logger(`[READALOUD <- WEBVIEW] Command: ${data.command}`);
         
 
         switch (data.command) {
@@ -401,6 +454,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case 'voiceChanged':
                 this._selectedVoice = data.voice;
                 this._context.globalState.update('readAloud.voice', data.voice);
+                this._logger(`[VOICE] ${data.voice} | RESET: cache_cleared`);
+                this._playbackEngine.clearCache();
+                this.stop();
                 break;
             case 'rateChanged':
                 this._rate = data.rate;
@@ -487,7 +543,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             // Recalculate salts in real-time to pick up metadata/timestamp changes
             activeVersion: this._activeDocumentUri ? this._getFileVersionSalt(this._activeDocumentUri.fsPath) : undefined,
             readingVersion: this._currentDocumentUri ? this._getFileVersionSalt(this._currentDocumentUri.fsPath) : this._currentVersionSalt,
-            bridgeMetadata: this._bridge?.metadata
         });
         
         // Update the internal salt so next playback uses the fresh one
@@ -641,7 +696,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
 
         this._broadcastState();
-        this._logger('[BRIDGE] Context Reset: Reader cleared.');
+        this._logger('[READALOUD] Context Reset: Reader cleared.');
     }
 
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
@@ -748,6 +803,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 command: 'chapterChanged',
                 index: chapterIndex,
                 total: this._chapters.length,
+                totalSentences: chapter.sentences.length,
                 title: chapter.title
             });
         }
@@ -789,7 +845,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                         command: 'playAudio',
                         data: data,
                         text: sentence,
+                        chapterIndex: chapterIndex,
                         sentenceIndex: sentenceIndex,
+                        totalSentences: chapter.sentences.length,
                         sentences: chapter.sentences
                     });
                 }
@@ -886,7 +944,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             // Start from the last sentence of the previous chapter
             this._playChapter(prevChapterIdx, prevChapter.sentences.length - 1);
         } else {
-            this._logger('[BRIDGE] Start of document reached.');
+            this._logger('[READALOUD] Start of document reached.');
         }
     }
 

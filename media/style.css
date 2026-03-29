@@ -511,6 +511,19 @@ input[type="range"]::-webkit-slider-thumb:hover {
     opacity: 0.8;
 }
 
+.debug-tag {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    padding: 1px 4px;
+    border-radius: 4px;
+    font-weight: 800;
+    font-size: 7px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-right: 4px;
+}
+
 .cache-debug.pulse {
     animation: cache-pulse 0.5s ease-out;
 }

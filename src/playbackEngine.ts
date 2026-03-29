@@ -74,6 +74,7 @@ export class PlaybackEngine {
     public clearCache() {
         this._audioCache.clear();
         this._pendingTasks.clear();
+        this._cacheSizeBytes = 0;
     }
 
     public getCacheStats() {
