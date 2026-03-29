@@ -7,6 +7,17 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.1.2] - 2026-03-29
+
+### Added
+- **Architectural Refactoring (Phase 3)**: Decoupled monolithic state from `SpeechProvider` into a centralized, reactive `StateStore`.
+- **Atomic State Lifecycle**: Implemented `StateStore.reset()` to ensure synchronous, global state clearing and prevent session leakage.
+- **Unit Testing Suite**: Established a dedicated `/tests` directory and integrated `vitest` for high-integrity logic verification (11/11 tests passing).
+- **Logical Modularization**: Extracted document parsing and loading into a standalone `DocumentLoadController`.
+
+### Changed
+- **SpeechProvider**: Refactored to a pure coordinator pattern, delegating business logic and state management to isolated services.
+
 ## [1.1.1] - 2026-03-29
 
 ### Added
