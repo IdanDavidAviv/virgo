@@ -1,36 +1,27 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { Chapter, parseChapters } from './documentParser';
+import { Chapter } from './documentParser';
+import { DocumentLoadController } from './documentLoadController';
+import { StateStore } from './stateStore';
 import { PlaybackEngine, PlaybackOptions } from './playbackEngine';
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
-    private _isRefreshing: boolean = false;
-
-    
     private _extensionUri: vscode.Uri;
     private _extensionPath: string;
-    private _chapters: Chapter[] = [];
-    private _currentChapterIndex: number = 0;
-    private _currentSentenceIndex: number = 0;
-    private _isPreviewing: boolean = false;
-    
+
     // Configuration
     private _autoPlayMode: 'auto' | 'chapter' | 'row' = 'auto';
     private _selectedVoice: string = 'en-US-AriaNeural';
     private _rate: number = 0;
     private _volume: number = 50;
     private _engineMode: 'local' | 'neural' = 'neural';
+
+    private _docController: DocumentLoadController;
+    private _stateStore: StateStore;
     
-    private _currentFileName: string = 'No Document';
-    private _currentRelativeDir: string = '';
-    private _currentDocumentUri: vscode.Uri | undefined;
-    
-    // Selection state (passive)
-    private _activeFileName: string = 'No Selection';
-    private _activeRelativeDir: string = '';
-    private _activeDocumentUri: vscode.Uri | undefined;
+    // Selection state (passive) - Moved to StateStore
     
     private _playbackEngine: PlaybackEngine;
     private _localVoices: any[] = [];
@@ -48,6 +39,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     ) {
         this._extensionUri = _context.extensionUri;
         this._extensionPath = _context.extensionPath;
+        this._docController = new DocumentLoadController(this._logger);
+        this._stateStore = new StateStore(this._logger);
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
         this._statusBarItem = statusBarItem;
 
@@ -64,12 +57,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._loadVoices();
     }
 
-    private _currentVersionSalt: string = '';
 
     private _setupDocumentListeners() {
         // Listen for changes to the active document to update version badges
         vscode.workspace.onDidChangeTextDocument(e => {
-            if (this._currentDocumentUri && e.document.uri.toString() === this._currentDocumentUri.toString()) {
+            const currentUri = this._docController.metadata.uri;
+            if (currentUri && e.document.uri.toString() === currentUri.toString()) {
                 // For regular files or artifacts, we only want to update the UI if the version/mtime would actually change.
                 // We debounce this slightly to avoid flickering while typing.
                 this._updateDocumentInfoThrottled(e.document);
@@ -81,7 +74,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _updateDocumentInfoThrottled(document: vscode.TextDocument) {
         if (this._updateDocumentInfoTimer) { clearTimeout(this._updateDocumentInfoTimer); }
         this._updateDocumentInfoTimer = setTimeout(() => {
-            this.updateWorkingDocument(document);
+            this._docController.updateMetadata(document);
         }, 500);
     }
 
@@ -89,28 +82,27 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
 
     public setActiveEditor(uri: vscode.Uri | undefined) {
-        if (uri?.toString() === this._activeDocumentUri?.toString()) {
+        if (uri?.toString() === this._stateStore.state.activeDocumentUri?.toString()) {
             return; // Avoid redundant broadcasts
         }
 
         if (!uri) {
-            this._activeFileName = 'No Selection';
-            this._activeRelativeDir = '';
-            this._activeDocumentUri = undefined;
+            this._stateStore.reset();
         } else {
             const fullPath = uri.fsPath;
-            this._activeFileName = path.basename(fullPath);
-            this._activeDocumentUri = uri;
+            const fileName = path.basename(fullPath);
+            let relativeDir = '';
             
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
             if (workspaceFolder) {
-                this._activeRelativeDir = path.dirname(path.relative(workspaceFolder.uri.fsPath, fullPath));
-                if (this._activeRelativeDir === '.') {this._activeRelativeDir = '';}
+                relativeDir = path.dirname(path.relative(workspaceFolder.uri.fsPath, fullPath));
+                if (relativeDir === '.') {relativeDir = '';}
             } else {
-                this._activeRelativeDir = path.dirname(fullPath);
+                relativeDir = path.dirname(fullPath);
             }
+            this._stateStore.setSelection(uri, fileName, relativeDir);
         }
-        this._logger(`[SYNC] focus:${this._activeFileName}`);
+        this._logger(`[SYNC] focus:${this._stateStore.state.activeFileName}`);
         this._broadcastState();
     }
 
@@ -163,7 +155,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
                 // URI/PATH: Shorten long paths/UUIDs
                 if (typeof val === 'string' && (val.includes('file:///') || val.includes('http') || val.length > 30)) {
-                    sanitized[key] = this._compressPath(val);
+                    sanitized[key] = this._docController.compressPath(val);
                 } else if (typeof val === 'string' && val.length > 128) {
                     sanitized[key] = val.substring(0, 125) + '...';
                 } else {
@@ -311,12 +303,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public refresh(): void {
-        if (!this._view || this._isRefreshing) {
+        if (!this._view || this._stateStore.state.isRefreshing) {
             return;
         }
 
         try {
-            this._isRefreshing = true;
+            this._stateStore.setRefreshing(true);
             
             this._logger(`[REFRESH] INJECTING NATIVE WEBVIEW HTML`);
             this._view.webview.html = this._getHtmlForWebview(this._view.webview);
@@ -324,7 +316,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._logger(`[REFRESH] ERR: ${e}`);
             setTimeout(() => this.refresh(), 1000);
         } finally {
-            this._isRefreshing = false;
+            this._stateStore.setRefreshing(false);
         }
     }
 
@@ -411,17 +403,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._broadcastState();
         this._broadcastVoices();
         
-        if (this._chapters.length > 0) {
+        if (this._docController.chapters.length > 0) {
             this._postToAll({
                 command: 'chapters',
-                chapters: this._chapters.map((c, i) => ({ 
+                chapters: this._docController.chapters.map((c, i) => ({ 
                     title: c.title, 
                     level: c.level, 
                     index: i,
                     count: c.sentences.length 
                 })),
-                current: this._currentChapterIndex,
-                total: this._chapters.length
+                current: this._stateStore.state.currentChapterIndex,
+                total: this._docController.chapters.length
             });
         }
     }
@@ -433,7 +425,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         switch (data.command) {
             case 'ready':
                 this._sendInitialState();
-                if (this._chapters.length > 0) {
+                if (this._docController.chapters.length > 0) {
                     this.refreshView();
                 }
                 break;
@@ -460,7 +452,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._logger(`[VOICE] ${data.voice} | SURGICAL_PREVIEW`);
                 // Stop any current full playback but trigger a single-sentence preview synth
                 this._playbackEngine.stop();
-                this._playChapter(this._currentChapterIndex, this._currentSentenceIndex, true);
+                this._playChapter(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, true);
                 break;
             case 'rateChanged':
                 this._rate = data.rate;
@@ -505,129 +497,55 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _sendInitialState() {
+        const metadata = this._docController.metadata;
         this._postToAll({
             command: 'initialState',
-            activeUri: this._activeDocumentUri?.toString() || '',
-            activeFileName: this._activeFileName,
-            activeRelativeDir: this._activeRelativeDir,
-            readingUri: this._currentDocumentUri?.toString() || '',
-            readingFileName: this._currentFileName,
-            readingRelativeDir: this._currentRelativeDir,
-            currentChapterIndex: this._currentChapterIndex,
-            currentSentenceIndex: this._currentSentenceIndex,
-            totalChapters: this._chapters.length,
-            totalSentences: this._chapters[this._currentChapterIndex]?.sentences.length || 0,
+            activeUri: this._stateStore.state.activeDocumentUri?.toString() || '',
+            activeFileName: this._stateStore.state.activeFileName,
+            activeRelativeDir: this._stateStore.state.activeRelativeDir,
+            readingUri: metadata.uri?.toString() || '',
+            readingFileName: metadata.fileName,
+            readingRelativeDir: metadata.relativeDir,
+            currentChapterIndex: this._stateStore.state.currentChapterIndex,
+            currentSentenceIndex: this._stateStore.state.currentSentenceIndex,
+            totalChapters: this._docController.chapters.length,
+            totalSentences: this._docController.chapters[this._stateStore.state.currentChapterIndex]?.sentences.length || 0,
             autoPlayMode: this._autoPlayMode,
             engineMode: this._engineMode,
             rate: this._rate,
             volume: this._volume,
-            activeVersion: this._activeDocumentUri ? this._getFileVersionSalt(this._activeDocumentUri.fsPath) : undefined,
-            readingVersion: this._currentVersionSalt // Already calculated during load
+            activeVersion: this._stateStore.state.activeDocumentUri ? this._docController.getFileVersionSalt(this._stateStore.state.activeDocumentUri) : undefined,
+            readingVersion: metadata.versionSalt
         });
         this._broadcastState();
     }
 
     private _broadcastState() {
+        const metadata = this._docController.metadata;
         this._postToAll({
             command: 'state-sync',
-            activeUri: this._activeDocumentUri?.toString() || '',
-            activeFileName: this._activeFileName,
-            activeRelativeDir: this._activeRelativeDir,
-            readingUri: this._currentDocumentUri?.toString() || '',
-            readingFileName: this._currentFileName,
-            readingRelativeDir: this._currentRelativeDir,
+            activeUri: this._stateStore.state.activeDocumentUri?.toString() || '',
+            activeFileName: this._stateStore.state.activeFileName,
+            activeRelativeDir: this._stateStore.state.activeRelativeDir,
+            readingUri: metadata.uri?.toString() || '',
+            readingFileName: metadata.fileName,
+            readingRelativeDir: metadata.relativeDir,
             isPlaying: this._playbackEngine.isPlaying,
             isPaused: this._playbackEngine.isPaused,
-            currentChapterIndex: this._currentChapterIndex,
-            currentSentenceIndex: this._currentSentenceIndex,
-            totalSentences: this._chapters[this._currentChapterIndex]?.sentences.length || 0,
+            currentChapterIndex: this._stateStore.state.currentChapterIndex,
+            currentSentenceIndex: this._stateStore.state.currentSentenceIndex,
+            totalSentences: this._docController.chapters[this._stateStore.state.currentChapterIndex]?.sentences.length || 0,
             engineMode: this._engineMode,
             rate: this._rate,
             volume: this._volume,
-            // Recalculate salts in real-time to pick up metadata/timestamp changes
-            activeVersion: this._activeDocumentUri ? this._getFileVersionSalt(this._activeDocumentUri.fsPath) : undefined,
-            readingVersion: this._currentDocumentUri ? this._getFileVersionSalt(this._currentDocumentUri.fsPath) : this._currentVersionSalt,
-        });
-        
-        // Update the internal salt so next playback uses the fresh one
-        if (this._currentDocumentUri) {
-            this._currentVersionSalt = this._getFileVersionSalt(this._currentDocumentUri.fsPath);
-        }
-    }
-
-    private _compressPath(rawPath: string): string {
-        // Shorten UUIDs: f7b06bbe-3ecb-450d-8db1-486bfbe69dbd -> f7b0...9dbd
-        return rawPath.replace(/([0-9a-f]{4})[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8}([0-9a-f]{4})/gi, '$1...$2');
-    }
-
-    public updateWorkingDocument(document: vscode.TextDocument) {
-        this._currentDocumentUri = document.uri;
-        // Robust display name: use path basename, or fall back to URI string if it's a virtual path
-        this._currentFileName = path.basename(document.fileName);
-        if (this._currentFileName.includes('Untitled')) {
-            // Fallback for some artifact views that might use virtual names
-            this._currentFileName = document.uri.path.split('/').pop() || document.fileName;
-        }
-
-        const folder = vscode.workspace.getWorkspaceFolder(document.uri);
-        const fsPath = document.uri.fsPath;
-        let relativeDir = '';
-
-        if (folder) {
-            // Regular File in Workspace: [WorkspaceName] / [RelPath]
-            const workspaceName = folder.name;
-            const relPath = path.relative(folder.uri.fsPath, path.dirname(fsPath));
-            relativeDir = workspaceName + (relPath && relPath !== '.' ? ' / ' + relPath.replace(/\\/g, ' / ') : '');
-        } else if (fsPath.toLowerCase().includes('.gemini') && fsPath.toLowerCase().includes('brain')) {
-            // Artifact in Brain: Brain / [Compressed_Hash] / [Subdirs]
-            const brainMatch = fsPath.match(/brain[\\\/]([^\\\/]+)(.*)/i);
-            if (brainMatch) {
-                const hash = brainMatch[1];
-                // Remove filename from the subPath part
-                const subPathWithFile = brainMatch[2].replace(/^[\\\/]/, '');
-                const subPath = path.dirname(subPathWithFile);
-                
-                relativeDir = `Brain / ${this._compressPath(hash)}${subPath !== '.' ? ' / ' + subPath.replace(/[\\\/]/g, ' / ') : ''}`;
-            } else {
-                relativeDir = 'Brain / Artifacts';
-            }
-        } else {
-            // Fallback for virtual storage or external files
-            relativeDir = document.uri.scheme === 'file' ? path.dirname(fsPath).split(/[\\\/]/).slice(-2).join(' / ') : 'Virtual Storage';
-        }
-
-        this._currentRelativeDir = relativeDir;
-        this._currentVersionSalt = this._getFileVersionSalt(document.uri.fsPath);
-        
-        this._postToAll({
-            command: 'documentInfo',
-            fileName: this._currentFileName,
-            relativeDir: this._currentRelativeDir,
-            version: this._currentVersionSalt
+            activeVersion: this._stateStore.state.activeDocumentUri ? this._docController.getFileVersionSalt(this._stateStore.state.activeDocumentUri) : undefined,
+            readingVersion: metadata.uri ? this._docController.getFileVersionSalt(metadata.uri) : metadata.versionSalt,
         });
     }
 
     public async loadCurrentDocument(): Promise<boolean> {
-        // If there's an active text editor, use its document
-        let document = vscode.window.activeTextEditor?.document;
-        
-        // Fallback: Check the active tab if editor is null or document isn't reachable
-        if (!document) {
-            const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
-            const input = tab?.input as any;
-            const uri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
-            
-            if (uri) {
-                try {
-                    document = await vscode.workspace.openTextDocument(uri);
-                } catch (e) {
-                    this._logger(`Failed to load document from tab: ${e}`);
-                }
-            }
-        }
-
-        if (!document) {
-            this._logger('No active document found to load.');
+        const success = await this._docController.loadActiveDocument();
+        if (!success) {
             this._postToAll({
                 command: 'synthesisError',
                 error: 'No active document found to read.',
@@ -636,36 +554,36 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             return false;
         }
 
-        const text = document.getText();
-        this.updateWorkingDocument(document);
-        
-        const startTime = Date.now();
-        this._chapters = parseChapters(text);
-        const duration = Date.now() - startTime;
-        
-        this._logger(`[LOAD] document: ${this._currentFileName} | chapters: ${this._chapters.length} | parsing: ${duration}ms`);
-        
-        // --- Reset Indices and Stop Playback on Document Change ---
-        this._currentChapterIndex = 0;
-        this._currentSentenceIndex = 0;
+        const metadata = this._docController.metadata;
+        const chapters = this._docController.chapters;
+
+        this._postToAll({
+            command: 'documentInfo',
+            fileName: metadata.fileName,
+            relativeDir: metadata.relativeDir,
+            version: metadata.versionSalt
+        });
+
+        // Reset Indices and Stop Playback on Document Change
+        this._stateStore.setProgress(0, 0);
         this._playbackEngine.stop();
         
         this._postToAll({
             command: 'chapters',
-            chapters: this._chapters.map((c, i) => ({ 
+            chapters: chapters.map((c: Chapter, i: number) => ({ 
                 title: c.title, 
                 level: c.level, 
                 index: i,
                 count: c.sentences.length 
             })),
             currentChapterIndex: 0,
-            totalChapters: this._chapters.length,
+            totalChapters: chapters.length,
             currentSentenceIndex: 0,
-            totalSentences: this._chapters[0]?.sentences.length || 0
+            totalSentences: chapters[0]?.sentences.length || 0
         });
 
-        if (this._chapters.length > 0) {
-            const firstChapter = this._chapters[0];
+        if (chapters.length > 0) {
+            const firstChapter = chapters[0];
             this._postToAll({
                 command: 'sentenceChanged',
                 text: firstChapter.sentences[0],
@@ -677,20 +595,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             });
         }
         
-        // Ensure state sync after loading
         this._broadcastState();
-        
         return true;
     }
 
     private _resetContext() {
         this.stop();
-        this._currentDocumentUri = undefined;
-        this._currentFileName = 'No File Loaded';
-        this._currentRelativeDir = '';
-        this._chapters = [];
-        this._currentChapterIndex = 0;
-        this._currentSentenceIndex = 0;
+        this._docController.clear();
+        this._stateStore.reset();
         
         this._postToAll({
             command: 'chapters',
@@ -704,30 +616,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
-        if (fileName) {
-            this._currentDocumentUri = vscode.Uri.file(fileName);
-            this._currentFileName = path.basename(fileName);
-            const folder = vscode.workspace.getWorkspaceFolder(this._currentDocumentUri);
-            this._currentRelativeDir = folder ? path.relative(folder.uri.fsPath, path.dirname(fileName)) : '';
-        }
+        this._stateStore.setProgress(startFromChapter, 0);
         
-        // --- FIXED: Reset sentence index to 0 when moving to a new file/start point ---
-        this._currentChapterIndex = startFromChapter;
-        this._currentSentenceIndex = 0;
-        
-        this._chapters = parseChapters(text);
-        this._postToAll({
-            command: 'chapters',
-            chapters: this._chapters.map((c, i) => ({ 
-                title: c.title, 
-                level: c.level, 
-                index: i,
-                count: c.sentences.length
-            })),
-            current: startFromChapter,
-            total: this._chapters.length
-        });
-
         this._playbackEngine.setPlaying(true);
         this._playChapter(startFromChapter, 0);
     }
@@ -739,18 +629,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public stop() {
         this._playbackEngine.stop();
-        this._currentChapterIndex = 0;
-        this._currentSentenceIndex = 0;
+        this._stateStore.setProgress(0, 0);
         this._postToAll({ command: 'stop' });
         this._logger('[STOP] playback_stop');
     }
 
     public continue() {
-        this._isPreviewing = false; // Commit to full playback
+        this._stateStore.setPreviewing(false); // Commit to full playback
         this._playbackEngine.setPlaying(true);
         this._playbackEngine.setPaused(false);
         this._postToAll({ command: 'playbackStateChanged', state: 'playing' });
-        this._playChapter(this._currentChapterIndex, this._currentSentenceIndex);
+        this._playChapter(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex);
     }
 
     public startOver() {
@@ -758,58 +647,60 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public jumpToSentence(index: number) {
-        this._isPreviewing = false; // Navigation often implies intent to play from there
+        this._stateStore.setPreviewing(false); // Navigation often implies intent to play from there
         this._playbackEngine.setPlaying(true);
-        this._playChapter(this._currentChapterIndex, index);
+        this._playChapter(this._stateStore.state.currentChapterIndex, index);
     }
 
     public jumpToChapter(index: number) {
-        if (index < 0 || index >= this._chapters.length) {return;}
-        this._isPreviewing = false;
+        const chapters = this._docController.chapters;
+        if (index < 0 || index >= chapters.length) {return;}
+        this._stateStore.setPreviewing(false);
         this._playbackEngine.setPlaying(true);
         this._playChapter(index, 0);
     }
 
     public nextChapter() {
-        this.jumpToChapter(this._currentChapterIndex + 1);
+        this.jumpToChapter(this._stateStore.state.currentChapterIndex + 1);
     }
 
     public prevChapter() {
-        this.jumpToChapter(this._currentChapterIndex - 1);
+        this.jumpToChapter(this._stateStore.state.currentChapterIndex - 1);
     }
 
     public prevSentence() {
-        if (this._currentSentenceIndex > 0) {
-            this.jumpToSentence(this._currentSentenceIndex - 1);
-        } else if (this._currentChapterIndex > 0) {
-            const prevChap = this._chapters[this._currentChapterIndex - 1];
-            this._playChapter(this._currentChapterIndex - 1, prevChap.sentences.length - 1);
+        const chapters = this._docController.chapters;
+        if (this._stateStore.state.currentSentenceIndex > 0) {
+            this.jumpToSentence(this._stateStore.state.currentSentenceIndex - 1);
+        } else if (this._stateStore.state.currentChapterIndex > 0) {
+            const prevChap = chapters[this._stateStore.state.currentChapterIndex - 1];
+            this._playChapter(this._stateStore.state.currentChapterIndex - 1, prevChap.sentences.length - 1);
         }
     }
 
     public nextSentence() {
-        const chapter = this._chapters[this._currentChapterIndex];
-        if (this._currentSentenceIndex + 1 < chapter.sentences.length) {
-            this.jumpToSentence(this._currentSentenceIndex + 1);
+        const chapter = this._docController.chapters[this._stateStore.state.currentChapterIndex];
+        if (this._stateStore.state.currentSentenceIndex + 1 < chapter.sentences.length) {
+            this.jumpToSentence(this._stateStore.state.currentSentenceIndex + 1);
         } else {
             this.nextChapter();
         }
     }
 
     private _playChapter(chapterIndex: number, sentenceIndex: number = 0, previewOnly: boolean = false) {
-        if (chapterIndex < 0 || chapterIndex >= this._chapters.length) {return;}
+        const chapters = this._docController.chapters;
+        if (chapterIndex < 0 || chapterIndex >= chapters.length) {return;}
         
-        this._currentChapterIndex = chapterIndex;
-        this._currentSentenceIndex = sentenceIndex;
-        this._isPreviewing = previewOnly;
+        this._stateStore.setProgress(chapterIndex, sentenceIndex);
+        this._stateStore.setPreviewing(previewOnly);
         
-        const chapter = this._chapters[chapterIndex];
+        const chapter = chapters[chapterIndex];
 
         if (sentenceIndex === 0) {
             this._postToAll({
                 command: 'chapterChanged',
                 index: chapterIndex,
-                total: this._chapters.length,
+                total: chapters.length,
                 totalSentences: chapter.sentences.length,
                 title: chapter.title
             });
@@ -822,10 +713,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         const sentence = chapter.sentences[sentenceIndex];
 
-        // --- NEW: File-Unique Cache Key with Version Salt ---
-        // --- NEW: Voice-Aware Cache Key with Version Salt ---
-        const docId = this._currentDocumentUri?.toString() || this._currentFileName;
-        const saltStr = this._currentVersionSalt ? `-${this._currentVersionSalt}` : '';
+        const metadata = this._docController.metadata;
+        const docId = metadata.uri?.toString() || metadata.fileName;
+        const saltStr = metadata.versionSalt ? `-${metadata.versionSalt}` : '';
         const cacheKey = `${this._selectedVoice}-${docId}${saltStr}-${chapterIndex}-${sentenceIndex}`;
 
         this._logger(`[NEURAL] CACHE KEY: ${cacheKey}`);
@@ -849,7 +739,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (this._engineMode === 'neural') {
             this._playbackEngine.speakNeural(sentence, cacheKey, options).then(data => {
                 // Send to webview if we are either playing or just previewing the new voice
-                if (data && (this._playbackEngine.isPlaying || this._isPreviewing)) {
+                if (data && (this._playbackEngine.isPlaying || this._stateStore.state.isPreviewing)) {
                     this._postToAll({
                         command: 'playAudio',
                         data: data,
@@ -889,7 +779,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._playbackEngine.speakLocal(sentence, options, (code: number | null) => this._onLocalExit(code));
             });
             // In Preview Mode, we STOP here and don't trigger pre-fetch
-            if (!this._isPreviewing) {
+            if (!this._stateStore.state.isPreviewing) {
                 this._triggerPreFetch(chapterIndex, sentenceIndex + 1, options);
             }
         } else {
@@ -901,7 +791,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
 
     private _triggerPreFetch(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions) {
-        if (!this._playbackEngine.isPlaying || this._isPreviewing) {
+        if (!this._playbackEngine.isPlaying || this._stateStore.state.isPreviewing) {
             return;
         }
         setTimeout(() => {
@@ -911,13 +801,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
             // Prefetch a window of 5 sentences
             while (count < 5) {
-                const chapter = this._chapters[cIdx];
+                const chapter = this._docController.chapters[cIdx];
                 if (!chapter) {break;}
 
                 if (sIdx < chapter.sentences.length) {
                     const text = chapter.sentences[sIdx];
-                    const docId = this._currentDocumentUri?.toString() || this._currentFileName;
-                    const saltStr = this._currentVersionSalt ? `-${this._currentVersionSalt}` : '';
+                    const metadata = this._docController.metadata;
+                    const docId = metadata.uri?.toString() || metadata.fileName;
+                    const saltStr = metadata.versionSalt ? `-${metadata.versionSalt}` : '';
                     const cacheKey = `${this._selectedVoice}-${docId}${saltStr}-${cIdx}-${sIdx}`;
                     this._playbackEngine.triggerPrefetch(text, cacheKey, options);
                     sIdx++;
@@ -950,11 +841,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _movePrev() {
-        if (this._currentSentenceIndex > 0) {
-            this._playChapter(this._currentChapterIndex, this._currentSentenceIndex - 1);
-        } else if (this._currentChapterIndex > 0) {
-            const prevChapterIdx = this._currentChapterIndex - 1;
-            const prevChapter = this._chapters[prevChapterIdx];
+        const chapters = this._docController.chapters;
+        if (this._stateStore.state.currentSentenceIndex > 0) {
+            this._playChapter(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex - 1);
+        } else if (this._stateStore.state.currentChapterIndex > 0) {
+            const prevChapterIdx = this._stateStore.state.currentChapterIndex - 1;
+            const prevChapter = chapters[prevChapterIdx];
             // Start from the last sentence of the previous chapter
             this._playChapter(prevChapterIdx, prevChapter.sentences.length - 1);
         } else {
@@ -963,8 +855,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _moveNext(manual: boolean = false) {
-        if (this._isPreviewing) {
-            this._isPreviewing = false;
+        if (this._stateStore.state.isPreviewing) {
+            this._stateStore.setPreviewing(false);
             this._logger(`[VOICE] Preview finished. Waiting for user Play.`);
             return;
         }
@@ -979,9 +871,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this.stop();
                 break;
             case 'chapter':
-                const chapter = this._chapters[this._currentChapterIndex];
-                if (this._currentSentenceIndex + 1 < chapter.sentences.length) {
-                    this._playChapter(this._currentChapterIndex, this._currentSentenceIndex + 1);
+                const chapters = this._docController.chapters;
+                const chapter = chapters[this._stateStore.state.currentChapterIndex];
+                if (this._stateStore.state.currentSentenceIndex + 1 < chapter.sentences.length) {
+                    this._playChapter(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex + 1);
                 } else {
                     this.stop();
                 }
@@ -994,40 +887,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _advanceNormally() {
-        const chapter = this._chapters[this._currentChapterIndex];
-        if (this._currentSentenceIndex + 1 < chapter.sentences.length) {
-            this._playChapter(this._currentChapterIndex, this._currentSentenceIndex + 1);
+        const chapters = this._docController.chapters;
+        const chapter = chapters[this._stateStore.state.currentChapterIndex];
+        if (this._stateStore.state.currentSentenceIndex + 1 < chapter.sentences.length) {
+            this._playChapter(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex + 1);
         } else {
-            this.jumpToChapter(this._currentChapterIndex + 1);
+            this.jumpToChapter(this._stateStore.state.currentChapterIndex + 1);
         }
     }
 
-    private _getFileVersionSalt(fsPath: string): string {
-        // 1. Explicit Suffix (.resolved.N)
-        const suffixMatch = fsPath.match(/\.resolved\.(\d+)$/i);
-        if (suffixMatch) {
-            return `V${suffixMatch[1]}`;
-        }
-
-        // 2. Metadata File (Brain managed)
-        try {
-            const metaPath = fsPath + '.metadata.json';
-            if (fs.existsSync(metaPath)) {
-                const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-                if (meta.version) {
-                    return `V${meta.version}`;
-                }
-            }
-        } catch (e) {}
-
-        // 3. Passive Mtime (Temporal Salt for regular files)
-        try {
-            if (fs.existsSync(fsPath)) {
-                const stats = fs.statSync(fsPath);
-                return `T${Math.floor(stats.mtimeMs)}`;
-            }
-        } catch (e) {}
-
-        return '';
-    }
+    // getFileVersionSalt logic moved to DocumentLoadController
 }
