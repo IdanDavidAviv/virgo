@@ -4,6 +4,11 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [Unreleased]
 
+### Added
+- 
+
+## [1.1.0] - 2026-03-29
+
 ## [1.1.0] - 2026-03-29
 
 ### Added
