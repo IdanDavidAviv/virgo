@@ -14,6 +14,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _chapters: Chapter[] = [];
     private _currentChapterIndex: number = 0;
     private _currentSentenceIndex: number = 0;
+    private _isPreviewing: boolean = false;
     
     // Configuration
     private _autoPlayMode: 'auto' | 'chapter' | 'row' = 'auto';
@@ -34,7 +35,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _playbackEngine: PlaybackEngine;
     private _localVoices: any[] = [];
     private _neuralVoices: any[] = [];
-    private _statusBarItems: { pause: vscode.StatusBarItem; stop: vscode.StatusBarItem };
+    private _statusBarItem: vscode.StatusBarItem;
     
     private _lastReportedProgress: number = -1;
     
@@ -42,13 +43,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     constructor(
         private readonly _context: vscode.ExtensionContext,
         private readonly _logger: (msg: string) => void,
-        statusBarItems: { pause: vscode.StatusBarItem; stop: vscode.StatusBarItem },
+        statusBarItem: vscode.StatusBarItem,
         public onVisibilityChanged?: () => void
     ) {
         this._extensionUri = _context.extensionUri;
         this._extensionPath = _context.extensionPath;
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
-        this._statusBarItems = statusBarItems;
+        this._statusBarItem = statusBarItem;
 
         // Load Persisted Settings
         this._rate = this._context.globalState.get<number>('readAloud.rate', 0);
@@ -204,17 +205,19 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._syncStatusBars();
     }
 
+    public isPlaying() { return this._playbackEngine.isPlaying; }
+    public isPaused() { return this._playbackEngine.isPaused; }
+
     private _syncStatusBars() {
         const isPlaying = this._playbackEngine.isPlaying;
         const isPaused = this._playbackEngine.isPaused;
 
         if (isPlaying) {
-            this._statusBarItems.pause.show();
-            this._statusBarItems.stop.show();
-            this._statusBarItems.pause.text = isPaused ? "$(play) Resume" : "$(pause) Pause";
+            this._statusBarItem.text = isPaused ? "$(play) Resume" : "$(debug-pause) Pause";
+            this._statusBarItem.backgroundColor = isPaused ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
         } else {
-            this._statusBarItems.pause.hide();
-            this._statusBarItems.stop.hide();
+            this._statusBarItem.text = "$(unmute) Read Aloud";
+            this._statusBarItem.backgroundColor = undefined;
         }
     }
 
@@ -454,9 +457,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case 'voiceChanged':
                 this._selectedVoice = data.voice;
                 this._context.globalState.update('readAloud.voice', data.voice);
-                this._logger(`[VOICE] ${data.voice} | RESET: cache_cleared`);
-                this._playbackEngine.clearCache();
-                this.stop();
+                this._logger(`[VOICE] ${data.voice} | SURGICAL_PREVIEW`);
+                // Stop any current full playback but trigger a single-sentence preview synth
+                this._playbackEngine.stop();
+                this._playChapter(this._currentChapterIndex, this._currentSentenceIndex, true);
                 break;
             case 'rateChanged':
                 this._rate = data.rate;
@@ -742,7 +746,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public continue() {
-        // FIXED: Explicitly set isPlaying to true and clear pause
+        this._isPreviewing = false; // Commit to full playback
         this._playbackEngine.setPlaying(true);
         this._playbackEngine.setPaused(false);
         this._postToAll({ command: 'playbackStateChanged', state: 'playing' });
@@ -754,12 +758,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public jumpToSentence(index: number) {
+        this._isPreviewing = false; // Navigation often implies intent to play from there
         this._playbackEngine.setPlaying(true);
         this._playChapter(this._currentChapterIndex, index);
     }
 
     public jumpToChapter(index: number) {
         if (index < 0 || index >= this._chapters.length) {return;}
+        this._isPreviewing = false;
         this._playbackEngine.setPlaying(true);
         this._playChapter(index, 0);
     }
@@ -790,11 +796,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _playChapter(chapterIndex: number, sentenceIndex: number = 0) {
+    private _playChapter(chapterIndex: number, sentenceIndex: number = 0, previewOnly: boolean = false) {
         if (chapterIndex < 0 || chapterIndex >= this._chapters.length) {return;}
         
         this._currentChapterIndex = chapterIndex;
         this._currentSentenceIndex = sentenceIndex;
+        this._isPreviewing = previewOnly;
         
         const chapter = this._chapters[chapterIndex];
 
@@ -816,9 +823,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const sentence = chapter.sentences[sentenceIndex];
 
         // --- NEW: File-Unique Cache Key with Version Salt ---
+        // --- NEW: Voice-Aware Cache Key with Version Salt ---
         const docId = this._currentDocumentUri?.toString() || this._currentFileName;
         const saltStr = this._currentVersionSalt ? `-${this._currentVersionSalt}` : '';
-        const cacheKey = `${docId}${saltStr}-${chapterIndex}-${sentenceIndex}`;
+        const cacheKey = `${this._selectedVoice}-${docId}${saltStr}-${chapterIndex}-${sentenceIndex}`;
 
         this._logger(`[NEURAL] CACHE KEY: ${cacheKey}`);
 
@@ -840,7 +848,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         if (this._engineMode === 'neural') {
             this._playbackEngine.speakNeural(sentence, cacheKey, options).then(data => {
-                if (data && this._playbackEngine.isPlaying) {
+                // Send to webview if we are either playing or just previewing the new voice
+                if (data && (this._playbackEngine.isPlaying || this._isPreviewing)) {
                     this._postToAll({
                         command: 'playAudio',
                         data: data,
@@ -879,8 +888,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 });
                 this._playbackEngine.speakLocal(sentence, options, (code: number | null) => this._onLocalExit(code));
             });
-            // Pre-fetch
-            this._triggerPreFetch(chapterIndex, sentenceIndex + 1, options);
+            // In Preview Mode, we STOP here and don't trigger pre-fetch
+            if (!this._isPreviewing) {
+                this._triggerPreFetch(chapterIndex, sentenceIndex + 1, options);
+            }
         } else {
             this._playbackEngine.speakLocal(sentence, options, (code: number | null) => {
                 this._onLocalExit(code);
@@ -890,6 +901,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
 
     private _triggerPreFetch(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions) {
+        if (!this._playbackEngine.isPlaying || this._isPreviewing) {
+            return;
+        }
         setTimeout(() => {
             let count = 0;
             let cIdx = chapterIndex;
@@ -904,7 +918,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     const text = chapter.sentences[sIdx];
                     const docId = this._currentDocumentUri?.toString() || this._currentFileName;
                     const saltStr = this._currentVersionSalt ? `-${this._currentVersionSalt}` : '';
-                    const cacheKey = `${docId}${saltStr}-${cIdx}-${sIdx}`;
+                    const cacheKey = `${this._selectedVoice}-${docId}${saltStr}-${cIdx}-${sIdx}`;
                     this._playbackEngine.triggerPrefetch(text, cacheKey, options);
                     sIdx++;
                     count++;
@@ -949,6 +963,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _moveNext(manual: boolean = false) {
+        if (this._isPreviewing) {
+            this._isPreviewing = false;
+            this._logger(`[VOICE] Preview finished. Waiting for user Play.`);
+            return;
+        }
+
         if (manual) {
             this._advanceNormally();
             return;

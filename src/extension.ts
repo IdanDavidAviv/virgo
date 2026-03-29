@@ -4,9 +4,7 @@ import * as fs from 'fs';
 import { SpeechProvider } from './speechProvider';
 import { findChapterAtLine, findSentenceAtLine, parseChapters } from './documentParser';
 
-let playBarItem: vscode.StatusBarItem;
-let pauseBarItem: vscode.StatusBarItem;
-let stopBarItem: vscode.StatusBarItem;
+let mainStatusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 let logFilePath: string;
 
@@ -32,14 +30,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
     log('--- BOOTING READ ALOUD ENGINE ---');
 
-    // Pre-initialize items for provider
-    pauseBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
-    stopBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
+    // Single Consolidated Status Bar Item
+    mainStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    mainStatusBarItem.command = 'readme-preview-read-aloud.show-quick-controls';
+    mainStatusBarItem.text = '$(unmute) Read Aloud';
+    mainStatusBarItem.tooltip = 'Click for Read Aloud Controls';
+    mainStatusBarItem.show();
 
-    const speechProvider = new SpeechProvider(context, log, {
-        pause: pauseBarItem,
-        stop: stopBarItem
-    }, () => syncSelection());
+    const speechProvider = new SpeechProvider(context, log, mainStatusBarItem, () => syncSelection());
     log('--- NATIVE WEBVIEW ARCHITECTURE ACTIVE (Serverless) ---');
 
     context.subscriptions.push(
@@ -50,26 +48,48 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
-    // Status Bar Controls
-    playBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    playBarItem.command = 'readme-preview-read-aloud.play';
-    playBarItem.text = '$(play) Read Aloud';
-    playBarItem.show();
-
-    pauseBarItem.command = 'readme-preview-read-aloud.pause';
-    pauseBarItem.text = '$(debug-pause)';
-    // Provider will manage show/hide
-
-    stopBarItem.command = 'readme-preview-read-aloud.stop';
-    stopBarItem.text = '$(debug-stop)';
-    // Provider will manage show/hide
-
     context.subscriptions.push(
-        playBarItem, pauseBarItem, stopBarItem,
+        mainStatusBarItem,
         
         vscode.commands.registerCommand('readme-preview-read-aloud.show-dashboard', () => {
             vscode.commands.executeCommand('readme-preview-read-aloud.speech-engine.focus');
             speechProvider.refresh();
+        }),
+
+        vscode.commands.registerCommand('readme-preview-read-aloud.show-quick-controls', async () => {
+            const isPlaying = speechProvider.isPlaying();
+            const isPaused = speechProvider.isPaused();
+
+            if (!isPlaying) {
+                // If not playing, just trigger play or show dashboard
+                const action = await vscode.window.showQuickPick([
+                    { label: '$(play) Start Reading', id: 'play' },
+                    { label: '$(layout-sidebar-right) Open Dashboard', id: 'dashboard' }
+                ], { placeHolder: 'Read Aloud Mission Control' });
+
+                if (action?.id === 'play') { vscode.commands.executeCommand('readme-preview-read-aloud.play'); }
+                if (action?.id === 'dashboard') { vscode.commands.executeCommand('readme-preview-read-aloud.show-dashboard'); }
+                return;
+            }
+
+            const items = [
+                { label: isPaused ? '$(play) Resume' : '$(debug-pause) Pause', id: 'toggle' },
+                { label: '$(debug-stop) Stop Playback', id: 'stop' },
+                { label: '$(layout-sidebar-right) Open Dashboard', id: 'dashboard' }
+            ];
+
+            const selection = await vscode.window.showQuickPick(items, {
+                placeHolder: 'Read Aloud Controls'
+            });
+
+            if (selection?.id === 'toggle') {
+                if (isPaused) { speechProvider.continue(); }
+                else { speechProvider.pause(); }
+            } else if (selection?.id === 'stop') {
+                speechProvider.stop();
+            } else if (selection?.id === 'dashboard') {
+                vscode.commands.executeCommand('readme-preview-read-aloud.show-dashboard');
+            }
         }),
 
         vscode.commands.registerCommand('readme-preview-read-aloud.play', async () => {

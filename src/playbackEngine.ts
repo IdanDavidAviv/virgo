@@ -166,41 +166,37 @@ export class PlaybackEngine {
         if (this._onCacheUpdate) {this._onCacheUpdate();}
     }
 
-    public async triggerPrefetch(text: string, cacheKey: string, options: PlaybackOptions) {
+    public triggerPrefetch(text: string, cacheKey: string, options: PlaybackOptions) {
         if (options.mode !== 'neural') {return;}
         
-        // If already cached or synthesis is in flight, do nothing
-        if (this._audioCache.has(cacheKey) || this._pendingTasks.has(cacheKey)) {return;}
+        if (this._audioCache.has(cacheKey) || this._pendingTasks.has(cacheKey)) {
+            return;
+        }
 
-        try {
-            this.logger(`[PREFETCH] key:${cacheKey}`);
+        this.logger(`[PREFETCH] key:${cacheKey}`);
             // Background prefetch should NEVER abort the priority task
             this.speakNeural(text, cacheKey, options, false).catch(e => {
                 this.logger(`[PREFETCH] Background task failed: ${e.message}`);
             });
-        } catch (err) {}
     }
 
     public async speakNeural(text: string, cacheKey: string, options: PlaybackOptions, isPriority: boolean = true): Promise<string | null> {
-        // 1. Check persistent LRU cache
-        const cached = this._audioCache.get(cacheKey);
-        if (cached) {
-            this.logger(`[NEURAL] CACHE HIT: ${cacheKey}`);
-            // Refresh LRU position
-            this._audioCache.delete(cacheKey);
-            this._audioCache.set(cacheKey, cached);
-            return cached;
+        // --- CHECK CACHE ---
+        if (this._audioCache.has(cacheKey)) {
+            this.logger(`[CACHE HIT] key:${cacheKey}`);
+            if (isPriority) {this._isPlaying = true;}
+            return Promise.resolve(this._audioCache.get(cacheKey)!);
         }
 
-        // 2. Check if synthesis for this key is already in progress
-        const inFlight = this._pendingTasks.get(cacheKey);
-        if (inFlight) {
-            this.logger(`[NEURAL] WAITING: ${cacheKey}`);
-            return inFlight;
+        // --- CHECK PENDING ---
+        if (this._pendingTasks.has(cacheKey)) {
+            this.logger(`[PENDING HIT] key:${cacheKey}`);
+            if (isPriority) {this._isPlaying = true;}
+            return this._pendingTasks.get(cacheKey)!;
         }
 
-        // 3. Trigger new synthesis and track it
-        this.logger(`[NEURAL] CACHE MISS: ${cacheKey}`);
+        this.logger(`[CACHE MISS] Synthesis starting for: ${cacheKey}`);
+        if (isPriority) {this._isPlaying = true;}
         
         // ONLY abort if this is a priority (user-initiated) request
         if (isPriority) {
