@@ -97,6 +97,15 @@
         
         // Initial UI Sync from persisted state
         syncAudioUI();
+
+        // Debug Mode Indicator (Serverless Handshake)
+        const config = window.__BOOTSTRAP_CONFIG__;
+        if (config && config.debugMode) {
+            const debugTag = document.getElementById('debug-mode-tag');
+            if (debugTag) {
+                debugTag.style.display = 'inline-block';
+            }
+        }
     } catch (e) {
         console.error('[DASHBOARD] DOM Selection failed:', e);
     }

@@ -341,7 +341,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         // Inject Handshake Config (Native Mode)
         const config = {
             native: true,
-            extensionVersion: this._context.extension.packageJSON.version
+            extensionVersion: this._context.extension.packageJSON.version,
+            debugMode: this._context.extensionMode === vscode.ExtensionMode.Development
         };
 
         const bootstrap = `
