@@ -249,17 +249,15 @@
     }
 
     // --- Context Parsing ---
-    function updateContextSlot(uri, filenameEl, dirEl, version) {
+    function updateContextSlot(uri, filenameEl, dirEl, version, precalcName, precalcDir) {
         if (!uri) {
             filenameEl.textContent = filenameEl.id === 'reader-filename' ? 'No File Loaded' : 'No Selection';
             dirEl.textContent = '';
             return;
         }
 
-        // URI is file:///path/to/file.md
-        const parts = uri.split(/[\\\/]/);
-        const filename = parts.pop() || '';
-        const dir = parts.length > 3 ? parts.slice(-3).join('/') : parts.join('/');
+        const filename = precalcName || uri.split(/[\\\/]/).pop() || '';
+        const dir = precalcDir !== undefined ? precalcDir : (uri.split(/[\\\/]/).length > 3 ? uri.split(/[\\\/]/).slice(-3).join('/') : '');
 
         // Only show explicit 'V' versions as badges in UI.
         // 'T' versions (timestamps) are internal salts only.
@@ -428,13 +426,14 @@
             case 'state-sync':
                 // Dual context update
                 currentReadingUri = message.readingUri;
-                updateContextSlot(message.activeUri, activeFilename, activeDir, message.activeVersion);
-                updateContextSlot(message.readingUri, readerFilename, readerDir, message.readingVersion);
+                updateContextSlot(message.activeUri, activeFilename, activeDir, message.activeVersion, message.activeFileName, message.activeRelativeDir);
+                updateContextSlot(message.readingUri, readerFilename, readerDir, message.readingVersion, message.readingFileName, message.readingRelativeDir);
                 syncPlaybackUI(message.currentChapterIndex, message.currentSentenceIndex, message.totalSentences);
                 updateStateDebug(message);
 
                 // Mismatch Pulse
                 if (btnLoadFile) {
+                    btnLoadFile.disabled = !message.activeUri;
                     const isMismatch = message.activeUri && message.activeUri !== message.readingUri;
                     btnLoadFile.classList.toggle('mismatch', !!isMismatch);
                 }
@@ -511,10 +510,11 @@
 
                 // Context Slots
                 currentReadingUri = message.readingUri;
-                updateContextSlot(message.activeUri, activeFilename, activeDir, message.activeVersion);
-                updateContextSlot(message.readingUri, readerFilename, readerDir, message.readingVersion);
+                updateContextSlot(message.activeUri, activeFilename, activeDir, message.activeVersion, message.activeFileName, message.activeRelativeDir);
+                updateContextSlot(message.readingUri, readerFilename, readerDir, message.readingVersion, message.readingFileName, message.readingRelativeDir);
                 
                 if (btnLoadFile) {
+                    btnLoadFile.disabled = !message.activeUri;
                     const isMismatch = message.activeUri && message.activeUri !== message.readingUri;
                     btnLoadFile.classList.toggle('mismatch', !!isMismatch);
                 }

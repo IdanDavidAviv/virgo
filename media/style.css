@@ -290,6 +290,15 @@ body {
     transform: scale(0.95);
 }
 
+.btn-load-premium:disabled {
+    opacity: 0.3;
+    pointer-events: none;
+    filter: grayscale(1);
+    border-color: var(--border);
+    transform: none !important;
+    box-shadow: none !important;
+}
+
 .btn-clear-reader {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.1);

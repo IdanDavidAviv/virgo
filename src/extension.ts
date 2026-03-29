@@ -41,7 +41,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const speechProvider = new SpeechProvider(context, log, {
         pause: pauseBarItem,
         stop: stopBarItem
-    });
+    }, () => syncSelection());
     const config = vscode.workspace.getConfiguration('readAloud');
     const intendedPort = config.get<number>('bridgePort') || 3000;
     
@@ -128,35 +128,52 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // Passive Selection Tracking: Keep the dashboard aware of what's in focus without resetting playback.
-    const updateActiveSelection = async () => {
-        const editor = vscode.window.activeTextEditor;
-        let uri: vscode.Uri | undefined;
+    // --- Selection Sync Multiplexer ---
+    // This ensures focus is updated reliably across multiple VS Code events without races.
+    let syncTimer: NodeJS.Timeout | undefined;
+    function syncSelection() {
+        if (syncTimer) { clearTimeout(syncTimer); }
+        syncTimer = setTimeout(async () => {
+            let editor = vscode.window.activeTextEditor;
+            let uri: vscode.Uri | undefined;
 
-        if (editor) {
-            uri = editor.document.uri;
-        } else {
-            const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
-            const input = tab?.input as any;
-            uri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
-        }
-        
-        // Support .md, .markdown, .txt, .log and resolved artifacts
-        const artifactRegex = /\.(md|markdown|txt|log)(\.resolved(\.\d+)?)?$/i;
-        
-        if (uri && (artifactRegex.test(uri.path) || artifactRegex.test(uri.fsPath))) {
-            speechProvider.setActiveEditor(uri);
-        } else {
-            speechProvider.setActiveEditor(undefined);
-        }
-    };
+            if (editor) {
+                uri = editor.document.uri;
+            } else {
+                // GHOST FOCUS: Sidebar is active, use the last active tab in the editor groups.
+                const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+                if (tab) {
+                    const input = tab.input as any;
+                    uri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
+                }
+                // Fallback to visible editors if tab input yields nothing
+                if (!uri && vscode.window.visibleTextEditors.length > 0) {
+                    uri = vscode.window.visibleTextEditors[0].document.uri;
+                }
+            }
+
+            // Support .md, .markdown, .txt, .log and resolved artifacts (with versions)
+            const artifactRegex = /\.(md|markdown|txt|log)(\.resolved)?([.\-].*)?$/i;
+            
+            if (uri && (artifactRegex.test(uri.path) || artifactRegex.test(uri.fsPath))) {
+                speechProvider.setActiveEditor(uri);
+            } else {
+                // STRICT MODE: If it's a non-supported file (.js, .css) or no file, we CLEAR.
+                // This informs the user (and the "LOAD FILE" button) that the current file is not readable.
+                speechProvider.setActiveEditor(undefined);
+            }
+        }, 100);
+    }
 
     context.subscriptions.push(
-        vscode.window.tabGroups.onDidChangeTabs(() => updateActiveSelection()),
-        vscode.window.onDidChangeActiveTextEditor(() => updateActiveSelection())
+        vscode.window.onDidChangeActiveTextEditor(() => syncSelection()),
+        vscode.window.onDidChangeVisibleTextEditors(() => syncSelection()),
+        vscode.window.tabGroups.onDidChangeTabs(() => syncSelection()),
+        vscode.window.tabGroups.onDidChangeTabGroups(() => syncSelection())
     );
 
-    updateActiveSelection();
+    // Initial trigger
+    syncSelection();
 
     return { 
         bridge: bridgeServer

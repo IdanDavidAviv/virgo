@@ -45,6 +45,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         private readonly _context: vscode.ExtensionContext,
         private readonly _logger: (msg: string) => void,
         statusBarItems: { pause: vscode.StatusBarItem; stop: vscode.StatusBarItem },
+        public onVisibilityChanged?: () => void,
         bridge?: BridgeServer
     ) {
         this._extensionUri = _context.extensionUri;
@@ -95,6 +96,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public setActiveEditor(uri: vscode.Uri | undefined) {
+        if (uri?.toString() === this._activeDocumentUri?.toString()) {
+            return; // Avoid redundant broadcasts
+        }
+
         if (!uri) {
             this._activeFileName = 'No Selection';
             this._activeRelativeDir = '';
@@ -112,7 +117,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._activeRelativeDir = path.dirname(fullPath);
             }
         }
-        this._logger(`[SELECTION] file:${this._activeFileName}`);
+        this._logger(`[SYNC] focus:${this._activeFileName}`);
         this._broadcastState();
     }
 
@@ -201,7 +206,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             }
         }
         
-        if (this._view && this._view.visible) {
+        if (this._view && this._view.visible && this._view.webview) {
             this._view.webview.postMessage(msg);
         }
         if (this._bridge) {
@@ -262,6 +267,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
+                this._logger('[VISIBILITY] Sidebar revealed. Triggering sync...');
+                if (this.onVisibilityChanged) {
+                    this.onVisibilityChanged();
+                }
+                this._sendInitialState();
                 this._broadcastVoices();
             }
         });
@@ -437,6 +447,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _sendInitialState() {
         this._postToAll({
             command: 'initialState',
+            activeUri: this._activeDocumentUri?.toString() || '',
+            activeFileName: this._activeFileName,
+            activeRelativeDir: this._activeRelativeDir,
+            readingUri: this._currentDocumentUri?.toString() || '',
+            readingFileName: this._currentFileName,
+            readingRelativeDir: this._currentRelativeDir,
             currentChapterIndex: this._currentChapterIndex,
             currentSentenceIndex: this._currentSentenceIndex,
             totalChapters: this._chapters.length,
