@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { BridgeServer } from './bridgeServer';
 import { Chapter, parseChapters } from './documentParser';
 import { PlaybackEngine, PlaybackOptions } from './playbackEngine';
@@ -38,6 +39,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _statusBarItems: { pause: vscode.StatusBarItem; stop: vscode.StatusBarItem };
     
     private _lastReportedProgress: number = -1;
+    
 
     constructor(
         private readonly _context: vscode.ExtensionContext,
@@ -56,16 +58,39 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._volume = this._context.globalState.get<number>('readAloud.volume', 50);
         this._selectedVoice = this._context.globalState.get<string>('readAloud.voice', 'en-US-AriaNeural');
 
+        // Initial setup of document context listeners
+        this._setupDocumentListeners();
 
-        // No-op for now as error handling is handled in refresh() and through postToAll
+        // Tier-3: High-Density Log Format (Extension Boot)
         this._logger('[BOOT] extension_activated');
-
         this._loadVoices();
     }
 
+    private _currentVersionSalt: string = '';
+
+    private _setupDocumentListeners() {
+        // Listen for changes to the active document to update version badges
+        vscode.workspace.onDidChangeTextDocument(e => {
+            if (this._currentDocumentUri && e.document.uri.toString() === this._currentDocumentUri.toString()) {
+                // For regular files or artifacts, we only want to update the UI if the version/mtime would actually change.
+                // We debounce this slightly to avoid flickering while typing.
+                this._updateDocumentInfoThrottled(e.document);
+            }
+        });
+    }
+
+    private _updateDocumentInfoTimer?: NodeJS.Timeout;
+    private _updateDocumentInfoThrottled(document: vscode.TextDocument) {
+        if (this._updateDocumentInfoTimer) { clearTimeout(this._updateDocumentInfoTimer); }
+        this._updateDocumentInfoTimer = setTimeout(() => {
+            this.updateWorkingDocument(document);
+        }, 500);
+    }
+
+
     public setBridge(bridge: BridgeServer) {
+        this._logger(`[PROVIDER] Bridge received (Port: ${bridge.port}). Refreshing view...`);
         this._bridge = bridge;
-        this._logger('Bridge attached to SpeechProvider. Refreshing view...');
         this.refresh();
     }
 
@@ -290,9 +315,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         try {
             this._isRefreshing = true;
-            this._view.webview.html = this._bridge.getHtml();
+            const html = this._bridge.getHtml();
+            this._logger(`[REFRESH] INJECTING HTML FOR ${this._bridge.port}`);
+            this._view.webview.html = html;
         } catch (e) {
-            this._logger(`[REFRESH] FAILED: ${e}`);
+            this._logger(`[REFRESH] FAILED TO INJECT HTML: ${e}`);
             setTimeout(() => this.refresh(), 1000);
         } finally {
             this._isRefreshing = false;
@@ -417,7 +444,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             autoPlayMode: this._autoPlayMode,
             engineMode: this._engineMode,
             rate: this._rate,
-            volume: this._volume
+            volume: this._volume,
+            activeVersion: this._activeDocumentUri ? this._getFileVersionSalt(this._activeDocumentUri.fsPath) : undefined,
+            readingVersion: this._currentVersionSalt // Already calculated during load
         });
         this._broadcastState();
     }
@@ -439,8 +468,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             engineMode: this._engineMode,
             rate: this._rate,
             volume: this._volume,
+            // Recalculate salts in real-time to pick up metadata/timestamp changes
+            activeVersion: this._activeDocumentUri ? this._getFileVersionSalt(this._activeDocumentUri.fsPath) : undefined,
+            readingVersion: this._currentDocumentUri ? this._getFileVersionSalt(this._currentDocumentUri.fsPath) : this._currentVersionSalt,
             bridgeMetadata: this._bridge?.metadata
         });
+        
+        // Update the internal salt so next playback uses the fresh one
+        if (this._currentDocumentUri) {
+            this._currentVersionSalt = this._getFileVersionSalt(this._currentDocumentUri.fsPath);
+        }
     }
 
     private _compressPath(rawPath: string): string {
@@ -485,11 +522,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
 
         this._currentRelativeDir = relativeDir;
+        this._currentVersionSalt = this._getFileVersionSalt(document.uri.fsPath);
         
         this._postToAll({
             command: 'documentInfo',
             fileName: this._currentFileName,
-            relativeDir: this._currentRelativeDir
+            relativeDir: this._currentRelativeDir,
+            version: this._currentVersionSalt
         });
     }
 
@@ -704,9 +743,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         const sentence = chapter.sentences[sentenceIndex];
 
-        // --- NEW: File-Unique Cache Key ---
+        // --- NEW: File-Unique Cache Key with Version Salt ---
         const docId = this._currentDocumentUri?.toString() || this._currentFileName;
-        const cacheKey = `${docId}-${chapterIndex}-${sentenceIndex}`;
+        const saltStr = this._currentVersionSalt ? `-${this._currentVersionSalt}` : '';
+        const cacheKey = `${docId}${saltStr}-${chapterIndex}-${sentenceIndex}`;
+
+        this._logger(`[NEURAL] CACHE KEY: ${cacheKey}`);
 
         this._postToAll({
             command: 'sentenceChanged',
@@ -787,7 +829,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 if (sIdx < chapter.sentences.length) {
                     const text = chapter.sentences[sIdx];
                     const docId = this._currentDocumentUri?.toString() || this._currentFileName;
-                    const cacheKey = `${docId}-${cIdx}-${sIdx}`;
+                    const saltStr = this._currentVersionSalt ? `-${this._currentVersionSalt}` : '';
+                    const cacheKey = `${docId}${saltStr}-${cIdx}-${sIdx}`;
                     this._playbackEngine.triggerPrefetch(text, cacheKey, options);
                     sIdx++;
                     count++;
@@ -863,5 +906,34 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         } else {
             this.jumpToChapter(this._currentChapterIndex + 1);
         }
+    }
+
+    private _getFileVersionSalt(fsPath: string): string {
+        // 1. Explicit Suffix (.resolved.N)
+        const suffixMatch = fsPath.match(/\.resolved\.(\d+)$/i);
+        if (suffixMatch) {
+            return `V${suffixMatch[1]}`;
+        }
+
+        // 2. Metadata File (Brain managed)
+        try {
+            const metaPath = fsPath + '.metadata.json';
+            if (fs.existsSync(metaPath)) {
+                const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+                if (meta.version) {
+                    return `V${meta.version}`;
+                }
+            }
+        } catch (e) {}
+
+        // 3. Passive Mtime (Temporal Salt for regular files)
+        try {
+            if (fs.existsSync(fsPath)) {
+                const stats = fs.statSync(fsPath);
+                return `T${Math.floor(stats.mtimeMs)}`;
+            }
+        } catch (e) {}
+
+        return '';
     }
 }

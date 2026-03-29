@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 out/
 .vscode-test/
 *.vsix
@@ -8,5 +8,6 @@ TASK.md
 *.log
 diagnostics.log
 implementation_plan.md
+.vscode/ext-dev-data
 
 dist/

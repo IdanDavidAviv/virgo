@@ -7,7 +7,8 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "--disable-extension=IdanDavidAviv.readme-preview-read-aloud"
+        "--disable-extension=IdanDavidAviv.readme-preview-read-aloud",
+        "--user-data-dir=${workspaceFolder}/.vscode/ext-dev-data"
       ],
       "outFiles": [
         "${workspaceFolder}/dist/**/*.js"
@@ -19,7 +20,9 @@
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}"
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--disable-extension=IdanDavidAviv.readme-preview-read-aloud",
+        "--user-data-dir=${workspaceFolder}/.vscode/ext-dev-data"
       ],
       "outFiles": [
         "${workspaceFolder}/dist/**/*.js"

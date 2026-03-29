@@ -249,7 +249,7 @@
     }
 
     // --- Context Parsing ---
-    function updateContextSlot(uri, filenameEl, dirEl) {
+    function updateContextSlot(uri, filenameEl, dirEl, version) {
         if (!uri) {
             filenameEl.textContent = filenameEl.id === 'reader-filename' ? 'No File Loaded' : 'No Selection';
             dirEl.textContent = '';
@@ -261,7 +261,10 @@
         const filename = parts.pop() || '';
         const dir = parts.length > 3 ? parts.slice(-3).join('/') : parts.join('/');
 
-        filenameEl.textContent = filename;
+        // Only show explicit 'V' versions as badges in UI.
+        // 'T' versions (timestamps) are internal salts only.
+        const versionHtml = version && version.startsWith('V') ? `<span class="version-badge">${version}</span>` : '';
+        filenameEl.innerHTML = `${escapeHtml(filename)}${versionHtml}`;
         dirEl.textContent = dir ? `${dir} /` : '';
     }
 
@@ -425,8 +428,8 @@
             case 'state-sync':
                 // Dual context update
                 currentReadingUri = message.readingUri;
-                updateContextSlot(message.activeUri, activeFilename, activeDir);
-                updateContextSlot(message.readingUri, readerFilename, readerDir);
+                updateContextSlot(message.activeUri, activeFilename, activeDir, message.activeVersion);
+                updateContextSlot(message.readingUri, readerFilename, readerDir, message.readingVersion);
                 syncPlaybackUI(message.currentChapterIndex, message.currentSentenceIndex, message.totalSentences);
                 updateStateDebug(message);
 
@@ -508,8 +511,8 @@
 
                 // Context Slots
                 currentReadingUri = message.readingUri;
-                updateContextSlot(message.activeUri, activeFilename, activeDir);
-                updateContextSlot(message.readingUri, readerFilename, readerDir);
+                updateContextSlot(message.activeUri, activeFilename, activeDir, message.activeVersion);
+                updateContextSlot(message.readingUri, readerFilename, readerDir, message.readingVersion);
                 
                 if (btnLoadFile) {
                     const isMismatch = message.activeUri && message.activeUri !== message.readingUri;
@@ -530,6 +533,9 @@
                     void readerSlot.offsetWidth; // Trigger reflow
                     readerSlot.classList.add('transfer-anim-active');
                 }
+                
+                // Update Context Slot directly on metadata change
+                updateContextSlot(currentReadingUri, readerFilename, readerDir, message.version);
                 break;
             case 'sentenceChanged':
                 setLoading(false); // Clear if jumping directly

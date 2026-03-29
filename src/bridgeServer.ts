@@ -15,14 +15,14 @@ export class BridgeServer extends EventEmitter {
     private _wss: WebSocketServer | null = null;
     private _port: number;
     private _intendedPort: number = 3000;
-    private _host: string;
+    private _host: string | undefined;
     private _clients: Set<WebSocket> = new Set();
     private _retryCount: number = 0;
 
     constructor(private readonly _mediaPath: string, private readonly logger: (msg: string) => void) {
         super();
         this._port = 3000; 
-        this._host = '127.0.0.1';
+        this._host = undefined; // Robust: Allow Node to bind via host resolution (e.g. :: or 0.0.0.0)
     }
 
     public get port(): number {
@@ -105,10 +105,13 @@ export class BridgeServer extends EventEmitter {
             });
 
             this._server.on('listening', () => {
-                this.logger(`[BRIDGE] HTTP Server successfully listening on port ${this._port}`);
+                const addr = this._server?.address();
+                const addressStr = typeof addr === 'string' ? addr : addr?.address;
+                this.logger(`[BRIDGE] SUCCESS: HTTP Server listening on ${addressStr}:${this._port}`);
                 resolve(this._port);
             });
 
+            this.logger(`[BRIDGE] BINDING: Initiating listen on port ${this._port}...`);
             this._server.listen(this._port, this._host);
         });
     }
