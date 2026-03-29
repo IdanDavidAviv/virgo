@@ -11,18 +11,20 @@ To ensure the "Readme Preview Read Aloud" extension maintains a professional, pr
 ## 2. Trigger Logic
 **MANDATORY**: Before any task that involves a feature addition, bug fix, or breaking change, the agent MUST:
 1. Audit the current version in `package.json`.
-2. Propose a new version based on SemVer 2.0.0.
+2. Ensure the `CHANGELOG.md` has an `## [Unreleased]` section.
+3. Use the automated bumping tool to finalize a release.
 
 ## 3. Semantic Rules
 - **MAJOR (x.0.0)**: Breaking changes in the bridge protocol, synthesis engine API, or essential user data structure.
 - **MINOR (0.x.0)**: New UI features (e.g., voice support, new controls), new navigation logic, or significant performance optimizations.
 - **PATCH (0.0.x)**: UI adjustments, CSS fixes, minor dependency updates, and bug fixes that do not change behavior.
 
-## 4. Changelog Protocol
-- **Format**: Follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
-- **Staging**: While a feature is in development, maintain an `## [Unreleased]` section.
-- **Finalization**: When ready for marketplace packaging, move `## [Unreleased]` content to a new version header with the current date.
+## 4. Automated Management Protocol
+- **Verification**: `node .agent/skills/version_sentinel/scripts/manage_version.js` (No args)
+- **Bumping**: `node .agent/skills/version_sentinel/scripts/manage_version.js --bump [major|minor|patch]`
+- **Side Effects**: Automatically updates `package.json` and injects the current date into the `CHANGELOG.md` while preserving an empty `## [Unreleased]` section for the next cycle.
 
-## 5. Verification Gate
-- **ALWAYS** run the local verification script before committing a version bump:
-  `node .agent/skills/version_sentinel/scripts/verify_version.js`
+## 5. Changelog Protocol
+- **Format**: Follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+- **Staging**: Maintain an `## [Unreleased]` section.
+- **Finalization**: Handled automatically by the bumping script.

@@ -2,6 +2,22 @@
 
 All notable changes to the "Readme Preview Read Aloud" extension will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Improved release automation with One-Click architecture.
+- Centralized version management with automated changelog synchronization.
+
+## [1.0.3] - 2026-03-29
+
+### Added
+- **Selection Sync Multiplexer**: Implemented a 100ms debounced focus tracker in `extension.ts` to prevent race conditions during rapid tab switching or window resizing.
+- **Ghost Focus Strategy**: Now prioritizes the active tab group's state when the sidebar is focused, ensuring the dashboard never loses context while you're interacting with it.
+- **Enhanced Selection Guard**: Automatically clears "Focused File" area when an unsupported document type is active.
+
+### Fixed
+- **Dashboard Interactivity**: The **LOAD FILE** button now correctly disables (with a "ghosted" visual state) whenever "No Selection" is shown, providing clearer feedback on readable files.
+
 ## [1.0.2] - 2026-03-28
 
 ### Fixed

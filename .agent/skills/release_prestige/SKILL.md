@@ -8,31 +8,34 @@ description: Protocol for high-integrity extension packaging and installation te
 ## 0. Rationale
 To ensure the ".vsix" file is always production-ready and free of regressions. This protocol mandates a strict "Quality Gate" check before any artifact is generated for distribution.
 
-## 1. Primary Workflows
+## 1. Primary Workflows (One-Click Release)
 
-### 1.1 Integrity Audit (Phase 1)
-**MANDATORY**: Before running `npm run package`, the following checks MUST pass:
-1.  **Version Sentinel**: Invoke `version_sentinel` to verify `package.json` version matches `CHANGELOG.md`.
-2.  **Linting**: Run `npm run lint` to ensure zero stylistic or syntax regressions.
-3.  **Production Compile**: Run `npm run build` to generate the final `dist/` bundle (via `esbuild --mode=production`).
+### 1.1 Automated Pipeline
+**MANDATORY**: Use the scripted release commands in `package.json` to handle the entire lifecycle.
 
-### 1.2 Artifact Generation (Phase 2)
-1.  **Command**: `npm run package`
-    -   This invokes `scripts/package.js`, which handles `vsce package` and legacy artifact cleanup.
-2.  **Post-Audit**: Verify the existence of `{project}-{version}.vsix` in the root directory.
+1.  **Patch Release**: `npm run release:patch`
+2.  **Minor Release**: `npm run release:minor`
+3.  **Major Release**: `npm run release:major`
 
-### 1.3 Installation Sandbox (Phase 3)
+### 1.2 Execution Sequence (Internal)
+The orchestrated command performs the following in a single transaction:
+1.  **Version Sentinel**: Bumps version, renames `[Unreleased]` changelog section, adds date.
+2.  **Linting**: Runs `npm run lint`.
+3.  **Production Compile**: Runs `npm run build` (esbuild production mode).
+4.  **Packaging**: Runs `npm run package` (vsce + cleanup).
+5.  **Audit**: Runs `verify_artifact.js` to ensure zero corruptions.
+
+## 2. Manual Verification Sandbox
 To verify the installation experience, perform the following manual checks:
 1.  **Clean Installation**: 
     -   Open VS Code Extensions view.
     -   Click "..." (Views and More Actions) -> "Install from VSIX...".
     -   Select the newly generated package.
 2.  **Smoke Test Checklist**:
-    -   [ ] **Activation**: Does "Read Aloud" appear in the Status Bar?
-    -   [ ] **Dashboard**: Does the Audio Engine webview open and display correctly?
-    -   [ ] **Playback**: Does `Alt+R` (Play) work on a Markdown file?
-    -   [ ] **Stop**: Does `Alt+S` (Stop) terminate playback and clean up memory?
+    -   [ ] **Activation**: Check Status Bar ("Read Aloud").
+    -   [ ] **Dashboard**: Ensure Glassmorphism UI is perfectly rendered.
+    -   [ ] **Playback**: Test `Alt+R` on a valid Markdown file.
+    -   [ ] **Constraint**: Ensure "LOAD FILE" button is disabled for non-markdown types.
 
-## 2. Release Integrity Script
-Invoke the following to verify the final package:
-`npm run release`
+## 3. Final Gate
+`npm run release` (Run without args to verify an existing version sync).
