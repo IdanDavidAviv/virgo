@@ -1,11 +1,4 @@
 (function () {
-    console.log('[DASHBOARD] --- INITIALIZING HANDSHAKE ---');
-    if (typeof window.__BRIDGE_CONFIG__ === 'undefined') {
-        console.error('[DASHBOARD] CRITICAL: Handshake config missing!');
-    } else {
-        console.log('[DASHBOARD] Local Route:', `${window.__BRIDGE_CONFIG__.host}:${window.__BRIDGE_CONFIG__.port}`);
-    }
-
     window.onerror = function (msg, url, line, col) {
         const errorDetail = `[DASHBOARD] CRITICAL ERROR: ${msg} at line ${line}:${col}`;
         console.error(errorDetail);
@@ -112,13 +105,6 @@
     let currentAudioUrl = null;
     let activeObjectURLs = new Set();
 
-
-    // --- Status Dot ---
-    function updateStatus(isOnline) {
-        if (statusDot) {
-            isOnline ? statusDot.classList.add('online') : statusDot.classList.remove('online');
-        }
-    }
 
     // --- Chapter Rendering ---
     function renderChapters(chapterData, currentIdx) {
@@ -334,67 +320,32 @@
 
     function logSafeMessage(msg) {
         const command = msg.command;
-        // Silence high-frequency heartbeats
-        if (command === 'state-sync' || command === 'cacheStatus' || command === 'progress') {
-            return;
-        }
+        if (command === 'state-sync' || command === 'cacheStatus' || command === 'progress') { return; }
 
-        function compressPath(p) {
-            if (typeof p !== 'string') {
-                return p;
+        const sanitize = (val) => {
+            if (val === null || val === undefined) { return val; }
+            if (Array.isArray(val)) { return val.length > 5 ? `[CNT:${val.length}]` : val.map(sanitize); }
+            if (typeof val === 'string') {
+                if (val.length > 1000) { return `[BIN:${Math.round(val.length/1024)}KB]`; }
+                if (val.includes('file:///')) { return val.split(/[\\\/]/).pop(); } // Minimal path
+                return val.length > 64 ? val.substring(0, 61) + '...' : val;
             }
-            return p.replace(/([0-9a-f]{4})[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8}([0-9a-f]{4})/gi, '$1...$2');
-        }
-
-        function sanitize(payload, depth = 0) {
-            if (depth > 3) {
-                return '[MAX_DEPTH]';
-            }
-            if (payload === null || payload === undefined) {
-                return payload;
-            }
-
-            if (Array.isArray(payload)) {
-                if (payload.length > 10) {
-                    return `[COUNT: ${payload.length} items]`;
-                }
-                return payload.map(item => sanitize(item, depth + 1));
-            }
-
-            if (typeof payload === 'object') {
+            if (typeof val === 'object') {
                 const s = {};
-                for (const k in payload) {
-                    const v = payload[k];
-                    // Redact massive data chunks
-                    if (k === 'data' && typeof v === 'string' && v.length > 1000) {
-                        s[k] = `[BINARY_DATA: ${Math.round(v.length / 1024)}KB]`;
-                        continue;
-                    }
-                    // Compress URIs/UUIDs
-                    if (typeof v === 'string' && (v.includes('file:///') || v.includes('http') || v.length > 40)) {
-                        s[k] = compressPath(v);
-                    } else if (typeof v === 'string' && v.length > 128) {
-                        s[k] = v.substring(0, 125) + '...';
-                    } else {
-                        s[k] = sanitize(v, depth + 1);
-                    }
+                for (let k in val) {
+                    s[k] = sanitize(val[k]);
                 }
                 return s;
             }
-            return payload;
-        }
+            return val;
+        };
 
-        const s = sanitize(msg);
-        const cmdLabel = `[${command.toUpperCase()}]`;
-        const payloadString = Object.entries(s)
+        const payload = Object.entries(msg)
             .filter(([k]) => k !== 'command')
-            .map(([k, v]) => {
-                const valStr = typeof v === 'string' ? v : JSON.stringify(v);
-                return `${k}:${valStr}`;
-            })
+            .map(([k, v]) => `${k}:${typeof v === 'object' ? JSON.stringify(sanitize(v)) : sanitize(v)}`)
             .join(' | ');
 
-        console.log(`[BRIDGE -> DASHBOARD] ${cmdLabel} ${payloadString}`);
+        console.log(`[DASHBOARD -> EXTENSION] [${command.toUpperCase()}] ${payload}`);
     }
 
     function updateStateDebug(state) {
@@ -436,12 +387,6 @@
                     btnLoadFile.disabled = !message.activeUri;
                     const isMismatch = message.activeUri && message.activeUri !== message.readingUri;
                     btnLoadFile.classList.toggle('mismatch', !!isMismatch);
-                }
-
-                // Port Shift Diagnostic (Just-in-Time)
-                if (message.bridgeMetadata && message.bridgeMetadata.shifted && !hasShownPortShiftToast) {
-                    hasShownPortShiftToast = true;
-                    showToast(`Port Conflict: Running on ${message.bridgeMetadata.port} (instead of ${message.bridgeMetadata.intended})`, 'warning');
                 }
                 break;
             case 'stop':
@@ -607,14 +552,8 @@
     }
 
 
-    // --- Post message helper (works in both webview and websocket modes) ---
-    let socket = null;
     function postMsg(msg) {
-        if (vscode) {
-            vscode.postMessage(msg);
-        } else if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify(msg));
-        }
+        if (vscode) { vscode.postMessage(msg); }
     }
 
     function updateAutoPlayModeUI(mode) {
@@ -871,45 +810,8 @@
         }
     });
 
-    // --- Connection Mode: Internal Webview vs External Browser ---
     if (vscode) {
         window.addEventListener('message', event => handleCommand(event.data));
-        updateStatus(true);
         vscode.postMessage({ command: 'ready' });
-    } else {
-        const config = window.__BRIDGE_CONFIG__ || { host: '127.0.0.1', port: 3001 };
-        let retryCount = 0;
-        const maxRetries = 10;
-
-        function connectSocket() {
-            socket = new WebSocket(`ws://${config.host}:${config.port}`);
-
-            socket.onopen = () => {
-                updateStatus(true);
-                socket.send(JSON.stringify({ command: 'ready' }));
-                retryCount = 0;
-            };
-
-            socket.onmessage = (event) => {
-                try { handleCommand(JSON.parse(event.data)); } catch (e) { }
-            };
-
-            socket.onclose = () => {
-                updateStatus(false);
-                if (retryCount < maxRetries) {
-                    retryCount++;
-                    setTimeout(connectSocket, 1000);
-                } else {
-                    console.error('[DASHBOARD] Max handshake retries reached.');
-                    showToast('Critical: Could not connect to Audio Bridge.', 'error');
-                }
-            };
-
-            socket.onerror = (err) => {
-                console.warn('[DASHBOARD] Handshake socket error:', err);
-            };
-        }
-
-        connectSocket();
     }
 }());
