@@ -17,8 +17,6 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [1.1.0] - 2026-03-29
 
-## [1.1.0] - 2026-03-29
-
 ### Added
 - **Serverless Architecture**: Fully decommissioned the legacy `BridgeServer` infrastructure, eliminating port collisions and installation locks on Windows.
 - **Native Webview Messaging**: Migrated all extension-to-dashboard communication to the native VS Code `postMessage` protocol.
