@@ -338,10 +338,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                    .replace('</head>', `<link rel="stylesheet" href="${styleUri}">\n</head>`)
                    .replace('</body>', `<script src="${scriptUri}"></script>\n</body>`);
 
-        // Inject Handshake Config (Since we don't have the BridgeServer to do it anymore)
+        // Inject Handshake Config (Native Mode)
         const config = {
-            host: '127.0.0.1',
-            port: 0, // Native mode
             native: true,
             extensionVersion: this._context.extension.packageJSON.version
         };
@@ -358,10 +356,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     function send(type, args) {
                         try {
                             const sanitize = (val) => {
-                                if (Array.isArray(val)) return '[COUNT: ' + val.length + ' items]';
+                                if (Array.isArray(val)) return '[ARRAY:' + val.length + ']';
                                 if (val && typeof val === 'object') {
                                     const keys = Object.keys(val);
-                                    if (keys.length > 5) return '[OBJ: ' + keys.length + ' keys]';
+                                    if (keys.length > 5) return '[OBJ:' + keys.length + ']';
+                                    if (val.command) return '[CMD:' + val.command + ']';
                                     return JSON.stringify(val);
                                 }
                                 return String(val);
@@ -397,7 +396,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     <div style="font-size:10px;letter-spacing:3px;margin-bottom:8px;opacity:0.8;font-weight:bold;color:#ffaaaa;">CRITICAL FAILURE</div>
                     <div style="font-size:14px;font-weight:600;color:#ffffff;">ENGINE FAILED TO START</div>
                     <div style="font-size:10px;opacity:0.6;margin-top:8px;font-family:monospace;max-width:240px;word-break:break-all;">${message}</div>
-                    <div style="margin-top:16px;font-size:11px;color:#cccccc;">Try restarting VS Code or checking for port conflicts.</div>
+                    <div style="margin-top:16px;font-size:11px;color:#cccccc;">Try restarting VS Code or checking the extension logs.</div>
                 </div>
             </body>
             </html>

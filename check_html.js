@@ -18,7 +18,7 @@ console.log('  style.css size:', style.length, 'chars');
 console.log('  dashboard.js size:', script.length, 'chars');
 console.log('  speechEngine.html size:', html.length, 'chars');
 
-const clientConfig = 'window.__BRIDGE_CONFIG__ = { host: "127.0.0.1", port: 3001 };';
+const clientConfig = 'window.__BOOTSTRAP_CONFIG__ = { native: true, extensionVersion: "1.1.0" };';
 let result = html.replace('<head>', '<head><!-- CSP -->');
 result = result.replace(/\$\{inlineStyle\}/g, style);
 result = result.replace(/\$\{inlineScript\}/g, clientConfig + '\n' + script);
@@ -26,5 +26,5 @@ result = result.replace(/\$\{cspSource\}/g, 'vscode-webview://test');
 
 console.log('  Final generated size:', result.length, 'chars');
 console.log('  Style injected (radial-gradient):', result.includes('radial-gradient'));
-console.log('  Script injected (INITIALIZING):', result.includes('INITIALIZING HANDSHAKE'));
-console.log('  Bridge config injected:', result.includes('__BRIDGE_CONFIG__'));
+console.log('  Script injected (READALOUD):', result.includes('READALOUD'));
+console.log('  Bootstrap config injected:', result.includes('__BOOTSTRAP_CONFIG__'));

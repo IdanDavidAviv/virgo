@@ -1,61 +1,65 @@
 /**
- * FORENSIC AUDIT SCRIPT
+ * FORENSIC AUDIT SCRIPT (v1.1.0 - Serverless Edition)
  * Run: node forensic_audit.js
- * Checks for: Port locks, process zombies, loopback availability
+ * Checks for: Legacy port leaks, diagnostic log health, and native messaging state.
  */
-const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const net = require('net');
 
-const PORTS_TO_CHECK = [3001, 3002, 3003];
-const LOOPBACK_ADDRS = ['127.0.0.1', '::1', '0.0.0.0'];
+const LEGACY_PORTS = [3001, 3002, 3003];
+const LOOPBACK_ADDRS = ['127.0.0.1', '::1'];
 
 function checkPort(host, port) {
     return new Promise((resolve) => {
         const sock = new net.Socket();
-        sock.setTimeout(1000);
-        sock.on('connect', () => { sock.destroy(); resolve({ host, port, status: 'IN USE (something is listening)' }); });
-        sock.on('timeout', () => { sock.destroy(); resolve({ host, port, status: 'TIMEOUT (blocked or no listener)' }); });
-        sock.on('error', (e) => resolve({ host, port, status: `FREE (${e.code})` }));
+        sock.setTimeout(500);
+        sock.on('connect', () => { sock.destroy(); resolve({ host, port, status: 'LOCKED (Legacy Bridge Conflict!)' }); });
+        sock.on('timeout', () => { sock.destroy(); resolve({ host, port, status: 'TIMEOUT' }); });
+        sock.on('error', (e) => resolve({ host, port, status: `CLEAN (${e.code})` }));
         sock.connect(port, host);
     });
 }
 
-function checkHTTPReachable(host, port) {
-    return new Promise((resolve) => {
-        const req = http.get({ host, port, path: '/', timeout: 1500 }, (res) => {
-            resolve({ host, port, httpStatus: res.statusCode, ok: true });
-        });
-        req.on('error', (e) => resolve({ host, port, httpStatus: null, ok: false, error: e.code }));
-        req.on('timeout', () => { req.destroy(); resolve({ host, port, httpStatus: null, ok: false, error: 'TIMEOUT' }); });
-    });
-}
-
 async function run() {
-    console.log('\n=== FORENSIC AUDIT REPORT ===\n');
+    console.log('\n=== READ ALOUD v1.1.0 FORENSIC AUDIT ===\n');
 
-    // 1. Port Scan
-    console.log('--- PORT SCAN ---');
-    for (const port of PORTS_TO_CHECK) {
+    // 1. Port Hygiene (Should all be CLEAN now)
+    console.log('--- LEGACY PORT HYGIENE (Checks for ghost BridgeServers) ---');
+    for (const port of LEGACY_PORTS) {
         for (const host of LOOPBACK_ADDRS) {
             const result = await checkPort(host, port);
-            console.log(`  [${result.status}] ${host}:${port}`);
+            const icon = result.status.includes('CLEAN') ? '✅' : '⚠️';
+            console.log(`  ${icon} [${result.status}] ${host}:${port}`);
         }
     }
 
-    // 2. HTTP Bridge Connectivity Test (must be running the extension first)
-    console.log('\n--- HTTP BRIDGE REACHABILITY (port 3001) ---');
-    console.log('  (This only works if the extension is running. If all show errors, the bridge is down.)');
-    for (const host of LOOPBACK_ADDRS) {
-        const result = await checkHTTPReachable(host, 3001);
-        const icon = result.ok ? '✅' : '❌';
-        console.log(`  ${icon} http://${host}:3001 → ${result.ok ? `HTTP ${result.httpStatus}` : result.error}`);
+    // 2. Diagnostic Log Health
+    console.log('\n--- DIAGNOSTIC LOG AUDIT ---');
+    const logPath = path.join(__dirname, 'diagnostics.log');
+    if (fs.existsSync(logPath)) {
+        const stats = fs.statSync(logPath);
+        console.log(`  ✅ Found diagnostics.log (${(stats.size / 1024).toFixed(2)} KB)`);
+        
+        const content = fs.readFileSync(logPath, 'utf8');
+        const lines = content.split('\n').filter(l => l.trim());
+        const lastLines = lines.slice(-5);
+        
+        console.log('  --- Last 5 Log Signals ---');
+        lastLines.forEach(l => console.log(`    > ${l}`));
+
+        const hasNative = content.includes('[BOOT] Native API');
+        console.log(`\n  --- NATIVE HANDSHAKE STATUS ---`);
+        console.log(`  ${hasNative ? '✅' : '❌'} Native Bootstrap Detected: ${hasNative ? 'YES' : 'NO'}`);
+    } else {
+        console.log('  ❌ diagnostics.log NOT FOUND. (Run the extension first)');
     }
 
     console.log('\n=== END OF AUDIT ===\n');
-    console.log('WHAT TO LOOK FOR:');
-    console.log('  - 127.0.0.1 shows TIMEOUT or ERROR while 0.0.0.0 is IN USE → VPN is rerouting loopback (CONFIRMED ISSUE)');
-    console.log('  - All ports FREE while extension activated → Bridge failed to start (check diagnostics.log)');
-    console.log('  - Multiple IN USE on same port → Ghost/zombie process from a crash');
+    console.log('POST-MIGRATION EXPECTATIONS:');
+    console.log('  - All legacy ports (3001-3003) MUST show CLEAN.');
+    console.log('  - Native Bootstrap MUST show YES if the dashboard was opened.');
+    console.log('  - If a port is LOCKED, kill the process using that port (likely a zombie v1.0.3 BridgeServer).');
 }
 
 run();
