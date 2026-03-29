@@ -4,9 +4,15 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-29
+
 ### Added
-- Improved release automation with One-Click architecture.
-- Centralized version management with automated changelog synchronization.
+- **Serverless Architecture**: Fully decommissioned the legacy `BridgeServer` infrastructure, eliminating port collisions and installation locks on Windows.
+- **Native Webview Messaging**: Migrated all extension-to-dashboard communication to the native VS Code `postMessage` protocol.
+- **Improved UI Sync**: Restored the "Row X / Y" tracking and header state synchronization for a professional playback experience.
+- **Direct Diagnostics**: Implemented a console-to-extension bridge to redirect webview logs directly to the "Read Aloud" output channel.
+- **Voice Stabilization**: Standardized voice changes to immediately purge local audio caches and reset playback state.
+
 
 ## [1.0.3] - 2026-03-29
 

@@ -318,7 +318,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._logger(`[REFRESH] INJECTING NATIVE WEBVIEW HTML`);
             this._view.webview.html = this._getHtmlForWebview(this._view.webview);
         } catch (e) {
-            this._logger(`[REFRESH] FAILED TO INJECT HTML: ${e}`);
+            this._logger(`[REFRESH] ERR: ${e}`);
             setTimeout(() => this.refresh(), 1000);
         } finally {
             this._isRefreshing = false;
@@ -356,14 +356,27 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     // Diagnostic Redirect (console -> extension logs)
                     const _log = console.log, _warn = console.warn, _error = console.error;
                     function send(type, args) {
-                        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-                        vscode.postMessage({ command: 'log', type, message: msg });
+                        try {
+                            const sanitize = (val) => {
+                                if (Array.isArray(val)) return '[COUNT: ' + val.length + ' items]';
+                                if (val && typeof val === 'object') {
+                                    const keys = Object.keys(val);
+                                    if (keys.length > 5) return '[OBJ: ' + keys.length + ' keys]';
+                                    return JSON.stringify(val);
+                                }
+                                return String(val);
+                            };
+                            const msg = args.map(sanitize).join(' | ');
+                            vscode.postMessage({ command: 'log', type, message: msg });
+                        } catch (e) {
+                            vscode.postMessage({ command: 'log', type: 'error', message: '[LOG_ERR] ' + e.message });
+                        }
                     }
                     console.log = (...args) => { _log(...args); send('info', args); };
                     console.warn = (...args) => { _warn(...args); send('warn', args); };
                     console.error = (...args) => { _error(...args); send('error', args); };
 
-                    console.log('[BOOT] Native Webview API Handshake Complete');
+                    console.log('[BOOT] Native API Handshake OK');
                 })();
             </script>
         `;
@@ -441,7 +454,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case 'voiceChanged':
                 this._selectedVoice = data.voice;
                 this._context.globalState.update('readAloud.voice', data.voice);
-                this._logger(`[VOICE] Voice changed to ${data.voice}. Clearing cache.`);
+                this._logger(`[VOICE] ${data.voice} | RESET: cache_cleared`);
                 this._playbackEngine.clearCache();
                 this.stop();
                 break;
