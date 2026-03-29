@@ -2,7 +2,7 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
@@ -64,7 +64,7 @@
       {
         "command": "readme-preview-read-aloud.show-dashboard",
         "title": "Show Read Aloud Dashboard",
-        "icon": "$(refresh)"
+        "icon": "$(layout-sidebar-right)"
       },
       {
         "command": "readme-preview-read-aloud.read-from-cursor",
@@ -92,33 +92,12 @@
       ]
     },
     "menus": {
-      "view/title": [
-        {
-          "command": "readme-preview-read-aloud.show-dashboard",
-          "when": "view == readme-preview-read-aloud.speech-engine",
-          "group": "navigation@1"
-        },
-        {
-          "command": "readme-preview-read-aloud.stop",
-          "when": "view == readme-preview-read-aloud.speech-engine",
-          "group": "navigation@2"
-        }
-      ],
+      "view/title": [],
       "editor/title": [
         {
           "command": "readme-preview-read-aloud.play",
           "when": "editorLangId == markdown",
           "group": "navigation@1"
-        },
-        {
-          "command": "readme-preview-read-aloud.stop",
-          "when": "editorLangId == markdown",
-          "group": "navigation@2"
-        },
-        {
-          "command": "readme-preview-read-aloud.show-dashboard",
-          "when": "editorLangId == markdown",
-          "group": "navigation@4"
         }
       ],
       "editor/context": [
