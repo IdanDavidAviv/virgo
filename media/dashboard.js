@@ -421,7 +421,7 @@
                 renderChapters(message.chapters, message.current);
                 break;
             case 'chapterChanged':
-                syncPlaybackUI(message.index);
+                syncPlaybackUI(message.index, 0, message.totalSentences || 0);
                 break;
             case 'state-sync':
                 // Dual context update
@@ -497,6 +497,8 @@
                     if (waveContainer) { waveContainer.classList.add('speaking'); }
                     btnPlay.style.display = 'none';
                     btnPause.style.display = 'inline-block';
+
+                    syncPlaybackUI(message.chapterIndex, message.sentenceIndex, message.totalSentences);
                 }
                 break;
             case 'initialState':
@@ -549,6 +551,7 @@
                     btnPlay.style.display = 'none';
                     btnPause.style.display = 'inline-block';
                 }
+                syncPlaybackUI(message.chapterIndex, message.sentenceIndex, message.totalSentences);
                 break;
 
             case 'synthesisError':
@@ -683,7 +686,7 @@
             const voice = voiceSelect.value;
             state.selectedVoice = voice;
             if (vscode) { vscode.setState(state); }
-            postMsg({ command: 'setVoice', voice });
+            postMsg({ command: 'voiceChanged', voice });
         };
     }
 

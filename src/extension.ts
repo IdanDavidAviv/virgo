@@ -43,21 +43,28 @@ export async function activate(context: vscode.ExtensionContext) {
         stop: stopBarItem
     }, () => syncSelection());
     const config = vscode.workspace.getConfiguration('readAloud');
+    const useLegacyBridge = config.get<boolean>('useLegacyBridge') || false;
     const intendedPort = config.get<number>('bridgePort') || 3000;
     
-    bridgeServer = new BridgeServer(path.join(context.extensionPath, 'dist', 'media'), log);
-    log(`Initializing BridgeServer (Config: 127.0.0.1:${intendedPort})...`);
-    
-    bridgeServer.start(intendedPort).then(actualPort => {
-        log(`BRIDGE ACTIVE on port ${actualPort}`);
-        if (actualPort !== intendedPort) {
-            vscode.window.showWarningMessage(`Read Aloud: Port ${intendedPort} occupied. Shifting to ${actualPort} to avoid conflict.`);
-        }
-        speechProvider.setBridge(bridgeServer);
-    }).catch(err => {
-        log(`BRIDGE FAILURE: ${err}`);
-        vscode.window.showErrorMessage(`Read Aloud Bridge failed to start: ${err.message}`);
-    });
+    if (useLegacyBridge) {
+        bridgeServer = new BridgeServer(path.join(context.extensionPath, 'dist', 'media'), log);
+        log(`Initializing BridgeServer (Config: 127.0.0.1:${intendedPort})...`);
+        
+        bridgeServer.start(intendedPort).then(actualPort => {
+            log(`BRIDGE ACTIVE on port ${actualPort}`);
+            if (actualPort !== intendedPort) {
+                vscode.window.showWarningMessage(`Read Aloud: Port ${intendedPort} occupied. Shifting to ${actualPort} to avoid conflict.`);
+            }
+            speechProvider.setBridge(bridgeServer);
+        }).catch(err => {
+            log(`BRIDGE FAILURE: ${err}`);
+            vscode.window.showErrorMessage(`Read Aloud Bridge failed to start: ${err.message}`);
+        });
+    } else {
+        log('--- NATIVE WEBVIEW ARCHITECTURE ACTIVE (Serverless) ---');
+        // SpeechProvider will handle asset loading via asWebviewUri
+        // No bridgeServer needed.
+    }
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(

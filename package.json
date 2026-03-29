@@ -136,6 +136,11 @@
           "type": "number",
           "default": 3001,
           "description": "Port used by the internal audio engine bridge."
+        },
+        "readAloud.useLegacyBridge": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the legacy HTTP/WebSocket bridge server for the audio engine (locks VSIX installation on Windows)."
         }
       }
     },

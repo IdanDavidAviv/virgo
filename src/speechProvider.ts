@@ -206,7 +206,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             }
         }
         
-        if (this._view && this._view.visible && this._view.webview) {
+        if (this._view) {
             this._view.webview.postMessage(msg);
         }
         if (this._bridge) {
@@ -277,7 +277,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
 
         webviewView.webview.html = this._getLoadingHtml();
-        if (this._bridge) {
+        
+        // --- NEW NATIVE MODE ---
+        if (!this._bridge) {
+            this._view.webview.html = this._getHtmlForWebview(webviewView.webview);
+        } else {
             this.refresh();
         }
     }
@@ -319,21 +323,78 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public refresh(): void {
-        if (!this._view || this._isRefreshing || !this._bridge) {
+        if (!this._view || this._isRefreshing) {
             return;
         }
 
         try {
             this._isRefreshing = true;
-            const html = this._bridge.getHtml();
-            this._logger(`[REFRESH] INJECTING HTML FOR ${this._bridge.port}`);
-            this._view.webview.html = html;
+            
+            if (this._bridge) {
+                const html = this._bridge.getHtml();
+                this._logger(`[REFRESH] INJECTING BRIDGE HTML FOR ${this._bridge.port}`);
+                this._view.webview.html = html;
+            } else {
+                this._logger(`[REFRESH] INJECTING NATIVE WEBVIEW HTML`);
+                this._view.webview.html = this._getHtmlForWebview(this._view.webview);
+            }
         } catch (e) {
             this._logger(`[REFRESH] FAILED TO INJECT HTML: ${e}`);
             setTimeout(() => this.refresh(), 1000);
         } finally {
             this._isRefreshing = false;
         }
+    }
+
+    private _getHtmlForWebview(webview: vscode.Webview): string {
+        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'dashboard.js'));
+        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'style.css'));
+        
+        const htmlPath = vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'speechEngine.html');
+        let html = fs.readFileSync(htmlPath.fsPath, 'utf8');
+
+        // Inject URIs
+        html = html.replace('${inlineStyle}', '') // Remove old injection point
+                   .replace('${inlineScript}', '') // Remove old injection point
+                   .replace('</head>', `<link rel="stylesheet" href="${styleUri}">\n</head>`)
+                   .replace('</body>', `<script src="${scriptUri}"></script>\n</body>`);
+
+        // Inject Handshake Config (Since we don't have the BridgeServer to do it anymore)
+        const config = {
+            host: '127.0.0.1',
+            port: 0, // Native mode
+            native: true,
+            extensionVersion: this._context.extension.packageJSON.version
+        };
+
+        const bootstrap = `
+            <script>
+                window.__BRIDGE_CONFIG__ = ${JSON.stringify(config)};
+                (function() {
+                    const vscode = acquireVsCodeApi();
+                    window.vscode = vscode;
+
+                    // Diagnostic Redirect (console -> extension logs)
+                    const _log = console.log, _warn = console.warn, _error = console.error;
+                    function send(type, args) {
+                        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+                        vscode.postMessage({ command: 'log', type, message: msg });
+                    }
+                    console.log = (...args) => { _log(...args); send('info', args); };
+                    console.warn = (...args) => { _warn(...args); send('warn', args); };
+                    console.error = (...args) => { _error(...args); send('error', args); };
+
+                    console.log('[BOOT] Native Webview API Handshake Complete');
+                })();
+            </script>
+        `;
+
+        html = html.replace('</head>', `${bootstrap}\n</head>`);
+
+        // Replace any remaining ${variable} in HTML
+        html = html.replace(/\${extensionVersion}/g, config.extensionVersion);
+
+        return html;
     }
 
     private _getErrorHtml(message: string): string {
@@ -401,6 +462,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case 'voiceChanged':
                 this._selectedVoice = data.voice;
                 this._context.globalState.update('readAloud.voice', data.voice);
+                this._logger(`[VOICE] Voice changed to ${data.voice}. Clearing cache.`);
+                this._playbackEngine.clearCache();
+                this.stop();
                 break;
             case 'rateChanged':
                 this._rate = data.rate;
@@ -748,6 +812,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 command: 'chapterChanged',
                 index: chapterIndex,
                 total: this._chapters.length,
+                totalSentences: chapter.sentences.length,
                 title: chapter.title
             });
         }
@@ -789,7 +854,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                         command: 'playAudio',
                         data: data,
                         text: sentence,
+                        chapterIndex: chapterIndex,
                         sentenceIndex: sentenceIndex,
+                        totalSentences: chapter.sentences.length,
                         sentences: chapter.sentences
                     });
                 }
