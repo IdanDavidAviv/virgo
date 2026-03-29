@@ -28,10 +28,25 @@ export class PlaybackEngine {
     private _cacheSizeBytes: number = 0;
     private _onCacheUpdate?: () => void;
     private _abortController: AbortController | null = null;
+    
+    // Hardening: Track unique playback intents to eject stale/zombie tasks
+    private _playbackIntentId: number = 0;
+    private _isRateLimited: boolean = false;
+    private _watchdogTimer: NodeJS.Timeout | null = null;
 
     constructor(private logger: (msg: string) => void, onCacheUpdate?: () => void) {
         this._tts = new MsEdgeTTS();
         this._onCacheUpdate = onCacheUpdate;
+    }
+
+    private _reinitTTS() {
+        this.logger(`[NEURAL] Re-initializing MsEdgeTTS client...`);
+        try {
+            this._tts = new MsEdgeTTS();
+            this.logger(`[NEURAL] Client re-initialized.`);
+        } catch (e) {
+            this.logger(`[NEURAL] Failed to re-initialize TTS: ${e}`);
+        }
     }
 
     public get isPlaying() { return this._isPlaying; }
@@ -50,8 +65,10 @@ export class PlaybackEngine {
     public stop() {
         this._isPlaying = false;
         this._isPaused = false;
+        this._playbackIntentId++; // Increment to eject all pending tasks
+        
         if (this._abortController) {
-            this.logger(`[NEURAL] ABORTING in-flight synthesis.`);
+            this.logger(`[NEURAL] ABORTING in-flight synthesis (Intent: ${this._playbackIntentId}).`);
             this._abortController.abort();
             this._abortController = null;
         }
@@ -195,24 +212,26 @@ export class PlaybackEngine {
             return this._pendingTasks.get(cacheKey)!;
         }
 
-        this.logger(`[CACHE MISS] Synthesis starting for: ${cacheKey}`);
-        if (isPriority) {this._isPlaying = true;}
-        
-        // ONLY abort if this is a priority (user-initiated) request
         if (isPriority) {
+            this._isPlaying = true;
+            this._playbackIntentId++; // New intent
+            this.logger(`[NEURAL] NEW INTENT: ${this._playbackIntentId}`);
+            
             if (this._abortController) {
                 this._abortController.abort();
             }
             this._abortController = new AbortController();
         }
         
+        const currentIntentId = this._playbackIntentId;
+
         // If not a priority request, a controller should already exist (from the last priority task)
         // or we use a temporary one. But it's better to skip aborting.
         if (!this._abortController) {
             this._abortController = new AbortController();
         }
 
-        const task = this._getNeuralAudio(text, options.voice);
+        const task = this._getNeuralAudio(text, options.voice, 1, currentIntentId, isPriority);
         this._pendingTasks.set(cacheKey, task);
         
         try {
@@ -224,34 +243,91 @@ export class PlaybackEngine {
             return data;
         } finally {
             this._pendingTasks.delete(cacheKey);
+            this._clearWatchdog();
         }
     }
 
-    private async _getNeuralAudio(text: string, voiceId: string, retryCount = 1): Promise<string | null> {
+    private _startWatchdog(intentId: number) {
+        this._clearWatchdog();
+        this._watchdogTimer = setTimeout(() => {
+            if (this._playbackIntentId === intentId) {
+                this.logger(`[TTS HANG] Silent timeout (5s) for Intent ${intentId}. Recycling...`);
+                this._reinitTTS(); // Force WebSocket cleanup
+                if (this._abortController) {
+                    this._abortController.abort();
+                }
+            }
+        }, 5000);
+    }
+
+    private _clearWatchdog() {
+        if (this._watchdogTimer) {
+            clearTimeout(this._watchdogTimer);
+            this._watchdogTimer = null;
+        }
+    }
+
+    private async _getNeuralAudio(text: string, voiceId: string, retryCount = 1, intentId: number, isPriority: boolean): Promise<string | null> {
+        // EXIT IMMEDIATELY IF INTENT IS STALE (Handles rapid jumps before lock)
+        if (intentId !== this._playbackIntentId) {
+            this.logger(`[NEURAL] EJECTED (Pre-lock) - Intent ${intentId} is stale (Current: ${this._playbackIntentId})`);
+            return null;
+        }
+
+        // EXIT IMMEDIATELY IF STOPPED
+        if (!this._isPlaying && !this._isPaused && isPriority) {
+            this.logger(`[NEURAL] Ignoring synthesis request: Engine is stopped.`);
+            return null;
+        }
+
+        // CIRCUIT BREAKER: Avoid aggressive prefetching if rate limited
+        if (this._isRateLimited && !isPriority) {
+            this.logger(`[NEURAL] CIRCUIT BREAKER - Skipping prefetch while rate limited.`);
+            return null;
+        }
+
         const release = this._synthesisLock;
         let resolveLock!: () => void;
         this._synthesisLock = new Promise(r => resolveLock = r);
 
+        const signal = this._abortController?.signal;
         try {
-            await release;
+            // RACE: Wait for the lock OR the abort signal.
+            await Promise.race([
+                release,
+                new Promise((_, reject) => {
+                    if (signal?.aborted) { reject(new Error('Synthesis Aborted')); }
+                    if (intentId !== this._playbackIntentId) { reject(new Error('Stale Intent')); }
+                    signal?.addEventListener('abort', () => reject(new Error('Synthesis Aborted')), { once: true });
+                })
+            ]);
 
-            const signal = this._abortController?.signal;
+            // FINAL STALE CHECK AFTER LOCK
+            if (intentId !== this._playbackIntentId) {
+                this.logger(`[NEURAL] EJECTED (Post-lock) - Intent ${intentId} is stale.`);
+                return null;
+            }
+
             if (signal?.aborted) {
                 this.logger(`[NEURAL] ABORTED (Pre-flight) - Task was in queue when cancelled.`);
-                resolveLock();
+                return null;
+            }
+
+            // Escape ampersands which can break neural TTS XML wrapping
+            const escapedText = text.replace(/&/g, '&amp;');
+            
+            // SECOND ABORT CHECK: Right before the expensive setMetadata/toStream calls
+            if (signal?.aborted) {
+                this.logger(`[NEURAL] ABORTED (Pre-flight) - Cancelled before metadata set.`);
                 return null;
             }
 
             await this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
-            
-            // Escape ampersands which can break neural TTS XML wrapping
-            const escapedText = text.replace(/&/g, '&amp;');
-            this.logger(`[TTS REQ] text:"${escapedText.substring(0, 30)}..." | voice:${voiceId}`);
+            this.logger(`[TTS REQ] text:"${escapedText.substring(0, 30)}..." | voice:${voiceId} | Intent:${intentId}`);
 
             return await new Promise((resolve, reject) => {
                 if (signal?.aborted) {
-                    this.logger(`[NEURAL] ABORTED (Pre-flight) - Task was cancelled right before stream.`);
-                    reject(new Error("Synthesis Aborted (Pre-flight)"));
+                    reject(new Error("Synthesis Aborted"));
                     return;
                 }
 
@@ -259,43 +335,40 @@ export class PlaybackEngine {
                 const chunks: Buffer[] = [];
                 let hasErrored = false;
 
+                // START WATCHDOG (5s until Chunk 0)
+                this._startWatchdog(intentId);
+
                 const onAbort = () => {
                     this.logger(`[TTS STREAM] ABORT SIGNAL received.`);
                     hasErrored = true;
                     audioStream.destroy();
                     reject(new Error("Synthesis Aborted"));
-                    resolveLock();
                 };
 
                 signal?.addEventListener('abort', onAbort);
 
                 audioStream.on("data", (data: Buffer) => {
-                    if (hasErrored) {
-                        return;
-                    }
-                    const count = chunks.length;
-                    if (count === 0) {
+                    if (hasErrored) { return; }
+                    if (chunks.length === 0) {
+                        this._clearWatchdog();
                         this.logger(`[TTS STREAM] STARTING (chunk 0)`);
                     }
                     chunks.push(data);
                 });
 
                 audioStream.on("end", () => {
-                    if (hasErrored) {return;}
+                    if (hasErrored) { return; }
                     signal?.removeEventListener('abort', onAbort);
                     this.logger(`[TTS STREAM] COMPLETE | chunks:${chunks.length}`);
-                    const buffer = Buffer.concat(chunks);
-                    resolve(buffer.toString('base64'));
-                    resolveLock();
+                    resolve(Buffer.concat(chunks).toString('base64'));
                 });
 
                 audioStream.on("error", (err: any) => {
-                    if (hasErrored) {return;}
+                    if (hasErrored) { return; }
                     signal?.removeEventListener('abort', onAbort);
                     this.logger(`[TTS STREAM] ERROR: ${err}`);
                     hasErrored = true;
                     reject(err);
-                    resolveLock();
                 });
 
                 // Safety timeout for synthesis
@@ -304,20 +377,62 @@ export class PlaybackEngine {
                         this.logger(`[TTS STREAM] TIMEOUT (25s) - No data received from Azure.`);
                         hasErrored = true;
                         signal?.removeEventListener('abort', onAbort);
+                        
+                        // Hardening: Recycle the client on timeout to clear socket hangs
+                        this._reinitTTS();
+                        
                         reject(new Error("Synthesis Timeout (25s)"));
-                        resolveLock();
                     }
                 }, 25000);
             });
         } catch (err: any) {
-            resolveLock!();
-            if (retryCount > 0) {
-                this.logger(`[NEURAL] Synthesis failed. Retrying... (${err})`);
-                this.logger(`[NEURAL] synthesis_retry | error: ${err.message || String(err)}`);
-                return this._getNeuralAudio(text, voiceId, retryCount - 1);
+            const errorMessage = err?.message || String(err);
+            
+            // CRITICAL: Immediately exit on Abort or Stale Intent, do NOT retry.
+            if (errorMessage.includes("Aborted") || errorMessage.includes("Stale Intent")) {
+                this.logger(`[NEURAL] synthesis_aborted | Intent: ${intentId} | No retry.`);
+                return null;
             }
-            this.logger(`[NEURAL] synthesis_failure | error: ${err.message || String(err)}`);
+
+            // --- RATE LIMIT DETECTION ---
+            if (errorMessage.includes("429") || errorMessage.toLowerCase().includes("too many requests")) {
+                this.logger(`[RATE LIMIT HIT] Azure TTS has throttled our requests. Entering Safe Mode.`);
+                this._isRateLimited = true;
+                
+                // Reset circuit breaker after 60 seconds
+                setTimeout(() => {
+                    this._isRateLimited = false;
+                    this.logger(`[NEURAL] CIRCUIT BREAKER RESET - Resuming normal prefetch operation.`);
+                }, 60000);
+            }
+
+            if (retryCount > 0) {
+                // DO NOT RETRY IF STOPPED or STALE
+                if (intentId !== this._playbackIntentId || (!this._isPlaying && !this._isPaused && isPriority)) {
+                    this.logger(`[NEURAL] synthesis_cancelled | Intent ${intentId} is stale or engine stopped.`);
+                    return null;
+                }
+
+                // DO NOT RETRY IF PAUSED (Keeps lock free for the user)
+                if (this._isPaused) {
+                    this.logger(`[NEURAL] synthesis_failed during pause | Skipping retry to keep lock free.`);
+                    return null;
+                }
+
+                // ONLY RETRY PRIORITY TASKS - Prefetch failures are ignored to save quota/bandwidth
+                if (!isPriority) {
+                    this.logger(`[NEURAL] Prefetch failed (${errorMessage}) | Skipping retry.`);
+                    return null;
+                }
+
+                this.logger(`[NEURAL] Synthesis failed. Retrying... (${errorMessage})`);
+                this.logger(`[NEURAL] synthesis_retry | error: ${errorMessage}`);
+                return this._getNeuralAudio(text, voiceId, retryCount - 1, intentId, isPriority);
+            }
+            this.logger(`[NEURAL] synthesis_failure | error: ${errorMessage}`);
             throw err;
+        } finally {
+            resolveLock!();
         }
     }
 

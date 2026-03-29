@@ -5,6 +5,7 @@ import { Chapter } from './documentParser';
 import { DocumentLoadController } from './documentLoadController';
 import { StateStore } from './stateStore';
 import { PlaybackEngine, PlaybackOptions } from './playbackEngine';
+import { AudioBridge } from './audioBridge';
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
@@ -20,6 +21,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     private _docController: DocumentLoadController;
     private _stateStore: StateStore;
+    private _audioBridge: AudioBridge;
     
     // Selection state (passive) - Moved to StateStore
     
@@ -42,7 +44,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._docController = new DocumentLoadController(this._logger);
         this._stateStore = new StateStore(this._logger);
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
+        this._audioBridge = new AudioBridge(this._stateStore, this._docController, this._playbackEngine, this._logger);
         this._statusBarItem = statusBarItem;
+
+        // Register AudioBridge Events
+        this._audioBridge.on('sentenceChanged', payload => this._postToAll({ command: 'sentenceChanged', ...payload }));
+        this._audioBridge.on('chapterChanged', payload => this._postToAll({ command: 'chapterChanged', ...payload }));
+        this._audioBridge.on('playAudio', payload => this._postToAll({ command: 'playAudio', ...payload }));
+        this._audioBridge.on('synthesisError', payload => this._postToAll({ command: 'synthesisError', ...payload }));
+        this._audioBridge.on('engineStatus', payload => this._postToAll({ command: 'engineStatus', ...payload }));
+        this._audioBridge.on('playbackFinished', () => this._syncStatusBars());
 
         // Load Persisted Settings
         this._rate = this._context.globalState.get<number>('readAloud.rate', 0);
@@ -452,7 +463,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._logger(`[VOICE] ${data.voice} | SURGICAL_PREVIEW`);
                 // Stop any current full playback but trigger a single-sentence preview synth
                 this._playbackEngine.stop();
-                this._playChapter(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, true);
+                this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions(), true);
                 break;
             case 'rateChanged':
                 this._rate = data.rate;
@@ -471,14 +482,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
             case 'sentenceEnded':
                 if (!this._playbackEngine.isPaused) {
-                    this._moveNext();
+                    this._audioBridge.next(this._getOptions(), false, this._autoPlayMode);
                 }
                 break;
             case 'nextSentence': 
-                this._moveNext(true); 
+                this._audioBridge.next(this._getOptions(), true, this._autoPlayMode); 
                 break;
             case 'prevSentence':
-                this._movePrev();
+                this._audioBridge.previous(this._getOptions());
                 break;
             case 'jumpToSentence': this.jumpToSentence(data.index); break;
             case 'continue': this.continue(); break;
@@ -600,7 +611,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _resetContext() {
-        this.stop();
+        this._audioBridge.stop();
         this._docController.clear();
         this._stateStore.reset();
         
@@ -617,19 +628,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
         this._stateStore.setProgress(startFromChapter, 0);
-        
         this._playbackEngine.setPlaying(true);
-        this._playChapter(startFromChapter, 0);
+        this._audioBridge.start(startFromChapter, 0, this._getOptions());
     }
 
     public pause() {
-        this._playbackEngine.setPaused(true);
+        this._audioBridge.pause();
         this._postToAll({ command: 'playbackStateChanged', state: 'paused' });
     }
 
     public stop() {
-        this._playbackEngine.stop();
-        this._stateStore.setProgress(0, 0);
+        this._audioBridge.stop();
         this._postToAll({ command: 'stop' });
         this._logger('[STOP] playback_stop');
     }
@@ -639,7 +648,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._playbackEngine.setPlaying(true);
         this._playbackEngine.setPaused(false);
         this._postToAll({ command: 'playbackStateChanged', state: 'playing' });
-        this._playChapter(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex);
+        this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions());
     }
 
     public startOver() {
@@ -649,7 +658,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public jumpToSentence(index: number) {
         this._stateStore.setPreviewing(false); // Navigation often implies intent to play from there
         this._playbackEngine.setPlaying(true);
-        this._playChapter(this._stateStore.state.currentChapterIndex, index);
+        this._audioBridge.start(this._stateStore.state.currentChapterIndex, index, this._getOptions());
     }
 
     public jumpToChapter(index: number) {
@@ -657,243 +666,41 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (index < 0 || index >= chapters.length) {return;}
         this._stateStore.setPreviewing(false);
         this._playbackEngine.setPlaying(true);
-        this._playChapter(index, 0);
+        this._audioBridge.start(index, 0, this._getOptions());
     }
 
     public nextChapter() {
-        this.jumpToChapter(this._stateStore.state.currentChapterIndex + 1);
+        this._audioBridge.next(this._getOptions(), true, this._autoPlayMode);
     }
 
     public prevChapter() {
-        this.jumpToChapter(this._stateStore.state.currentChapterIndex - 1);
+        this._audioBridge.previous(this._getOptions());
     }
 
     public prevSentence() {
-        const chapters = this._docController.chapters;
-        if (this._stateStore.state.currentSentenceIndex > 0) {
-            this.jumpToSentence(this._stateStore.state.currentSentenceIndex - 1);
-        } else if (this._stateStore.state.currentChapterIndex > 0) {
-            const prevChap = chapters[this._stateStore.state.currentChapterIndex - 1];
-            this._playChapter(this._stateStore.state.currentChapterIndex - 1, prevChap.sentences.length - 1);
-        }
+        this._audioBridge.previous(this._getOptions());
     }
 
     public nextSentence() {
-        const chapter = this._docController.chapters[this._stateStore.state.currentChapterIndex];
-        if (this._stateStore.state.currentSentenceIndex + 1 < chapter.sentences.length) {
-            this.jumpToSentence(this._stateStore.state.currentSentenceIndex + 1);
-        } else {
-            this.nextChapter();
-        }
+        this._audioBridge.next(this._getOptions(), true, this._autoPlayMode);
     }
 
-    private _playChapter(chapterIndex: number, sentenceIndex: number = 0, previewOnly: boolean = false) {
-        const chapters = this._docController.chapters;
-        if (chapterIndex < 0 || chapterIndex >= chapters.length) {return;}
-        
-        this._stateStore.setProgress(chapterIndex, sentenceIndex);
-        this._stateStore.setPreviewing(previewOnly);
-        
-        const chapter = chapters[chapterIndex];
-
-        if (sentenceIndex === 0) {
-            this._postToAll({
-                command: 'chapterChanged',
-                index: chapterIndex,
-                total: chapters.length,
-                totalSentences: chapter.sentences.length,
-                title: chapter.title
-            });
-        }
-
-        if (!chapter.sentences || chapter.sentences.length === 0) {
-            this._moveNext();
-            return;
-        }
-
-        const sentence = chapter.sentences[sentenceIndex];
-
-        const metadata = this._docController.metadata;
-        const docId = metadata.uri?.toString() || metadata.fileName;
-        const saltStr = metadata.versionSalt ? `-${metadata.versionSalt}` : '';
-        const cacheKey = `${this._selectedVoice}-${docId}${saltStr}-${chapterIndex}-${sentenceIndex}`;
-
-        this._logger(`[NEURAL] CACHE KEY: ${cacheKey}`);
-
-        this._postToAll({
-            command: 'sentenceChanged',
-            text: sentence,
-            chapterIndex: chapterIndex,
-            sentenceIndex: sentenceIndex,
-            totalSentences: chapter.sentences.length,
-            sentences: chapter.sentences
-        });
-
-        const options: PlaybackOptions = {
+    private _getOptions(): PlaybackOptions {
+        return {
             voice: this._selectedVoice,
             rate: this._rate,
             volume: this._volume,
             mode: this._engineMode
         };
-
-        if (this._engineMode === 'neural') {
-            this._playbackEngine.speakNeural(sentence, cacheKey, options).then(data => {
-                // Send to webview if we are either playing or just previewing the new voice
-                if (data && (this._playbackEngine.isPlaying || this._stateStore.state.isPreviewing)) {
-                    this._postToAll({
-                        command: 'playAudio',
-                        data: data,
-                        text: sentence,
-                        chapterIndex: chapterIndex,
-                        sentenceIndex: sentenceIndex,
-                        totalSentences: chapter.sentences.length,
-                        sentences: chapter.sentences
-                    });
-                }
-            }).catch(err => {
-                
-                // --- IGNORE Abort Error (from stop or jump) ---
-                const errorMessage = err?.message || String(err);
-                if (errorMessage.includes('Abort') || errorMessage.includes('Cancel')) {
-                    this._logger(`[NEURAL] Synthesis cancelled: ${errorMessage}`);
-                    return;
-                }
-
-                // --- Verify engine is still active before fallback ---
-                if (!this._playbackEngine.isPlaying) {
-                    this._logger('[GUARD] Synthesis failed, but engine is stopped. Ignoring fallback.');
-                    return;
-                }
-
-                this._logger(`[ERR] Neural synthesis failed: ${errorMessage}. Falling back to SAPI.`);
-
-                this._postToAll({
-                    command: 'synthesisError',
-                    error: errorMessage,
-                    isFallingBack: true
-                });
-                this._postToAll({
-                    command: 'engineStatus',
-                    status: 'local-fallback'
-                });
-                this._playbackEngine.speakLocal(sentence, options, (code: number | null) => this._onLocalExit(code));
-            });
-            // In Preview Mode, we STOP here and don't trigger pre-fetch
-            if (!this._stateStore.state.isPreviewing) {
-                this._triggerPreFetch(chapterIndex, sentenceIndex + 1, options);
-            }
-        } else {
-            this._playbackEngine.speakLocal(sentence, options, (code: number | null) => {
-                this._onLocalExit(code);
-            });
-        }
-    }
-
-
-    private _triggerPreFetch(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions) {
-        if (!this._playbackEngine.isPlaying || this._stateStore.state.isPreviewing) {
-            return;
-        }
-        setTimeout(() => {
-            let count = 0;
-            let cIdx = chapterIndex;
-            let sIdx = sentenceIndex;
-
-            // Prefetch a window of 5 sentences
-            while (count < 5) {
-                const chapter = this._docController.chapters[cIdx];
-                if (!chapter) {break;}
-
-                if (sIdx < chapter.sentences.length) {
-                    const text = chapter.sentences[sIdx];
-                    const metadata = this._docController.metadata;
-                    const docId = metadata.uri?.toString() || metadata.fileName;
-                    const saltStr = metadata.versionSalt ? `-${metadata.versionSalt}` : '';
-                    const cacheKey = `${this._selectedVoice}-${docId}${saltStr}-${cIdx}-${sIdx}`;
-                    this._playbackEngine.triggerPrefetch(text, cacheKey, options);
-                    sIdx++;
-                    count++;
-                } else {
-                    // Move to next chapter
-                    cIdx++;
-                    sIdx = 0;
-                    if (this._autoPlayMode !== 'auto') {break;} 
-                }
-            }
-        }, 300);
-    }
-
-
-
-
-    private _onLocalExit(code: number | null) {
-        if (code === 0 && !this._playbackEngine.isPaused && this._playbackEngine.isPlaying) {
-            this._moveNext();
-        }
     }
 
     private _broadcastCacheStats() {
+        if (!this._playbackEngine) { return; }
         const stats = this._playbackEngine.getCacheStats();
         this._postToAll({
             command: 'cacheStatus',
             ...stats
         });
-    }
-
-    private _movePrev() {
-        const chapters = this._docController.chapters;
-        if (this._stateStore.state.currentSentenceIndex > 0) {
-            this._playChapter(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex - 1);
-        } else if (this._stateStore.state.currentChapterIndex > 0) {
-            const prevChapterIdx = this._stateStore.state.currentChapterIndex - 1;
-            const prevChapter = chapters[prevChapterIdx];
-            // Start from the last sentence of the previous chapter
-            this._playChapter(prevChapterIdx, prevChapter.sentences.length - 1);
-        } else {
-            this._logger('[READALOUD] Start of document reached.');
-        }
-    }
-
-    private _moveNext(manual: boolean = false) {
-        if (this._stateStore.state.isPreviewing) {
-            this._stateStore.setPreviewing(false);
-            this._logger(`[VOICE] Preview finished. Waiting for user Play.`);
-            return;
-        }
-
-        if (manual) {
-            this._advanceNormally();
-            return;
-        }
-
-        switch (this._autoPlayMode) {
-            case 'row':
-                this.stop();
-                break;
-            case 'chapter':
-                const chapters = this._docController.chapters;
-                const chapter = chapters[this._stateStore.state.currentChapterIndex];
-                if (this._stateStore.state.currentSentenceIndex + 1 < chapter.sentences.length) {
-                    this._playChapter(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex + 1);
-                } else {
-                    this.stop();
-                }
-                break;
-            case 'auto':
-            default:
-                this._advanceNormally();
-                break;
-        }
-    }
-
-    private _advanceNormally() {
-        const chapters = this._docController.chapters;
-        const chapter = chapters[this._stateStore.state.currentChapterIndex];
-        if (this._stateStore.state.currentSentenceIndex + 1 < chapter.sentences.length) {
-            this._playChapter(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex + 1);
-        } else {
-            this.jumpToChapter(this._stateStore.state.currentChapterIndex + 1);
-        }
     }
 
     // getFileVersionSalt logic moved to DocumentLoadController

@@ -20,6 +20,7 @@
     let isSynthesizing = false;
     let collapsedIndices = new Set();
     let lastHighlightedLine = -1;
+    let navDebounceTimer = null;
 
     // --- DOM References ---
     let activeSlot, readerSlot, activeFilename, activeDir, readerFilename, readerDir, btnLoadFile;
@@ -168,8 +169,11 @@
                     return;
                 }
                 
-                // Clicking anywhere else on the row ONLY triggers playback
-                postMsg({ command: 'jumpToChapter', index: i });
+                // --- INSTANT VISUAL FEEDBACK (Chapter) ---
+                syncPlaybackUI(i, 0, ch.count || 0);
+
+                // --- DEBOUNCED COMMAND ---
+                debouncedPostMsg({ command: 'jumpToChapter', index: i });
             };
 
             chapterList.appendChild(item);
@@ -317,7 +321,16 @@
 
         // Interaction: Click to jump
         if (idx !== null) {
-            el.onclick = () => postMsg({ command: 'jumpToSentence', index: idx });
+            el.onclick = () => {
+                // --- INSTANT VISUAL FEEDBACK (Sentence) ---
+                const allRows = sentenceNavigator?.querySelectorAll('.sentence-row') || [];
+                allRows.forEach(r => r.classList.remove('current'));
+                el.classList.add('current');
+                el.style.opacity = '1';
+
+                // --- DEBOUNCED COMMAND ---
+                debouncedPostMsg({ command: 'jumpToSentence', index: idx });
+            };
         } else {
             el.onclick = null;
         }
@@ -565,6 +578,18 @@
         if (vscode) { vscode.postMessage(msg); }
     }
 
+    /**
+     * Debounces heavy navigation commands (Jump/Next/Prev) 
+     * while allowing instant UI feedback to keep things snappy.
+     */
+    function debouncedPostMsg(msg, delay = 350) {
+        if (navDebounceTimer) { clearTimeout(navDebounceTimer); }
+        navDebounceTimer = setTimeout(() => {
+            postMsg(msg);
+            navDebounceTimer = null;
+        }, delay);
+    }
+
     function updateAutoPlayModeUI(mode) {
         if (!btnAutoplay) { return; }
         
@@ -725,12 +750,12 @@
                 };
             }
 
-    // --- Control Buttons ---
-    if (btnPrev) { btnPrev.addEventListener('click', () => { postMsg({ command: 'prevChapter' }); }); }
-    if (btnNext) { btnNext.addEventListener('click', () => { postMsg({ command: 'nextChapter' }); }); }
+    // --- Control Buttons (Debounced) ---
+    if (btnPrev) { btnPrev.addEventListener('click', () => { debouncedPostMsg({ command: 'prevChapter' }); }); }
+    if (btnNext) { btnNext.addEventListener('click', () => { debouncedPostMsg({ command: 'nextChapter' }); }); }
 
-    if (btnPrevSentence) { btnPrevSentence.onclick = () => { postMsg({ command: 'prevSentence' }); }; }
-    if (btnNextSentence) { btnNextSentence.onclick = () => { postMsg({ command: 'nextSentence' }); }; }
+    if (btnPrevSentence) { btnPrevSentence.onclick = () => { debouncedPostMsg({ command: 'prevSentence' }); }; }
+    if (btnNextSentence) { btnNextSentence.onclick = () => { debouncedPostMsg({ command: 'nextSentence' }); }; }
 
     if (btnAutoplay) {
         // Restore persisted state (default: auto)
