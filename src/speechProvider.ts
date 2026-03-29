@@ -192,9 +192,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     })
                     .join(' | ');
                 
-                this._logger(`[BRIDGE -> WEBVIEW] ${cmdLabel} ${payloadString}`);
+                this._logger(`[READALOUD -> WEBVIEW] ${cmdLabel} ${payloadString}`);
             } catch (e) {
-                this._logger(`[BRIDGE] Payload serialization failed (non-critical): ${e}`);
+                this._logger(`[READALOUD] Payload serialization failed (non-critical): ${e}`);
             }
         }
         
@@ -348,7 +348,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         const bootstrap = `
             <script>
-                window.__BRIDGE_CONFIG__ = ${JSON.stringify(config)};
+                window.__BOOTSTRAP_CONFIG__ = ${JSON.stringify(config)};
                 (function() {
                     const vscode = acquireVsCodeApi();
                     window.vscode = vscode;
@@ -424,7 +424,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private async _handleWebviewMessage(data: any, source: string) {
-        this._logger(`[BRIDGE <- WEBVIEW] Command: ${data.command}`);
+        this._logger(`[READALOUD <- WEBVIEW] Command: ${data.command}`);
         
 
         switch (data.command) {
@@ -696,7 +696,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
 
         this._broadcastState();
-        this._logger('[BRIDGE] Context Reset: Reader cleared.');
+        this._logger('[READALOUD] Context Reset: Reader cleared.');
     }
 
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
@@ -944,7 +944,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             // Start from the last sentence of the previous chapter
             this._playChapter(prevChapterIdx, prevChapter.sentences.length - 1);
         } else {
-            this._logger('[BRIDGE] Start of document reached.');
+            this._logger('[READALOUD] Start of document reached.');
         }
     }
 
