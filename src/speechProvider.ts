@@ -1,14 +1,12 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { BridgeServer } from './bridgeServer';
 import { Chapter, parseChapters } from './documentParser';
 import { PlaybackEngine, PlaybackOptions } from './playbackEngine';
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _isRefreshing: boolean = false;
-    private _bridge?: BridgeServer;
 
     
     private _extensionUri: vscode.Uri;
@@ -45,14 +43,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         private readonly _context: vscode.ExtensionContext,
         private readonly _logger: (msg: string) => void,
         statusBarItems: { pause: vscode.StatusBarItem; stop: vscode.StatusBarItem },
-        public onVisibilityChanged?: () => void,
-        bridge?: BridgeServer
+        public onVisibilityChanged?: () => void
     ) {
         this._extensionUri = _context.extensionUri;
         this._extensionPath = _context.extensionPath;
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
         this._statusBarItems = statusBarItems;
-        this._bridge = bridge;
 
         // Load Persisted Settings
         this._rate = this._context.globalState.get<number>('readAloud.rate', 0);
@@ -89,11 +85,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
 
-    public setBridge(bridge: BridgeServer) {
-        this._logger(`[PROVIDER] Bridge received (Port: ${bridge.port}). Refreshing view...`);
-        this._bridge = bridge;
-        this.refresh();
-    }
+
 
     public setActiveEditor(uri: vscode.Uri | undefined) {
         if (uri?.toString() === this._activeDocumentUri?.toString()) {
@@ -209,9 +201,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (this._view) {
             this._view.webview.postMessage(msg);
         }
-        if (this._bridge) {
-            this._bridge.broadcast(msg);
-        }
         this._syncStatusBars();
     }
 
@@ -279,11 +268,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         webviewView.webview.html = this._getLoadingHtml();
         
         // --- NEW NATIVE MODE ---
-        if (!this._bridge) {
-            this._view.webview.html = this._getHtmlForWebview(webviewView.webview);
-        } else {
-            this.refresh();
-        }
+        this._view.webview.html = this._getHtmlForWebview(webviewView.webview);
     }
 
     private _getLoadingHtml(): string {
@@ -330,14 +315,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         try {
             this._isRefreshing = true;
             
-            if (this._bridge) {
-                const html = this._bridge.getHtml();
-                this._logger(`[REFRESH] INJECTING BRIDGE HTML FOR ${this._bridge.port}`);
-                this._view.webview.html = html;
-            } else {
-                this._logger(`[REFRESH] INJECTING NATIVE WEBVIEW HTML`);
-                this._view.webview.html = this._getHtmlForWebview(this._view.webview);
-            }
+            this._logger(`[REFRESH] INJECTING NATIVE WEBVIEW HTML`);
+            this._view.webview.html = this._getHtmlForWebview(this._view.webview);
         } catch (e) {
             this._logger(`[REFRESH] FAILED TO INJECT HTML: ${e}`);
             setTimeout(() => this.refresh(), 1000);
@@ -551,7 +530,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             // Recalculate salts in real-time to pick up metadata/timestamp changes
             activeVersion: this._activeDocumentUri ? this._getFileVersionSalt(this._activeDocumentUri.fsPath) : undefined,
             readingVersion: this._currentDocumentUri ? this._getFileVersionSalt(this._currentDocumentUri.fsPath) : this._currentVersionSalt,
-            bridgeMetadata: this._bridge?.metadata
         });
         
         // Update the internal salt so next playback uses the fresh one

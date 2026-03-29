@@ -131,18 +131,7 @@
     },
     "configuration": {
       "title": "Read Aloud",
-      "properties": {
-        "readAloud.bridgePort": {
-          "type": "number",
-          "default": 3001,
-          "description": "Port used by the internal audio engine bridge."
-        },
-        "readAloud.useLegacyBridge": {
-          "type": "boolean",
-          "default": false,
-          "description": "Use the legacy HTTP/WebSocket bridge server for the audio engine (locks VSIX installation on Windows)."
-        }
-      }
+      "properties": {}
     },
     "keybindings": [
       {
@@ -188,7 +177,6 @@
   },
   "dependencies": {
     "markdown-it": "^14.1.1",
-    "msedge-tts": "^2.0.4",
-    "ws": "^8.20.0"
+    "msedge-tts": "^2.0.4"
   }
 }
