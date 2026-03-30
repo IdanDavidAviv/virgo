@@ -405,9 +405,8 @@
         const filename = precalcName || uri.split(/[\\\/]/).pop() || '';
         const dir = precalcDir !== undefined ? precalcDir : (uri.split(/[\\\/]/).length > 3 ? uri.split(/[\\\/]/).slice(-3).join('/') : '');
 
-        // Only show explicit 'V' versions as badges in UI.
-        // 'T' versions (timestamps) are internal salts only.
-        const versionHtml = version && version.startsWith('V') ? `<span class="version-badge">${version}</span>` : '';
+        // Show both explicit 'V' versions and 'T' timestamps as badges.
+        const versionHtml = version ? `<span class="version-badge">${version}</span>` : '';
         filenameEl.innerHTML = `${escapeHtml(filename)}${versionHtml}`;
         dirEl.textContent = dir ? `${dir} /` : '';
     }
@@ -492,6 +491,10 @@
                 engineMode = message.engineMode;
                 
                 // 1. Context Slots, Chapters & Progress
+                // Focused (Selection) Slot
+                updateContextSlot(message.state.focusedDocumentUri, activeFilename, activeDir, message.state.focusedVersionSalt, message.state.focusedFileName, message.state.focusedRelativeDir);
+
+                // Active (Reader) Slot
                 updateContextSlot(message.state.activeDocumentUri, readerFilename, readerDir, message.state.versionSalt, message.state.activeFileName, message.state.activeRelativeDir);
                 renderChapters(message.allChapters || [], message.state.currentChapterIndex);
                 
@@ -538,7 +541,9 @@
                 syncAudioUI(); // Sync sliders and player volume
                 
                 if (engineStatusTag) {
-                    engineStatusTag.textContent = engineMode.toUpperCase();
+                    const isOnline = message.isPlaying && !message.isPaused;
+                    engineStatusTag.classList.toggle('online', isOnline);
+                    engineStatusTag.classList.toggle('stalled', !!message.playbackStalled);
                     engineStatusTag.classList.remove('fallback');
                 }
 
@@ -548,10 +553,10 @@
                 }
 
                 if (btnLoadFile) {
-                    btnLoadFile.disabled = !message.state.activeDocumentUri;
+                    const isMismatch = (message.state.activeDocumentUri !== message.state.focusedDocumentUri) && message.state.focusedIsSupported;
+                    btnLoadFile.classList.toggle('mismatch', !!isMismatch);
+                    btnLoadFile.disabled = !message.state.focusedIsSupported;
                 }
-                break;
-
                 break;
 
             case 'playAudio':

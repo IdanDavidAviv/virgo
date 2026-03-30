@@ -1,12 +1,29 @@
 import * as vscode from 'vscode';
 import { EventEmitter } from 'events';
 
+/**
+ * Single Source of Truth for the extension and dashboard.
+ * Separates FOCUSED (Passive Selection) and ACTIVE (Loaded Reader) states.
+ */
 export interface StateMetadata {
+    // FOCUSED (Status of the current VS Code editor selection)
+    focusedFileName: string;
+    focusedRelativeDir: string;
+    focusedDocumentUri: vscode.Uri | undefined;
+    focusedIsSupported: boolean;
+    focusedVersionSalt?: string;
+
+    // ACTIVE (Reader Context - what is currently being read)
     activeFileName: string;
     activeRelativeDir: string;
     activeDocumentUri: vscode.Uri | undefined;
+    versionSalt?: string; // e.g. V1, V2 metadata for badges
+
+    // Playback Progress
     currentSentenceIndex: number;
     currentChapterIndex: number;
+    
+    // UI Flags
     isPreviewing: boolean;
     isRefreshing: boolean;
 }
@@ -21,9 +38,15 @@ export class StateStore extends EventEmitter {
 
     private _getInitialState(): StateMetadata {
         return {
-            activeFileName: 'No Selection',
+            focusedFileName: 'No Selection',
+            focusedRelativeDir: '',
+            focusedDocumentUri: undefined,
+            focusedIsSupported: false,
+            
+            activeFileName: 'No File Loaded',
             activeRelativeDir: '',
             activeDocumentUri: undefined,
+            
             currentSentenceIndex: 0,
             currentChapterIndex: 0,
             isPreviewing: false,
@@ -36,13 +59,27 @@ export class StateStore extends EventEmitter {
     }
 
     /**
-     * Updates the active document selection.
+     * Updates the passive selection (Focused File).
      */
-    public setSelection(uri: vscode.Uri | undefined, fileName: string, relativeDir: string) {
+    public setFocusedFile(uri: vscode.Uri | undefined, fileName: string, relativeDir: string, isSupported: boolean, versionSalt?: string) {
+        this._state.focusedDocumentUri = uri;
+        this._state.focusedFileName = fileName || 'No Selection';
+        this._state.focusedRelativeDir = relativeDir;
+        this._state.focusedIsSupported = isSupported;
+        this._state.focusedVersionSalt = versionSalt;
+        this._logger(`[STATE] focused_updated: ${this._state.focusedFileName} | salt: ${versionSalt}`);
+        this.emit('change', this.state);
+    }
+
+    /**
+     * Updates the active reader context (Loaded File).
+     */
+    public setActiveDocument(uri: vscode.Uri | undefined, fileName: string, relativeDir: string, versionSalt?: string) {
         this._state.activeDocumentUri = uri;
-        this._state.activeFileName = fileName;
+        this._state.activeFileName = fileName || 'No File Loaded';
         this._state.activeRelativeDir = relativeDir;
-        this._logger(`[STATE] selection_updated: ${fileName}`);
+        this._state.versionSalt = versionSalt;
+        this._logger(`[STATE] active_document_updated: ${this._state.activeFileName}`);
         this.emit('change', this.state);
     }
 

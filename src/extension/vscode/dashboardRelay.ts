@@ -34,14 +34,21 @@ export class DashboardRelay {
         if (!this._view) { return; }
 
         const state: StateStoreState = {
-            activeDocumentUri: this._stateStore.state.activeDocumentUri?.toString() || null,
+            focusedFileName: this._stateStore.state.focusedFileName,
+            focusedRelativeDir: this._stateStore.state.focusedRelativeDir,
+            focusedDocumentUri: this._stateStore.state.focusedDocumentUri?.toString() || null,
+            focusedIsSupported: this._stateStore.state.focusedIsSupported,
+            focusedVersionSalt: this._stateStore.state.focusedVersionSalt,
+
             activeFileName: this._stateStore.state.activeFileName,
             activeRelativeDir: this._stateStore.state.activeRelativeDir,
+            activeDocumentUri: this._stateStore.state.activeDocumentUri?.toString() || null,
+            versionSalt: this._stateStore.state.versionSalt,
+
             currentChapterIndex: this._stateStore.state.currentChapterIndex,
             currentSentenceIndex: this._stateStore.state.currentSentenceIndex,
             isRefreshing: this._stateStore.state.isRefreshing,
-            isPreviewing: this._stateStore.state.isPreviewing,
-            versionSalt: this._docController.metadata.versionSalt
+            isPreviewing: this._stateStore.state.isPreviewing
         };
 
         const chapters = this._docController.chapters;

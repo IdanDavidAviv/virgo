@@ -10,14 +10,26 @@ export interface Chapter {
 }
 
 export interface StateStoreState {
-    activeDocumentUri: string | null;
+    // FOCUSED (Passive Selection)
+    focusedFileName: string;
+    focusedRelativeDir: string;
+    focusedDocumentUri: string | null;
+    focusedIsSupported: boolean;
+    focusedVersionSalt?: string;
+
+    // ACTIVE (Loaded Reader)
     activeFileName: string;
     activeRelativeDir: string;
+    activeDocumentUri: string | null;
+    versionSalt?: string;
+
+    // Playback Progress
     currentChapterIndex: number;
     currentSentenceIndex: number;
+    
+    // UI Flags
     isRefreshing: boolean;
     isPreviewing: boolean;
-    versionSalt?: string;
 }
 
 export interface UISyncPacket {

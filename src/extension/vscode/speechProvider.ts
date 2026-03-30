@@ -103,30 +103,35 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
 
 
+    /**
+     * Updates the passive selection (Focused File) whenever the editor focus changes.
+     */
     public setActiveEditor(uri: vscode.Uri | undefined) {
-        if (uri?.toString() === this._stateStore.state.activeDocumentUri?.toString()) {
-            return; // Avoid redundant broadcasts
+        if (!uri) {
+            this._stateStore.setFocusedFile(undefined, 'No Selection', '', false);
+            return;
         }
 
-        if (!uri) {
-            this._stateStore.reset();
+        const fileName = path.basename(uri.fsPath);
+        const isSupported = this._isFormatSupported(fileName);
+        
+        let relativeDir = '';
+        const folder = vscode.workspace.getWorkspaceFolder(uri);
+        if (folder) {
+            const relPath = path.relative(folder.uri.fsPath, path.dirname(uri.fsPath));
+            relativeDir = folder.name + (relPath && relPath !== '.' ? ' / ' + relPath.replace(/\\/g, ' / ') : '');
         } else {
-            const fullPath = uri.fsPath;
-            const fileName = path.basename(fullPath);
-            let relativeDir = '';
-            
-            const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
-            if (workspaceFolder) {
-                relativeDir = path.dirname(path.relative(workspaceFolder.uri.fsPath, fullPath));
-                if (relativeDir === '.') {relativeDir = '';}
-            } else {
-                relativeDir = path.dirname(fullPath);
-            }
-            this._stateStore.setSelection(uri, fileName, relativeDir);
+            relativeDir = path.dirname(uri.fsPath).split(/[\\\/]/).slice(-2).join(' / ');
         }
-        this._logger(`[SYNC] focus:${this._stateStore.state.activeFileName}`);
-        // [REFAC] Manual _broadcastState() call will eventually be redundant 
-        // since setSelection() now triggers 'change' -> _syncUI()
+
+        const versionSalt = isSupported ? this._docController.getFileVersionSalt(uri) : undefined;
+        this._stateStore.setFocusedFile(uri, fileName, relativeDir, isSupported, versionSalt);
+        this._logger(`[FOCUS] ${fileName} | supported: ${isSupported} | salt: ${versionSalt}`);
+    }
+
+    private _isFormatSupported(fileName: string): boolean {
+        const artifactRegex = /\.(md|markdown|txt|log|resolved\.\d+)$/i;
+        return artifactRegex.test(fileName);
     }
 
     private async _loadVoices() {
@@ -561,12 +566,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const metadata = this._docController.metadata;
         const chapters = this._docController.chapters;
 
-        this._postToAll({
-            command: 'documentInfo',
-            fileName: metadata.fileName,
-            relativeDir: metadata.relativeDir,
-            version: metadata.versionSalt
-        });
+        // Commit to STATE: Update the active context (Loaded File)
+        this._stateStore.setActiveDocument(
+            metadata.uri,
+            metadata.fileName,
+            metadata.relativeDir,
+            metadata.versionSalt
+        );
 
         // Restore Progress or Reset
         const saved = metadata.uri ? this._loadProgress(metadata.uri) : null;
@@ -576,37 +582,24 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         } else {
             this._stateStore.setProgress(0, 0);
         }
-        
+
         this._playbackEngine.stop();
         
-        this._postToAll({
-            command: 'chapters',
-            chapters: chapters.map((c: Chapter, i: number) => ({ 
-                title: c.title, 
-                level: c.level, 
-                index: i,
-                count: c.sentences.length 
-            })),
-            currentChapterIndex: 0,
-            totalChapters: chapters.length,
-            currentSentenceIndex: 0,
-            totalSentences: chapters[0]?.sentences.length || 0
-        });
+        // UNIFIED SYNC: Propagate the updated state to Dashboard
+        this._syncUI();
 
         if (chapters.length > 0) {
-            const firstChapter = chapters[0];
+            const currentPos = this._stateStore.state;
+            const currentChapter = chapters[currentPos.currentChapterIndex] || chapters[0];
+            const text = currentChapter.sentences[currentPos.currentSentenceIndex] || currentChapter.sentences[0];
+            
             this._postToAll({
                 command: 'sentenceChanged',
-                text: firstChapter.sentences[0],
-                chapterIndex: 0,
-                sentenceIndex: 0,
-                totalSentences: firstChapter.sentences.length,
-                sentences: firstChapter.sentences,
-                suppressButtonToggle: true
+                text: text,
+                index: currentPos.currentSentenceIndex
             });
         }
         
-        this._syncUI();
         return true;
     }
 
