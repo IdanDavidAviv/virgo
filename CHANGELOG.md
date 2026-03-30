@@ -7,10 +7,17 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
-## [1.1.3] - 2026-03-29
+## [1.2.0] - 2026-03-30
 
 ### Added
-- 
+- **Domain-Driven Architecture**: Decoupled the monolithic extension logic into isolated `@core`, `@vscode`, and `@webview` domains for ultimate stability and predictable path routing.
+- **Global Path Aliasing**: Implemented high-integrity `tsconfig.json` mappings to eliminate brittle relative imports across all source files and test suites.
+
+### Changed
+- **Asset Centralization**: Consolidated all marketplace branding (`icon.png`, `dashboard_preview.png`) into a root `/assets` directory to separate runtime resources from repository metadata.
+
+### Removed
+- **Legacy Hygiene**: Executed a massive repository cleanup, purging over 4,600 lines of obsolete `media/` assets and orphaned logic controllers.
 
 ## [1.1.3] - 2026-03-29
 
