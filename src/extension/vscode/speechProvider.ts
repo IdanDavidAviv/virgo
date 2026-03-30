@@ -72,7 +72,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._loadVoices();
 
         // [Reactive Sync] Subscribe to StateStore changes
-        this._stateStore.on('change', () => this._syncUI());
+        this._stateStore.on('change', () => {
+            this._syncUI();
+            this._saveProgressThrottled();
+        });
         this._playbackEngine.on('status', () => this._syncUI());
     }
 
@@ -140,6 +143,40 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     private _broadcastVoices() {
         this._dashboardRelay.broadcastVoices(this._localVoices, this._neuralVoices, this._engineMode);
+    }
+
+    private _saveProgressTimer?: NodeJS.Timeout;
+    private _saveProgressThrottled() {
+        if (this._saveProgressTimer) { clearTimeout(this._saveProgressTimer); }
+        this._saveProgressTimer = setTimeout(() => {
+            const state = this._stateStore.state;
+            if (!state.activeDocumentUri) { return; }
+            
+            const uriStr = state.activeDocumentUri.toString();
+            const progress = {
+                chapterIndex: state.currentChapterIndex,
+                sentenceIndex: state.currentSentenceIndex,
+                lastUpdated: Date.now()
+            };
+            
+            const allProgress = this._context.globalState.get<Record<string, any>>('readAloud.docProgress', {});
+            allProgress[uriStr] = progress;
+            
+            // Cleanup old entries (limit to 50 files)
+            const keys = Object.keys(allProgress);
+            if (keys.length > 50) {
+                const sortedKeys = keys.sort((a, b) => allProgress[a].lastUpdated - allProgress[b].lastUpdated);
+                delete allProgress[sortedKeys[0]];
+            }
+
+            this._context.globalState.update('readAloud.docProgress', allProgress);
+        }, 1000);
+    }
+
+    private _loadProgress(uri: vscode.Uri): { chapterIndex: number, sentenceIndex: number } | null {
+        const allProgress = this._context.globalState.get<Record<string, any>>('readAloud.docProgress', {});
+        const progress = allProgress[uri.toString()];
+        return progress ? { chapterIndex: progress.chapterIndex, sentenceIndex: progress.sentenceIndex } : null;
     }
 
     private _getSanitizedPayload(payload: any, depth: number = 0): any {
@@ -531,8 +568,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             version: metadata.versionSalt
         });
 
-        // Reset Indices and Stop Playback on Document Change
-        this._stateStore.setProgress(0, 0);
+        // Restore Progress or Reset
+        const saved = metadata.uri ? this._loadProgress(metadata.uri) : null;
+        if (saved) {
+            this._stateStore.setProgress(saved.chapterIndex, saved.sentenceIndex);
+            this._logger(`[PERSISTENCE] Restored position: ${saved.chapterIndex}:${saved.sentenceIndex}`);
+        } else {
+            this._stateStore.setProgress(0, 0);
+        }
+        
         this._playbackEngine.stop();
         
         this._postToAll({
