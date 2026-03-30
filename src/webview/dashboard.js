@@ -21,6 +21,101 @@
     let collapsedIndices = new Set();
     let lastHighlightedLine = -1;
     let navDebounceTimer = null;
+    let sentenceNavigatorController = null;
+
+    // --- Components ---
+    class SentenceNavigator {
+        constructor(elements, options) {
+            this.els = elements; // { navigator, prev, current, next }
+            this.options = options; // { onJump }
+            this.state = {
+                sentences: [],
+                currentIndex: -1,
+                isStalled: false,
+                pendingIndex: -1,
+                pendingTimer: null
+            };
+        }
+
+        update(sentences, currentIndex, isStalled) {
+            // Ignore stale syncs if we have an active pending jump
+            if (this.state.pendingIndex !== -1 && currentIndex !== this.state.pendingIndex) {
+                return;
+            }
+
+            this.state.pendingIndex = -1;
+            if (this.state.pendingTimer) {
+                clearTimeout(this.state.pendingTimer);
+                this.state.pendingTimer = null;
+            }
+
+            this.state.sentences = sentences;
+            this.state.currentIndex = currentIndex;
+            this.state.isStalled = isStalled;
+            this.render();
+        }
+
+        jump(index) {
+            if (index < 0 || index >= this.state.sentences.length) return;
+            
+            this.state.pendingIndex = index;
+            this.render(); // Immediate feedback
+            this.options.onJump(index);
+
+            // Safety fallback: if extension doesn't confirm in 1s, snap back to reality
+            if (this.state.pendingTimer) clearTimeout(this.state.pendingTimer);
+            this.state.pendingTimer = setTimeout(() => {
+                if (this.state.pendingIndex !== -1) {
+                    this.state.pendingIndex = -1;
+                    this.render();
+                }
+            }, 1000);
+        }
+
+        render() {
+            const displayIndex = this.state.pendingIndex !== -1 ? this.state.pendingIndex : this.state.currentIndex;
+            const sentences = this.state.sentences;
+            
+            this.els.navigator.classList.toggle('stalled', this.state.isStalled);
+
+            const prevIdx = displayIndex - 1;
+            const nextIdx = displayIndex + 1;
+
+            this._renderRow(this.els.prev, prevIdx >= 0 ? sentences[prevIdx] : '', prevIdx);
+            this._renderRow(this.els.current, displayIndex >= 0 ? sentences[displayIndex] : '', displayIndex, true);
+            this._renderRow(this.els.next, nextIdx < sentences.length ? sentences[nextIdx] : '', nextIdx);
+        }
+
+        _renderRow(el, text, idx, isCurrent = false) {
+            if (!el) return;
+            el.style.display = 'flex';
+            
+            if (!text) {
+                el.innerHTML = '<span class="sentence-placeholder">&nbsp;</span>';
+                el.onclick = null;
+                el.style.pointerEvents = 'none';
+                el.style.opacity = '0';
+                return;
+            }
+
+            el.style.pointerEvents = 'auto';
+            el.style.opacity = isCurrent ? '1' : '0.15';
+            el.classList.toggle('current', isCurrent);
+            el.classList.toggle('stalled', isCurrent && this.state.isStalled);
+            
+            // RTL Detection
+            const isHebrew = /[\u0590-\u05FF]/.test(text);
+            el.classList.toggle('rtl', isHebrew);
+
+            el.innerHTML = `<span>${escapeHtml(text)}</span>`;
+
+            if (idx !== null && !isCurrent) {
+                el.onclick = () => this.jump(idx);
+            } else {
+                el.onclick = null;
+            }
+        }
+    }
 
     // --- DOM References ---
     let activeSlot, readerSlot, activeFilename, activeDir, readerFilename, readerDir, btnLoadFile;
@@ -93,6 +188,16 @@
         engineStatusTag = getEl('status-dot');
         cacheDebugTag = getEl('cache-debug-tag');
         waveContainer = getEl('sentence-navigator');
+
+        // Initialize Components
+        sentenceNavigatorController = new SentenceNavigator({
+            navigator: sentenceNavigator,
+            prev: sentencePrev,
+            current: sentenceCurrent,
+            next: sentenceNext
+        }, {
+            onJump: (idx) => debouncedPostMsg({ command: 'jumpToSentence', index: idx })
+        });
 
         console.log('[DASHBOARD] DOM Selection complete.');
         
@@ -286,59 +391,7 @@
     }
 
     // --- Sentence Navigator ---
-    function updateSentenceNavigator(sentences, currentIndex) {
-        if (!sentenceCurrent) { return; }
-
-        const prevIdx = currentIndex - 1;
-        const nextIdx = currentIndex + 1;
-
-        const prevText = prevIdx >= 0 ? sentences[prevIdx] : '';
-        const currText = sentences[currentIndex] || '';
-        const nextText = nextIdx < sentences.length ? sentences[nextIdx] : '';
-
-        updateRow(sentencePrev, prevText, prevIdx >= 0 ? prevIdx : null);
-        updateRow(sentenceCurrent, currText, currentIndex);
-        updateRow(sentenceNext, nextText, nextIdx < sentences.length ? nextIdx : null);
-    }
-
-    function updateRow(el, text, idx) {
-        if (!el) { return; }
-        
-        // Always show the element to maintain the 3-slot layout
-        el.style.display = 'flex';
-        
-        if (!text) {
-            el.innerHTML = '<span class="sentence-placeholder">&nbsp;</span>';
-            el.onclick = null;
-            el.style.pointerEvents = 'none';
-            el.style.opacity = '0';
-            return;
-        }
-
-        el.style.pointerEvents = 'auto';
-        el.style.opacity = el.classList.contains('current') ? '1' : '0.15';
-        el.innerHTML = `<span>${escapeHtml(text)}</span>`;
-
-        // Interaction: Click to jump
-        if (idx !== null) {
-            el.onclick = () => {
-                // --- INSTANT VISUAL FEEDBACK (Sentence) ---
-                const allRows = sentenceNavigator?.querySelectorAll('.sentence-row') || [];
-                allRows.forEach(r => r.classList.remove('current'));
-                el.classList.add('current');
-                el.style.opacity = '1';
-
-                // --- DEBOUNCED COMMAND ---
-                debouncedPostMsg({ command: 'jumpToSentence', index: idx });
-            };
-        } else {
-            el.onclick = null;
-        }
-
-        // RTL Detection
-        const isHebrew = /[\u0590-\u05FF]/.test(text);
-        el.classList.toggle('rtl', isHebrew);
-    }
+    // --- DELETED updateSentenceNavigator and updateRow (Moved to Class) ---
 
     function logSafeMessage(msg) {
         const command = msg.command;
@@ -396,11 +449,15 @@
                 state.autoPlayMode = message.autoPlayMode;
                 engineMode = message.engineMode;
                 
-                // 1. Context Slots & Nav
+                // 1. Context Slots, Chapters & Progress
                 updateContextSlot(message.state.activeDocumentUri, readerFilename, readerDir, message.state.versionSalt, message.state.activeFileName, message.state.activeRelativeDir);
                 renderChapters(message.allChapters || [], message.state.currentChapterIndex);
-                syncPlaybackUI(message.state.currentChapterIndex, message.state.currentSentenceIndex, message.currentSentences.length);
-                updateSentenceNavigator(message.currentSentences, message.state.currentSentenceIndex);
+                
+                // 2. Sentence Navigator
+                if (message.state.sentences) {
+                    sentenceNavigatorController.update(message.state.sentences, message.state.currentSentenceIndex, message.playbackStalled);
+                }
+                syncPlaybackUI(message.state.currentChapterIndex, message.state.currentSentenceIndex, message.state.sentences?.length || 0);
                 
                 // 2. Playback State
                 if (message.isPlaying && !message.isPaused) {
