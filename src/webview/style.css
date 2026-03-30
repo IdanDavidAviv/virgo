@@ -888,10 +888,34 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .chapter-item.now-playing {
-    background: rgba(56, 189, 248, 0.14);
+    background: linear-gradient(90deg, 
+        rgba(56, 189, 248, 0.18) 0%, 
+        rgba(56, 189, 248, 0.18) var(--chapter-progress, 0%), 
+        rgba(56, 189, 248, 0.04) var(--chapter-progress, 0%), 
+        rgba(56, 189, 248, 0.04) 100%);
     border-color: rgba(56, 189, 248, 0.35);
     color: #f1f5f9;
     box-shadow: 0 0 10px rgba(56, 189, 248, 0.15);
+    position: relative;
+}
+
+.chapter-item.empty {
+    opacity: 0.4;
+    pointer-events: none;
+    cursor: default;
+    filter: grayscale(0.5);
+}
+
+.chapter-item.pending {
+    border-color: var(--primary);
+    background: rgba(56, 189, 248, 0.1);
+    animation: chapter-shimmer 1.5s infinite linear;
+}
+
+@keyframes chapter-shimmer {
+    0% { opacity: 0.7; }
+    50% { opacity: 1; }
+    100% { opacity: 0.7; }
 }
 
 .chapter-play-icon {

@@ -22,6 +22,10 @@
     let lastHighlightedLine = -1;
     let navDebounceTimer = null;
     let sentenceNavigatorController = null;
+    let pendingChapterIndex = -1;
+    let pendingChapterTimer = null;
+    let currentSentenceIndex = -1;
+    let currentTotalSentences = 0;
 
     // --- Components ---
     class SentenceNavigator {
@@ -260,6 +264,11 @@
 
             const chevronIcon = isParent ? '▼' : '';
             const rowCount = ch.count || 0;
+            const isEmpty = rowCount === 0;
+
+            if (isEmpty) { item.classList.add('empty'); }
+            if (i === pendingChapterIndex) { item.classList.add('pending'); }
+
             item.innerHTML = `
                 <span class="chevron">${chevronIcon}</span>
                 <span class="chapter-title">${escapeHtml(ch.title)}</span>
@@ -269,16 +278,27 @@
 
             // Click Logic: Chevron ONLY toggles; Row selection ONLY plays
             item.onclick = (e) => {
+                if (isEmpty) { return; }
                 if (e.target.classList.contains('chevron')) {
                     if (isParent) { toggleCollapse(i); }
                     return;
                 }
                 
                 // --- INSTANT VISUAL FEEDBACK (Chapter) ---
-                syncPlaybackUI(i, 0, ch.count || 0);
+                pendingChapterIndex = i;
+                syncPlaybackUI(i, 0, rowCount);
 
                 // --- DEBOUNCED COMMAND ---
                 debouncedPostMsg({ command: 'jumpToChapter', index: i });
+
+                // Safety fallback
+                if (pendingChapterTimer) { clearTimeout(pendingChapterTimer); }
+                pendingChapterTimer = setTimeout(() => {
+                    if (pendingChapterIndex === i) {
+                        pendingChapterIndex = -1;
+                        syncPlaybackUI();
+                    }
+                }, 1000);
             };
 
             chapterList.appendChild(item);
@@ -299,25 +319,47 @@
 
     function syncPlaybackUI(chapterIndex, sentenceIndex, totalSentences) {
         // 1. Update internal tracking if provided
-        if (chapterIndex !== undefined) { currentChapterIndex = chapterIndex; }
+        if (chapterIndex !== undefined) { 
+            currentChapterIndex = chapterIndex; 
+            if (chapterIndex === pendingChapterIndex) {
+               pendingChapterIndex = -1;
+               if (pendingChapterTimer) { clearTimeout(pendingChapterTimer); pendingChapterTimer = null; }
+            }
+        }
+        if (sentenceIndex !== undefined) { currentSentenceIndex = sentenceIndex; }
+        if (totalSentences !== undefined) { currentTotalSentences = totalSentences; }
 
         // 2. Update Progress Header (Title Bar)
         if (!chapterProgress || chapters.length === 0) {
             chapterProgress.innerHTML = '—';
         } else {
             const chStr = `${currentChapterIndex + 1} / ${chapters.length}`;
-            const rowStr = totalSentences ? `<span style="opacity: 0.5; margin: 0 8px;">•</span><span style="font-weight: 400; opacity: 0.8;">ROW ${sentenceIndex + 1} / ${totalSentences}</span>` : '';
+            const rowStr = currentTotalSentences ? `<span style="opacity: 0.5; margin: 0 8px;">•</span><span style="font-weight: 400; opacity: 0.8;">ROW ${currentSentenceIndex + 1} / ${currentTotalSentences}</span>` : '';
             chapterProgress.innerHTML = `${chStr}${rowStr}`;
         }
 
         // 3. Update Chapter List Highlights
         const allItems = chapterList ? chapterList.querySelectorAll('.chapter-item') : [];
+        const progressPercentage = currentTotalSentences > 0 ? (currentSentenceIndex / (currentTotalSentences - 1)) * 100 : 0;
+
         allItems.forEach((el) => {
-            el.classList.toggle('now-playing', parseInt(el.dataset.index) === currentChapterIndex);
+            const idx = parseInt(el.dataset.index);
+            const isNowPlaying = idx === currentChapterIndex;
+            const isPending = idx === pendingChapterIndex;
+
+            el.classList.toggle('now-playing', isNowPlaying);
+            el.classList.toggle('pending', isPending);
+
+            if (isNowPlaying) {
+                el.style.setProperty('--chapter-progress', `${progressPercentage}%`);
+            } else {
+                el.style.removeProperty('--chapter-progress');
+            }
         });
 
         // 4. Managed Scrolling
-        const activeEl = chapterList && chapterList.querySelector(`.chapter-item[data-index="${currentChapterIndex}"]`);
+        const activeIdx = pendingChapterIndex !== -1 ? pendingChapterIndex : currentChapterIndex;
+        const activeEl = chapterList && chapterList.querySelector(`.chapter-item[data-index="${activeIdx}"]`);
         if (activeEl) {
             activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
