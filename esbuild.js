@@ -15,7 +15,7 @@ async function build() {
     }
 
     // Copy static assets
-    const assets = ['style.css', 'speechEngine.html', 'dashboard_preview.png', 'icon.svg', 'icon-dev.svg'];
+    const assets = ['style.css', 'speechEngine.html', 'icon.svg', 'icon-dev.svg'];
     assets.forEach(asset => {
         const src = path.join(__dirname, 'src', 'webview', asset);
         const dest = path.join(distMedia, asset);
