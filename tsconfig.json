@@ -10,10 +10,17 @@
     "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@extension/*": ["src/extension/*"],
+      "@core/*": ["src/extension/core/*"],
+      "@vscode/*": ["src/extension/vscode/*"],
+      "@webview/*": ["src/webview/*"],
+      "@common/*": ["src/common/*"]
+    }
   },
   "exclude": [
-    "node_modules",
-    "tests"
+    "node_modules"
   ]
 }

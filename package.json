@@ -38,7 +38,7 @@
     "speech",
     "preview"
   ],
-  "icon": "icon.png",
+  "icon": "assets/icon.png",
   "main": "./dist/extension.js",
   "activationEvents": [
     "onLanguage:markdown",

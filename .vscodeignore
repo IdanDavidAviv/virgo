@@ -23,5 +23,6 @@ node_modules/**
 !package.json
 !README.md
 !LICENSE
-!icon.png
-!media/dashboard_preview.png
+!assets/icon.png
+!assets/icon_img.png
+!assets/dashboard_preview.png

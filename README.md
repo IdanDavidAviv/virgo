@@ -2,7 +2,7 @@
 
 **Transform your Markdown documentation into a premium, immersive listening experience directly inside VS Code.**
 
-<img src="icon_img.png" width="128" alt="Readme Preview Read Aloud Icon" />
+<img src="assets/icon_img.png" width="128" alt="Readme Preview Read Aloud Icon" />
 
 ## ✨ Features
 
@@ -30,7 +30,7 @@ The "Mission Control" dashboard provides a centralized hub for your audio experi
 - **Volume & Pitch Control**: Tune the voice to your preference.
 - **Live Scripting**: See exactly what's being read in real-time.
 
-![Dashboard Preview](media/dashboard_preview.png)
+![Dashboard Preview](assets/dashboard_preview.png)
 
 ## 🛡️ Privacy & Telemetry
 
