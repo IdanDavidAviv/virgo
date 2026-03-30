@@ -11,3 +11,4 @@ implementation_plan.md
 .vscode/ext-dev-data
 
 dist/
+coverage/
