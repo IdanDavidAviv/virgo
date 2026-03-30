@@ -23,6 +23,19 @@ export interface StateMetadata {
     currentSentenceIndex: number;
     currentChapterIndex: number;
     
+    // Playback Status [ISSUE 17]
+    isPlaying: boolean;
+    isPaused: boolean;
+    playbackStalled: boolean;
+
+    // Engine & Options [ISSUE 17]
+    engineMode: 'local' | 'neural';
+    autoPlayMode: 'auto' | 'chapter' | 'row';
+    selectedVoice?: string;
+    availableVoices: { local: any[], neural: any[] };
+    rate: number;
+    volume: number;
+
     // UI Flags
     isPreviewing: boolean;
     isRefreshing: boolean;
@@ -49,6 +62,17 @@ export class StateStore extends EventEmitter {
             
             currentSentenceIndex: 0,
             currentChapterIndex: 0,
+
+            isPlaying: false,
+            isPaused: false,
+            playbackStalled: false,
+
+            engineMode: 'local',
+            autoPlayMode: 'auto',
+            availableVoices: { local: [], neural: [] },
+            rate: 1.0,
+            volume: 1.0,
+
             isPreviewing: false,
             isRefreshing: false
         };
@@ -89,6 +113,42 @@ export class StateStore extends EventEmitter {
     public setProgress(chapterIndex: number, sentenceIndex: number) {
         this._state.currentChapterIndex = chapterIndex;
         this._state.currentSentenceIndex = sentenceIndex;
+        this.emit('change', this.state);
+    }
+
+    /**
+     * Updates playback status flags. [ISSUE 17]
+     */
+    public setPlaybackStatus(isPlaying: boolean, isPaused: boolean, playbackStalled: boolean = false) {
+        this._state.isPlaying = isPlaying;
+        this._state.isPaused = isPaused;
+        this._state.playbackStalled = playbackStalled;
+        this.emit('change', this.state);
+    }
+
+    /**
+     * Updates engine and user options. [ISSUE 17]
+     */
+    public setOptions(options: { 
+        engineMode?: 'local' | 'neural', 
+        autoPlayMode?: 'auto' | 'chapter' | 'row',
+        selectedVoice?: string,
+        rate?: number,
+        volume?: number
+    }) {
+        if (options.engineMode) { this._state.engineMode = options.engineMode; }
+        if (options.autoPlayMode) { this._state.autoPlayMode = options.autoPlayMode; }
+        if (options.selectedVoice !== undefined) { this._state.selectedVoice = options.selectedVoice; }
+        if (options.rate !== undefined) { this._state.rate = options.rate; }
+        if (options.volume !== undefined) { this._state.volume = options.volume; }
+        this.emit('change', this.state);
+    }
+
+    /**
+     * Updates available voices. [ISSUE 17]
+     */
+    public setVoices(local: any[], neural: any[]) {
+        this._state.availableVoices = { local, neural };
         this.emit('change', this.state);
     }
 

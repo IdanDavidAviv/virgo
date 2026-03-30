@@ -38,8 +38,16 @@ export class AudioBridge extends EventEmitter {
         // CRITICAL: Stop any in-flight synthesis or sequences before starting a new one.
         // This ensures that jumps immediately abort previous tasks and clear the lock.
         this._playbackEngine.stop();
-        this._playbackEngine.setPlaying(!previewOnly);
-
+        
+        // [ISSUE 17] Update SSOT
+        this._stateStore.setPlaybackStatus(!previewOnly, false);
+        this._stateStore.setOptions({
+            engineMode: options.mode,
+            selectedVoice: options.voice,
+            rate: options.rate,
+            volume: options.volume
+        });
+        
         const chapters = this._docController.chapters;
         if (chapterIndex < 0 || chapterIndex >= chapters.length) {
             this._logger(`[BRIDGE] Invalid chapter index: ${chapterIndex}`);
@@ -77,12 +85,13 @@ export class AudioBridge extends EventEmitter {
 
     public stop() {
         this._playbackEngine.stop();
-        this._stateStore.setProgress(0, 0);
+        this._stateStore.setPlaybackStatus(false, false);
         this._logger('[BRIDGE] Playback stopped.');
     }
 
     public pause() {
         this._playbackEngine.setPaused(true);
+        this._stateStore.setPlaybackStatus(true, true);
         this._logger('[BRIDGE] Playback paused.');
     }
 
@@ -96,6 +105,9 @@ export class AudioBridge extends EventEmitter {
         const state = this._stateStore.state;
         const chapters = this._docController.chapters;
 
+        // [ISSUE 17] Update SSOT with playback options
+        this._stateStore.setOptions({ autoPlayMode });
+
         // 1. Check Row-Locked Mode
         if (autoPlayMode === 'row' && !manual) {
             this.stop();
@@ -108,6 +120,7 @@ export class AudioBridge extends EventEmitter {
         if (!nextPos) {
             this._logger('[BRIDGE] End of document reached.');
             this.emit('playbackFinished');
+            this.stop(); // Ensure state is reset
             return;
         }
 

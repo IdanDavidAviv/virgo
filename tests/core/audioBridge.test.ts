@@ -3,6 +3,7 @@ import { AudioBridge } from '@core/audioBridge';
 import { StateStore } from '@core/stateStore';
 import { DocumentLoadController } from '@core/documentLoadController';
 import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
+import { SequenceManager } from '@core/sequenceManager';
 
 // Mock vscode
 vi.mock('vscode', () => ({
@@ -38,7 +39,8 @@ describe('AudioBridge', () => {
         vi.spyOn(playbackEngine, 'speakNeural').mockResolvedValue('base64audio');
         vi.spyOn(playbackEngine, 'triggerPrefetch').mockImplementation(() => {});
 
-        audioBridge = new AudioBridge(stateStore, docController, playbackEngine, logger);
+        const sequenceManager = new SequenceManager();
+        audioBridge = new AudioBridge(stateStore, docController, playbackEngine, sequenceManager, logger);
     });
 
     const options: PlaybackOptions = { voice: 'NeuralVoice', rate: 0, volume: 50, mode: 'neural' };
