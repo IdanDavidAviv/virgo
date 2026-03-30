@@ -5,8 +5,6 @@ import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
 import { EventEmitter } from 'events';
 
 export interface AudioBridgeEvents {
-    'sentenceChanged': (payload: { text: string, chapterIndex: number, sentenceIndex: number, totalSentences: number, sentences: string[], suppressButtonToggle?: boolean }) => void;
-    'chapterChanged': (payload: { index: number, total: number, totalSentences: number, title: string }) => void;
     'playAudio': (payload: { data: string, text: string, chapterIndex: number, sentenceIndex: number, totalSentences: number, sentences: string[] }) => void;
     'synthesisError': (payload: { error: string, isFallingBack: boolean }) => void;
     'engineStatus': (payload: { status: string }) => void;
@@ -60,25 +58,8 @@ export class AudioBridge extends EventEmitter {
         this._stateStore.setProgress(chapterIndex, sentenceIndex);
         this._stateStore.setPreviewing(previewOnly);
 
-        if (sentenceIndex === 0) {
-            this.emit('chapterChanged', {
-                index: chapterIndex,
-                total: chapters.length,
-                totalSentences: chapter.sentences.length,
-                title: chapter.title
-            });
-        }
-
         const sentence = chapter.sentences[sentenceIndex];
         const cacheKey = this._getCacheKey(chapterIndex, sentenceIndex, options.voice);
-
-        this.emit('sentenceChanged', {
-            text: sentence,
-            chapterIndex,
-            sentenceIndex,
-            totalSentences: chapter.sentences.length,
-            sentences: chapter.sentences
-        });
 
         if (options.mode === 'neural') {
             await this._speakNeural(sentence, cacheKey, options, chapterIndex, sentenceIndex);

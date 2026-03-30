@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { EventEmitter } from 'events';
 
 export interface StateMetadata {
     activeFileName: string;
@@ -10,10 +11,11 @@ export interface StateMetadata {
     isRefreshing: boolean;
 }
 
-export class StateStore {
+export class StateStore extends EventEmitter {
     private _state: StateMetadata;
 
     constructor(private readonly _logger: (msg: string) => void) {
+        super();
         this._state = this._getInitialState();
     }
 
@@ -41,6 +43,7 @@ export class StateStore {
         this._state.activeFileName = fileName;
         this._state.activeRelativeDir = relativeDir;
         this._logger(`[STATE] selection_updated: ${fileName}`);
+        this.emit('change', this.state);
     }
 
     /**
@@ -49,6 +52,7 @@ export class StateStore {
     public setProgress(chapterIndex: number, sentenceIndex: number) {
         this._state.currentChapterIndex = chapterIndex;
         this._state.currentSentenceIndex = sentenceIndex;
+        this.emit('change', this.state);
     }
 
     /**
@@ -56,6 +60,7 @@ export class StateStore {
      */
     public setPreviewing(value: boolean) {
         this._state.isPreviewing = value;
+        this.emit('change', this.state);
     }
 
     /**
@@ -63,6 +68,7 @@ export class StateStore {
      */
     public setRefreshing(value: boolean) {
         this._state.isRefreshing = value;
+        this.emit('change', this.state);
     }
 
     /**
@@ -71,5 +77,6 @@ export class StateStore {
     public reset() {
         this._state = this._getInitialState();
         this._logger('[STATE] reset_complete');
+        this.emit('change', this.state);
     }
 }

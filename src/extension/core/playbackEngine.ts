@@ -1,5 +1,6 @@
 import * as child_process from 'child_process';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
+import { EventEmitter } from 'events';
 
 export type EngineMode = 'local' | 'neural';
 
@@ -11,7 +12,7 @@ export interface PlaybackOptions {
     retryCount?: number;
 }
 
-export class PlaybackEngine {
+export class PlaybackEngine extends EventEmitter {
     private _tts: MsEdgeTTS;
     private _synthesisLock: Promise<void> = Promise.resolve();
     
@@ -34,8 +35,10 @@ export class PlaybackEngine {
     private _playbackIntentId: number = 0;
     private _isRateLimited: boolean = false;
     private _watchdogTimer: NodeJS.Timeout | null = null;
+    private _isStalled: boolean = false;
 
     constructor(private logger: (msg: string) => void, onCacheUpdate?: () => void) {
+        super();
         this._tts = new MsEdgeTTS();
         this._onCacheUpdate = onCacheUpdate;
     }
@@ -52,6 +55,7 @@ export class PlaybackEngine {
 
     public get isPlaying() { return this._isPlaying; }
     public get isPaused() { return this._isPaused; }
+    public get isStalled() { return this._isStalled; }
 
     public setPlaying(val: boolean) { 
         this._isPlaying = val; 
@@ -66,6 +70,7 @@ export class PlaybackEngine {
     public stop() {
         this._isPlaying = false;
         this._isPaused = false;
+        this._isStalled = false;
         this._playbackIntentId++; // Increment to eject all pending tasks
         
         if (this._abortController) {
@@ -202,7 +207,11 @@ export class PlaybackEngine {
         // --- CHECK CACHE ---
         if (this._audioCache.has(cacheKey)) {
             this.logger(`[CACHE HIT] key:${cacheKey}`);
-            if (isPriority) {this._isPlaying = true;}
+            if (isPriority) {
+                this._isPlaying = true;
+                this._isStalled = false; // Cache hit is NEVER a stall
+                this.emit('status');
+            }
             return Promise.resolve(this._audioCache.get(cacheKey)!);
         }
 
@@ -215,6 +224,9 @@ export class PlaybackEngine {
 
         if (isPriority) {
             this._isPlaying = true;
+            this._isStalled = true; // Priority synthesis started -> We are stalling until it finishes
+            this.emit('status');
+
             this._playbackIntentId++; // New intent
             this.logger(`[NEURAL] NEW INTENT: ${this._playbackIntentId}`);
             
@@ -264,7 +276,22 @@ export class PlaybackEngine {
                 this._pendingTasks.delete(cacheKey);
                 this._clearWatchdog();
             }
-        })().then(taskResolve, taskReject);
+        })().then(
+            (res) => {
+                if (isPriority) {
+                    this._isStalled = false;
+                    this.emit('status');
+                }
+                taskResolve(res);
+            },
+            (err) => {
+                if (isPriority) {
+                    this._isStalled = false;
+                    this.emit('status');
+                }
+                taskReject(err);
+            }
+        );
         
         try {
             const data = await task;

@@ -43,17 +43,14 @@ describe('AudioBridge', () => {
 
     const options: PlaybackOptions = { voice: 'NeuralVoice', rate: 0, volume: 50, mode: 'neural' };
 
-    it('should emit sentenceChanged and call speakNeural on start', async () => {
-        const sentenceSpy = vi.fn();
-        audioBridge.on('sentenceChanged', sentenceSpy);
+    it('should update StateStore progress and call speakNeural on start', async () => {
+        const stateSpy = vi.fn();
+        stateStore.on('change', stateSpy);
 
         await audioBridge.start(0, 0, options);
 
-        expect(sentenceSpy).toHaveBeenCalledWith(expect.objectContaining({
-            text: 'Sentence 1',
-            chapterIndex: 0,
-            sentenceIndex: 0
-        }));
+        expect(stateStore.state.currentChapterIndex).toBe(0);
+        expect(stateStore.state.currentSentenceIndex).toBe(0);
         expect(playbackEngine.speakNeural).toHaveBeenCalled();
     });
 
