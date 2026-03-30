@@ -7,6 +7,18 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.2.2] - 2026-03-30
+
+### Added
+- **Regression Suite**: Introduced `tests/core/file_context_integrity.test.ts` for comprehensive UI data-flow and state synchronization verification.
+
+### Changed
+- **Relocated Status Indicator**: Moved the engine status dot from the Focused File slot to the global footer (bottom-right) for improved health visibility and cleaner separation of context.
+- **Header Clean-up**: Removed redundant "NEURAL" text from the dashboard header for a more premium, focused UI.
+
+### Fixed
+- **Restored Version Badges**: Re-implemented version salt visibility (e.g., `V1`, `T-10:15`) in the Focused File slot to match v1.2.0 baseline behavior.
+
 ## [1.2.1] - 2026-03-30
 
 ### Added
