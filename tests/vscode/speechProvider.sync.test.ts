@@ -72,25 +72,63 @@ describe('SpeechProvider (Sync)', () => {
         };
     });
 
-    it('should have a reactive connection to StateStore', () => {
-        // Resolve the webview first to establish the connection point
+    it('should sync options (rate/volume) reactively from StateStore', () => {
         provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
-
-        // Clear mocks to isolate the reactive change
+        const stateStore = (provider as any)._stateStore as StateStore;
         vi.clearAllMocks();
 
-        // Access the internal stateStore (casting to any for testing)
-        const stateStore = (provider as any)._stateStore as StateStore;
-        
-        // Trigger a change in StateStore
-        stateStore.setProgress(1, 10);
+        stateStore.setOptions({ rate: 5, volume: 80 });
 
-        // EXPECTATION: Once we implement the reactive sync,
-        // this should be called exactly once.
         const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
-        
         expect(syncCalls.length).toBe(1);
-        expect(syncCalls[0][0].state.currentChapterIndex).toBe(1);
-        expect(syncCalls[0][0].state.currentSentenceIndex).toBe(10);
+        expect(syncCalls[0][0].rate).toBe(5);
+        expect(syncCalls[0][0].volume).toBe(80);
+    });
+
+    it('should sync voices reactively from StateStore', () => {
+        provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
+        const stateStore = (provider as any)._stateStore as StateStore;
+        vi.clearAllMocks();
+
+        stateStore.setVoices([{ id: 'v1', name: 'Voice 1', lang: 'en' }], [{ id: 'nv1', name: 'Neural 1', lang: 'en' }]);
+
+        const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
+        expect(syncCalls.length).toBe(1);
+        expect(syncCalls[0][0].availableVoices.local.length).toBe(1);
+        expect(syncCalls[0][0].availableVoices.neural.length).toBe(1);
+    });
+
+    it('should handle webview commands and trigger reactive sync + persistence', async () => {
+        provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
+        const stateStore = (provider as any)._stateStore as StateStore;
+        vi.clearAllMocks();
+
+        // Simulate voiceChanged command
+        await (provider as any)._handleWebviewMessage({ command: 'voiceChanged', voice: 'new-voice' });
+
+        // 1. Verify StateStore update
+        expect(stateStore.state.selectedVoice).toBe('new-voice');
+
+        // 2. Verify globalState persistence
+        expect(mockContext.globalState.update).toHaveBeenCalledWith('readAloud.voice', 'new-voice');
+
+        // 3. Verify UI_SYNC broadcast
+        const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
+        expect(syncCalls.length).toBeGreaterThanOrEqual(1);
+        expect(syncCalls[syncCalls.length - 1][0].selectedVoice).toBe('new-voice');
+    });
+
+    it('should propagate playback engine status through StateStore to UI_SYNC', () => {
+        provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
+        const engine = (provider as any)._playbackEngine;
+        vi.clearAllMocks();
+
+        // Simulate a "stalled" engine status
+        (engine as any)._isStalled = true;
+        engine.emit('status');
+
+        const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
+        expect(syncCalls.length).toBe(1);
+        expect(syncCalls[0][0].playbackStalled).toBe(true);
     });
 });

@@ -14,13 +14,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _extensionUri: vscode.Uri;
     private _extensionPath: string;
 
-    // Configuration
-    private _autoPlayMode: 'auto' | 'chapter' | 'row' = 'auto';
-    private _selectedVoice: string = 'en-US-AriaNeural';
-    private _rate: number = 0;
-    private _volume: number = 50;
-    private _engineMode: 'local' | 'neural' = 'neural';
-
     private _docController: DocumentLoadController;
     private _sequenceManager: SequenceManager;
     private _stateStore: StateStore;
@@ -59,10 +52,20 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._audioBridge.on('engineStatus', payload => this._dashboardRelay.postMessage({ command: 'engineStatus', ...payload }));
         this._audioBridge.on('playbackFinished', () => this._syncStatusBars());
 
-        // Load Persisted Settings
-        this._rate = this._context.globalState.get<number>('readAloud.rate', 0);
-        this._volume = this._context.globalState.get<number>('readAloud.volume', 50);
-        this._selectedVoice = this._context.globalState.get<string>('readAloud.voice', 'en-US-AriaNeural');
+        // Load Persisted Settings into StateStore
+        const rate = this._context.globalState.get<number>('readAloud.rate', 1.0);
+        const volume = this._context.globalState.get<number>('readAloud.volume', 1.0);
+        const voice = this._context.globalState.get<string>('readAloud.voice', 'en-US-AriaNeural');
+        const engineMode = this._context.globalState.get<'local' | 'neural'>('readAloud.engineMode', 'neural');
+        const autoPlayMode = this._context.globalState.get<'auto' | 'chapter' | 'row'>('readAloud.autoPlayMode', 'auto');
+
+        this._stateStore.setOptions({
+            rate,
+            volume,
+            selectedVoice: voice,
+            engineMode,
+            autoPlayMode
+        });
 
         // Initial setup of document context listeners
         this._setupDocumentListeners();
@@ -76,7 +79,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._syncUI();
             this._saveProgressThrottled();
         });
-        this._playbackEngine.on('status', () => this._syncUI());
+        
+        // Ensure UI syncs when playback engine status changes (e.g. buffering)
+        this._playbackEngine.on('status', () => {
+            this._stateStore.setPlaybackStatus(this._playbackEngine.isPlaying, this._playbackEngine.isPaused, this._playbackEngine.isStalled);
+        });
     }
 
 
@@ -139,15 +146,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             const { local, neural } = await this._playbackEngine.getVoices();
             this._localVoices = local;
             this._neuralVoices = neural;
+            this._stateStore.setVoices(local, neural);
             this._logger(`Detected ${this._localVoices.length} local SAPI voices and ${this._neuralVoices.length} neural voices.`);
-            this._broadcastVoices();
         } catch (e) {
             this._logger(`VOICE SCAN ERROR: ${e}`);
         }
     }
 
     private _broadcastVoices() {
-        this._dashboardRelay.broadcastVoices(this._localVoices, this._neuralVoices, this._engineMode);
+        this._dashboardRelay.broadcastVoices(this._localVoices, this._neuralVoices, this._stateStore.state.engineMode);
     }
 
     private _saveProgressTimer?: NodeJS.Timeout;
@@ -229,15 +236,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
      * This is the "Single Source of Truth" relay point.
      */
     private _syncUI() {
-        this._dashboardRelay.sync(
-            this._autoPlayMode, 
-            this._engineMode,
-            this._selectedVoice,
-            this._rate,
-            this._volume,
-            this._localVoices,
-            this._neuralVoices
-        );
+        this._dashboardRelay.sync();
     }
 
     private _postToAll(msg: any) {
@@ -490,14 +489,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
 
             case 'setAutoPlayMode':
-                this._autoPlayMode = data.mode;
+                this._stateStore.setOptions({ autoPlayMode: data.mode });
                 break;
             case 'toggleAutoPlay':
                 // Backward compatibility for old calls if any
-                this._autoPlayMode = data.enabled ? 'auto' : 'row';
+                this._stateStore.setOptions({ autoPlayMode: data.enabled ? 'auto' : 'row' });
                 break;
             case 'voiceChanged':
-                this._selectedVoice = data.voice;
+                this._stateStore.setOptions({ selectedVoice: data.voice });
                 this._context.globalState.update('readAloud.voice', data.voice);
                 this._logger(`[VOICE] ${data.voice} | SURGICAL_PREVIEW`);
                 // Stop any current full playback but trigger a single-sentence preview synth
@@ -505,15 +504,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions(), true);
                 break;
             case 'rateChanged':
-                this._rate = data.rate;
+                this._stateStore.setOptions({ rate: data.rate });
                 this._context.globalState.update('readAloud.rate', data.rate);
                 break;
             case 'volumeChanged':
-                this._volume = data.volume;
+                this._stateStore.setOptions({ volume: data.volume });
                 this._context.globalState.update('readAloud.volume', data.volume);
                 break;
             case 'engineModeChanged':
-                this._engineMode = data.mode;
+                this._stateStore.setOptions({ engineMode: data.mode });
                 this._playbackEngine.stop();
                 this._broadcastVoices();
                 this._broadcastCacheStats();
@@ -521,11 +520,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
             case 'sentenceEnded':
                 if (!this._playbackEngine.isPaused) {
-                    this._audioBridge.next(this._getOptions(), false, this._autoPlayMode);
+                    this._audioBridge.next(this._getOptions(), false, this._stateStore.state.autoPlayMode);
                 }
                 break;
             case 'nextSentence': 
-                this._audioBridge.next(this._getOptions(), true, this._autoPlayMode); 
+                this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode); 
                 break;
             case 'prevSentence':
                 this._audioBridge.previous(this._getOptions());
@@ -663,7 +662,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public nextChapter() {
-        this._audioBridge.next(this._getOptions(), true, this._autoPlayMode);
+        this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode);
     }
 
     public prevChapter() {
@@ -675,15 +674,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public nextSentence() {
-        this._audioBridge.next(this._getOptions(), true, this._autoPlayMode);
+        this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode);
     }
 
     private _getOptions(): PlaybackOptions {
+        const state = this._stateStore.state;
         return {
-            voice: this._selectedVoice,
-            rate: this._rate,
-            volume: this._volume,
-            mode: this._engineMode
+            voice: state.selectedVoice || 'en-US-AriaNeural',
+            rate: state.rate,
+            volume: state.volume,
+            mode: state.engineMode
         };
     }
 
