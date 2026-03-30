@@ -5,6 +5,7 @@ import { Chapter } from '@core/documentParser';
 import { DocumentLoadController } from '@core/documentLoadController';
 import { StateStore } from '@core/stateStore';
 import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
+import { SequenceManager } from '@core/sequenceManager';
 import { AudioBridge } from '@core/audioBridge';
 import { DashboardRelay } from './dashboardRelay';
 
@@ -21,6 +22,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _engineMode: 'local' | 'neural' = 'neural';
 
     private _docController: DocumentLoadController;
+    private _sequenceManager: SequenceManager;
     private _stateStore: StateStore;
     private _audioBridge: AudioBridge;
     private _dashboardRelay: DashboardRelay;
@@ -44,9 +46,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._extensionUri = _context.extensionUri;
         this._extensionPath = _context.extensionPath;
         this._docController = new DocumentLoadController(this._logger);
+        this._sequenceManager = new SequenceManager();
         this._stateStore = new StateStore(this._logger);
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
-        this._audioBridge = new AudioBridge(this._stateStore, this._docController, this._playbackEngine, this._logger);
+        this._audioBridge = new AudioBridge(this._stateStore, this._docController, this._playbackEngine, this._sequenceManager, this._logger);
         this._dashboardRelay = new DashboardRelay(this._stateStore, this._docController, this._playbackEngine, this._logger);
         this._statusBarItem = statusBarItem;
 

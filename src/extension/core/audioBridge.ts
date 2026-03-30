@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { StateStore } from '@core/stateStore';
 import { DocumentLoadController } from '@core/documentLoadController';
 import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
+import { SequenceManager } from '@core/sequenceManager';
 import { EventEmitter } from 'events';
 
 export interface AudioBridgeEvents {
@@ -16,6 +17,7 @@ export class AudioBridge extends EventEmitter {
         private readonly _stateStore: StateStore,
         private readonly _docController: DocumentLoadController,
         private readonly _playbackEngine: PlaybackEngine,
+        private readonly _sequenceManager: SequenceManager,
         private readonly _logger: (msg: string) => void
     ) {
         super();
@@ -90,42 +92,44 @@ export class AudioBridge extends EventEmitter {
             return;
         }
 
-        if (manual || autoPlayMode === 'auto') {
-            this._advanceNormally(options);
-        } else if (autoPlayMode === 'row') {
+        const state = this._stateStore.state;
+        const chapters = this._docController.chapters;
+
+        // 1. Check Row-Locked Mode
+        if (autoPlayMode === 'row' && !manual) {
             this.stop();
-        } else if (autoPlayMode === 'chapter') {
-            const chapter = this._docController.chapters[this._stateStore.state.currentChapterIndex];
-            if (this._stateStore.state.currentSentenceIndex + 1 < chapter.sentences.length) {
-                this.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex + 1, options);
-            } else {
-                this.stop();
-            }
+            return;
         }
+
+        // 2. Calculate Next Position
+        const nextPos = this._sequenceManager.getNext(state.currentChapterIndex, state.currentSentenceIndex, chapters);
+
+        if (!nextPos) {
+            this._logger('[BRIDGE] End of document reached.');
+            this.emit('playbackFinished');
+            return;
+        }
+
+        // 3. Chapter-Locked Mode
+        if (autoPlayMode === 'chapter' && !manual && nextPos.chapterIndex !== state.currentChapterIndex) {
+            this.stop();
+            return;
+        }
+
+        // 4. Trigger Next
+        this.start(nextPos.chapterIndex, nextPos.sentenceIndex, options);
     }
 
     public previous(options: PlaybackOptions) {
+        const state = this._stateStore.state;
         const chapters = this._docController.chapters;
-        if (this._stateStore.state.currentSentenceIndex > 0) {
-            this.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex - 1, options);
-        } else if (this._stateStore.state.currentChapterIndex > 0) {
-            const prevChapterIdx = this._stateStore.state.currentChapterIndex - 1;
-            const prevChapter = chapters[prevChapterIdx];
-            this.start(prevChapterIdx, prevChapter.sentences.length - 1, options);
-        }
-    }
-
-    private _advanceNormally(options: PlaybackOptions) {
-        const chapters = this._docController.chapters;
-        const chapter = chapters[this._stateStore.state.currentChapterIndex];
         
-        if (this._stateStore.state.currentSentenceIndex + 1 < chapter.sentences.length) {
-            this.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex + 1, options);
-        } else if (this._stateStore.state.currentChapterIndex + 1 < chapters.length) {
-            this.start(this._stateStore.state.currentChapterIndex + 1, 0, options);
+        const prevPos = this._sequenceManager.getPrevious(state.currentChapterIndex, state.currentSentenceIndex, chapters);
+        
+        if (prevPos) {
+            this.start(prevPos.chapterIndex, prevPos.sentenceIndex, options);
         } else {
-            this._logger('[BRIDGE] End of document reached.');
-            this.emit('playbackFinished');
+            this._logger('[BRIDGE] Already at the start of document.');
         }
     }
 
