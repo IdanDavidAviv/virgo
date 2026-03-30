@@ -9,23 +9,26 @@
 
     const vscode = window.vscode;
     
-    // --- State ---
-    let state = (vscode && vscode.getState()) || { selectedVoice: null, autoPlayMode: 'auto', rate: 0, volume: 50 };
-    if (typeof state.rate === 'undefined') { state.rate = 0; }
-    if (typeof state.volume === 'undefined') { state.volume = 50; }
-    let chapters = [];
+    // --- State (MINIMAL LIFESTYLE) ---
+    // We only keep state that is not provided by UI_SYNC or is strictly local UI preference.
+    let lastSyncPacket = null; 
+    let currentReadingUri = '';
     let currentChapterIndex = -1;
-    let availableVoices = []; // Global copy for searching
-    let engineMode = 'local';
-    let isSynthesizing = false;
+    let currentSentenceIndex = -1;
+    let currentTotalSentences = 0;
+    
+    // UI state
+    let chapters = [];
     let collapsedIndices = new Set();
     let lastHighlightedLine = -1;
     let navDebounceTimer = null;
     let sentenceNavigatorController = null;
     let pendingChapterIndex = -1;
     let pendingChapterTimer = null;
-    let currentSentenceIndex = -1;
-    let currentTotalSentences = 0;
+    
+    let isSynthesizing = false;
+    let currentAudioUrl = null;
+    let activeObjectURLs = new Set();
 
     // --- Components ---
     class SentenceNavigator {
@@ -136,18 +139,20 @@
     }
 
     function syncAudioUI() {
+        const rate = lastSyncPacket?.rate ?? 0;
+        const volume = lastSyncPacket?.volume ?? 50;
+
         if (rateSlider) {
-            rateSlider.value = state.rate;
-            if (rateVal) { rateVal.textContent = (state.rate > 0 ? '+' : '') + state.rate; }
+            rateSlider.value = rate;
+            if (rateVal) { rateVal.textContent = (rate > 0 ? '+' : '') + rate; }
         }
         if (volumeSlider) {
-            volumeSlider.value = state.volume;
-            if (volumeVal) { volumeVal.textContent = state.volume + '%'; }
+            volumeSlider.value = volume;
+            if (volumeVal) { volumeVal.textContent = volume + '%'; }
         }
         if (neuralPlayer) {
-            neuralPlayer.volume = state.volume / 100;
-            const val = state.rate;
-            neuralPlayer.playbackRate = val >= 0 ? 1 + (val / 10) : 1 + (val / 20);
+            neuralPlayer.volume = volume / 100;
+            neuralPlayer.playbackRate = rate >= 0 ? 1 + (rate / 10) : 1 + (rate / 20);
         }
     }
 
@@ -220,9 +225,7 @@
         console.error('[DASHBOARD] DOM Selection failed:', e);
     }
 
-    let currentReadingUri = null;
-    let currentAudioUrl = null;
-    let activeObjectURLs = new Set();
+    // (Remnants moved to top for hoisting safety)
 
 
     // --- Chapter Rendering ---
@@ -464,15 +467,14 @@
         console.log(`[EXTENSION -> DASHBOARD] [${command.toUpperCase()}] ${payload}`);
     }
 
-    function updateStateDebug(state) {
+    function updateStateDebug(packet) {
         const tag = document.getElementById('state-debug-tag');
         if (!tag) {
             return;
         }
         
-        // Fallback to local state if sync doesn't have it yet
-        const vol = state.volume !== undefined ? state.volume : (localStorage.getItem('readAloud.volume') || 50);
-        const rate = state.rate !== undefined ? state.rate : (localStorage.getItem('readAloud.rate') || 0);
+        const vol = packet.volume;
+        const rate = packet.rate;
         
         // Normalize rate display to match slider (0 is 1.0x)
         const displayRate = (1 + (rate / 10)).toFixed(1);
@@ -486,9 +488,8 @@
         switch (message.command) {
             case 'UI_SYNC':
                 // Update local webview state from the Unified Single Source of Truth [PHASE 3]
+                lastSyncPacket = message;
                 currentReadingUri = message.state.activeDocumentUri;
-                state.autoPlayMode = message.autoPlayMode;
-                engineMode = message.engineMode;
                 
                 // 1. Context Slots, Chapters & Progress
                 // Focused (Selection) Slot
@@ -526,20 +527,18 @@
 
                 // 3. Telemetry, Config & Indicators
                 updateAutoPlayModeUI(message.autoPlayMode);
-                updateStateDebug(message.state);
+                updateStateDebug(message);
                 
-                // Voices [PHASE 4 Consolidation]
+                // Audio UI [PHASE 4 Consolidation]
+                syncAudioUI(message.rate, message.volume);
+                
+                // Voices Logic [PHASE 4]
                 if (message.availableVoices) {
-                    availableVoices = (engineMode === 'neural') ? message.availableVoices.neural : message.availableVoices.local;
-                    renderVoiceList();
+                    const activeEngine = message.engineMode;
+                    const listToRender = (activeEngine === 'neural') ? message.availableVoices.neural : message.availableVoices.local;
+                    renderVoiceList(listToRender, message.selectedVoice);
                 }
 
-                // Update shared local state for storage/persistence
-                state.rate = message.rate;
-                state.volume = message.volume;
-                state.selectedVoice = message.selectedVoice;
-                syncAudioUI(); // Sync sliders and player volume
-                
                 if (engineStatusTag) {
                     const isOnline = message.isPlaying && !message.isPaused;
                     engineStatusTag.classList.toggle('online', isOnline);
@@ -578,10 +577,13 @@
                     neuralPlayer.src = currentAudioUrl;
 
 
-                    // Apply current volume/rate settings immediately
-                    neuralPlayer.volume = state.volume / 100;
-                    const r = state.rate;
-                    neuralPlayer.playbackRate = r >= 0 ? 1 + (r / 10) : 1 + (r / 20);
+                    // Apply current volume/rate settings immediately [PHASE 4: Use lastSyncPacket SSOT]
+                    if (lastSyncPacket) {
+                        const vol = lastSyncPacket.volume ?? 50;
+                        neuralPlayer.volume = Math.max(0, Math.min(1, vol / 100));
+                        const r = lastSyncPacket.rate ?? 0;
+                        neuralPlayer.playbackRate = r >= 0 ? 1 + (r / 10) : 1 + (r / 20);
+                    }
 
                     neuralPlayer.play().catch(e => {
                         console.error('Audio Playback Blocked:', e);
@@ -659,24 +661,28 @@
     }
 
     // --- Voice Rendering Logic ---
-    function renderVoiceList(filterTerm = '') {
+    function renderVoiceList(voicesToUse, selectedVoice, mode, filterTerm = '') {
         if (!voiceSelect) { return; }
         const term = filterTerm.toLowerCase();
         voiceSelect.innerHTML = '';
 
-        if (engineMode === 'neural') {
+        if (mode === 'neural') {
             if (neuralPlayer) { neuralPlayer.pause(); }
             engineNeural.classList.add('active');
             engineLocal.classList.remove('active');
             if (engineStatusTag) {
                 engineStatusTag.classList.remove('fallback');
             }
-            availableVoices.forEach(v => {
-                if (!term || v.name.toLowerCase().includes(term) || v.lang.toLowerCase().includes(term)) {
+            voicesToUse.forEach(v => {
+                const name = typeof v === 'string' ? v : v.name;
+                const lang = typeof v === 'string' ? '' : v.lang;
+                const id = typeof v === 'string' ? v : v.id;
+
+                if (!term || name.toLowerCase().includes(term) || lang.toLowerCase().includes(term)) {
                     const opt = document.createElement('option');
-                    opt.value = v.id;
-                    opt.textContent = `✨ ${v.name} (${v.lang})`;
-                    if (v.id === state.selectedVoice) { opt.selected = true; }
+                    opt.value = id;
+                    opt.textContent = `✨ ${name} ${lang ? `(${lang})` : ''}`;
+                    if (id === selectedVoice) { opt.selected = true; }
                     voiceSelect.appendChild(opt);
                 }
             });
@@ -686,15 +692,33 @@
             if (engineStatusTag) {
                 engineStatusTag.classList.remove('fallback');
             }
-            availableVoices.forEach(name => {
+            voicesToUse.forEach(v => {
+                const name = typeof v === 'string' ? v : v.name;
+                const id = typeof v === 'string' ? v : v.id;
+
                 if (!term || name.toLowerCase().includes(term)) {
                     const opt = document.createElement('option');
-                    opt.value = name;
+                    opt.value = id;
                     opt.textContent = name;
-                    if (name === state.selectedVoice) { opt.selected = true; }
+                    if (id === selectedVoice) { opt.selected = true; }
                     voiceSelect.appendChild(opt);
                 }
             });
+        }
+    }
+
+    function syncAudioUI(rate, volume) {
+        if (rateSlider) {
+            rateSlider.value = rate;
+            rateVal.textContent = (rate > 0 ? '+' : '') + rate;
+        }
+        if (volumeSlider) {
+            volumeSlider.value = volume;
+            volumeVal.textContent = volume + '%';
+        }
+        if (neuralPlayer) {
+            const v = volume ?? 50;
+            neuralPlayer.volume = Math.max(0, Math.min(1, v / 100));
         }
     }
 
@@ -702,8 +726,6 @@
     if (voiceSelect) {
         voiceSelect.onchange = () => {
             const voice = voiceSelect.value;
-            state.selectedVoice = voice;
-            if (vscode) { vscode.setState(state); }
             postMsg({ command: 'voiceChanged', voice });
         };
     }
@@ -719,29 +741,33 @@
     }
 
     if (voiceSearch) {
-        voiceSearch.oninput = (e) => { renderVoiceList(e.target.value); };
+        voiceSearch.oninput = (e) => { 
+            if (lastSyncPacket && lastSyncPacket.availableVoices) {
+                const mode = lastSyncPacket.engineMode;
+                const list = mode === 'neural' ? lastSyncPacket.availableVoices.neural : lastSyncPacket.availableVoices.local;
+                renderVoiceList(list, lastSyncPacket.selectedVoice, mode, e.target.value); 
+            }
+        };
     }
 
     if (rateSlider) {
         rateSlider.oninput = () => {
             const val = parseInt(rateSlider.value);
-            state.rate = val;
             rateVal.textContent = (val > 0 ? '+' : '') + val;
 
             // Sync current playback if active
-            if (engineMode === 'neural' && neuralPlayer && !neuralPlayer.paused) {
+            const isNeural = lastSyncPacket?.engineMode === 'neural';
+            if (isNeural && neuralPlayer && !neuralPlayer.paused) {
                 neuralPlayer.playbackRate = val >= 0 ? 1 + (val / 10) : 1 + (val / 20);
             }
 
             postMsg({ command: 'rateChanged', rate: val });
-            if (vscode) { vscode.setState(state); }
         };
     }
 
     if (volumeSlider) {
         volumeSlider.oninput = () => {
             const val = parseInt(volumeSlider.value);
-            state.volume = val;
             volumeVal.textContent = val + '%';
 
             // Sync current playback if active
@@ -750,7 +776,6 @@
             }
 
             postMsg({ command: 'volumeChanged', volume: val });
-            if (vscode) { vscode.setState(state); }
         };
     }
 
@@ -803,22 +828,15 @@
     if (btnNextSentence) { btnNextSentence.onclick = () => { debouncedPostMsg({ command: 'nextSentence' }); }; }
 
     if (btnAutoplay) {
-        // Restore persisted state (default: auto)
-        const initMode = state.autoPlayMode || 'auto';
-        updateAutoPlayModeUI(initMode);
-
         btnAutoplay.addEventListener('click', () => {
-            const current = state.autoPlayMode || 'auto';
+            const current = lastSyncPacket?.autoPlayMode || 'auto';
             let next = 'auto';
             
             if (current === 'auto') { next = 'chapter'; }
             else if (current === 'chapter') { next = 'row'; }
             else { next = 'auto'; }
             
-            state.autoPlayMode = next;
             updateAutoPlayModeUI(next);
-            
-            if (vscode) { vscode.setState(state); }
             postMsg({ command: 'setAutoPlayMode', mode: next });
         });
     }

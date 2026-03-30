@@ -22,33 +22,28 @@ export class DashboardRelay {
      * The single source of truth for the dashboard's state.
      * Aggregates StateStore, DocController, and logic into one packet.
      */
-    public sync(
-        autoPlayMode: 'auto' | 'chapter' | 'row', 
-        engineMode: 'local' | 'neural',
-        selectedVoice: string | undefined,
-        rate: number,
-        volume: number,
-        localVoices: any[],
-        neuralVoices: any[]
-    ) {
+    public sync() {
         if (!this._view) { return; }
 
+        const s = this._stateStore.state;
+        
+        // Map StateStoreState for the packet (Matches src/common/types.ts)
         const state: StateStoreState = {
-            focusedFileName: this._stateStore.state.focusedFileName,
-            focusedRelativeDir: this._stateStore.state.focusedRelativeDir,
-            focusedDocumentUri: this._stateStore.state.focusedDocumentUri?.toString() || null,
-            focusedIsSupported: this._stateStore.state.focusedIsSupported,
-            focusedVersionSalt: this._stateStore.state.focusedVersionSalt,
+            focusedFileName: s.focusedFileName,
+            focusedRelativeDir: s.focusedRelativeDir,
+            focusedDocumentUri: s.focusedDocumentUri?.toString() || null,
+            focusedIsSupported: s.focusedIsSupported,
+            focusedVersionSalt: s.focusedVersionSalt,
 
-            activeFileName: this._stateStore.state.activeFileName,
-            activeRelativeDir: this._stateStore.state.activeRelativeDir,
-            activeDocumentUri: this._stateStore.state.activeDocumentUri?.toString() || null,
-            versionSalt: this._stateStore.state.versionSalt,
+            activeFileName: s.activeFileName,
+            activeRelativeDir: s.activeRelativeDir,
+            activeDocumentUri: s.activeDocumentUri?.toString() || null,
+            versionSalt: s.versionSalt,
 
-            currentChapterIndex: this._stateStore.state.currentChapterIndex,
-            currentSentenceIndex: this._stateStore.state.currentSentenceIndex,
-            isRefreshing: this._stateStore.state.isRefreshing,
-            isPreviewing: this._stateStore.state.isPreviewing
+            currentChapterIndex: s.currentChapterIndex,
+            currentSentenceIndex: s.currentSentenceIndex,
+            isRefreshing: s.isRefreshing,
+            isPreviewing: s.isPreviewing
         };
 
         const chapters = this._docController.chapters;
@@ -63,9 +58,9 @@ export class DashboardRelay {
 
         const packet: UISyncPacket = {
             state,
-            isPlaying: this._playbackEngine.isPlaying,
-            isPaused: this._playbackEngine.isPaused,
-            playbackStalled: this._playbackEngine.isStalled,
+            isPlaying: s.isPlaying,
+            isPaused: s.isPaused,
+            playbackStalled: s.playbackStalled,
             currentSentences: currentChapter ? currentChapter.sentences : [],
             currentText: currentChapter ? currentChapter.sentences[currentSentenceIndex] || "" : "",
             totalChapters: chapters.length,
@@ -75,21 +70,18 @@ export class DashboardRelay {
                 index: i,
                 count: c.sentences.length
             })),
-            availableVoices: {
-                local: localVoices,
-                neural: neuralVoices
-            },
+            availableVoices: s.availableVoices,
             canPrevChapter: currentChapterIndex > 0,
             canNextChapter: currentChapterIndex < chapters.length - 1,
             canPrevSentence: currentSentenceIndex > 0,
             canNextSentence: (currentChapter && currentSentenceIndex < currentChapter.sentences.length - 1) || false,
-            autoPlayMode,
-            engineMode,
+            autoPlayMode: s.autoPlayMode,
+            engineMode: s.engineMode,
             cacheCount: cacheStats.count,
             cacheSizeBytes: cacheStats.sizeBytes,
-            selectedVoice,
-            rate,
-            volume
+            selectedVoice: s.selectedVoice,
+            rate: s.rate,
+            volume: s.volume
         };
 
         this.postMessage({ command: 'UI_SYNC', ...packet });

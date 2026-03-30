@@ -43,7 +43,7 @@ describe('DashboardRelay (Unified Sync)', () => {
 
     it('should aggregate rich state into a unified UI_SYNC packet', () => {
         // 1. Arrange
-        stateStore.setSelection({ toString: () => 'uri' } as any, 'file.md', 'dir');
+        stateStore.setActiveDocument({ toString: () => 'uri' } as any, 'file.md', 'dir');
         stateStore.setProgress(1, 2);
         
         (docController as any)._chapters = [
@@ -52,7 +52,7 @@ describe('DashboardRelay (Unified Sync)', () => {
         ];
 
         // 2. Act
-        relay.sync('auto', 'neural', 'voice-id', 0, 50, [], []);
+        relay.sync();
 
         // 3. Assert
         const postMessage = (relay as any)._view.webview.postMessage;
@@ -75,7 +75,7 @@ describe('DashboardRelay (Unified Sync)', () => {
         ];
 
         // Act
-        relay.sync('auto', 'neural', 'voice', 0, 50, [], []);
+        relay.sync();
 
         // Assert
         const postMessage = (relay as any)._view.webview.postMessage;
