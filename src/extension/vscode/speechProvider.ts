@@ -6,6 +6,7 @@ import { DocumentLoadController } from '@core/documentLoadController';
 import { StateStore } from '@core/stateStore';
 import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
 import { AudioBridge } from '@core/audioBridge';
+import { DashboardRelay } from './dashboardRelay';
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
@@ -22,6 +23,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _docController: DocumentLoadController;
     private _stateStore: StateStore;
     private _audioBridge: AudioBridge;
+    private _dashboardRelay: DashboardRelay;
     
     // Selection state (passive) - Moved to StateStore
     
@@ -45,14 +47,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._stateStore = new StateStore(this._logger);
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
         this._audioBridge = new AudioBridge(this._stateStore, this._docController, this._playbackEngine, this._logger);
+        this._dashboardRelay = new DashboardRelay(this._stateStore, this._docController, this._playbackEngine, this._logger);
         this._statusBarItem = statusBarItem;
 
         // Register AudioBridge Events
-        this._audioBridge.on('sentenceChanged', payload => this._postToAll({ command: 'sentenceChanged', ...payload }));
-        this._audioBridge.on('chapterChanged', payload => this._postToAll({ command: 'chapterChanged', ...payload }));
-        this._audioBridge.on('playAudio', payload => this._postToAll({ command: 'playAudio', ...payload }));
-        this._audioBridge.on('synthesisError', payload => this._postToAll({ command: 'synthesisError', ...payload }));
-        this._audioBridge.on('engineStatus', payload => this._postToAll({ command: 'engineStatus', ...payload }));
+        this._audioBridge.on('playAudio', payload => this._dashboardRelay.postMessage({ command: 'playAudio', ...payload }));
+        this._audioBridge.on('synthesisError', payload => this._dashboardRelay.postMessage({ command: 'synthesisError', ...payload }));
+        this._audioBridge.on('engineStatus', payload => this._dashboardRelay.postMessage({ command: 'engineStatus', ...payload }));
         this._audioBridge.on('playbackFinished', () => this._syncStatusBars());
 
         // Load Persisted Settings
@@ -66,6 +67,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         // Tier-3: High-Density Log Format (Extension Boot)
         this._logger('[BOOT] extension_activated');
         this._loadVoices();
+
+        // [Reactive Sync] Subscribe to StateStore changes
+        this._stateStore.on('change', () => this._syncUI());
+        this._playbackEngine.on('status', () => this._syncUI());
     }
 
 
@@ -114,7 +119,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._stateStore.setSelection(uri, fileName, relativeDir);
         }
         this._logger(`[SYNC] focus:${this._stateStore.state.activeFileName}`);
-        this._broadcastState();
+        // [REFAC] Manual _broadcastState() call will eventually be redundant 
+        // since setSelection() now triggers 'change' -> _syncUI()
     }
 
     private async _loadVoices() {
@@ -130,12 +136,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _broadcastVoices() {
-        this._postToAll({ 
-            command: 'voices', 
-            voices: this._localVoices, 
-            neuralVoices: this._neuralVoices,
-            engineMode: this._engineMode
-        });
+        this._dashboardRelay.broadcastVoices(this._localVoices, this._neuralVoices, this._engineMode);
     }
 
     private _getSanitizedPayload(payload: any, depth: number = 0): any {
@@ -178,33 +179,24 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         return payload;
     }
+    /**
+     * Unified Reactive Sync: Gather all state and broadcast to the webview.
+     * This is the "Single Source of Truth" relay point.
+     */
+    private _syncUI() {
+        this._dashboardRelay.sync(
+            this._autoPlayMode, 
+            this._engineMode,
+            this._selectedVoice,
+            this._rate,
+            this._volume,
+            this._localVoices,
+            this._neuralVoices
+        );
+    }
 
     private _postToAll(msg: any) {
-        const cmd = msg.command;
-        // SILENCE: High-frequency synchronization heartbeats
-        if (cmd !== 'state-sync' && cmd !== 'cacheStatus' && cmd !== 'progress') {
-            try {
-                const logPayload = this._getSanitizedPayload(msg);
-                const cmdLabel = `[${cmd.toUpperCase()}]`;
-                
-                // Tier-3: Compact High-Density Log Format
-                const payloadString = Object.entries(logPayload)
-                    .filter(([k]) => k !== 'command')
-                    .map(([k, v]) => {
-                        const valStr = typeof v === 'string' ? v : JSON.stringify(v);
-                        return `${k}:${valStr}`;
-                    })
-                    .join(' | ');
-                
-                this._logger(`[READALOUD -> WEBVIEW] ${cmdLabel} ${payloadString}`);
-            } catch (e) {
-                this._logger(`[READALOUD] Payload serialization failed (non-critical): ${e}`);
-            }
-        }
-        
-        if (this._view) {
-            this._view.webview.postMessage(msg);
-        }
+        this._dashboardRelay.postMessage(msg);
         this._syncStatusBars();
     }
 
@@ -226,11 +218,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
-        _context: vscode.WebviewViewResolveContext,
+        context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
     ) {
-        this._logger('--- ACTIVATING MISSION CONTROL (Sidebar) ---');
         this._view = webviewView;
+        this._dashboardRelay.setView(webviewView);
+        this._syncUI();
+        this._logger('--- ACTIVATING MISSION CONTROL (Sidebar) ---');
 
         webviewView.webview.options = {
             enableScripts: true,
@@ -411,7 +405,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public refreshView() {
-        this._broadcastState();
+        this._syncUI();
         this._broadcastVoices();
         
         if (this._docController.chapters.length > 0) {
@@ -508,51 +502,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _sendInitialState() {
-        const metadata = this._docController.metadata;
-        this._postToAll({
-            command: 'initialState',
-            activeUri: this._stateStore.state.activeDocumentUri?.toString() || '',
-            activeFileName: this._stateStore.state.activeFileName,
-            activeRelativeDir: this._stateStore.state.activeRelativeDir,
-            readingUri: metadata.uri?.toString() || '',
-            readingFileName: metadata.fileName,
-            readingRelativeDir: metadata.relativeDir,
-            currentChapterIndex: this._stateStore.state.currentChapterIndex,
-            currentSentenceIndex: this._stateStore.state.currentSentenceIndex,
-            totalChapters: this._docController.chapters.length,
-            totalSentences: this._docController.chapters[this._stateStore.state.currentChapterIndex]?.sentences.length || 0,
-            autoPlayMode: this._autoPlayMode,
-            engineMode: this._engineMode,
-            rate: this._rate,
-            volume: this._volume,
-            activeVersion: this._stateStore.state.activeDocumentUri ? this._docController.getFileVersionSalt(this._stateStore.state.activeDocumentUri) : undefined,
-            readingVersion: metadata.versionSalt
-        });
-        this._broadcastState();
+        this._syncUI();
+        this._broadcastVoices();
     }
 
-    private _broadcastState() {
-        const metadata = this._docController.metadata;
-        this._postToAll({
-            command: 'state-sync',
-            activeUri: this._stateStore.state.activeDocumentUri?.toString() || '',
-            activeFileName: this._stateStore.state.activeFileName,
-            activeRelativeDir: this._stateStore.state.activeRelativeDir,
-            readingUri: metadata.uri?.toString() || '',
-            readingFileName: metadata.fileName,
-            readingRelativeDir: metadata.relativeDir,
-            isPlaying: this._playbackEngine.isPlaying,
-            isPaused: this._playbackEngine.isPaused,
-            currentChapterIndex: this._stateStore.state.currentChapterIndex,
-            currentSentenceIndex: this._stateStore.state.currentSentenceIndex,
-            totalSentences: this._docController.chapters[this._stateStore.state.currentChapterIndex]?.sentences.length || 0,
-            engineMode: this._engineMode,
-            rate: this._rate,
-            volume: this._volume,
-            activeVersion: this._stateStore.state.activeDocumentUri ? this._docController.getFileVersionSalt(this._stateStore.state.activeDocumentUri) : undefined,
-            readingVersion: metadata.uri ? this._docController.getFileVersionSalt(metadata.uri) : metadata.versionSalt,
-        });
-    }
 
     public async loadCurrentDocument(): Promise<boolean> {
         const success = await this._docController.loadActiveDocument();
@@ -606,7 +559,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             });
         }
         
-        this._broadcastState();
+        this._syncUI();
         return true;
     }
 
@@ -622,7 +575,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             total: 0
         });
 
-        this._broadcastState();
+        this._syncUI();
         this._logger('[READALOUD] Context Reset: Reader cleared.');
     }
 
@@ -695,11 +648,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _broadcastCacheStats() {
-        if (!this._playbackEngine) { return; }
-        const stats = this._playbackEngine.getCacheStats();
-        this._postToAll({
-            command: 'cacheStatus',
-            ...stats
+        this._dashboardRelay.postMessage({
+            command: 'cacheStats',
+            count: this._playbackEngine.getCacheStats().count
         });
     }
 

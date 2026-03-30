@@ -92,7 +92,7 @@
         toastContainer = getEl('toast-container');
         engineStatusTag = getEl('status-dot');
         cacheDebugTag = getEl('cache-debug-tag');
-        waveContainer = document.querySelector('.wave-container');
+        waveContainer = getEl('sentence-navigator');
 
         console.log('[DASHBOARD] DOM Selection complete.');
         
@@ -390,42 +390,71 @@
     function handleCommand(message) {
         logSafeMessage(message);
         switch (message.command) {
-            case 'chapters':
-                renderChapters(message.chapters, message.current);
-                break;
-            case 'chapterChanged':
-                syncPlaybackUI(message.index, 0, message.totalSentences || 0);
-                break;
-            case 'state-sync':
-                // Dual context update
-                currentReadingUri = message.readingUri;
-                updateContextSlot(message.activeUri, activeFilename, activeDir, message.activeVersion, message.activeFileName, message.activeRelativeDir);
-                updateContextSlot(message.readingUri, readerFilename, readerDir, message.readingVersion, message.readingFileName, message.readingRelativeDir);
-                syncPlaybackUI(message.currentChapterIndex, message.currentSentenceIndex, message.totalSentences);
-                updateStateDebug(message);
+            case 'UI_SYNC':
+                // Update local webview state from the Unified Single Source of Truth [PHASE 3]
+                currentReadingUri = message.state.activeDocumentUri;
+                state.autoPlayMode = message.autoPlayMode;
+                engineMode = message.engineMode;
+                
+                // 1. Context Slots & Nav
+                updateContextSlot(message.state.activeDocumentUri, readerFilename, readerDir, message.state.versionSalt, message.state.activeFileName, message.state.activeRelativeDir);
+                renderChapters(message.allChapters || [], message.state.currentChapterIndex);
+                syncPlaybackUI(message.state.currentChapterIndex, message.state.currentSentenceIndex, message.currentSentences.length);
+                updateSentenceNavigator(message.currentSentences, message.state.currentSentenceIndex);
+                
+                // 2. Playback State
+                if (message.isPlaying && !message.isPaused) {
+                    btnPlay.style.display = 'none';
+                    btnPause.style.display = 'inline-block';
+                    if (waveContainer) { waveContainer.classList.add('speaking'); }
+                } else {
+                    btnPlay.style.display = 'inline-block';
+                    btnPause.style.display = 'none';
+                    if (waveContainer) { waveContainer.classList.remove('speaking'); }
+                }
 
-                // Mismatch Pulse
+                // [PHASE 4] Stall Detection (Buffering)
+                if (message.playbackStalled) {
+                    btnPlay.classList.add('is-loading');
+                    if (waveContainer) { waveContainer.classList.add('stalled'); }
+                } else {
+                    btnPlay.classList.remove('is-loading');
+                    if (waveContainer) { waveContainer.classList.remove('stalled'); }
+                }
+
+                // 3. Telemetry, Config & Indicators
+                updateAutoPlayModeUI(message.autoPlayMode);
+                updateStateDebug(message.state);
+                
+                // Voices [PHASE 4 Consolidation]
+                if (message.availableVoices) {
+                    availableVoices = (engineMode === 'neural') ? message.availableVoices.neural : message.availableVoices.local;
+                    renderVoiceList();
+                }
+
+                // Update shared local state for storage/persistence
+                state.rate = message.rate;
+                state.volume = message.volume;
+                state.selectedVoice = message.selectedVoice;
+                syncAudioUI(); // Sync sliders and player volume
+                
+                if (engineStatusTag) {
+                    engineStatusTag.textContent = engineMode.toUpperCase();
+                    engineStatusTag.classList.remove('fallback');
+                }
+
+                if (cacheDebugTag) {
+                    const mb = (message.cacheSizeBytes / (1024 * 1024)).toFixed(1);
+                    cacheDebugTag.textContent = `[ CACHE: ${message.cacheCount}/100 | ${mb}MB ]`;
+                }
+
                 if (btnLoadFile) {
-                    btnLoadFile.disabled = !message.activeUri;
-                    const isMismatch = message.activeUri && message.activeUri !== message.readingUri;
-                    btnLoadFile.classList.toggle('mismatch', !!isMismatch);
+                    btnLoadFile.disabled = !message.state.activeDocumentUri;
                 }
                 break;
-            case 'stop':
-            case 'pause':
-                btnPlay.style.display = 'inline-block';
-                btnPause.style.display = 'none';
+
                 break;
-            case 'voiceChanged':
-                state.selectedVoice = message.voice;
-                if (vscode) { vscode.setState(state); }
-                break;
-            case 'voices':
-                if (!voiceSelect) { return; }
-                engineMode = message.engineMode;
-                availableVoices = (engineMode === 'neural') ? message.neuralVoices : message.voices;
-                renderVoiceList();
-                break;
+
             case 'playAudio':
                 setLoading(false); // Clear synthesis loading
                 if (neuralPlayer) {
@@ -455,70 +484,10 @@
                         postMsg({ command: 'log', message: `[DASHBOARD] Playback Error: ${e.message}` });
                     });
 
-                    if (message.sentences) {
-                        updateSentenceNavigator(message.sentences, message.sentenceIndex || 0);
-                    } else if (sentenceCurrent) {
-                        updateRow(sentenceCurrent, message.text);
-                    }
-
                     if (waveContainer) { waveContainer.classList.add('speaking'); }
                     btnPlay.style.display = 'none';
                     btnPause.style.display = 'inline-block';
-
-                    syncPlaybackUI(message.chapterIndex, message.sentenceIndex, message.totalSentences);
                 }
-                break;
-            case 'initialState':
-                // Sync sliders and toggles with backend SSOT
-                if (message.selectedVoice) { state.selectedVoice = message.selectedVoice; }
-                state.rate = typeof message.rate !== 'undefined' ? message.rate : state.rate;
-                state.volume = typeof message.volume !== 'undefined' ? message.volume : state.volume;
-                
-                syncAudioUI();
-                if (vscode) { vscode.setState(state); }
-
-                // Context Slots
-                currentReadingUri = message.readingUri;
-                updateContextSlot(message.activeUri, activeFilename, activeDir, message.activeVersion, message.activeFileName, message.activeRelativeDir);
-                updateContextSlot(message.readingUri, readerFilename, readerDir, message.readingVersion, message.readingFileName, message.readingRelativeDir);
-                
-                if (btnLoadFile) {
-                    btnLoadFile.disabled = !message.activeUri;
-                    const isMismatch = message.activeUri && message.activeUri !== message.readingUri;
-                    btnLoadFile.classList.toggle('mismatch', !!isMismatch);
-                }
-
-                // --- NEW CENTRALIZED SYNC ---
-                if (message.autoPlayMode) {
-                    updateAutoPlayModeUI(message.autoPlayMode);
-                updateStateDebug(message);
-                }
-                syncPlaybackUI(message.currentChapterIndex, message.currentSentenceIndex, message.totalSentences);
-                break;
-            case 'documentInfo':
-                // Trigger transfer animation
-                if (readerSlot) {
-                    readerSlot.classList.remove('transfer-anim-active');
-                    void readerSlot.offsetWidth; // Trigger reflow
-                    readerSlot.classList.add('transfer-anim-active');
-                }
-                
-                // Update Context Slot directly on metadata change
-                updateContextSlot(currentReadingUri, readerFilename, readerDir, message.version);
-                break;
-            case 'sentenceChanged':
-                setLoading(false); // Clear if jumping directly
-                if (message.sentences) {
-                    updateSentenceNavigator(message.sentences, message.sentenceIndex);
-                } else if (sentenceCurrent) {
-                    updateRow(sentenceCurrent, message.text);
-                }
-                
-                if (!message.suppressButtonToggle) {
-                    btnPlay.style.display = 'none';
-                    btnPause.style.display = 'inline-block';
-                }
-                syncPlaybackUI(message.chapterIndex, message.sentenceIndex, message.totalSentences);
                 break;
 
             case 'synthesisError':
@@ -526,34 +495,6 @@
                 showToast(message.error, message.isFallingBack ? 'warning' : 'error');
                 if (message.isFallingBack) {
                     console.warn('[DASHBOARD] Neural failure. Falling back to SAPI.');
-                }
-                break;
-
-            case 'engineStatus':
-                if (engineStatusTag) {
-                    if (message.status === 'local-fallback') {
-                        engineStatusTag.textContent = 'LOCAL FALLBACK';
-                        engineStatusTag.classList.add('fallback');
-                    } else {
-                        engineStatusTag.textContent = engineMode.toUpperCase();
-                        engineStatusTag.classList.remove('fallback');
-                    }
-                }
-                break;
-            
-            case 'cacheStatus':
-                if (cacheDebugTag) {
-                    const count = message.count || 0;
-                    const sizeBytes = message.sizeBytes || 0;
-                    const mb = (sizeBytes / (1024 * 1024)).toFixed(1);
-                    
-                    cacheDebugTag.textContent = `[ CACHE: ${count}/100 | ${mb}MB ]`;
-                    console.log(`[DASHBOARD] Cache Status Update: ${count}/100 segments, ${mb}MB`);
-
-                    // Add a pulse effect on update
-                    cacheDebugTag.classList.remove('pulse');
-                    void cacheDebugTag.offsetWidth; // Trigger reflow
-                    cacheDebugTag.classList.add('pulse');
                 }
                 break;
             

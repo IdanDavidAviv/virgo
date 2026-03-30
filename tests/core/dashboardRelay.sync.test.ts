@@ -1,0 +1,69 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { DashboardRelay } from '../../src/extension/vscode/dashboardRelay';
+import { StateStore } from '../../src/extension/core/stateStore';
+import { DocumentLoadController } from '../../src/extension/core/documentLoadController';
+import { PlaybackEngine } from '../../src/extension/core/playbackEngine';
+
+// Mock vscode
+vi.mock('vscode', () => ({
+    window: {
+        activeTextEditor: undefined,
+        tabGroups: { activeTabGroup: { activeTab: undefined } }
+    },
+    workspace: { getWorkspaceFolder: vi.fn(), openTextDocument: vi.fn() },
+    Uri: { file: (p: string) => ({ fsPath: p, toString: () => p }) }
+}));
+
+describe('DashboardRelay (Unified Sync)', () => {
+    let relay: DashboardRelay;
+    let stateStore: StateStore;
+    let docController: DocumentLoadController;
+    let playbackEngine: PlaybackEngine;
+    const logger = vi.fn();
+
+    beforeEach(() => {
+        stateStore = new StateStore(logger);
+        docController = new DocumentLoadController(logger);
+        playbackEngine = new PlaybackEngine(logger);
+        relay = new DashboardRelay(stateStore, docController, playbackEngine, logger);
+        
+        // Mock the view
+        relay.setView({
+            visible: true,
+            webview: {
+                postMessage: vi.fn(),
+                asWebviewUri: vi.fn(),
+                onDidReceiveMessage: vi.fn(),
+                cspSource: '',
+                options: {},
+                html: ''
+            }
+        } as any);
+    });
+
+    it('should aggregate rich state into a unified UI_SYNC packet', () => {
+        // 1. Arrange
+        stateStore.setSelection({ toString: () => 'uri' } as any, 'file.md', 'dir');
+        stateStore.setProgress(1, 2);
+        
+        (docController as any)._chapters = [
+            { title: 'Ch1', level: 1, sentences: ['s1', 's2'] },
+            { title: 'Ch2', level: 1, sentences: ['s3', 's4', 's5'] }
+        ];
+
+        // 2. Act
+        relay.sync('auto', 'neural', 'voice-id', 0, 50, [], []);
+
+        // 3. Assert
+        const postMessage = (relay as any)._view.webview.postMessage;
+        expect(postMessage).toHaveBeenCalled();
+        
+        const packet = postMessage.mock.calls[0][0];
+        expect(packet.command).toBe('UI_SYNC');
+        expect(packet.state.activeFileName).toBe('file.md');
+        expect(packet.state.currentChapterIndex).toBe(1);
+        expect(packet.allChapters).toHaveLength(2);
+        expect(packet.allChapters[0].count).toBe(2);
+        expect(packet.playbackStalled).toBe(false);
+    });
+});
