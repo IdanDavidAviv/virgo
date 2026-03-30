@@ -8,6 +8,7 @@ export interface PlaybackOptions {
     rate: number;
     volume: number;
     mode: EngineMode;
+    retryCount?: number;
 }
 
 export class PlaybackEngine {
@@ -231,8 +232,39 @@ export class PlaybackEngine {
             this._abortController = new AbortController();
         }
 
-        const task = this._getNeuralAudio(text, options.voice, 1, currentIntentId, isPriority);
+        let taskResolve!: (val: string | null) => void;
+        let taskReject!: (err: any) => void;
+        const task = new Promise<string | null>((res, rej) => {
+            taskResolve = res;
+            taskReject = rej;
+        });
+
+        // REGISTER SYNCHRONOUSLY to prevent race on back-to-back calls
         this._pendingTasks.set(cacheKey, task);
+
+        // Actual Work (Async)
+        (async () => {
+            const release = this._synthesisLock;
+            let resolveLock!: () => void;
+            this._synthesisLock = new Promise(r => resolveLock = r);
+            
+            try {
+                // Wait for existing lock OR abort
+                await Promise.race([
+                    release,
+                    new Promise((_, reject) => {
+                        this._abortController?.signal?.addEventListener('abort', () => reject(new Error('Synthesis Aborted')), { once: true });
+                        if (currentIntentId !== this._playbackIntentId) { reject(new Error('Stale Intent')); }
+                    })
+                ]);
+
+                return await this._getNeuralAudio(text, options.voice, options.retryCount ?? 3, currentIntentId, isPriority);
+            } finally {
+                resolveLock();
+                this._pendingTasks.delete(cacheKey);
+                this._clearWatchdog();
+            }
+        })().then(taskResolve, taskReject);
         
         try {
             const data = await task;
@@ -241,9 +273,9 @@ export class PlaybackEngine {
                 this.logger(`[NEURAL] success: ${cacheKey}`);
             }
             return data;
-        } finally {
-            this._pendingTasks.delete(cacheKey);
-            this._clearWatchdog();
+        } catch (err) {
+            // Error already logged in _getNeuralAudio
+            throw err;
         }
     }
 
@@ -286,30 +318,16 @@ export class PlaybackEngine {
             return null;
         }
 
-        const release = this._synthesisLock;
-        let resolveLock!: () => void;
-        this._synthesisLock = new Promise(r => resolveLock = r);
-
-        const signal = this._abortController?.signal;
         try {
-            // RACE: Wait for the lock OR the abort signal.
-            await Promise.race([
-                release,
-                new Promise((_, reject) => {
-                    if (signal?.aborted) { reject(new Error('Synthesis Aborted')); }
-                    if (intentId !== this._playbackIntentId) { reject(new Error('Stale Intent')); }
-                    signal?.addEventListener('abort', () => reject(new Error('Synthesis Aborted')), { once: true });
-                })
-            ]);
-
-            // FINAL STALE CHECK AFTER LOCK
+            // FINAL STALE CHECK BEFORE API CALL
             if (intentId !== this._playbackIntentId) {
-                this.logger(`[NEURAL] EJECTED (Post-lock) - Intent ${intentId} is stale.`);
+                this.logger(`[NEURAL] EJECTED (Pre-flight) - Intent ${intentId} is stale.`);
                 return null;
             }
 
+            const signal = this._abortController?.signal;
             if (signal?.aborted) {
-                this.logger(`[NEURAL] ABORTED (Pre-flight) - Task was in queue when cancelled.`);
+                this.logger(`[NEURAL] ABORTED (Pre-flight) - Task cancelled.`);
                 return null;
             }
 
@@ -432,15 +450,16 @@ export class PlaybackEngine {
             this.logger(`[NEURAL] synthesis_failure | error: ${errorMessage}`);
             throw err;
         } finally {
-            resolveLock!();
+            // Lock managed by caller (speakNeural)
         }
     }
 
     private _getSafeText(text: string): string {
         // PRODUCTION HARDENING: Neutralize shell injection by whitelisting character set
-        // Allow: Alphanumeric, spaces, basic punctuation (.,!?-:;()'")
+        // Allow: Alphanumeric, spaces, basic punctuation (.,!?:;()'")
         // Deny: Symbols used for shell expansion/redirection ($, `, |, &, <, >, \, {, }, [, ])
-        return text.replace(/[^a-zA-Z0-9\s.,!?-——:;()'"\u0590-\u05FF]/g, ' ')
+        // Note: Hyphen must be at the end of the character class to be literal.
+        return text.replace(/[^a-zA-Z0-9\s.,!?:;()'"\u0590-\u05FF-]/g, ' ')
                    .replace(/["']/g, ''); // Specifically strip quotes for command safety
     }
 
