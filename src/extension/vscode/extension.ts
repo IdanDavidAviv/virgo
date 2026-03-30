@@ -156,16 +156,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }
 
-            // Support .md, .markdown, .txt, .log and resolved artifacts (with versions)
-            const artifactRegex = /\.(md|markdown|txt|log)(\.resolved)?([.\-].*)?$/i;
-            
-            if (uri && (artifactRegex.test(uri.path) || artifactRegex.test(uri.fsPath))) {
-                speechProvider.setActiveEditor(uri);
-            } else {
-                // STRICT MODE: If it's a non-supported file (.js, .css) or no file, we CLEAR.
-                // This informs the user (and the "LOAD FILE" button) that the current file is not readable.
-                speechProvider.setActiveEditor(undefined);
-            }
+            // Always call setActiveEditor so the Focused File slot is updated,
+            // even for non-supported files.
+            speechProvider.setActiveEditor(uri);
         }, 100);
     }
 

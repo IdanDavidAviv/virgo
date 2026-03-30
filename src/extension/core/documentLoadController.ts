@@ -100,7 +100,17 @@ export class DocumentLoadController {
                 relativeDir = 'Brain / Artifacts';
             }
         } else {
-            relativeDir = uri.scheme === 'file' ? path.dirname(fsPath).split(/[\\\/]/).slice(-2).join(' / ') : 'Virtual Storage';
+            if (uri.scheme === 'file') {
+                relativeDir = path.dirname(fsPath).split(/[\\\/]/).slice(-2).join(' / ');
+            } else if (uri.scheme === 'git') {
+                relativeDir = '[GIT]';
+            } else if (uri.scheme === 'untitled') {
+                relativeDir = '[UNTITLED]';
+            } else if (uri.scheme === 'vscode-userdata') {
+                relativeDir = '[SETTINGS]';
+            } else {
+                relativeDir = `[${uri.scheme.toUpperCase()}]`;
+            }
         }
 
         this._metadata = {
