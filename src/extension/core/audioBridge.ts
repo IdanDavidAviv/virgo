@@ -38,6 +38,7 @@ export class AudioBridge extends EventEmitter {
         // CRITICAL: Stop any in-flight synthesis or sequences before starting a new one.
         // This ensures that jumps immediately abort previous tasks and clear the lock.
         this._playbackEngine.stop();
+        this._playbackEngine.setPlaying(!previewOnly);
 
         const chapters = this._docController.chapters;
         if (chapterIndex < 0 || chapterIndex >= chapters.length) {
