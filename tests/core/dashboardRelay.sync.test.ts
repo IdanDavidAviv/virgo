@@ -66,4 +66,22 @@ describe('DashboardRelay (Unified Sync)', () => {
         expect(packet.allChapters[0].count).toBe(2);
         expect(packet.playbackStalled).toBe(false);
     });
+
+    it('should include sentence data at the root level for webview consumption', () => {
+        // Arrange
+        stateStore.setProgress(0, 0); // Chapter 0
+        (docController as any)._chapters = [
+            { title: 'Ch1', level: 1, sentences: ['s1', 's2'] }
+        ];
+
+        // Act
+        relay.sync('auto', 'neural', 'voice', 0, 50, [], []);
+
+        // Assert
+        const postMessage = (relay as any)._view.webview.postMessage;
+        const packet = postMessage.mock.calls[0][0];
+        
+        expect(packet.currentSentences).toEqual(['s1', 's2']);
+        expect(packet.currentText).toBe('s1');
+    });
 });

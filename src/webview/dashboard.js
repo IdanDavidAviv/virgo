@@ -56,14 +56,14 @@
         }
 
         jump(index) {
-            if (index < 0 || index >= this.state.sentences.length) return;
+            if (index < 0 || index >= this.state.sentences.length) {return;}
             
             this.state.pendingIndex = index;
             this.render(); // Immediate feedback
             this.options.onJump(index);
 
             // Safety fallback: if extension doesn't confirm in 1s, snap back to reality
-            if (this.state.pendingTimer) clearTimeout(this.state.pendingTimer);
+            if (this.state.pendingTimer) {clearTimeout(this.state.pendingTimer);}
             this.state.pendingTimer = setTimeout(() => {
                 if (this.state.pendingIndex !== -1) {
                     this.state.pendingIndex = -1;
@@ -87,7 +87,7 @@
         }
 
         _renderRow(el, text, idx, isCurrent = false) {
-            if (!el) return;
+            if (!el) {return;}
             el.style.display = 'flex';
             
             if (!text) {
@@ -420,7 +420,7 @@
             .map(([k, v]) => `${k}:${typeof v === 'object' ? JSON.stringify(sanitize(v)) : sanitize(v)}`)
             .join(' | ');
 
-        console.log(`[DASHBOARD -> EXTENSION] [${command.toUpperCase()}] ${payload}`);
+        console.log(`[EXTENSION -> DASHBOARD] [${command.toUpperCase()}] ${payload}`);
     }
 
     function updateStateDebug(state) {
@@ -454,10 +454,10 @@
                 renderChapters(message.allChapters || [], message.state.currentChapterIndex);
                 
                 // 2. Sentence Navigator
-                if (message.state.sentences) {
-                    sentenceNavigatorController.update(message.state.sentences, message.state.currentSentenceIndex, message.playbackStalled);
+                if (message.currentSentences) {
+                    sentenceNavigatorController.update(message.currentSentences, message.state.currentSentenceIndex, message.playbackStalled);
                 }
-                syncPlaybackUI(message.state.currentChapterIndex, message.state.currentSentenceIndex, message.state.sentences?.length || 0);
+                syncPlaybackUI(message.state.currentChapterIndex, message.state.currentSentenceIndex, message.currentSentences?.length || 0);
                 
                 // 2. Playback State
                 if (message.isPlaying && !message.isPaused) {
