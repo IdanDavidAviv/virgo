@@ -7,6 +7,16 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.2.6] - 2026-03-31
+
+### Added
+- **Webview Protocol Guard**: Implemented defensive checks in `dashboard.js` to detect and report missing `cacheKey` or audio data, preventing silent playback failures.
+- **Granular Synthesis Logging**: Added positional metrics (`CH:X SN:Y`) to synthesis error reports for high-resolution troubleshooting of neural voice issues.
+
+### Fixed
+- **Zero-IPC Playback Failure**: Resolved a critical protocol mismatch where the extension host failed to provide the mandatory `cacheKey` during Zero-IPC signals and extension cache hits.
+- **Protocol Enrichment**: Unified the `AudioBridge` event layer to mandate positional context across all playback and error emissions.
+
 ## [1.2.5] - 2026-03-31
 
 ### Added
