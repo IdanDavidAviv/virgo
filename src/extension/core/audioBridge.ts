@@ -23,6 +23,8 @@ export class AudioBridge extends EventEmitter {
         super();
     }
 
+    private _activeRequestId: number = 0;
+
     public on<K extends keyof AudioBridgeEvents>(event: K, listener: AudioBridgeEvents[K]): this {
         return super.on(event, listener);
     }
@@ -38,6 +40,7 @@ export class AudioBridge extends EventEmitter {
         // CRITICAL: Stop any in-flight synthesis or sequences before starting a new one.
         // This ensures that jumps immediately abort previous tasks and clear the lock.
         this._playbackEngine.stop();
+        const requestId = ++this._activeRequestId;
         
         // [ISSUE 17] Update SSOT
         this._stateStore.setPlaybackStatus(!previewOnly, false);
@@ -73,7 +76,7 @@ export class AudioBridge extends EventEmitter {
         const cacheKey = this._getCacheKey(chapterIndex, sentenceIndex, options.voice);
 
         if (options.mode === 'neural') {
-            await this._speakNeural(sentence, cacheKey, options, chapterIndex, sentenceIndex);
+            await this._speakNeural(sentence, cacheKey, options, chapterIndex, sentenceIndex, requestId);
             
             if (!this._stateStore.state.isPreviewing) {
                 this._triggerPreFetch(chapterIndex, sentenceIndex + 1, options);
@@ -147,11 +150,15 @@ export class AudioBridge extends EventEmitter {
         }
     }
 
-    private async _speakNeural(sentence: string, cacheKey: string, options: PlaybackOptions, cIdx: number, sIdx: number) {
+    private async _speakNeural(sentence: string, cacheKey: string, options: PlaybackOptions, cIdx: number, sIdx: number, requestId: number) {
         try {
             const data = await this._playbackEngine.speakNeural(sentence, cacheKey, options);
             
-            // GUARD: Ensure the state hasn't changed while we were awaiting synthesis.
+            // GUARD: Transactional Nonce check
+            if (this._activeRequestId !== requestId) {
+                this._logger(`[BRIDGE] Transaction Mismatch: Request ${requestId} is stale. Current: ${this._activeRequestId}`);
+                return;
+            }
             // If the user jumped again, cIdx/sIdx will no longer match the current state.
             const state = this._stateStore.state;
             if (state.currentChapterIndex !== cIdx || state.currentSentenceIndex !== sIdx) {
@@ -197,17 +204,20 @@ export class AudioBridge extends EventEmitter {
     }
 
     private _triggerPreFetch(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions) {
-        if (!this._playbackEngine.isPlaying || this._stateStore.state.isPreviewing) {
+        const state = this._stateStore.state;
+        if (!this._playbackEngine.isPlaying || state.isPreviewing || state.playbackStalled) {
             return;
         }
 
         // DEBOUNCE & LIMIT PREFETCH (Prevents queue bloat during rapid clicking)
         setTimeout(() => {
-            // Re-check if still playing and still on the same chapter/sentence
-            // This kills "stale" prefetch triggers from skipped sentences
+            // Re-check if still playing, not stalled, and still on the same path
+            // This kills "stale" prefetch triggers if the user jumped elsewhere
+            const currentState = this._stateStore.state;
             if (!this._playbackEngine.isPlaying || 
-                this._stateStore.state.currentChapterIndex !== chapterIndex || 
-                (this._stateStore.state.currentSentenceIndex + 1) !== sentenceIndex) {
+                currentState.playbackStalled ||
+                currentState.currentChapterIndex !== chapterIndex || 
+                (currentState.currentSentenceIndex + 1) !== sentenceIndex) {
                 return;
             }
 
@@ -215,8 +225,8 @@ export class AudioBridge extends EventEmitter {
             let cIdx = chapterIndex;
             let sIdx = sentenceIndex;
 
-            // Limit depth to 3 for better agility
-            while (count < 3) {
+            // Mission 3: Increase prefetch depth to 5 sentences for smoother continuous flow
+            while (count < 5) {
                 const chapter = this._docController.chapters[cIdx];
                 if (!chapter) { break; }
 
@@ -231,7 +241,8 @@ export class AudioBridge extends EventEmitter {
                     sIdx = 0;
                 }
             }
-        }, 300);
+            this._logger(`[BRIDGE] Prefetching ${count} sentences ahead...`);
+        }, 200); // Reduced delay from 300ms to 200ms for more aggressive warming
     }
 
     private _getCacheKey(chapterIndex: number, sentenceIndex: number, voice: string): string {

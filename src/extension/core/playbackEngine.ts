@@ -206,13 +206,21 @@ export class PlaybackEngine extends EventEmitter {
     public async speakNeural(text: string, cacheKey: string, options: PlaybackOptions, isPriority: boolean = true): Promise<string | null> {
         // --- CHECK CACHE ---
         if (this._audioCache.has(cacheKey)) {
-            this.logger(`[CACHE HIT] key:${cacheKey}`);
+            const bytes = this._getSegmentSizeBytes(this._audioCache.get(cacheKey)!);
+            this.logger(`[CACHE HIT] key:${cacheKey} | Size: ${(bytes / 1024).toFixed(1)}KB`);
             if (isPriority) {
                 this._isPlaying = true;
                 this._isStalled = false; // Cache hit is NEVER a stall
                 this.emit('status');
             }
             return Promise.resolve(this._audioCache.get(cacheKey)!);
+        }
+
+        // --- CACHE MISS (Start synthesis) ---
+        if (isPriority) {
+            this.logger(`[CACHE MISS] key:${cacheKey} | Triggering PRIORITY synthesis.`);
+        } else {
+            this.logger(`[CACHE MISS] key:${cacheKey} | Triggering BACKGROUND prefetch.`);
         }
 
         // --- CHECK PENDING ---
