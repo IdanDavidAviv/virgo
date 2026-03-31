@@ -45,22 +45,57 @@ describe('AudioBridge', () => {
 
     const options: PlaybackOptions = { voice: 'NeuralVoice', rate: 0, volume: 50, mode: 'neural' };
 
-    it('should update StateStore progress and call speakNeural on start', async () => {
-        const stateSpy = vi.fn();
-        stateStore.on('change', stateSpy);
+    it('should update StateStore progress and emit playAudio with empty data on start (Zero-IPC)', async () => {
+        const playAudioSpy = vi.fn();
+        audioBridge.on('playAudio', playAudioSpy);
+        vi.spyOn(playbackEngine, 'getCached').mockReturnValue(null);
 
         await audioBridge.start(0, 0, options);
 
         expect(stateStore.state.currentChapterIndex).toBe(0);
         expect(stateStore.state.currentSentenceIndex).toBe(0);
-        expect(playbackEngine.speakNeural).toHaveBeenCalled();
+        expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
+            cacheKey: expect.stringContaining('NeuralVoice'),
+            data: '',
+            sentenceIndex: 0
+        }));
+        expect(playbackEngine.speakNeural).not.toHaveBeenCalled();
     });
 
-    it('should advance to next sentence on next()', async () => {
+    it('should emit playAudio with data on extension cache hit', async () => {
+        const playAudioSpy = vi.fn();
+        audioBridge.on('playAudio', playAudioSpy);
+        vi.spyOn(playbackEngine, 'getCached').mockReturnValue('cached-blob');
+
+        await audioBridge.start(0, 0, options);
+
+        expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
+            cacheKey: expect.stringContaining('NeuralVoice'),
+            data: 'cached-blob',
+            sentenceIndex: 0
+        }));
+    });
+
+    it('should call speakNeural and emit playAudio when synthesize() is called', async () => {
+        const playAudioSpy = vi.fn();
+        audioBridge.on('playAudio', playAudioSpy);
+        vi.spyOn(playbackEngine, 'speakNeural').mockResolvedValue('fresh-blob');
+
+        await audioBridge.synthesize('some-key', options);
+
+        expect(playbackEngine.speakNeural).toHaveBeenCalled();
+        expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
+            cacheKey: 'some-key',
+            data: 'fresh-blob'
+        }));
+    });
+
+    it('should advance to next sentence indices on next() but not call speakNeural', async () => {
         await audioBridge.start(0, 0, options);
         audioBridge.next(options, true);
 
         expect(stateStore.state.currentSentenceIndex).toBe(1);
+        expect(playbackEngine.speakNeural).not.toHaveBeenCalled();
     });
 
     it('should advance to next chapter when current chapter ends', async () => {
@@ -79,16 +114,21 @@ describe('AudioBridge', () => {
         expect(playbackEngine.triggerPrefetch).toHaveBeenCalled();
     });
 
-    it('should fallback to local speech on neural failure', async () => {
+    it('should fallback to local speech on neural failure during synthesis', async () => {
         vi.spyOn(playbackEngine, 'speakNeural').mockRejectedValue(new Error('Network Error'));
         vi.spyOn(playbackEngine, 'speakLocal').mockImplementation(() => {});
         
         const errorSpy = vi.fn();
         audioBridge.on('synthesisError', errorSpy);
 
-        await audioBridge.start(0, 0, options);
+        await audioBridge.synthesize('test-key', options);
 
-        expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({ isFallingBack: true }));
+        expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({ 
+            isFallingBack: true,
+            cacheKey: 'test-key',
+            chapterIndex: 0,
+            sentenceIndex: 0
+        }));
         expect(playbackEngine.speakLocal).toHaveBeenCalled();
     });
 
@@ -104,26 +144,29 @@ describe('AudioBridge', () => {
         // Ensure playbackEngine.stop is tracked
         const stopSpy = vi.spyOn(playbackEngine, 'stop');
 
-        // Trigger first jump
-        const start1 = audioBridge.start(0, 0, options);
+        // 1. Initial Start (Zero-IPC) -> _activeRequestId = 1
+        await audioBridge.start(0, 0, options);
+        expect(playAudioSpy).toHaveBeenCalledTimes(1);
         
-        // Immediate second jump while first is pending
-        vi.spyOn(playbackEngine, 'speakNeural').mockResolvedValue('base64_2');
-        const start2 = audioBridge.start(0, 1, options);
+        // 2. Trigger synthesis for the first sentence -> Enters _speakNeural with requestId=1
+        const synthPromise = audioBridge.synthesize('key-0', options);
 
-        // Finish first synthesis
-        firstResolve('base64_1');
-        await Promise.all([start1, start2]);
+        // 3. Rapid Jump while synthesis is pending -> _activeRequestId = 2
+        await audioBridge.start(0, 1, options);
+        expect(playAudioSpy).toHaveBeenCalledTimes(2);
 
-        // VERIFY: PlaybackEngine.stop should have been called at least once (on second start)
+        // 4. Finish the (now stale) synthesis for requestId=1
+        firstResolve('base64_stale');
+        await synthPromise;
+
         expect(stopSpy).toHaveBeenCalled();
         
-        // VERIFY: playAudio should NOT have been called for the first sentence (stale)
-        // It should ONLY have been called for the second sentence.
-        expect(playAudioSpy).toHaveBeenCalledTimes(1);
-        expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
-            sentenceIndex: 1,
-            data: 'base64_2'
-        }));
+        // VERIFY: playAudio should have been called twice (both with empty data for Zero-IPC starts), 
+        // but the 'base64_stale' data should have been ignored because the requestId (1) 
+        // no longer matches the current _activeRequestId (2).
+        expect(playAudioSpy).toHaveBeenCalledTimes(2); 
+        const sentData = playAudioSpy.mock.calls.map(c => c[0].data);
+        expect(sentData).not.toContain('base64_stale');
+        expect(sentData.every((d: string) => d === '')).toBe(true);
     });
 });

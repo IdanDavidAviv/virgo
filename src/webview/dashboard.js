@@ -1,3 +1,5 @@
+import { CacheManager } from './cacheManager';
+
 (function () {
     window.onerror = function (msg, url, line, col) {
         const errorDetail = `[DASHBOARD] CRITICAL ERROR: ${msg} at line ${line}:${col}`;
@@ -30,6 +32,9 @@
     let isSynthesizing = false;
     let currentAudioUrl = null;
     let activeObjectURLs = new Set();
+    
+    // --- Persistence ---
+    const cache = new CacheManager();
 
     // --- Components ---
     class SentenceNavigator {
@@ -210,6 +215,19 @@
         });
 
         console.log('[DASHBOARD] DOM Selection complete.');
+
+        // Manual Cache Clear
+        if (cacheDebugTag) {
+            cacheDebugTag.onclick = async () => {
+                const confirmed = confirm('Clear all cached neural audio?');
+                if (confirmed) {
+                    await cache.clearAll();
+                    showToast('Audio cache cleared', 'info');
+                    cacheDebugTag.classList.add('pulse');
+                    setTimeout(() => cacheDebugTag.classList.remove('pulse'), 500);
+                }
+            };
+        }
         
         // Initial UI Sync from persisted state
         syncAudioUI();
@@ -484,7 +502,7 @@
     }
 
     // --- Message Handler ---
-    function handleCommand(message) {
+    async function handleCommand(message) {
         logSafeMessage(message);
         switch (message.command) {
             case 'UI_SYNC':
@@ -566,40 +584,60 @@
                 break;
 
             case 'playAudio':
-                setLoading(false); // Clear synthesis loading
+                setLoading(false);
                 if (neuralPlayer) {
-                    postMsg({ command: 'log', message: `[DASHBOARD] Starting playback: ${message.text.substring(0, 30)}...` });
+                    const cacheKey = message.cacheKey;
                     
-                    // MEMORY MANAGEMENT: Revoke previous URL to free browser memory
-                    if (currentAudioUrl) {
-                        try {
+                    const handleBuffer = async (blob) => {
+                        if (currentAudioUrl) {
                             URL.revokeObjectURL(currentAudioUrl);
                             activeObjectURLs.delete(currentAudioUrl);
-                        } catch (e) {}
+                        }
+                        currentAudioUrl = URL.createObjectURL(blob);
+                        activeObjectURLs.add(currentAudioUrl);
+                        neuralPlayer.src = currentAudioUrl;
+
+                        if (lastSyncPacket) {
+                             const vol = lastSyncPacket.volume ?? 50;
+                             neuralPlayer.volume = Math.max(0, Math.min(1, vol / 100));
+                             const r = lastSyncPacket.rate ?? 0;
+                             neuralPlayer.playbackRate = r >= 0 ? 1 + (r / 10) : 1 + (r / 20);
+                        }
+
+                        neuralPlayer.play().catch(e => {
+                             console.error('Audio Playback Blocked:', e);
+                             postMsg({ command: 'log', message: `[DASHBOARD] Playback Error: ${e.message}` });
+                        });
+
+                        if (waveContainer) { waveContainer.classList.add('speaking'); }
+                        btnPlay.style.display = 'none';
+                        btnPause.style.display = 'inline-block';
+                    };
+
+                    // CASE 1: Data provided by extension (Cache Hit in Extension or Fresh Synthesis)
+                    if (message.data) {
+                        const blob = base64ToBlob(message.data, 'audio/mpeg');
+                        handleBuffer(blob);
+                        // Save to cache if we have a key
+                        if (cacheKey) {
+                            cache.set(cacheKey, blob);
+                        }
+                    } 
+                    // CASE 2: No data provided (Zero-IPC Prefetch Hit)
+                    else if (cacheKey) {
+                        const cachedBlob = await cache.get(cacheKey);
+                        if (cachedBlob) {
+                            handleBuffer(cachedBlob);
+                            cacheDebugTag?.classList.add('pulse');
+                            setTimeout(() => cacheDebugTag?.classList.remove('pulse'), 400);
+                        } else {
+                            // Cache miss in Webview but extension host thought it was there?
+                            // Request full synthesis
+                            postMsg({ command: 'REQUEST_SYNTHESIS', cacheKey });
+                        }
+                    } else {
+                        console.error('[DASHBOARD] Critical Protocol Failure: [playAudio] received with neither data nor cacheKey.');
                     }
-
-                    const blob = base64ToBlob(message.data, 'audio/mpeg');
-                    currentAudioUrl = URL.createObjectURL(blob);
-                    activeObjectURLs.add(currentAudioUrl);
-                    neuralPlayer.src = currentAudioUrl;
-
-
-                    // Apply current volume/rate settings immediately [PHASE 4: Use lastSyncPacket SSOT]
-                    if (lastSyncPacket) {
-                        const vol = lastSyncPacket.volume ?? 50;
-                        neuralPlayer.volume = Math.max(0, Math.min(1, vol / 100));
-                        const r = lastSyncPacket.rate ?? 0;
-                        neuralPlayer.playbackRate = r >= 0 ? 1 + (r / 10) : 1 + (r / 20);
-                    }
-
-                    neuralPlayer.play().catch(e => {
-                        console.error('Audio Playback Blocked:', e);
-                        postMsg({ command: 'log', message: `[DASHBOARD] Playback Error: ${e.message}` });
-                    });
-
-                    if (waveContainer) { waveContainer.classList.add('speaking'); }
-                    btnPlay.style.display = 'none';
-                    btnPause.style.display = 'inline-block';
                 }
                 break;
 
@@ -607,7 +645,9 @@
                 setLoading(false);
                 showToast(message.error, message.isFallingBack ? 'warning' : 'error');
                 if (message.isFallingBack) {
-                    console.warn('[DASHBOARD] Neural failure. Falling back to SAPI.');
+                    console.warn(`[DASHBOARD] Neural failure at ${message.chapterIndex}:${message.sentenceIndex} for key ${message.cacheKey}. Falling back to SAPI.`);
+                } else {
+                    console.error(`[DASHBOARD] Critical synthesis failure at ${message.chapterIndex}:${message.sentenceIndex}. Error: ${message.error}`);
                 }
                 break;
             

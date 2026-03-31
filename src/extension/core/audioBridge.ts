@@ -6,8 +6,8 @@ import { SequenceManager } from '@core/sequenceManager';
 import { EventEmitter } from 'events';
 
 export interface AudioBridgeEvents {
-    'playAudio': (payload: { data: string, text: string, chapterIndex: number, sentenceIndex: number, totalSentences: number, sentences: string[] }) => void;
-    'synthesisError': (payload: { error: string, isFallingBack: boolean }) => void;
+    'playAudio': (payload: { cacheKey: string, data: string, text: string, chapterIndex: number, sentenceIndex: number, totalSentences: number, sentences: string[] }) => void;
+    'synthesisError': (payload: { error: string, isFallingBack: boolean, cacheKey: string, chapterIndex: number, sentenceIndex: number }) => void;
     'engineStatus': (payload: { status: string }) => void;
     'playbackFinished': () => void;
 }
@@ -76,7 +76,32 @@ export class AudioBridge extends EventEmitter {
         const cacheKey = this._getCacheKey(chapterIndex, sentenceIndex, options.voice);
 
         if (options.mode === 'neural') {
-            await this._speakNeural(sentence, cacheKey, options, chapterIndex, sentenceIndex, requestId);
+            // [ISSUE 18] Zero-IPC Design: Check extension volatile cache first
+            const cachedData = this._playbackEngine.getCached(cacheKey);
+            
+            if (cachedData) {
+                this._logger(`[BRIDGE] Extension Cache HUB Hit: ${cacheKey}`);
+                this.emit('playAudio', {
+                    cacheKey,
+                    data: cachedData,
+                    text: sentence,
+                    chapterIndex,
+                    sentenceIndex,
+                    totalSentences: chapter.sentences.length,
+                    sentences: chapter.sentences
+                });
+            } else {
+                this._logger(`[BRIDGE] Zero-IPC: Triggering Webview Cache Check for ${cacheKey}`);
+                this.emit('playAudio', {
+                    cacheKey,
+                    data: '', // Signals the webview to check its own IndexedDB
+                    text: sentence,
+                    chapterIndex,
+                    sentenceIndex,
+                    totalSentences: chapter.sentences.length,
+                    sentences: chapter.sentences
+                });
+            }
             
             if (!this._stateStore.state.isPreviewing) {
                 this._triggerPreFetch(chapterIndex, sentenceIndex + 1, options);
@@ -84,6 +109,21 @@ export class AudioBridge extends EventEmitter {
         } else {
             this._speakLocal(sentence, options);
         }
+    }
+
+    /**
+     * Called when the webview reports a cache miss and needs a fresh synthesis.
+     */
+    public async synthesize(cacheKey: string, options: PlaybackOptions) {
+        const state = this._stateStore.state;
+        const chapter = this._docController.chapters[state.currentChapterIndex];
+        if (!chapter) { return; }
+        
+        const sentence = chapter.sentences[state.currentSentenceIndex];
+        if (!sentence) { return; }
+
+        this._logger(`[BRIDGE] Webview Cache MISS for ${cacheKey}. Starting synthesis...`);
+        await this._speakNeural(sentence, cacheKey, options, state.currentChapterIndex, state.currentSentenceIndex, this._activeRequestId);
     }
 
     public stop() {
@@ -168,6 +208,7 @@ export class AudioBridge extends EventEmitter {
 
             if (data && (this._playbackEngine.isPlaying || state.isPreviewing)) {
                 this.emit('playAudio', {
+                    cacheKey,
                     data,
                     text: sentence,
                     chapterIndex: cIdx,
@@ -189,7 +230,7 @@ export class AudioBridge extends EventEmitter {
             }
 
             this._logger(`[BRIDGE] Neural synthesis failed: ${errorMessage}. Falling back to SAPI.`);
-            this.emit('synthesisError', { error: errorMessage, isFallingBack: true });
+            this.emit('synthesisError', { error: errorMessage, isFallingBack: true, cacheKey, chapterIndex: cIdx, sentenceIndex: sIdx });
             this.emit('engineStatus', { status: 'local-fallback' });
             this._speakLocal(sentence, options);
         }
