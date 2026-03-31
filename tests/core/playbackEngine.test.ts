@@ -63,6 +63,13 @@ describe('PlaybackEngine', () => {
             expect(logger).toHaveBeenCalledWith(expect.stringContaining('[CACHE] count:1'));
         });
 
+        it('should retrieve cached data via getCached', () => {
+            const data = 'some-audio-data';
+            engine['_addToCache']('key1', data);
+            expect(engine.getCached('key1')).toBe(data);
+            expect(engine.getCached('unknown')).toBe(null);
+        });
+
         it('should evict oldest items when cache limit is reached', () => {
             const twentyMBInBase64 = 'A'.repeat(Math.ceil(20 * 1024 * 1024 / 0.75));
             engine['_addToCache']('l1', twentyMBInBase64); // 20

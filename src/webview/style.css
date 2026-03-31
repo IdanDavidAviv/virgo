@@ -360,7 +360,7 @@ body {
 }
 
 h1 {
-    font-size: 11px;
+font-size: 11px;
     margin: 0;
     color: var(--primary);
 }
@@ -521,31 +521,47 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .cache-debug {
     color: var(--accent);
-    font-family: monospace;
-    opacity: 0.8;
+    font-family: var(--vscode-editor-font-family, monospace);
+    opacity: 0.9;
+    background: rgba(16, 185, 129, 0.05);
+    border: 1px solid rgba(16, 185, 129, 0.15);
+    padding: 3px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.23, 1, 0.32, 1);
+    font-size: 8px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    user-select: none;
+    letter-spacing: 0.02em;
 }
 
-.debug-tag {
-    background: rgba(245, 158, 11, 0.1);
-    color: #f59e0b;
-    border: 1px solid rgba(245, 158, 11, 0.3);
-    padding: 1px 4px;
-    border-radius: 4px;
-    font-weight: 800;
-    font-size: 7px;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-right: 4px;
+.cache-debug:hover {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    opacity: 1;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.1);
+}
+
+.cache-debug:active {
+    transform: scale(0.96);
+    background: rgba(244, 63, 94, 0.15);
+    border-color: #fb7185;
+    color: #fb7185;
+    box-shadow: none;
 }
 
 .cache-debug.pulse {
-    animation: cache-pulse 0.5s ease-out;
+    animation: cache-impact 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-@keyframes cache-pulse {
-    0% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.98); color: var(--primary); }
-    100% { opacity: 0.8; transform: scale(1); }
+@keyframes cache-impact {
+    0% { transform: scale(1); background: rgba(16, 185, 129, 0.3); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
 }
 
 /* --- TOAST NOTIFICATIONS --- */

@@ -124,7 +124,7 @@ describe('SpeechProvider (Sync)', () => {
         expect(syncCalls[syncCalls.length - 1][0].selectedVoice).toBe('new-voice');
     });
 
-    it('should propagate playback engine status through StateStore to UI_SYNC', () => {
+    it('should handle playback engine status changes reactively', () => {
         provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
         const engine = (provider as any)._playbackEngine;
         vi.clearAllMocks();
@@ -136,5 +136,27 @@ describe('SpeechProvider (Sync)', () => {
         const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
         expect(syncCalls.length).toBe(1);
         expect(syncCalls[0][0].playbackStalled).toBe(true);
+    });
+
+    it('should handle REQUEST_SYNTHESIS and trigger bridge.synthesize', async () => {
+        const bridge = (provider as any)._audioBridge;
+        // Mock the implementation to avoid dependencies on DocController
+        const synthSpy = vi.spyOn(bridge, 'synthesize').mockResolvedValue(true as any);
+        
+        await (provider as any)._handleWebviewMessage({ 
+            command: 'REQUEST_SYNTHESIS', 
+            cacheKey: 'test-key'
+        });
+
+        expect(synthSpy).toHaveBeenCalledWith('test-key', expect.anything());
+    });
+
+    it('should handle CLEAR_CACHE and trigger playbackEngine.clearCache', async () => {
+        const engine = (provider as any)._playbackEngine;
+        const clearSpy = vi.spyOn(engine, 'clearCache');
+        
+        await (provider as any)._handleWebviewMessage({ command: 'CLEAR_CACHE' });
+
+        expect(clearSpy).toHaveBeenCalled();
     });
 });

@@ -556,6 +556,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case 'stop': this.stop(); break;
             case 'pause': this.pause(); break;
             case 'loadDocument': this.loadCurrentDocument(); break;
+            case 'REQUEST_SYNTHESIS':
+                this._audioBridge.synthesize(data.cacheKey, this._getOptions());
+                break;
+            case 'CLEAR_CACHE':
+                this._playbackEngine.clearCache();
+                this._logger(`[CACHE] Extension cache purged. Triggering webview sync...`);
+                this._syncUI();
+                break;
             case 'log': this._logger(`[${source.toUpperCase()}] ${data.message}`); break;
         }
     }

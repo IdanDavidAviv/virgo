@@ -113,6 +113,10 @@ export class PlaybackEngine extends EventEmitter {
         };
     }
 
+    public getCached(key: string): string | null {
+        return this._audioCache.get(key) || null;
+    }
+
     public async getVoices() {
         const localPromise = new Promise<string[]>((resolve) => {
             if (process.platform === 'win32') {
