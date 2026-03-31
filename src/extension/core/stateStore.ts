@@ -70,8 +70,8 @@ export class StateStore extends EventEmitter {
             engineMode: 'local',
             autoPlayMode: 'auto',
             availableVoices: { local: [], neural: [] },
-            rate: 1.0,
-            volume: 1.0,
+            rate: 0,
+            volume: 50,
 
             isPreviewing: false,
             isRefreshing: false
@@ -169,11 +169,36 @@ export class StateStore extends EventEmitter {
     }
 
     /**
+     * Clears only the active reader context, preserving the background "focused" file state. [ISSUE 21]
+     */
+    public clearActiveContext() {
+        this._state.activeFileName = 'NONE';
+        this._state.activeRelativeDir = '';
+        this._state.activeDocumentUri = undefined;
+        this._state.currentChapterIndex = 0;
+        this._state.currentSentenceIndex = 0;
+        this._state.isPlaying = false;
+        this._state.isPaused = false;
+        this._state.playbackStalled = false;
+        this._state.versionSalt = '';
+
+        this._logger('[STATE] active_context_cleared');
+        this.emit('change', this.state);
+    }
+
+    /**
      * Atomically resets all selection and playback state.
      */
     public reset() {
-        this._state = this._getInitialState();
-        this._logger('[STATE] reset_complete');
+        const savedOptions = {
+            engineMode: this._state.engineMode,
+            autoPlayMode: this._state.autoPlayMode,
+            selectedVoice: this._state.selectedVoice,
+            rate: this._state.rate,
+            volume: this._state.volume
+        };
+        this._state = { ...this._getInitialState(), ...savedOptions };
+        this._logger('[STATE] full_reset_complete');
         this.emit('change', this.state);
     }
 }

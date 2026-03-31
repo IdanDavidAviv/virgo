@@ -28,6 +28,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _statusBarItem: vscode.StatusBarItem;
     
     private _lastReportedProgress: number = -1;
+    private _debounceTimers: Map<string, NodeJS.Timeout> = new Map();
     
 
     constructor(
@@ -53,8 +54,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._audioBridge.on('playbackFinished', () => this._syncStatusBars());
 
         // Load Persisted Settings into StateStore
-        const rate = this._context.globalState.get<number>('readAloud.rate', 1.0);
-        const volume = this._context.globalState.get<number>('readAloud.volume', 1.0);
+        const rate = this._context.globalState.get<number>('readAloud.rate', 0);
+        const volume = this._context.globalState.get<number>('readAloud.volume', 50);
         const voice = this._context.globalState.get<string>('readAloud.voice', 'en-US-AriaNeural');
         const engineMode = this._context.globalState.get<'local' | 'neural'>('readAloud.engineMode', 'neural');
         const autoPlayMode = this._context.globalState.get<'auto' | 'chapter' | 'row'>('readAloud.autoPlayMode', 'auto');
@@ -147,10 +148,24 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._localVoices = local;
             this._neuralVoices = neural;
             this._stateStore.setVoices(local, neural);
-            this._logger(`Detected ${this._localVoices.length} local SAPI voices and ${this._neuralVoices.length} neural voices.`);
+            this._logger(`[VOICE_SCAN] SUCCESS: Found ${this._localVoices.length} local SAPI voices and ${this._neuralVoices.length} neural voices.`);
+            
+            // Critical: Ensure UI is synced after voices are loaded to prevent empty dropdowns
+            this._syncUI();
         } catch (e) {
-            this._logger(`VOICE SCAN ERROR: ${e}`);
+            this._logger(`[VOICE_SCAN] CRITICAL FAILURE: ${e}`);
         }
+    }
+
+    private _debounceSave(key: string, value: any) {
+        if (this._debounceTimers.has(key)) {
+            clearTimeout(this._debounceTimers.get(key)!);
+        }
+        this._debounceTimers.set(key, setTimeout(() => {
+            this._context.globalState.update('readAloud.' + key, value);
+            this._logger(`[PERSIST] ${key} -> ${value}`);
+            this._debounceTimers.delete(key);
+        }, 1000));
     }
 
     private _broadcastVoices() {
@@ -505,11 +520,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
             case 'rateChanged':
                 this._stateStore.setOptions({ rate: data.rate });
-                this._context.globalState.update('readAloud.rate', data.rate);
+                this._debounceSave('rate', data.rate);
                 break;
             case 'volumeChanged':
                 this._stateStore.setOptions({ volume: data.volume });
-                this._context.globalState.update('readAloud.volume', data.volume);
+                this._debounceSave('volume', data.volume);
                 break;
             case 'engineModeChanged':
                 this._stateStore.setOptions({ engineMode: data.mode });
@@ -605,7 +620,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _resetContext() {
         this._audioBridge.stop();
         this._docController.clear();
-        this._stateStore.reset();
+        this._stateStore.clearActiveContext();
         
         this._postToAll({
             command: 'chapters',

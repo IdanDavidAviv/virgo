@@ -139,15 +139,8 @@ export class DocumentLoadController {
                     return `V${meta.version}`;
                 }
             }
-        } catch (e) {}
-
-        try {
-            if (fs.existsSync(fsPath)) {
-                const stats = fs.statSync(fsPath);
-                return `T${Math.floor(stats.mtimeMs)}`;
-            }
         } catch (e) {
-            // Silence stat errors
+            // Silence metadata errors
         }
 
         return '';

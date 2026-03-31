@@ -12,6 +12,7 @@
     // --- State (MINIMAL LIFESTYLE) ---
     // We only keep state that is not provided by UI_SYNC or is strictly local UI preference.
     let lastSyncPacket = null; 
+    let isDraggingSlider = false;
     let currentReadingUri = '';
     let currentChapterIndex = -1;
     let currentSentenceIndex = -1;
@@ -534,9 +535,10 @@
                 
                 // Voices Logic [PHASE 4]
                 if (message.availableVoices) {
-                    const activeEngine = message.engineMode;
+                    const activeEngine = message.engineMode || message.state.engineMode;
                     const listToRender = (activeEngine === 'neural') ? message.availableVoices.neural : message.availableVoices.local;
-                    renderVoiceList(listToRender, message.selectedVoice);
+                    const selectedVoice = message.selectedVoice || message.state.selectedVoice;
+                    renderVoiceList(listToRender, selectedVoice, activeEngine);
                 }
 
                 if (engineStatusTag) {
@@ -556,6 +558,11 @@
                     btnLoadFile.classList.toggle('mismatch', !!isMismatch);
                     btnLoadFile.disabled = !message.state.focusedIsSupported;
                 }
+                break;
+
+            case 'voices':
+                const list = (message.engineMode === 'neural') ? message.neuralVoices : message.voices;
+                renderVoiceList(list, message.selectedVoice || lastSyncPacket?.state?.selectedVoice, message.engineMode);
                 break;
 
             case 'playAudio':
@@ -661,13 +668,14 @@
     }
 
     // --- Voice Rendering Logic ---
-    function renderVoiceList(voicesToUse, selectedVoice, mode, filterTerm = '') {
+    function renderVoiceList(voicesToUse, selectedVoice, mode, filterTerm = '', forcePause = false) {
         if (!voiceSelect) { return; }
         const term = filterTerm.toLowerCase();
         voiceSelect.innerHTML = '';
 
         if (mode === 'neural') {
-            if (neuralPlayer) { neuralPlayer.pause(); }
+            // ONLY pause if explicitly requested (e.g. engine switch button), not on search or sync
+            if (forcePause && neuralPlayer) { neuralPlayer.pause(); }
             engineNeural.classList.add('active');
             engineLocal.classList.remove('active');
             if (engineStatusTag) {
@@ -708,6 +716,8 @@
     }
 
     function syncAudioUI(rate, volume) {
+        // Prevent feedback loop: If user is dragging the slider, don't let incoming state overwrite it.
+        if (isDraggingSlider) { return; }
         if (rateSlider) {
             rateSlider.value = rate;
             rateVal.textContent = (rate > 0 ? '+' : '') + rate;
@@ -752,6 +762,7 @@
 
     if (rateSlider) {
         rateSlider.oninput = () => {
+            isDraggingSlider = true;
             const val = parseInt(rateSlider.value);
             rateVal.textContent = (val > 0 ? '+' : '') + val;
 
@@ -763,10 +774,14 @@
 
             postMsg({ command: 'rateChanged', rate: val });
         };
+        rateSlider.onchange = () => {
+            isDraggingSlider = false;
+        };
     }
 
     if (volumeSlider) {
         volumeSlider.oninput = () => {
+            isDraggingSlider = true;
             const val = parseInt(volumeSlider.value);
             volumeVal.textContent = val + '%';
 
@@ -776,6 +791,9 @@
             }
 
             postMsg({ command: 'volumeChanged', volume: val });
+        };
+        volumeSlider.onchange = () => {
+            isDraggingSlider = false;
         };
     }
 
