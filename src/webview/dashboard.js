@@ -819,8 +819,6 @@
                 btnPause.onclick = () => {
                     if (neuralPlayer) {
                         neuralPlayer.pause();
-                        btnPlay.style.display = 'inline-block';
-                        btnPause.style.display = 'none';
                     }
                     postMsg({ command: 'pause' });
                 };
@@ -831,8 +829,6 @@
                     if (neuralPlayer) {
                         neuralPlayer.pause();
                         neuralPlayer.currentTime = 0;
-                        btnPlay.style.display = 'inline-block';
-                        btnPause.style.display = 'none';
                     }
                     postMsg({ command: 'stop' });
                 };
