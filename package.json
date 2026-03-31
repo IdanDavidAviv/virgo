@@ -2,7 +2,7 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
@@ -135,6 +135,7 @@
     "watch": "node esbuild.js --watch --mode=development",
     "build": "node esbuild.js --mode=production",
     "lint": "eslint src --ext ts",
+    "test": "vitest run",
     "test:unit": "vitest run",
     "package": "node scripts/package.js",
     "release": "node .agent/skills/version_sentinel/scripts/manage_version.js && npm run lint && npm run build && npm run package && node .agent/skills/release_prestige/scripts/verify_artifact.js",

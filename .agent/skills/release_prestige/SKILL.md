@@ -39,3 +39,10 @@ To verify the installation experience, perform the following manual checks:
 
 ## 3. Final Gate
 `npm run release` (Run without args to verify an existing version sync).
+
+## 4. Post-Release: Git Strategy
+**MANDATORY**: After the artifact is verified by `verify_artifact.js`, the agent **MUST** transition immediately to the **Git Commit & Push Protocol** as defined in the following Knowledge Item:
+- **Internal Protocol**: [git_strategy](../../../../../../.gemini/antigravity/knowledge/git_strategy/artifacts/SKILL.md)
+- **Direct Reference**: `file:///C:/Users/Idan4/.gemini/antigravity/knowledge/git_strategy/artifacts/SKILL.md`
+
+All release commits (Version Bump, Changelog, and Stable Source) must be grouped and pushed following the atomic N-Group strategy before the task is considered complete.
