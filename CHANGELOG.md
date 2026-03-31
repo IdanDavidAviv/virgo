@@ -7,6 +7,17 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.2.5] - 2026-03-31
+
+### Added
+- **Predictive Synthesis Prefetching**: Implemented a high-performance "look-ahead" architecture with a depth of 5 sentences and a 200ms debounce to ensure zero-gap sentence transitions.
+- **Stall-Guard Logic**: Introduced intelligent prefetch suspension that pauses background tasks if the engine is currently buffering the active sentence, preventing resource starvation.
+- **Cache-Warming Telemetry**: Integrated explicit `[CACHE HIT]` and `[CACHE MISS]` tracking in the `PlaybackEngine` to monitor look-ahead effectiveness.
+
+### Changed
+- **Passive UI Refactoring**: Eliminated the "Snapback" flicker by making the dashboard purely reactive to the Single Source of Truth via `UI_SYNC` packets.
+- **Transactional Synthesis**: Implemented an `activeRequestId` nonce system in `AudioBridge` to resolve "Ghost Audio" by discarding stale synthesis results during rapid navigation.
+
 ## [1.2.4] - 2026-03-31
 
 ### Added
