@@ -7,6 +7,16 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.2.7] - 2026-03-31
+
+### Added
+- **Background Playback Persistence**: Enabled critical playback command whitelisting in `DashboardRelay.ts`, ensuring audio continuity even when the sidebar is hidden.
+- **Dirty State Tracking**: Implemented a "needs sync" flag in `SpeechProvider.ts` to suppress redundant UI synchronization and prevent jarring resets upon revealing the sidebar.
+
+### Fixed
+- **UI Thrashing & Jumps**: Optimized `dashboard.js` with shallow state comparison and viewport-aware "smart" scrolling to eliminate unwanted jumps and flicker during playback.
+- **Chapter List Loading**: Resolved a state-racing bug in the webview where the chapter list occasionally failed to render due to invalid assignment timing.
+
 ## [1.2.6] - 2026-03-31
 
 ### Added
