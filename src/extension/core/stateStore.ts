@@ -96,14 +96,29 @@ export class StateStore extends EventEmitter {
     }
 
     /**
-     * Updates the active reader context (Loaded File).
+     * Updates the active reader context (Loaded File) atomically.
      */
-    public setActiveDocument(uri: vscode.Uri | undefined, fileName: string, relativeDir: string, versionSalt?: string) {
+    public setActiveDocument(
+        uri: vscode.Uri | undefined, 
+        fileName: string, 
+        relativeDir: string, 
+        versionSalt?: string,
+        initialProgress?: { chapterIndex: number, sentenceIndex: number } | null
+    ) {
         this._state.activeDocumentUri = uri;
         this._state.activeFileName = fileName || 'No File Loaded';
         this._state.activeRelativeDir = relativeDir;
         this._state.versionSalt = versionSalt;
-        this._logger(`[STATE] active_document_updated: ${this._state.activeFileName}`);
+
+        // Atomic Reset/Restore [ISSUE 25]
+        this._state.currentChapterIndex = initialProgress?.chapterIndex ?? 0;
+        this._state.currentSentenceIndex = initialProgress?.sentenceIndex ?? 0;
+
+        // Status Reset
+        this._state.isPlaying = false;
+        this._state.isPaused = false;
+
+        this._logger(`[STATE] active_document_updated (atomic): ${this._state.activeFileName} @ ${this._state.currentChapterIndex}:${this._state.currentSentenceIndex}`);
         this.emit('change', this.state);
     }
 

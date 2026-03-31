@@ -7,6 +7,11 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.3.1] - 2026-03-31
+
+### Fixed
+- **Issue #25 (Atomic Index Reset)**: Resolved a critical offset persistence bug by implementing an atomic document activation protocol, ensuring consistent initialization and zero-flicker UI transitions.
+
 ## [1.3.0] - 2026-03-31
 
 ### Added

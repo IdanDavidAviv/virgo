@@ -49,4 +49,34 @@ describe('StateStore', () => {
         expect(state.isPreviewing).toBe(false);
         expect(logger).toHaveBeenCalledWith('[STATE] full_reset_complete');
     });
+
+    it('should update active document and progress atomically [ISSUE 25]', () => {
+        const uri = { toString: () => 'file:///new.md' } as vscode.Uri;
+        const initialProgress = { chapterIndex: 2, sentenceIndex: 5 };
+        
+        // Start from a dirty state
+        store.setProgress(1, 10);
+        store.setPlaybackStatus(true, false, false);
+        
+        store.setActiveDocument(uri, 'new.md', 'Project', 'v1', initialProgress);
+        
+        expect(store.state.activeDocumentUri).toBe(uri);
+        expect(store.state.activeFileName).toBe('new.md');
+        expect(store.state.currentChapterIndex).toBe(2);
+        expect(store.state.currentSentenceIndex).toBe(5);
+        expect(store.state.isPlaying).toBe(false); // Should be reset
+        expect(store.state.isPaused).toBe(false);  // Should be reset
+    });
+
+    it('should reset progress to 0,0 when no initialProgress is provided', () => {
+        const uri = { toString: () => 'file:///reset.md' } as vscode.Uri;
+        
+        // Start from a dirty state
+        store.setProgress(5, 50);
+        
+        store.setActiveDocument(uri, 'reset.md', 'Project');
+        
+        expect(store.state.currentChapterIndex).toBe(0);
+        expect(store.state.currentSentenceIndex).toBe(0);
+    });
 });

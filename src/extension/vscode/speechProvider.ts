@@ -587,6 +587,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
 
     public async loadCurrentDocument(): Promise<boolean> {
+        // [REINFORCEMENT] Clear current playback immediately to prevent audio overlap
+        this.stop(); 
+
         const success = await this._docController.loadActiveDocument();
         if (!success) {
             this._postToAll({
@@ -600,24 +603,21 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const metadata = this._docController.metadata;
         const chapters = this._docController.chapters;
 
-        // Commit to STATE: Update the active context (Loaded File)
+        // [ATOMIC] Calculate progress BEFORE updating state to prevent double-sync flicker [ISSUE 25]
+        const saved = metadata.uri ? this._loadProgress(metadata.uri) : null;
+
+        // Commit to STATE: Update the active context (Loaded File) Atomically
         this._stateStore.setActiveDocument(
             metadata.uri,
             metadata.fileName,
             metadata.relativeDir,
-            metadata.versionSalt
+            metadata.versionSalt,
+            saved // Atomic restore or reset
         );
 
-        // Restore Progress or Reset
-        const saved = metadata.uri ? this._loadProgress(metadata.uri) : null;
         if (saved) {
-            this._stateStore.setProgress(saved.chapterIndex, saved.sentenceIndex);
             this._logger(`[PERSISTENCE] Restored position: ${saved.chapterIndex}:${saved.sentenceIndex}`);
-        } else {
-            this._stateStore.setProgress(0, 0);
         }
-
-        this._playbackEngine.stop();
         
         // UNIFIED SYNC: Propagate the updated state to Dashboard
         this._syncUI();

@@ -159,4 +159,41 @@ describe('SpeechProvider (Sync)', () => {
 
         expect(clearSpy).toHaveBeenCalled();
     });
+
+    it('should perform ATOMIC synchronization during document load [ISSUE 25]', async () => {
+        provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
+        const stateStore = (provider as any)._stateStore as StateStore;
+        const docController = (provider as any)._docController;
+        
+        // Mock successful document load
+        vi.spyOn(docController, 'loadActiveDocument').mockResolvedValue(true);
+        (docController as any)._metadata = {
+            uri: vscode.Uri.parse('file:///atomic.md'),
+            fileName: 'atomic.md',
+            relativeDir: 'Project',
+            versionSalt: 'v1'
+        };
+        (docController as any)._chapters = [{ sentences: ['Hello'] }];
+
+        // Mock progress loading (no saved progress for this test)
+        vi.spyOn(provider as any, '_loadProgress').mockReturnValue(null);
+        
+        vi.clearAllMocks();
+
+        // Trigger document load
+        await provider.loadCurrentDocument();
+
+        // 1. Verify UI_SYNC reflected the new state immediately
+        const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
+        
+        // We expect at least one sync at the end
+        expect(syncCalls.length).toBeGreaterThanOrEqual(1);
+        
+        const lastSync = syncCalls[syncCalls.length - 1][0];
+        // The packet structure is { command: 'UI_SYNC', state: { activeFileName, ... } }
+        expect(lastSync.state.activeFileName).toBe('atomic.md');
+        expect(lastSync.state.currentChapterIndex).toBe(0);
+        expect(lastSync.state.currentSentenceIndex).toBe(0);
+        expect(lastSync.isPlaying).toBe(false);
+    });
 });
