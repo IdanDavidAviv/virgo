@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { Chapter, parseChapters } from '@core/documentParser';
 
 export interface DocumentMetadata {
@@ -8,6 +9,7 @@ export interface DocumentMetadata {
     relativeDir: string;
     uri: vscode.Uri | undefined;
     versionSalt: string;
+    contentHash: string; // Hidden, internal fingerprint for persistence
 }
 
 export class DocumentLoadController {
@@ -16,7 +18,8 @@ export class DocumentLoadController {
         fileName: 'No Document',
         relativeDir: '',
         uri: undefined,
-        versionSalt: ''
+        versionSalt: '',
+        contentHash: ''
     };
 
     constructor(private readonly _logger: (msg: string) => void) {}
@@ -55,7 +58,14 @@ export class DocumentLoadController {
         }
 
         const text = document.getText();
-        this.updateMetadata(document);
+        
+        // [REINFORCEMENT] Calculate Cross-Platform Content Hash
+        // Normalize to LF and include length for fast uniqueness
+        const normalizedText = text.replace(/\r\n/g, '\n');
+        const md5 = crypto.createHash('md5').update(normalizedText).digest('hex');
+        const contentHash = `${normalizedText.length}#${md5}`;
+
+        this.updateMetadata(document, contentHash);
 
         const startTime = Date.now();
         this._chapters = parseChapters(text);
@@ -70,16 +80,11 @@ export class DocumentLoadController {
      */
     public clear(): void {
         this._chapters = [];
-        this._metadata = {
-            fileName: 'No File Loaded',
-            relativeDir: '',
-            uri: undefined,
-            versionSalt: ''
-        };
+        this._resetMetadata();
         this._logger('[LOAD] Context cleared.');
     }
 
-    public updateMetadata(document: vscode.TextDocument) {
+    public updateMetadata(document: vscode.TextDocument, contentHash: string = '') {
         const uri = document.uri;
         const fileName = path.basename(document.fileName);
         const folder = vscode.workspace.getWorkspaceFolder(uri);
@@ -117,7 +122,21 @@ export class DocumentLoadController {
             fileName: fileName.includes('Untitled') ? (uri.path.split('/').pop() || fileName) : fileName,
             relativeDir,
             uri,
-            versionSalt: this.getFileVersionSalt(uri)
+            versionSalt: this.getFileVersionSalt(uri),
+            contentHash: contentHash || this._metadata.contentHash
+        };
+    }
+
+    /**
+     * Resets metadata for a clean slate.
+     */
+    private _resetMetadata() {
+        this._metadata = {
+            fileName: 'No File Loaded',
+            relativeDir: '',
+            uri: undefined,
+            versionSalt: '',
+            contentHash: ''
         };
     }
 

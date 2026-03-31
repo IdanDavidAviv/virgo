@@ -7,6 +7,18 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.3.2] - 2026-03-31
+
+### Added
+- **Content-Aware State Persistence (Issue #25)**:
+    - **MD5 Integrity Fingerprinting**: Implemented automated, platform-agnostic document hashing to track content changes, ensuring reading progress accurately resets on file modification.
+    - **Composite Key Protocol**: Migrated storage from URI-only keys to `[URI]#[SALT]#[HASH]` mapping for collision-free state tracking.
+    - **Passive Migration Gate**: Seamless, automatic upgrade path for existing user progress without data loss.
+    - **Scoped Garbage Collection**: Added "Same-File Priority" management to the persistence layer, optimizing the 50-entry storage limit.
+
+### Fixed
+- **Atomic Index Reset**: Hardened the document activation protocol to eliminate UI flicker and index drift during fast file switching.
+
 ## [1.3.1] - 2026-03-31
 
 ### Fixed

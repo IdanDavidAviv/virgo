@@ -58,7 +58,7 @@ describe('StateStore', () => {
         store.setProgress(1, 10);
         store.setPlaybackStatus(true, false, false);
         
-        store.setActiveDocument(uri, 'new.md', 'Project', 'v1', initialProgress);
+        store.setActiveDocument(uri, 'new.md', 'Project', 'v1', undefined, initialProgress);
         
         expect(store.state.activeDocumentUri).toBe(uri);
         expect(store.state.activeFileName).toBe('new.md');
@@ -78,5 +78,14 @@ describe('StateStore', () => {
         
         expect(store.state.currentChapterIndex).toBe(0);
         expect(store.state.currentSentenceIndex).toBe(0);
+    });
+
+    it('should track contentHash in the state', () => {
+        const uri = { toString: () => 'file:///hash.md' } as vscode.Uri;
+        const hash = 'abc123hash';
+        
+        store.setActiveDocument(uri, 'hash.md', 'Project', 'v1', hash);
+        
+        expect(store.state.activeContentHash).toBe(hash);
     });
 });

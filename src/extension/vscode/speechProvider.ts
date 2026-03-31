@@ -185,6 +185,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             if (!state.activeDocumentUri) { return; }
             
             const uriStr = state.activeDocumentUri.toString();
+            const saltStr = state.versionSalt ? `-${state.versionSalt}` : '';
+            const hashStr = state.activeContentHash ? `#${state.activeContentHash}` : '';
+            
+            // NEW: Composite Content-Aware Key
+            const storageKey = `${uriStr}${saltStr}${hashStr}`;
+
             const progress = {
                 chapterIndex: state.currentChapterIndex,
                 sentenceIndex: state.currentSentenceIndex,
@@ -192,22 +198,54 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             };
             
             const allProgress = this._context.globalState.get<Record<string, any>>('readAloud.docProgress', {});
-            allProgress[uriStr] = progress;
             
-            // Cleanup old entries (limit to 50 files)
+            // [REINFORCEMENT] If we have a legacy entry for this EXACT file, clean it up now that we're saving a hashed version
+            if (allProgress[uriStr]) {
+                delete allProgress[uriStr];
+            }
+
+            allProgress[storageKey] = progress;
+            
+            // [REINFORCEMENT] Scoped Garbage Collection (Limit to 50 entries)
             const keys = Object.keys(allProgress);
             if (keys.length > 50) {
-                const sortedKeys = keys.sort((a, b) => allProgress[a].lastUpdated - allProgress[b].lastUpdated);
-                delete allProgress[sortedKeys[0]];
+                // 1. Try to find older versions of the SAME file first
+                const otherVersions = keys.filter(k => k.startsWith(uriStr) && k !== storageKey);
+                if (otherVersions.length > 0) {
+                    const oldestVersion = otherVersions.sort((a, b) => (allProgress[a].lastUpdated || 0) - (allProgress[b].lastUpdated || 0))[0];
+                    delete allProgress[oldestVersion];
+                    this._logger(`[GC] Purged older version of current file: ${oldestVersion}`);
+                } else {
+                    // 2. Global fallback: Delete the oldest item overall
+                    const sortedKeys = keys.sort((a, b) => (allProgress[a].lastUpdated || 0) - (allProgress[b].lastUpdated || 0));
+                    delete allProgress[sortedKeys[0]];
+                }
             }
 
             this._context.globalState.update('readAloud.docProgress', allProgress);
         }, 1000);
     }
 
-    private _loadProgress(uri: vscode.Uri): { chapterIndex: number, sentenceIndex: number } | null {
+    private _loadProgress(uri: vscode.Uri, salt?: string, hash?: string): { chapterIndex: number, sentenceIndex: number } | null {
         const allProgress = this._context.globalState.get<Record<string, any>>('readAloud.docProgress', {});
-        const progress = allProgress[uri.toString()];
+        const uriStr = uri.toString();
+        const saltStr = salt ? `-${salt}` : '';
+        const hashStr = hash ? `#${hash}` : '';
+        
+        const storageKey = `${uriStr}${saltStr}${hashStr}`;
+
+        // 1. Try the Content-Aware Key
+        let progress = allProgress[storageKey];
+        
+        // 2. [PASSIVE MIGRATION] Fallback to legacy URI-only key
+        if (!progress && allProgress[uriStr]) {
+            progress = allProgress[uriStr];
+            this._logger(`[MIGRATION] Found legacy progress for ${uri.path}. Upgrading to content-aware key.`);
+            
+            // Note: We don't delete here to keep this method READ-ONLY. 
+            // The next _saveProgressThrottled (triggered by position updates) will handle the deletion.
+        }
+
         return progress ? { chapterIndex: progress.chapterIndex, sentenceIndex: progress.sentenceIndex } : null;
     }
 
@@ -604,7 +642,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const chapters = this._docController.chapters;
 
         // [ATOMIC] Calculate progress BEFORE updating state to prevent double-sync flicker [ISSUE 25]
-        const saved = metadata.uri ? this._loadProgress(metadata.uri) : null;
+        const saved = metadata.uri ? this._loadProgress(metadata.uri, metadata.versionSalt, metadata.contentHash) : null;
 
         // Commit to STATE: Update the active context (Loaded File) Atomically
         this._stateStore.setActiveDocument(
@@ -612,7 +650,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             metadata.fileName,
             metadata.relativeDir,
             metadata.versionSalt,
-            saved // Atomic restore or reset
+            metadata.contentHash,
+            saved
         );
 
         if (saved) {

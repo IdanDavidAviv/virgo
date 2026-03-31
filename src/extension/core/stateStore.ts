@@ -18,6 +18,7 @@ export interface StateMetadata {
     activeRelativeDir: string;
     activeDocumentUri: vscode.Uri | undefined;
     versionSalt?: string; // e.g. V1, V2 metadata for badges
+    activeContentHash?: string; // Hidden internal fingerprint for persistence [RESOLVE 25]
 
     // Playback Progress
     currentSentenceIndex: number;
@@ -103,12 +104,14 @@ export class StateStore extends EventEmitter {
         fileName: string, 
         relativeDir: string, 
         versionSalt?: string,
+        contentHash?: string,
         initialProgress?: { chapterIndex: number, sentenceIndex: number } | null
     ) {
         this._state.activeDocumentUri = uri;
         this._state.activeFileName = fileName || 'No File Loaded';
         this._state.activeRelativeDir = relativeDir;
         this._state.versionSalt = versionSalt;
+        this._state.activeContentHash = contentHash;
 
         // Atomic Reset/Restore [ISSUE 25]
         this._state.currentChapterIndex = initialProgress?.chapterIndex ?? 0;
@@ -196,6 +199,7 @@ export class StateStore extends EventEmitter {
         this._state.isPaused = false;
         this._state.playbackStalled = false;
         this._state.versionSalt = '';
+        this._state.activeContentHash = '';
 
         this._logger('[STATE] active_context_cleared');
         this.emit('change', this.state);
