@@ -11,11 +11,13 @@ describe('StateStore', () => {
         store = new StateStore(logger);
     });
 
-    it('should initialize with default empty state', () => {
+    it('should initialize with correct default state', () => {
         const state = store.state;
         expect(state.activeFileName).toBe('No File Loaded');
         expect(state.currentSentenceIndex).toBe(0);
         expect(state.isPreviewing).toBe(false);
+        expect(state.volume).toBe(50);
+        expect(state.rate).toBe(0);
     });
 
     it('should update active document correctly', () => {
@@ -45,6 +47,6 @@ describe('StateStore', () => {
         expect(state.activeFileName).toBe('No File Loaded');
         expect(state.currentSentenceIndex).toBe(0);
         expect(state.isPreviewing).toBe(false);
-        expect(logger).toHaveBeenCalledWith('[STATE] reset_complete');
+        expect(logger).toHaveBeenCalledWith('[STATE] full_reset_complete');
     });
 });

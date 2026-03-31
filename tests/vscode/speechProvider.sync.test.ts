@@ -72,6 +72,12 @@ describe('SpeechProvider (Sync)', () => {
         };
     });
 
+    it('should initialize with correct default state (volume: 50, rate: 0)', () => {
+        const stateStore = (provider as any)._stateStore as StateStore;
+        expect(stateStore.state.volume).toBe(50);
+        expect(stateStore.state.rate).toBe(0);
+    });
+
     it('should sync options (rate/volume) reactively from StateStore', () => {
         provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
         const stateStore = (provider as any)._stateStore as StateStore;
