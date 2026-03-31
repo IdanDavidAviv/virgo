@@ -622,13 +622,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._docController.clear();
         this._stateStore.clearActiveContext();
         
-        this._postToAll({
-            command: 'chapters',
-            chapters: [],
-            current: 0,
-            total: 0
-        });
-
         this._syncUI();
         this._logger('[READALOUD] Context Reset: Reader cleared.');
     }

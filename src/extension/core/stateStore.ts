@@ -172,7 +172,7 @@ export class StateStore extends EventEmitter {
      * Clears only the active reader context, preserving the background "focused" file state. [ISSUE 21]
      */
     public clearActiveContext() {
-        this._state.activeFileName = 'NONE';
+        this._state.activeFileName = 'No File Loaded';
         this._state.activeRelativeDir = '';
         this._state.activeDocumentUri = undefined;
         this._state.currentChapterIndex = 0;
