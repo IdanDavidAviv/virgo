@@ -7,6 +7,14 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.3.0] - 2026-03-31
+
+### Added
+- **Sound & Visual Link Bridge**:
+    - **Audio Gate Sanitization**: Automated stripping of markdown-style file URIs (`(file:///...)`) from speech synthesis, ensuring a natural reading experience while preserving the labels.
+    - **Visual Link Bridge**: Transformed raw file URIs in the dashboard into premium, clickable links for instant navigation back to the editor.
+    - **Navigation Bridge**: Integrated a bi-directional command layer (`OPEN_FILE`) between the webview and VS Code for seamless file management.
+
 ## [1.2.7] - 2026-03-31
 
 ### Added
