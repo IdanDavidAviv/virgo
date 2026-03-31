@@ -379,11 +379,17 @@ import { CacheManager } from './cacheManager';
             }
         });
 
-        // 4. Managed Scrolling
-        const activeIdx = pendingChapterIndex !== -1 ? pendingChapterIndex : currentChapterIndex;
+        // 4. Managed Scrolling (Smart)
+        const activeIdx = (pendingChapterIndex !== -1) ? pendingChapterIndex : currentChapterIndex;
         const activeEl = chapterList && chapterList.querySelector(`.chapter-item[data-index="${activeIdx}"]`);
         if (activeEl) {
-            activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            const rect = activeEl.getBoundingClientRect();
+            const containerRect = chapterList.getBoundingClientRect();
+            const isVisible = (rect.top >= containerRect.top && rect.bottom <= containerRect.bottom);
+            
+            if (!isVisible) {
+                activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
         }
     }
 
@@ -506,17 +512,17 @@ import { CacheManager } from './cacheManager';
         logSafeMessage(message);
         switch (message.command) {
             case 'UI_SYNC':
-                // Update local webview state from the Unified Single Source of Truth [PHASE 3]
-                lastSyncPacket = message;
-                currentReadingUri = message.state.activeDocumentUri;
-                
                 // 1. Context Slots, Chapters & Progress
-                // Focused (Selection) Slot
-                updateContextSlot(message.state.focusedDocumentUri, activeFilename, activeDir, message.state.focusedVersionSalt, message.state.focusedFileName, message.state.focusedRelativeDir);
+                const chaptersChanged = !lastSyncPacket || 
+                    JSON.stringify(lastSyncPacket.allChapters) !== JSON.stringify(message.allChapters) ||
+                    lastSyncPacket.state.currentChapterIndex !== message.state.currentChapterIndex;
 
-                // Active (Reader) Slot
+                updateContextSlot(message.state.focusedDocumentUri, activeFilename, activeDir, message.state.focusedVersionSalt, message.state.focusedFileName, message.state.focusedRelativeDir);
                 updateContextSlot(message.state.activeDocumentUri, readerFilename, readerDir, message.state.versionSalt, message.state.activeFileName, message.state.activeRelativeDir);
-                renderChapters(message.allChapters || [], message.state.currentChapterIndex);
+                
+                if (chaptersChanged) {
+                    renderChapters(message.allChapters || [], message.state.currentChapterIndex);
+                }
                 
                 // 2. Sentence Navigator
                 if (message.currentSentences) {
@@ -576,6 +582,10 @@ import { CacheManager } from './cacheManager';
                     btnLoadFile.classList.toggle('mismatch', !!isMismatch);
                     btnLoadFile.disabled = !message.state.focusedIsSupported;
                 }
+
+                // Finalize Sync: Store current state as last packet for future comparison
+                lastSyncPacket = message;
+                currentReadingUri = message.state.activeDocumentUri;
                 break;
 
             case 'voices':

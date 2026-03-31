@@ -87,8 +87,17 @@ export class DashboardRelay {
         this.postMessage({ command: 'UI_SYNC', ...packet });
     }
 
+    /**
+     * Sends a message to the webview.
+     * CRITICAL: Whitelist playback commands to pass through even if hidden (to support background play).
+     */
     public postMessage(message: any) {
-        if (this._view && this._view.visible) {
+        if (!this._view) { return; }
+
+        const criticalCommands = ['playAudio', 'PURGE_MEMORY', 'synthesisError', 'stop', 'playbackStateChanged'];
+        const isCritical = criticalCommands.includes(message.command);
+
+        if (this._view.visible || isCritical) {
             this._view.webview.postMessage(message);
         }
     }

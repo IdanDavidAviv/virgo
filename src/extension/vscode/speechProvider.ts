@@ -23,6 +23,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     // Selection state (passive) - Moved to StateStore
     
     private _playbackEngine: PlaybackEngine;
+    private _needsSync: boolean = false;
     private _localVoices: any[] = [];
     private _neuralVoices: any[] = [];
     private _statusBarItem: vscode.StatusBarItem;
@@ -77,7 +78,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         // [Reactive Sync] Subscribe to StateStore changes
         this._stateStore.on('change', () => {
-            this._syncUI();
+            if (this._view?.visible) {
+                this._syncUI();
+            } else {
+                this._needsSync = true;
+            }
             this._saveProgressThrottled();
         });
         
@@ -315,12 +320,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
-                this._logger('[VISIBILITY] Sidebar revealed. Triggering sync...');
+                if (this._needsSync) {
+                    this._logger('[VISIBILITY] Sidebar revealed. Partial Sync...');
+                    this._syncUI();
+                    this._needsSync = false;
+                }
                 if (this.onVisibilityChanged) {
                     this.onVisibilityChanged();
                 }
-                this._sendInitialState();
-                this._broadcastVoices();
             }
         });
 
