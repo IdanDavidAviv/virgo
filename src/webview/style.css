@@ -1141,3 +1141,29 @@ input[type="range"]::-webkit-slider-thumb:hover {
     color: var(--primary);
     border-color: rgba(56, 189, 248, 0.1);
 }
+
+/* ---- File Links (Visual Gate) ---- */
+.file-link {
+    color: var(--primary);
+    text-decoration: none;
+    border-bottom: 1px dashed rgba(56, 189, 248, 0.4);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+    padding: 0 4px;
+    border-radius: 4px;
+    background: rgba(56, 189, 248, 0.03);
+    font-weight: 600;
+}
+
+.file-link:hover {
+    background: rgba(56, 189, 248, 0.15);
+    color: #fff;
+    border-bottom-style: solid;
+    border-bottom-color: var(--primary);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+.file-link:active {
+    transform: scale(0.97);
+    background: var(--primary);
+}

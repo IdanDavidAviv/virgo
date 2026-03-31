@@ -571,6 +571,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._logger(`[CACHE] Extension cache purged. Triggering webview sync...`);
                 this._syncUI();
                 break;
+            case 'OPEN_FILE':
+                if (data.uri) {
+                    vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(data.uri));
+                }
+                break;
             case 'log': this._logger(`[${source.toUpperCase()}] ${data.message}`); break;
         }
     }

@@ -120,7 +120,7 @@ import { CacheManager } from './cacheManager';
             const isHebrew = /[\u0590-\u05FF]/.test(text);
             el.classList.toggle('rtl', isHebrew);
 
-            el.innerHTML = `<span>${escapeHtml(text)}</span>`;
+            el.innerHTML = `<span>${renderWithLinks(text)}</span>`;
 
             if (idx !== null && !isCurrent) {
                 el.onclick = () => this.jump(idx);
@@ -396,6 +396,15 @@ import { CacheManager } from './cacheManager';
     function escapeHtml(str) {
         if (!str) { return ''; }
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function renderWithLinks(text) {
+        if (!text) { return ''; }
+        const html = escapeHtml(text);
+        // Find [label](file:///...) and convert to <a>
+        return html.replace(/\[([^\]]+)\]\((file:\/\/\/[^\s)]+)\)/g, (match, label, uri) => {
+            return `<a class="file-link" data-uri="${uri}" title="Open in Editor">${label}</a>`;
+        });
     }
 
     function base64ToBlob(base64, mime) {
@@ -973,6 +982,16 @@ import { CacheManager } from './cacheManager';
 
     if (vscode) {
         window.addEventListener('message', event => handleCommand(event.data));
+        
+        // Delegated click listener for file links
+        document.body.addEventListener('click', (e) => {
+            const link = e.target.closest('.file-link');
+            if (link && link.dataset.uri) {
+                e.preventDefault();
+                postMsg({ command: 'OPEN_FILE', uri: link.dataset.uri });
+            }
+        });
+
         vscode.postMessage({ command: 'ready' });
     }
 }());

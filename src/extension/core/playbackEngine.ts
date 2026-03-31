@@ -1,6 +1,7 @@
 import * as child_process from 'child_process';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { EventEmitter } from 'events';
+import { cleanForSpeech } from './speechProcessor';
 
 export type EngineMode = 'local' | 'neural';
 
@@ -371,7 +372,8 @@ export class PlaybackEngine extends EventEmitter {
             }
 
             // Escape ampersands which can break neural TTS XML wrapping
-            const escapedText = text.replace(/&/g, '&amp;');
+            const speechText = cleanForSpeech(text);
+            const escapedText = speechText.replace(/&/g, '&amp;');
             
             // SECOND ABORT CHECK: Right before the expensive setMetadata/toStream calls
             if (signal?.aborted) {
