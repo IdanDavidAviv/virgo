@@ -1,4 +1,6 @@
 import { CacheManager } from './cacheManager';
+import { reconcilePlaybackUI } from './uiManager';
+
 
 (function () {
     window.onerror = function (msg, url, line, col) {
@@ -402,32 +404,14 @@ import { CacheManager } from './cacheManager';
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    function reconcilePlaybackUI(state) {
-        if (!state) { return; } // Safety for early initialization clicks
-        
-        const ctrlState = readAloudController.getState();
-        const mode = ctrlState.mode;
-        
-        // Final UI Truth
-        const isPlayingUI = mode === 'active';
-
-        // Toggle Play/Pause visibility
-        if (isPlayingUI) {
-            btnPlay.style.display = 'none';
-            btnPause.style.display = 'inline-block';
-            if (waveContainer) { waveContainer.classList.add('speaking'); }
-        } else {
-            btnPlay.style.display = 'inline-block';
-            btnPause.style.display = 'none';
-            if (waveContainer) { waveContainer.classList.remove('speaking'); }
-        }
-
-        // Handle loading/throttling state
-        const isStalled = !!state.playbackStalled;
-        const isLoading = isStalled || ctrlState.isAwaitingSync;
-        btnPlay.classList.toggle('is-loading', isLoading);
-        if (waveContainer) { waveContainer.classList.toggle('stalled', isLoading); }
+    /**
+     * Authoritative UI reconciler - uses UIManager for consistency and testing.
+     */
+    function updatePlaybackUI(state) {
+        const elements = { btnPlay, btnPause, waveContainer };
+        reconcilePlaybackUI(state, elements, readAloudController);
     }
+
 
     function renderWithLinks(text) {
         if (!text) { return ''; }
@@ -567,7 +551,8 @@ import { CacheManager } from './cacheManager';
                 
                 // 2. Playback Logic (Refactored)
                 readAloudController.handleSync(message);
-                reconcilePlaybackUI(message);
+                updatePlaybackUI(message);
+
 
                 // 3. Telemetry, Config & Indicators
                 updateAutoPlayModeUI(message.autoPlayMode);
@@ -875,7 +860,6 @@ import { CacheManager } from './cacheManager';
     if (btnPlay) {
         btnPlay.onclick = () => {
             readAloudController.play(currentReadingUri);
-            reconcilePlaybackUI(lastSyncPacket);
         };
     }
 
@@ -889,14 +873,12 @@ import { CacheManager } from './cacheManager';
     if (btnPause) {
         btnPause.onclick = () => {
             readAloudController.pause();
-            reconcilePlaybackUI({ ...lastSyncPacket, isPlaying: false });
         };
     }
 
     if (btnStop) {
         btnStop.onclick = () => {
             readAloudController.stop();
-            reconcilePlaybackUI({ ...lastSyncPacket, isPlaying: false });
         };
     }
 
