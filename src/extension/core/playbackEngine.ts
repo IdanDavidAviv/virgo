@@ -16,7 +16,7 @@ export interface PlaybackOptions {
 export class PlaybackEngine extends EventEmitter {
     private _tts: MsEdgeTTS;
     private _synthesisLock: Promise<void> = Promise.resolve();
-    
+
     // Unified LRU Cache for all synthesized audio
     private _audioCache: Map<string, string> = new Map();
     private readonly MAX_CACHE_BYTES = 50 * 1024 * 1024; // 50MB Cap
@@ -31,7 +31,7 @@ export class PlaybackEngine extends EventEmitter {
     private _cacheSizeBytes: number = 0;
     private _onCacheUpdate?: () => void;
     private _abortController: AbortController | null = null;
-    
+
     // Hardening: Track unique playback intents to eject stale/zombie tasks
     private _playbackIntentId: number = 0;
     private _isRateLimited: boolean = false;
@@ -58,14 +58,14 @@ export class PlaybackEngine extends EventEmitter {
     public get isPaused() { return this._isPaused; }
     public get isStalled() { return this._isStalled; }
 
-    public setPlaying(val: boolean) { 
-        this._isPlaying = val; 
-        if (val) {this._isPaused = false;}
+    public setPlaying(val: boolean) {
+        this._isPlaying = val;
+        if (val) { this._isPaused = false; }
     }
-    
-    public setPaused(val: boolean) { 
-        this._isPaused = val; 
-        if (val) {this._isPlaying = false;}
+
+    public setPaused(val: boolean) {
+        this._isPaused = val;
+        if (val) { this._isPlaying = false; }
     }
 
     public stop() {
@@ -73,7 +73,7 @@ export class PlaybackEngine extends EventEmitter {
         this._isPaused = false;
         this._isStalled = false;
         this._playbackIntentId++; // Increment to eject all pending tasks
-        
+
         if (this._abortController) {
             this.logger(`[NEURAL] ABORTING in-flight synthesis (Intent: ${this._playbackIntentId}).`);
             this._abortController.abort();
@@ -90,7 +90,7 @@ export class PlaybackEngine extends EventEmitter {
                 } else {
                     this._nativeProcess.kill('SIGKILL');
                 }
-            } catch (err) {}
+            } catch (err) { }
             this._nativeProcess = null;
         }
     }
@@ -191,21 +191,21 @@ export class PlaybackEngine extends EventEmitter {
 
         this._audioCache.set(key, data);
         this._cacheSizeBytes += segmentSize;
-        if (this._onCacheUpdate) {this._onCacheUpdate();}
+        if (this._onCacheUpdate) { this._onCacheUpdate(); }
     }
 
     public triggerPrefetch(text: string, cacheKey: string, options: PlaybackOptions) {
-        if (options.mode !== 'neural') {return;}
-        
+        if (options.mode !== 'neural') { return; }
+
         if (this._audioCache.has(cacheKey) || this._pendingTasks.has(cacheKey)) {
             return;
         }
 
         this.logger(`[PREFETCH] key:${cacheKey}`);
-            // Background prefetch should NEVER abort the priority task
-            this.speakNeural(text, cacheKey, options, false).catch(e => {
-                this.logger(`[PREFETCH] Background task failed: ${e.message}`);
-            });
+        // Background prefetch should NEVER abort the priority task
+        this.speakNeural(text, cacheKey, options, false).catch(e => {
+            this.logger(`[PREFETCH] Background task failed: ${e.message}`);
+        });
     }
 
     public async speakNeural(text: string, cacheKey: string, options: PlaybackOptions, isPriority: boolean = true): Promise<string | null> {
@@ -231,7 +231,7 @@ export class PlaybackEngine extends EventEmitter {
         // --- CHECK PENDING ---
         if (this._pendingTasks.has(cacheKey)) {
             this.logger(`[PENDING HIT] key:${cacheKey}`);
-            if (isPriority) {this._isPlaying = true;}
+            if (isPriority) { this._isPlaying = true; }
             return this._pendingTasks.get(cacheKey)!;
         }
 
@@ -242,13 +242,13 @@ export class PlaybackEngine extends EventEmitter {
 
             this._playbackIntentId++; // New intent
             this.logger(`[NEURAL] NEW INTENT: ${this._playbackIntentId}`);
-            
+
             if (this._abortController) {
                 this._abortController.abort();
             }
             this._abortController = new AbortController();
         }
-        
+
         const currentIntentId = this._playbackIntentId;
 
         // If not a priority request, a controller should already exist (from the last priority task)
@@ -263,6 +263,9 @@ export class PlaybackEngine extends EventEmitter {
             taskResolve = res;
             taskReject = rej;
         });
+        // [HARDENING] Suppress unhandled rejection warnings for this internal task
+        // Other callers will still receive the rejection when they await this promise.
+        task.catch(() => {});
 
         // REGISTER SYNCHRONOUSLY to prevent race on back-to-back calls
         this._pendingTasks.set(cacheKey, task);
@@ -272,7 +275,7 @@ export class PlaybackEngine extends EventEmitter {
             const release = this._synthesisLock;
             let resolveLock!: () => void;
             this._synthesisLock = new Promise(r => resolveLock = r);
-            
+
             try {
                 // Wait for existing lock OR abort
                 await Promise.race([
@@ -305,7 +308,7 @@ export class PlaybackEngine extends EventEmitter {
                 taskReject(err);
             }
         );
-        
+
         try {
             const data = await task;
             if (data) {
@@ -319,17 +322,13 @@ export class PlaybackEngine extends EventEmitter {
         }
     }
 
-    private _startWatchdog(intentId: number) {
+    private _startWatchdog(intentId: number, onTimeout: () => void) {
         this._clearWatchdog();
         this._watchdogTimer = setTimeout(() => {
             if (this._playbackIntentId === intentId) {
-                this.logger(`[TTS HANG] Silent timeout (5s) for Intent ${intentId}. Recycling...`);
-                this._reinitTTS(); // Force WebSocket cleanup
-                if (this._abortController) {
-                    this._abortController.abort();
-                }
+                onTimeout();
             }
-        }, 5000);
+        }, 4000);
     }
 
     private _clearWatchdog() {
@@ -374,7 +373,7 @@ export class PlaybackEngine extends EventEmitter {
             // Escape ampersands which can break neural TTS XML wrapping
             const speechText = cleanForSpeech(text);
             const escapedText = speechText.replace(/&/g, '&amp;');
-            
+
             // SECOND ABORT CHECK: Right before the expensive setMetadata/toStream calls
             if (signal?.aborted) {
                 this.logger(`[NEURAL] ABORTED (Pre-flight) - Cancelled before metadata set.`);
@@ -384,7 +383,7 @@ export class PlaybackEngine extends EventEmitter {
             await this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
             this.logger(`[TTS REQ] text:"${escapedText.substring(0, 30)}..." | voice:${voiceId} | Intent:${intentId}`);
 
-            return await new Promise((resolve, reject) => {
+            return await new Promise<string>((resolve, reject) => {
                 if (signal?.aborted) {
                     reject(new Error("Synthesis Aborted"));
                     return;
@@ -394,14 +393,22 @@ export class PlaybackEngine extends EventEmitter {
                 const chunks: Buffer[] = [];
                 let hasErrored = false;
 
-                // START WATCHDOG (5s until Chunk 0)
-                this._startWatchdog(intentId);
+                // START WATCHDOG (4s until Chunk 0)
+                this._startWatchdog(intentId, () => {
+                    if (hasErrored) { return; }
+                    this.logger(`[TTS HANG] Silent timeout (4s) for Intent ${intentId}. Recycling...`);
+                    hasErrored = true;
+                    this._reinitTTS(); // Force WebSocket cleanup
+                    audioStream.destroy();
+                    reject(new Error("Synthesis Timeout (4s)"));
+                });
 
                 const onAbort = () => {
                     this.logger(`[TTS STREAM] ABORT SIGNAL received.`);
+                    if (hasErrored) { return; }
                     hasErrored = true;
                     audioStream.destroy();
-                    reject(new Error("Synthesis Aborted"));
+                    reject(new Error(typeof signal?.reason === 'string' ? signal.reason : "Synthesis Aborted"));
                 };
 
                 signal?.addEventListener('abort', onAbort);
@@ -417,6 +424,7 @@ export class PlaybackEngine extends EventEmitter {
 
                 audioStream.on("end", () => {
                     if (hasErrored) { return; }
+                    this._clearWatchdog(); // Ensure watchdog is cleared
                     signal?.removeEventListener('abort', onAbort);
                     this.logger(`[TTS STREAM] COMPLETE | chunks:${chunks.length}`);
                     resolve(Buffer.concat(chunks).toString('base64'));
@@ -424,6 +432,7 @@ export class PlaybackEngine extends EventEmitter {
 
                 audioStream.on("error", (err: any) => {
                     if (hasErrored) { return; }
+                    this._clearWatchdog();
                     signal?.removeEventListener('abort', onAbort);
                     this.logger(`[TTS STREAM] ERROR: ${err}`);
                     hasErrored = true;
@@ -432,23 +441,28 @@ export class PlaybackEngine extends EventEmitter {
 
                 // Safety timeout for synthesis
                 setTimeout(() => {
-                    if (!hasErrored && chunks.length === 0) {
-                        this.logger(`[TTS STREAM] TIMEOUT (25s) - No data received from Azure.`);
-                        hasErrored = true;
-                        signal?.removeEventListener('abort', onAbort);
-                        
-                        // Hardening: Recycle the client on timeout to clear socket hangs
-                        this._reinitTTS();
-                        
-                        reject(new Error("Synthesis Timeout (25s)"));
-                    }
+                    if (hasErrored) { return; }
+                    this.logger(`[TTS STREAM] TIMEOUT (25s) - No data received from Azure.`);
+                    hasErrored = true;
+                    this._clearWatchdog();
+                    signal?.removeEventListener('abort', onAbort);
+
+                    // Hardening: Recycle the client on timeout to clear socket hangs
+                    this._reinitTTS();
+                    audioStream.destroy();
+
+                    reject(new Error("Synthesis Timeout (25s)"));
                 }, 25000);
             });
         } catch (err: any) {
             const errorMessage = err?.message || String(err);
-            
-            // CRITICAL: Immediately exit on Abort or Stale Intent, do NOT retry.
-            if (errorMessage.includes("Aborted") || errorMessage.includes("Stale Intent")) {
+            const abortReason = this._abortController?.signal?.reason;
+            const isTimeout = (typeof abortReason === 'string' && abortReason.includes("Timeout")) || errorMessage.includes("Timeout");
+            const isAbort = errorMessage.includes("Aborted") || errorMessage.includes("Stale Intent") || isTimeout;
+
+            // CRITICAL: Immediately exit on User Abort or Stale Intent.
+            // Timeout is now handled by the retry logic below.
+            if (isAbort && !isTimeout) {
                 this.logger(`[NEURAL] synthesis_aborted | Intent: ${intentId} | No retry.`);
                 return null;
             }
@@ -457,7 +471,7 @@ export class PlaybackEngine extends EventEmitter {
             if (errorMessage.includes("429") || errorMessage.toLowerCase().includes("too many requests")) {
                 this.logger(`[RATE LIMIT HIT] Azure TTS has throttled our requests. Entering Safe Mode.`);
                 this._isRateLimited = true;
-                
+
                 // Reset circuit breaker after 60 seconds
                 setTimeout(() => {
                     this._isRateLimited = false;
@@ -486,12 +500,20 @@ export class PlaybackEngine extends EventEmitter {
 
                 this.logger(`[NEURAL] Synthesis failed. Retrying... (${errorMessage})`);
                 this.logger(`[NEURAL] synthesis_retry | error: ${errorMessage}`);
+
+                // [RESILIENCE] Re-init TTS client on retry to clear dead sockets/streams
+                if (isTimeout || errorMessage.includes("EPIPE") || errorMessage.includes("ECONNRESET")) {
+                    this._reinitTTS();
+                }
+
+                // Exponential backoff
+                const backoffMs = Math.min(1000 * Math.pow(2, 3 - retryCount), 8000);
+                await new Promise(res => setTimeout(res, backoffMs));
+
                 return this._getNeuralAudio(text, voiceId, retryCount - 1, intentId, isPriority);
             }
             this.logger(`[NEURAL] synthesis_failure | error: ${errorMessage}`);
             throw err;
-        } finally {
-            // Lock managed by caller (speakNeural)
         }
     }
 
@@ -501,13 +523,13 @@ export class PlaybackEngine extends EventEmitter {
         // Deny: Symbols used for shell expansion/redirection ($, `, |, &, <, >, \, {, }, [, ])
         // Note: Hyphen must be at the end of the character class to be literal.
         return text.replace(/[^a-zA-Z0-9\s.,!?:;()'"\u0590-\u05FF-]/g, ' ')
-                   .replace(/["']/g, ''); // Specifically strip quotes for command safety
+            .replace(/["']/g, ''); // Specifically strip quotes for command safety
     }
 
     public speakLocal(text: string, options: PlaybackOptions, onExit: (code: number | null) => void) {
         this.stopProcess();
         const safeText = this._getSafeText(text);
-        
+
         if (process.platform === 'win32') {
             const psScript = `
                 $v = New-Object -ComObject SAPI.SpVoice;
@@ -522,7 +544,7 @@ export class PlaybackEngine extends EventEmitter {
         } else if (process.platform === 'darwin') {
             // macOS 'say' command. Rate is in WPM (Words Per Minute). Default around 175.
             // options.rate is -10 to 10. We'll map to 100-300 WPM approx.
-            const wpm = 175 + (options.rate * 15); 
+            const wpm = 175 + (options.rate * 15);
             const args = ['-r', wpm.toString()];
             if (options.voice) {
                 args.push('-v', options.voice);
@@ -554,7 +576,7 @@ export class PlaybackEngine extends EventEmitter {
             onExit(code);
         });
 
-        
+
         this.logger(`[LOCAL] synthesis_success | platform: ${process.platform}`);
     }
 }

@@ -229,10 +229,19 @@ export class AudioBridge extends EventEmitter {
                 return;
             }
 
-            this._logger(`[BRIDGE] Neural synthesis failed: ${errorMessage}. Falling back to SAPI.`);
-            this.emit('synthesisError', { error: errorMessage, isFallingBack: true, cacheKey, chapterIndex: cIdx, sentenceIndex: sIdx });
-            this.emit('engineStatus', { status: 'local-fallback' });
-            this._speakLocal(sentence, options);
+            // [RESILIENCE] No more SAPI fallback for neural hangs.
+            // We tell the UI we are 'buffering' and trust the Engine's internal retry loop.
+            this._logger(`[BRIDGE] Neural synthesis stalled: ${errorMessage}. Retrying...`);
+            this.emit('engineStatus', { status: 'buffering' });
+            
+            // If the error persists after all internal retries, we finally give up.
+            this.emit('synthesisError', { 
+                error: errorMessage, 
+                isFallingBack: false, // Explicitly false to prevent UI from expecting SAPI
+                cacheKey, 
+                chapterIndex: cIdx, 
+                sentenceIndex: sIdx 
+            });
         }
     }
 

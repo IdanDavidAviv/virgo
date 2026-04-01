@@ -29,9 +29,11 @@ import { CacheManager } from './cacheManager';
     let pendingChapterIndex = -1;
     let pendingChapterTimer = null;
     
-    let isSynthesizing = false;
     let currentAudioUrl = null;
     let activeObjectURLs = new Set();
+    
+    // --- Controller ---
+    let readAloudController = null;
     
     // --- Persistence ---
     const cache = new CacheManager();
@@ -205,6 +207,8 @@ import { CacheManager } from './cacheManager';
         waveContainer = getEl('sentence-navigator');
 
         // Initialize Components
+        readAloudController = new PlaybackController(vscode, neuralPlayer);
+
         sentenceNavigatorController = new SentenceNavigator({
             navigator: sentenceNavigator,
             prev: sentencePrev,
@@ -398,6 +402,33 @@ import { CacheManager } from './cacheManager';
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    function reconcilePlaybackUI(state) {
+        if (!state) { return; } // Safety for early initialization clicks
+        
+        const ctrlState = readAloudController.getState();
+        const mode = ctrlState.mode;
+        
+        // Final UI Truth
+        const isPlayingUI = mode === 'active';
+
+        // Toggle Play/Pause visibility
+        if (isPlayingUI) {
+            btnPlay.style.display = 'none';
+            btnPause.style.display = 'inline-block';
+            if (waveContainer) { waveContainer.classList.add('speaking'); }
+        } else {
+            btnPlay.style.display = 'inline-block';
+            btnPause.style.display = 'none';
+            if (waveContainer) { waveContainer.classList.remove('speaking'); }
+        }
+
+        // Handle loading/throttling state
+        const isStalled = !!state.playbackStalled;
+        const isLoading = isStalled || ctrlState.isAwaitingSync;
+        btnPlay.classList.toggle('is-loading', isLoading);
+        if (waveContainer) { waveContainer.classList.toggle('stalled', isLoading); }
+    }
+
     function renderWithLinks(text) {
         if (!text) { return ''; }
         const html = escapeHtml(text);
@@ -423,13 +454,8 @@ import { CacheManager } from './cacheManager';
         return new Blob(byteArrays, { type: mime });
     }
 
-    // --- Loading UI Helpers ---
-    function setLoading(loading) {
-        isSynthesizing = loading;
-        if (btnPlay) {
-            loading ? btnPlay.classList.add('is-loading') : btnPlay.classList.remove('is-loading');
-        }
-    }
+    // --- Loading UI Helpers [DEPRECATED] ---
+    // (Replaced by PlaybackController + reconcilePlaybackUI)
 
     // --- Context Parsing ---
     function updateContextSlot(uri, filenameEl, dirEl, version, precalcName, precalcDir) {
@@ -539,25 +565,9 @@ import { CacheManager } from './cacheManager';
                 }
                 syncPlaybackUI(message.state.currentChapterIndex, message.state.currentSentenceIndex, message.currentSentences?.length || 0);
                 
-                // 2. Playback State
-                if (message.isPlaying && !message.isPaused) {
-                    btnPlay.style.display = 'none';
-                    btnPause.style.display = 'inline-block';
-                    if (waveContainer) { waveContainer.classList.add('speaking'); }
-                } else {
-                    btnPlay.style.display = 'inline-block';
-                    btnPause.style.display = 'none';
-                    if (waveContainer) { waveContainer.classList.remove('speaking'); }
-                }
-
-                // [PHASE 4] Stall Detection (Buffering)
-                if (message.playbackStalled) {
-                    btnPlay.classList.add('is-loading');
-                    if (waveContainer) { waveContainer.classList.add('stalled'); }
-                } else {
-                    btnPlay.classList.remove('is-loading');
-                    if (waveContainer) { waveContainer.classList.remove('stalled'); }
-                }
+                // 2. Playback Logic (Refactored)
+                readAloudController.handleSync(message);
+                reconcilePlaybackUI(message);
 
                 // 3. Telemetry, Config & Indicators
                 updateAutoPlayModeUI(message.autoPlayMode);
@@ -603,7 +613,13 @@ import { CacheManager } from './cacheManager';
                 break;
 
             case 'playAudio':
-                setLoading(false);
+                readAloudController.releaseLock();
+                // Zombie Guard: If user stopped while we were synthesizing, ignore the audio.
+                if (readAloudController.getState().intent === 'STOPPED') {
+                    console.log('[DASHBOARD] Ignoring Zombie Audio (Intent was STOPPED)');
+                    return;
+                }
+
                 if (neuralPlayer) {
                     const cacheKey = message.cacheKey;
                     
@@ -661,7 +677,7 @@ import { CacheManager } from './cacheManager';
                 break;
 
             case 'synthesisError':
-                setLoading(false);
+                readAloudController.releaseLock();
                 showToast(message.error, message.isFallingBack ? 'warning' : 'error');
                 if (message.isFallingBack) {
                     console.warn(`[DASHBOARD] Neural failure at ${message.chapterIndex}:${message.sentenceIndex} for key ${message.cacheKey}. Falling back to SAPI.`);
@@ -858,12 +874,8 @@ import { CacheManager } from './cacheManager';
 
     if (btnPlay) {
         btnPlay.onclick = () => {
-            setLoading(true); // Trigger synthesis loading visual
-            if (!currentReadingUri) {
-                postMsg({ command: 'loadAndPlay' });
-            } else {
-                postMsg({ command: 'continue' });
-            }
+            readAloudController.play(currentReadingUri);
+            reconcilePlaybackUI(lastSyncPacket);
         };
     }
 
@@ -874,24 +886,19 @@ import { CacheManager } from './cacheManager';
         };
     }
 
-            if (btnPause) {
-                btnPause.onclick = () => {
-                    if (neuralPlayer) {
-                        neuralPlayer.pause();
-                    }
-                    postMsg({ command: 'pause' });
-                };
-            }
+    if (btnPause) {
+        btnPause.onclick = () => {
+            readAloudController.pause();
+            reconcilePlaybackUI({ ...lastSyncPacket, isPlaying: false });
+        };
+    }
 
-            if (btnStop) {
-                btnStop.onclick = () => {
-                    if (neuralPlayer) {
-                        neuralPlayer.pause();
-                        neuralPlayer.currentTime = 0;
-                    }
-                    postMsg({ command: 'stop' });
-                };
-            }
+    if (btnStop) {
+        btnStop.onclick = () => {
+            readAloudController.stop();
+            reconcilePlaybackUI({ ...lastSyncPacket, isPlaying: false });
+        };
+    }
 
     // --- Control Buttons (Debounced) ---
     if (btnPrev) { btnPrev.addEventListener('click', () => { debouncedPostMsg({ command: 'prevChapter' }); }); }
@@ -963,9 +970,10 @@ import { CacheManager } from './cacheManager';
         switch (e.code) {
             case 'Space':
                 e.preventDefault();
-                if (btnPause && btnPause.style.display !== 'none') {
+                const ctrlState = readAloudController.getState();
+                if (lastSyncPacket && lastSyncPacket.isPlaying && !lastSyncPacket.isPaused) {
                     btnPause.click();
-                } else if (btnPlay) {
+                } else {
                     btnPlay.click();
                 }
                 break;

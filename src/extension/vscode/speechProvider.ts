@@ -431,6 +431,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     private _getHtmlForWebview(webview: vscode.Webview): string {
         const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'dashboard.js'));
+        const controllerUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'playbackController.js'));
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'style.css'));
         
         const htmlPath = vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'speechEngine.html');
@@ -440,7 +441,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         html = html.replace('${inlineStyle}', '') // Remove old injection point
                    .replace('${inlineScript}', '') // Remove old injection point
                    .replace('</head>', `<link rel="stylesheet" href="${styleUri}">\n</head>`)
-                   .replace('</body>', `<script src="${scriptUri}"></script>\n</body>`);
+                   .replace('</body>', `
+                        <script src="${controllerUri}"></script>
+                        <script src="${scriptUri}"></script>
+                    </body>`);
 
         // Inject Handshake Config (Native Mode)
         const config = {
