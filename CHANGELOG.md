@@ -7,6 +7,18 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.4.0] - 2026-04-01
+
+### Added
+- **Rapid-Playback Engine (Zero-IPC Phase 2)**:
+    - **Intent-Ejection Protocol**: Instant termination of stale synthesis tasks during rapid document navigation, eliminating "Ghost Audio".
+    - **Zero-Handshake Ingestion**: Optimized `AudioBridge` to trigger webview cache checks immediately upon navigation.
+    - **Concurrent Task Deduping**: Shared task tracking for identical text segments, preventing redundant Azure TTS calls.
+- **Neural Stability Watchdog**:
+    - **MsEdgeTTS Recycling**: Automated client re-initialization and socket clearing on synthesis timeouts.
+    - **Buffering Telemetry**: New `engineStatus: 'buffering'` event for improved UI feedback during network recovery.
+- **Atomic UI-Sync**: Hardened synchronization between the extension host and webview state.
+
 ## [1.3.2] - 2026-03-31
 
 ### Added
