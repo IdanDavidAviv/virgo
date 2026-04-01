@@ -109,25 +109,22 @@ describe('PlaybackEngine', () => {
 
         it('should reuse pending tasks', async () => {
             const stream = new EventEmitter() as any;
-            stream.destroy = vi.fn();
             mockTtsInstance.toStream.mockReturnValue({ audioStream: stream });
-
-            // Call speakNeural once
-            const p1 = engine.speakNeural('Same', 'k1', defaultOptions);
             
-            // Call it again with same key - should return the cached promise
-            const p2 = engine.speakNeural('Same', 'k1', defaultOptions);
-
-            // We need to advance timers or wait for microtasks
-            for (let i = 0; i < 10; i++) { await Promise.resolve(); }
+            const p1 = engine.speakNeural('abc', 'c1', defaultOptions);
+            const p2 = engine.speakNeural('abc', 'c1', defaultOptions);
             
+            // We need to wait for microtasks because the synthesis starts in an async IIFE
+            // which waits for a lock (Promise.race) before calling toStream.
+            for (let i = 0; i < 5; i++) { await Promise.resolve(); }
+            
+            // Should only call toStream once
             expect(mockTtsInstance.toStream).toHaveBeenCalledTimes(1);
             
             stream.emit('data', Buffer.from('abc'));
             stream.emit('end');
             
-            const r1 = await p1;
-            const r2 = await p2;
+            const [r1, r2] = await Promise.all([p1, p2]);
             expect(r1).toBe(r2);
             expect(r1).toBe(Buffer.from('abc').toString('base64'));
         });
@@ -143,6 +140,7 @@ describe('PlaybackEngine', () => {
             engine.stop();
             const result = await p;
             expect(result).toBe(null);
+            expect(stream.destroy).toHaveBeenCalled();
         });
 
         it('should trigger circuit breaker on 429', async () => {
@@ -155,6 +153,7 @@ describe('PlaybackEngine', () => {
             mockTtsInstance.setMetadata.mockRejectedValueOnce(err429);
 
             const p = engine.speakNeural('Too Fast', 'c429', { ...defaultOptions, retryCount: 0 });
+            p.catch(() => {}); // Suppress unhandled rejection warning
             
             await expect(p).rejects.toThrow('429');
             expect(engine['_isRateLimited']).toBe(true);
@@ -183,16 +182,67 @@ describe('PlaybackEngine', () => {
     });
 
     describe('Watchdog', () => {
-        it('should recycle on hang', async () => {
+        it('should throw on watchdog timeout after 4s', async () => {
             const stream = new EventEmitter() as any;
             stream.destroy = vi.fn();
             mockTtsInstance.toStream.mockReturnValue({ audioStream: stream });
 
-            const p = engine.speakNeural('Hang', 'h1', defaultOptions);
-            await vi.advanceTimersByTimeAsync(5100);
+            // Set retryCount to 0 to trigger terminal failure on first hang
+            const p = engine.speakNeural('Hang', 'h1', { ...defaultOptions, retryCount: 0 });
+            p.catch(() => {}); // Suppress unhandled rejection warning
+            
+            // Advance past the 4s watchdog
+            await vi.advanceTimersByTimeAsync(4100);
 
             expect(logger).toHaveBeenCalledWith(expect.stringContaining('[TTS HANG]'));
-            expect(await p).toBe(null);
+            await expect(p).rejects.toThrow('Synthesis Timeout (4s)');
+        });
+
+        it('should initiate retry loop on hang', async () => {
+            const stream = new EventEmitter() as any;
+            stream.destroy = vi.fn();
+            mockTtsInstance.toStream.mockReturnValue({ audioStream: stream });
+
+            // Set retryCount to 1 and capture the promise
+            const p = engine.speakNeural('Retry', 'r1', { ...defaultOptions, retryCount: 1 });
+            
+            // 1. Advance past first hang for watchdog (4s)
+            await vi.advanceTimersByTimeAsync(4100);
+            expect(logger).toHaveBeenCalledWith(expect.stringContaining('[TTS HANG]'));
+
+            // 2. Mock second success
+            const stream2 = new EventEmitter() as any;
+            stream2.destroy = vi.fn();
+            // We'll emit data as soon as the retry starts
+            mockTtsInstance.toStream.mockImplementationOnce(() => {
+                // Emit on next tick to simulate real stream behavior but before watchdog
+                process.nextTick(() => {
+                    stream2.emit('data', Buffer.from('retry-success'));
+                    stream2.emit('end');
+                });
+                return { audioStream: stream2 };
+            });
+
+            // 3. Advance past exponential backoff (4s for retry 1)
+            // Note: backoff is Math.min(1000 * 2^(3-1), 8000) = 4000
+            await vi.advanceTimersByTimeAsync(4100);
+            
+            const result = await p;
+            expect(result).toBe(Buffer.from('retry-success').toString('base64'));
+        });
+
+        it('should throw after exhausting retries on hang', async () => {
+            const stream = new EventEmitter() as any;
+            stream.destroy = vi.fn();
+            mockTtsInstance.toStream.mockReturnValue({ audioStream: stream });
+
+            const p = engine.speakNeural('Double Retry', 'r2', { ...defaultOptions, retryCount: 1 });
+            p.catch(() => {}); // Suppress unhandled rejection warning
+            
+            await vi.advanceTimersByTimeAsync(4100); // 1st hang
+            await vi.advanceTimersByTimeAsync(8100); // Backoff + 2nd hang
+            
+            await expect(p).rejects.toThrow('Synthesis Timeout (4s)');
         });
     });
 

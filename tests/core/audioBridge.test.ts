@@ -114,7 +114,7 @@ describe('AudioBridge', () => {
         expect(playbackEngine.triggerPrefetch).toHaveBeenCalled();
     });
 
-    it('should fallback to local speech on neural failure during synthesis', async () => {
+    it('should NOT fallback to local speech on neural failure during synthesis', async () => {
         vi.spyOn(playbackEngine, 'speakNeural').mockRejectedValue(new Error('Network Error'));
         vi.spyOn(playbackEngine, 'speakLocal').mockImplementation(() => {});
         
@@ -124,12 +124,12 @@ describe('AudioBridge', () => {
         await audioBridge.synthesize('test-key', options);
 
         expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({ 
-            isFallingBack: true,
+            isFallingBack: false,
             cacheKey: 'test-key',
             chapterIndex: 0,
             sentenceIndex: 0
         }));
-        expect(playbackEngine.speakLocal).toHaveBeenCalled();
+        expect(playbackEngine.speakLocal).not.toHaveBeenCalled();
     });
 
     it('should ignore stale synthesis results during rapid sentence jumps', async () => {
