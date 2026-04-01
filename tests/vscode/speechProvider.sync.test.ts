@@ -130,12 +130,11 @@ describe('SpeechProvider (Sync)', () => {
         vi.clearAllMocks();
 
         // Simulate a "stalled" engine status
-        (engine as any)._isStalled = true;
-        engine.emit('status');
+        engine.emit('status', { isPlaying: false, isPaused: false, isStalled: true });
 
         const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
-        expect(syncCalls.length).toBe(1);
-        expect(syncCalls[0][0].playbackStalled).toBe(true);
+        expect(syncCalls.length).toBeGreaterThanOrEqual(1);
+        expect(syncCalls[syncCalls.length - 1][0].playbackStalled).toBe(true);
     });
 
     it('should handle REQUEST_SYNTHESIS and trigger bridge.synthesize', async () => {

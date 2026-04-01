@@ -21,6 +21,13 @@ export class AudioBridge extends EventEmitter {
         private readonly _logger: (msg: string) => void
     ) {
         super();
+        // Reactive Sync: Listen to Engine status and update SSOT automatically
+        this._playbackEngine.on('status', (status?: { isPlaying: boolean, isPaused: boolean, isStalled: boolean }) => {
+            const isPlaying = status?.isPlaying ?? this._playbackEngine.isPlaying;
+            const isPaused = status?.isPaused ?? this._playbackEngine.isPaused;
+            const isStalled = status?.isStalled ?? this._playbackEngine.isStalled;
+            this._stateStore.setPlaybackStatus(isPlaying, isPaused, isStalled);
+        });
     }
 
     private _activeRequestId: number = 0;
@@ -40,10 +47,10 @@ export class AudioBridge extends EventEmitter {
         // CRITICAL: Stop any in-flight synthesis or sequences before starting a new one.
         // This ensures that jumps immediately abort previous tasks and clear the lock.
         this._playbackEngine.stop();
-        const requestId = ++this._activeRequestId;
         
-        // [ISSUE 17] Update SSOT
-        this._stateStore.setPlaybackStatus(!previewOnly, false);
+        // Use the Engine as the source of truth for playing status
+        this._playbackEngine.setPlaying(!previewOnly);
+        
         this._stateStore.setOptions({
             engineMode: options.mode,
             selectedVoice: options.voice,
@@ -128,13 +135,11 @@ export class AudioBridge extends EventEmitter {
 
     public stop() {
         this._playbackEngine.stop();
-        this._stateStore.setPlaybackStatus(false, false);
         this._logger('[BRIDGE] Playback stopped.');
     }
 
     public pause() {
         this._playbackEngine.setPaused(true);
-        this._stateStore.setPlaybackStatus(true, true);
         this._logger('[BRIDGE] Playback paused.');
     }
 

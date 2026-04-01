@@ -58,21 +58,33 @@ export class PlaybackEngine extends EventEmitter {
     public get isPaused() { return this._isPaused; }
     public get isStalled() { return this._isStalled; }
 
+    private _updateStatus(isPlaying?: boolean, isPaused?: boolean, isStalled?: boolean) {
+        if (isPlaying !== undefined) { this._isPlaying = isPlaying; }
+        if (isPaused !== undefined) { this._isPaused = isPaused; }
+        if (isStalled !== undefined) { this._isStalled = isStalled; }
+
+        // Logic: if playing, cannot be paused. If paused, cannot be playing.
+        if (this._isPlaying) { this._isPaused = false; }
+        if (this._isPaused) { this._isPlaying = false; }
+
+        this.emit('status', {
+            isPlaying: this._isPlaying,
+            isPaused: this._isPaused,
+            isStalled: this._isStalled
+        });
+    }
+
     public setPlaying(val: boolean) {
-        this._isPlaying = val;
-        if (val) { this._isPaused = false; }
+        this._updateStatus(val, !val ? this._isPaused : false);
     }
 
     public setPaused(val: boolean) {
-        this._isPaused = val;
-        if (val) { this._isPlaying = false; }
+        this._updateStatus(!val ? this._isPlaying : false, val);
     }
 
     public stop() {
-        this._isPlaying = false;
-        this._isPaused = false;
-        this._isStalled = false;
         this._playbackIntentId++; // Increment to eject all pending tasks
+        this._updateStatus(false, false, false);
 
         if (this._abortController) {
             this.logger(`[NEURAL] ABORTING in-flight synthesis (Intent: ${this._playbackIntentId}).`);
@@ -214,9 +226,7 @@ export class PlaybackEngine extends EventEmitter {
             const bytes = this._getSegmentSizeBytes(this._audioCache.get(cacheKey)!);
             this.logger(`[CACHE HIT] key:${cacheKey} | Size: ${(bytes / 1024).toFixed(1)}KB`);
             if (isPriority) {
-                this._isPlaying = true;
-                this._isStalled = false; // Cache hit is NEVER a stall
-                this.emit('status');
+                this._updateStatus(true, false, false);
             }
             return Promise.resolve(this._audioCache.get(cacheKey)!);
         }
@@ -236,9 +246,7 @@ export class PlaybackEngine extends EventEmitter {
         }
 
         if (isPriority) {
-            this._isPlaying = true;
-            this._isStalled = true; // Priority synthesis started -> We are stalling until it finishes
-            this.emit('status');
+            this._updateStatus(true, false, true);
 
             this._playbackIntentId++; // New intent
             this.logger(`[NEURAL] NEW INTENT: ${this._playbackIntentId}`);
@@ -295,15 +303,13 @@ export class PlaybackEngine extends EventEmitter {
         })().then(
             (res) => {
                 if (isPriority) {
-                    this._isStalled = false;
-                    this.emit('status');
+                    this._updateStatus(undefined, undefined, false);
                 }
                 taskResolve(res);
             },
             (err) => {
                 if (isPriority) {
-                    this._isStalled = false;
-                    this.emit('status');
+                    this._updateStatus(undefined, undefined, false);
                 }
                 taskReject(err);
             }
@@ -528,6 +534,8 @@ export class PlaybackEngine extends EventEmitter {
 
     public speakLocal(text: string, options: PlaybackOptions, onExit: (code: number | null) => void) {
         this.stopProcess();
+        this._updateStatus(true, false, false);
+        this.stopProcess();
         const safeText = this._getSafeText(text);
 
         if (process.platform === 'win32') {
@@ -573,6 +581,7 @@ export class PlaybackEngine extends EventEmitter {
         this._nativeProcess.on('exit', (code: number | null) => {
             clearTimeout(timeout);
             this._nativeProcess = null;
+            this._updateStatus(false, false, false);
             onExit(code);
         });
 

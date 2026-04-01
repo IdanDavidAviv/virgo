@@ -86,10 +86,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._saveProgressThrottled();
         });
         
-        // Ensure UI syncs when playback engine status changes (e.g. buffering)
-        this._playbackEngine.on('status', () => {
-            this._stateStore.setPlaybackStatus(this._playbackEngine.isPlaying, this._playbackEngine.isPaused, this._playbackEngine.isStalled);
-        });
+
     }
 
 
