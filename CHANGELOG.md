@@ -7,6 +7,18 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.4.1] - 2026-04-01
+
+### Added
+- **Premium Playback Animations (Issue #22)**:
+    - Added `.is-loading` CSS spinner for Play/Pause buttons during neural synthesis and IPC sync locks.
+    - Added `.stalled` "Spectral Glow" pulse for the sentence navigator to provide clear feedback during delays.
+- **UI Logic Regression Suite**: Introduced `tests/webview/uiSync.test.ts` to verify state transitions and visibility logic.
+
+### Fixed
+- **Control Alignment**: Corrected "off-center" playback icon layout and normalized button widths for a balanced toolbar experience.
+- **State Reconciliation**: Refactored UI logic into a strictly-typed TypeScript `UIManager` to eliminate race conditions and state-flicker.
+
 ## [1.4.0] - 2026-04-01
 
 ### Added
