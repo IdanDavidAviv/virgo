@@ -3,6 +3,8 @@ import { reconcilePlaybackUI } from './uiManager';
 import { MessageClient } from './core/messageClient';
 import { WebviewStore } from './core/WebviewStore';
 import { OutgoingAction } from '../common/types';
+import { SentenceNavigator } from './components/SentenceNavigator';
+import { escapeHtml } from './utils';
 
 
 (function () {
@@ -54,98 +56,7 @@ import { OutgoingAction } from '../common/types';
 
 
     // --- Components ---
-    class SentenceNavigator {
-        constructor(elements, options) {
-            this.els = elements; // { navigator, prev, current, next }
-            this.options = options; // { onJump }
-            this.state = {
-                sentences: [],
-                currentIndex: -1,
-                isStalled: false,
-                pendingIndex: -1,
-                pendingTimer: null
-            };
-        }
-
-        update(sentences, currentIndex, isStalled) {
-            // Ignore stale syncs if we have an active pending jump
-            if (this.state.pendingIndex !== -1 && currentIndex !== this.state.pendingIndex) {
-                return;
-            }
-
-            this.state.pendingIndex = -1;
-            if (this.state.pendingTimer) {
-                clearTimeout(this.state.pendingTimer);
-                this.state.pendingTimer = null;
-            }
-
-            this.state.sentences = sentences;
-            this.state.currentIndex = currentIndex;
-            this.state.isStalled = isStalled;
-            this.render();
-        }
-
-        jump(index) {
-            if (index < 0 || index >= this.state.sentences.length) {return;}
-            
-            this.state.pendingIndex = index;
-            this.render(); // Immediate feedback
-            this.options.onJump(index);
-
-            // Safety fallback: if extension doesn't confirm in 1s, snap back to reality
-            if (this.state.pendingTimer) {clearTimeout(this.state.pendingTimer);}
-            this.state.pendingTimer = setTimeout(() => {
-                if (this.state.pendingIndex !== -1) {
-                    this.state.pendingIndex = -1;
-                    this.render();
-                }
-            }, 1000);
-        }
-
-        render() {
-            const displayIndex = this.state.pendingIndex !== -1 ? this.state.pendingIndex : this.state.currentIndex;
-            const sentences = this.state.sentences;
-            
-            this.els.navigator.classList.toggle('stalled', this.state.isStalled);
-
-            const prevIdx = displayIndex - 1;
-            const nextIdx = displayIndex + 1;
-
-            this._renderRow(this.els.prev, prevIdx >= 0 ? sentences[prevIdx] : '', prevIdx);
-            this._renderRow(this.els.current, displayIndex >= 0 ? sentences[displayIndex] : '', displayIndex, true);
-            this._renderRow(this.els.next, nextIdx < sentences.length ? sentences[nextIdx] : '', nextIdx);
-        }
-
-        _renderRow(el, text, idx, isCurrent = false) {
-            if (!el) {return;}
-            el.style.display = 'flex';
-            
-            if (!text) {
-                el.innerHTML = '<span class="sentence-placeholder">&nbsp;</span>';
-                el.onclick = null;
-                el.style.pointerEvents = 'none';
-                el.style.opacity = '0';
-                return;
-            }
-
-            el.style.pointerEvents = 'auto';
-            el.style.opacity = isCurrent ? '1' : '0.15';
-            el.classList.toggle('current', isCurrent);
-            el.classList.toggle('stalled', isCurrent && this.state.isStalled);
-            
-            // RTL Detection
-            const isHebrew = /[\u0590-\u05FF]/.test(text);
-            el.classList.toggle('rtl', isHebrew);
-
-            el.innerHTML = `<span>${renderWithLinks(text)}</span>`;
-
-            if (idx !== null && !isCurrent) {
-                el.onclick = () => this.jump(idx);
-            } else {
-                el.onclick = null;
-            }
-        }
-    }
+    // --- Components (Refactored to ESM) ---
 
     // --- DOM References ---
     let activeSlot, readerSlot, activeFilename, activeDir, readerFilename, readerDir, btnLoadFile;
@@ -229,9 +140,8 @@ import { OutgoingAction } from '../common/types';
             prev: sentencePrev,
             current: sentenceCurrent,
             next: sentenceNext
-        }, {
-            onJump: (idx) => debouncedPostMsg({ command: 'jumpToSentence', index: idx })
         });
+        sentenceNavigatorController.mount();
 
         console.log('[DASHBOARD] DOM Selection complete.');
 
@@ -412,10 +322,6 @@ import { OutgoingAction } from '../common/types';
         }
     }
 
-    function escapeHtml(str) {
-        if (!str) { return ''; }
-        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
 
     /**
      * Authoritative UI reconciler - uses UIManager for consistency and testing.
@@ -426,14 +332,6 @@ import { OutgoingAction } from '../common/types';
     }
 
 
-    function renderWithLinks(text) {
-        if (!text) { return ''; }
-        const html = escapeHtml(text);
-        // Find [label](file:///...) and convert to <a>
-        return html.replace(/\[([^\]]+)\]\((file:\/\/\/[^\s)]+)\)/g, (match, label, uri) => {
-            return `<a class="file-link" data-uri="${uri}" title="Open in Editor">${label}</a>`;
-        });
-    }
 
     function base64ToBlob(base64, mime) {
         const sliceSize = 1024;
@@ -556,10 +454,6 @@ import { OutgoingAction } from '../common/types';
                     renderChapters(message.allChapters || [], message.state.currentChapterIndex);
                 }
                 
-                // 2. Sentence Navigator
-                if (message.currentSentences) {
-                    sentenceNavigatorController.update(message.currentSentences, message.state.currentSentenceIndex, message.playbackStalled);
-                }
                 syncPlaybackUI(message.state.currentChapterIndex, message.state.currentSentenceIndex, message.currentSentences?.length || 0);
                 
                 // 2. Playback Logic (Refactored)
