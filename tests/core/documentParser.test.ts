@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseChapters } from '@core/documentParser';
+import { parseChapters, splitIntoSentences } from '@core/documentParser';
 
 describe('documentParser', () => {
     it('should parse simple markdown with headers', () => {
@@ -29,5 +29,34 @@ describe('documentParser', () => {
             'This is sentence one.',
             'This is sentence two!'
         ]);
+    });
+
+    it('should correctly handle prose vs indices', () => {
+        const text = 'The year is 2024. Next sentence. 1. This is a list. I got an A. Next.';
+        const sentences = splitIntoSentences(text);
+        
+        expect(sentences).toEqual([
+            'The year is 2024.',
+            'Next sentence.',
+            '1. This is a list.',
+            'I got an A.',
+            'Next.'
+        ]);
+    });
+
+    it('should protect Roman numerals and nested indices anywhere', () => {
+        const text = 'Check iv. for more info. 1.2.3. is the version.';
+        const sentences = splitIntoSentences(text);
+        
+        expect(sentences).toEqual([
+            'Check iv. for more info.',
+            '1.2.3. is the version.'
+        ]);
+    });
+
+    it('should split on common words even if they are short', () => {
+        const text = 'It is. It was. We go.';
+        const sentences = splitIntoSentences(text);
+        expect(sentences).toEqual(['It is.', 'It was.', 'We go.']);
     });
 });

@@ -154,20 +154,57 @@ function createFallbackChapter(rawText: string): Chapter {
 }
 
 export function splitIntoSentences(text: string): string[] {
+    // 1. Configuration
     const abbreviations = [
         'Dr', 'Mr', 'Mrs', 'Ms', 'Jr', 'Sr', 'Prof', 'St', 
         'e\\.g', 'i\\.e', 'vs', 'etc', 'Vol', 'Fig', 'p\\.', 'pp\\.'
     ];
-    const abbrRegex = `(?<!\\b(?:${abbreviations.join('|')}))`;
-    const splitter = new RegExp(`${abbrRegex}[.!?]+(?:\\s+|$)`, 'g');
+    const commonWords = 'is|it|to|no|so|at|in|on|if|me|my|by|be|do|go|he|of|or|up|us|we';
+    const romanIndex = 'i|ii|iii|iv|v|vi|vii|viii|ix|x';
+
+    // 2. Protected patterns (Abbreviations, Roman Numerals, Multi-level indices like 1.1.1)
+    // These are protected regardless of their position in the text.
+    const protectedPrefix = `(?:${abbreviations.join('|')}|${romanIndex}|[a-zA-Z0-9]{1,3}(?:\\.[a-zA-Z0-9]+){1,2})`;
+    
+    // 3. The Boundary Splitter
+    // Uses negative lookbehind to avoid splitting on protected patterns.
+    // We removed commonWords from lookbehind as they should always be split points if punctuation follows.
+    const indexRegex = `(?<!\\b${protectedPrefix})`;
+    const splitter = new RegExp(`${indexRegex}[.!?]+(?:\\s+|$)`, 'gi');
 
     const result: string[] = [];
     let match;
     let lastIndex = 0;
 
     while ((match = splitter.exec(text)) !== null) {
-        result.push(text.slice(lastIndex, match.index + match[0].length).trim());
-        lastIndex = splitter.lastIndex;
+        let shouldSplit = true;
+        const matchPos = match.index;
+        const splitChar = match[0].trim().charAt(0);
+
+        // 4. Positional Heuristic for Single-level indices (1., a.)
+        // We only protect "1." or "a." if they are at the start of a block, follow a newline, 
+        // or follow a sentence boundary (punctuation + whitespace).
+        if (splitChar === '.') {
+            const precedingText = text.slice(0, matchPos).trim();
+            const lastWordMatch = precedingText.match(/\b(\d+|[a-zA-Z])$/);
+            
+            if (lastWordMatch) {
+                const isAtStart = precedingText.length === lastWordMatch[0].length;
+                const followsNewline = text.slice(0, matchPos).includes('\n');
+                const followsSentenceEnd = /[.!?]\s+$/.test(text.slice(0, matchPos - lastWordMatch[0].length));
+                
+                if (isAtStart || followsNewline || followsSentenceEnd) {
+                    shouldSplit = false; // Protected index: "1. Item" or "Ref. 1. Item"
+                } else {
+                    shouldSplit = true; // Prose count: "is 42. Next"
+                }
+            }
+        }
+
+        if (shouldSplit) {
+            result.push(text.slice(lastIndex, match.index + match[0].length).trim());
+            lastIndex = splitter.lastIndex;
+        }
     }
 
     if (lastIndex < text.length) {
@@ -175,9 +212,7 @@ export function splitIntoSentences(text: string): string[] {
         if (remaining) {result.push(remaining);}
     }
 
-    return result
-        .map(s => s.trim())
-        .filter(s => s.length > 0 && /[\p{L}\p{N}]/u.test(s));
+    return result.map(s => s.trim()).filter(s => s.length > 0 && /[\p{L}\p{N}]/u.test(s));
 }
 
 // Keeping legacy for compatibility but we will migrate callers
