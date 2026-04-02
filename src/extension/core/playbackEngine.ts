@@ -376,9 +376,8 @@ export class PlaybackEngine extends EventEmitter {
                 return null;
             }
 
-            // Escape ampersands which can break neural TTS XML wrapping
-            const speechText = cleanForSpeech(text);
-            const escapedText = speechText.replace(/&/g, '&amp;');
+            // XML character safety (Issue #36) is handled by cleanForSpeech
+            const escapedText = cleanForSpeech(text);
 
             // SECOND ABORT CHECK: Right before the expensive setMetadata/toStream calls
             if (signal?.aborted) {

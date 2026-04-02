@@ -54,5 +54,33 @@ describe('SpeechProcessor', () => {
                 expect(cleanForSpeech(input)).toBe(expected);
             });
         });
+
+        describe('XML/SSML Filtration (Issue #36)', () => {
+            it('should escape ampersands to &amp;', () => {
+                const input = 'AT&T and R&D.';
+                const expected = 'AT&amp;T and R&amp;D.';
+                expect(cleanForSpeech(input)).toBe(expected);
+            });
+
+            it('should replace < and > with spaces', () => {
+                const input = 'The <tag> is hidden.';
+                const expected = 'The tag is hidden.';
+                expect(cleanForSpeech(input)).toBe(expected);
+            });
+
+            it('should strip double and single quotes', () => {
+                const input = 'He said "Hello" and \'World\'.';
+                const expected = 'He said Hello and World.';
+                expect(cleanForSpeech(input)).toBe(expected);
+            });
+
+            it('should handle complex mixed XML breaks', () => {
+                const input = '<div class="test">AT&T & "More"</div>';
+                const expected = 'div class=test AT&amp;T &amp; More /div';
+                // Note: cleanForSpeech currently replaces < > with spaces, so:
+                // " div class=test AT&amp;T &amp; More /div " -> trim() -> "div class=test AT&amp;T &amp; More /div"
+                expect(cleanForSpeech(input)).toBe(expected);
+            });
+        });
     });
 });

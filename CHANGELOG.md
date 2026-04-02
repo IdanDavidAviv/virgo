@@ -7,6 +7,26 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.5.3] - 2026-04-02
+
+### Added
+- 
+
+## [1.5.3] - 2026-04-03
+
+### Added
+- **Chapter List UI Polish**:
+    - Improved visual hierarchy with refined multi-level indentation (H1: 12px, H2: 24px, H3: 36px).
+    - Integrated interactive file links (`[label](file:///...)`) into chapter titles with premium, embedded styling.
+    - Implemented a "Link-First" click priority to prevent unwanted chapter jumps when interacting with file links.
+- **Keyboard Navigation Debouncing**:
+    - Implemented a 100ms throttle for navigation keys (`ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`) to prevent command flooding and extension host overhead during key-hold events.
+
+### Fixed
+- **XML/SSML Synthesis Integrity (Issue #36)**:
+    - Implemented robust pre-filtration for ampersands (`&amp;`), tag delimiters (`<`/`>`), and quotes to ensure safe delivery to the Neural TTS engine.
+    - Centralized sanitization logic in `speechProcessor.ts` with comprehensive regression tests.
+
 ## [1.5.2] - 2026-04-02
 
 ### Added

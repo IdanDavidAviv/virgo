@@ -2,7 +2,7 @@ import { BaseComponent } from '../core/BaseComponent';
 import { WebviewStore, LocalUIState } from '../core/WebviewStore';
 import { MessageClient } from '../core/MessageClient';
 import { OutgoingAction, UISyncPacket } from '../../common/types';
-import { escapeHtml } from '../utils';
+import { escapeHtml, renderWithLinks } from '../utils';
 
 export interface ChapterListElements extends Record<string, HTMLElement | null | (HTMLElement | null)[] | undefined> {
     container: HTMLElement | null;
@@ -135,7 +135,7 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
 
             item.innerHTML = `
                 <span class="chevron">${chevronIcon}</span>
-                <span class="chapter-title">${escapeHtml(ch.title)}</span>
+                <span class="chapter-title">${renderWithLinks(ch.title)}</span>
                 <span class="chapter-row-count">${ch.count || 0} rows</span>
                 <span class="chapter-play-icon">▶</span>
             `;
@@ -145,6 +145,12 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
                     return;
                 }
                 const target = e.target as HTMLElement;
+                
+                // Don't trigger chapter switch if a file-link is clicked
+                if (target.closest('.file-link')) {
+                    return;
+                }
+
                 if (target.classList.contains('chevron')) {
                     if (isParent) {
                         this.toggleCollapse(i);

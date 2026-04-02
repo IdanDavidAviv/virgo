@@ -344,10 +344,21 @@ import { PlaybackController } from './playbackController';
     // Keyboard shortcuts remain at the top level for accessibility.
 
     // --- Keyboard Shortcuts ---
+    let lastNavTime = 0;
+    const NAV_THROTTLE = 100; // 100ms debounce for navigation (Issue #35)
+
     window.addEventListener('keydown', (e) => {
         // Don't trigger if typing in search input
         if (document.activeElement === voiceSearch) { return; }
         if (e.repeat) { return; }
+
+        const now = Date.now();
+        const isNavKey = ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.code);
+        
+        if (isNavKey && (now - lastNavTime < NAV_THROTTLE)) {
+            e.preventDefault();
+            return;
+        }
 
         switch (e.code) {
             case 'Space':
@@ -360,18 +371,22 @@ import { PlaybackController } from './playbackController';
                 break;
             case 'ArrowRight':
                 e.preventDefault();
+                lastNavTime = now;
                 client.postAction(OutgoingAction.NEXT_SENTENCE);
                 break;
             case 'ArrowLeft':
                 e.preventDefault();
+                lastNavTime = now;
                 client.postAction(OutgoingAction.PREV_SENTENCE);
                 break;
             case 'ArrowDown':
                 e.preventDefault();
+                lastNavTime = now;
                 client.postAction(OutgoingAction.NEXT_CHAPTER);
                 break;
             case 'ArrowUp':
                 e.preventDefault();
+                lastNavTime = now;
                 client.postAction(OutgoingAction.PREV_CHAPTER);
                 break;
         }
