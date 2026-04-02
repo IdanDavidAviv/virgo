@@ -134,7 +134,9 @@ import { PlaybackController } from './playbackController';
             btnCloudEngine: getEl('engine-neural'),
             btnLocalEngine: getEl('engine-local'),
             cacheDebugTag: getEl('cache-debug-tag'),
-            stateDebugTag: document.getElementById('state-debug-tag')
+            stateDebugTag: document.getElementById('state-debug-tag'),
+            engineToggleGroup: document.querySelector('.engine-toggle-group'),
+            neuralPlayer: getEl('neural-player')
         });
         settingsDrawerController.mount();
 
@@ -169,8 +171,36 @@ import { PlaybackController } from './playbackController';
 
 
 
+    // --- Log Sanitizer (#7) ---
+    // Mirrors legacy logSafeMessage: truncates binary blobs, shortens paths, skips noisy commands.
+    function logSafeMessage(msg) {
+        const command = msg.command;
+        if (command === 'UI_SYNC' || command === 'cacheStatus' || command === 'progress') { return; }
+        const sanitize = (val) => {
+            if (val === null || val === undefined) { return val; }
+            if (Array.isArray(val)) { return val.length > 5 ? `[CNT:${val.length}]` : val.map(sanitize); }
+            if (typeof val === 'string') {
+                if (val.length > 1000) { return `[BIN:${Math.round(val.length / 1024)}KB]`; }
+                if (val.includes('file:///')) { return val.split(/[\\/]/).pop(); }
+                return val.length > 64 ? val.substring(0, 61) + '...' : val;
+            }
+            if (typeof val === 'object') {
+                const s = {};
+                for (const k in val) { s[k] = sanitize(val[k]); }
+                return s;
+            }
+            return val;
+        };
+        const payload = Object.entries(msg)
+            .filter(([k]) => k !== 'command')
+            .map(([k, v]) => `${k}:${typeof v === 'object' ? JSON.stringify(sanitize(v)) : sanitize(v)}`)
+            .join(' | ');
+        console.log(`[EXTENSION -> DASHBOARD] [${command.toUpperCase()}] ${payload}`);
+    }
+
     // --- Message Handler ---
     async function handleCommand(message) {
+        logSafeMessage(message);
         switch (message.command) {
             case 'UI_SYNC':
                 // Handled by Components (WebviewStore)

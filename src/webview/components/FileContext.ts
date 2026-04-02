@@ -26,6 +26,11 @@ export class FileContext extends BaseComponent<FileContextElements> {
         if (this.els.btnLoadFile) {
             this.els.btnLoadFile.onclick = () => {
                 this.postAction(OutgoingAction.LOAD_DOCUMENT);
+                // Close the settings drawer if open (#5)
+                const drawer = document.getElementById('settings-drawer');
+                drawer?.classList.remove('open');
+                const engineToggleGroup = document.querySelector('.engine-toggle-group') as HTMLElement | null;
+                if (engineToggleGroup) { engineToggleGroup.style.display = 'none'; }
             };
         }
 
