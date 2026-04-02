@@ -7,11 +7,16 @@ export function cleanForSpeech(text: string): string {
     if (!text) { return ''; }
 
     // 1. Remove URI components but keep the label: [config.json](file:///...) -> config.json
-    // regex: \[([^\]]+)\]\((?:file|https?):\/\/[^\s)]+\)/g
     let cleaned = text.replace(/\[([^\]]+)\]\((?:file|https?):\/\/[^\s)]+\)/g, '$1');
 
-    // 2. Performance: Clean up trailing punctuation if it was before the link
-    // e.g. "Reviewing [file.ts](file:///...) changes." -> "Reviewing file.ts changes."
-    
+    // 2. Filter Emojis: Remove pictographics, flags, and skin tones so they aren't spoken (Issue #28)
+    // - Extended_Pictographic: Common emojis
+    // - Regional_Indicator: Flag components
+    // - \u{1F3FB}-\u{1F3FF}: Skin tone modifiers
+    cleaned = cleaned.replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\u{1F3FB}-\u{1F3FF}]/gu, '');
+
+    // 3. Cleanup: Remove double spaces potentially left by missing emojis
+    cleaned = cleaned.replace(/\s\s+/g, ' ');
+
     return cleaned.trim();
 }

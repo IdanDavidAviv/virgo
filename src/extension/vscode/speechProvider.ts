@@ -730,11 +730,32 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public nextChapter() {
-        this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode);
+        const state = this._stateStore.state;
+        const chapters = this._docController.chapters;
+        if (!chapters || chapters.length === 0) { return; }
+
+        const nextIdx = state.currentChapterIndex + 1;
+        if (nextIdx < chapters.length) {
+            this.jumpToChapter(nextIdx);
+        } else {
+            this._logger('[READALOUD] Already at the last chapter.');
+        }
     }
 
     public prevChapter() {
-        this._audioBridge.previous(this._getOptions());
+        const state = this._stateStore.state;
+        const chapters = this._docController.chapters;
+        if (!chapters || chapters.length === 0) { return; }
+
+        if (state.currentSentenceIndex > 0) {
+            // Restart current chapter
+            this.jumpToChapter(state.currentChapterIndex);
+        } else if (state.currentChapterIndex > 0) {
+            // Jump to previous chapter
+            this.jumpToChapter(state.currentChapterIndex - 1);
+        } else {
+            this._logger('[READALOUD] Already at the first chapter.');
+        }
     }
 
     public prevSentence() {

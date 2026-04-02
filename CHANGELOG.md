@@ -7,6 +7,17 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.4.2] - 2026-04-02
+
+### Added
+- **Unicode Emoji Filtering (Issue #27)**: Implemented Unicode-aware suppression of emojis, flags, and skin tone modifiers to ensure clear, distraction-free speech synthesis.
+- **Smart-Logic Navigation**: 
+    - `ArrowUp` now intelligently restarts the current chapter if work is in progress, or jumps back if already at the start.
+    - Implemented hardware-level key repeat guards to prevent command flooding and audio stutter in the dashboard.
+
+### Fixed
+- **Atomic Chapter Navigation (Issue #28)**: Resolved a core logic leak where chapter-level keyboard shortcuts were incorrectly triggering sentence-level skips.
+
 ## [1.4.1] - 2026-04-01
 
 ### Added

@@ -948,6 +948,7 @@ import { reconcilePlaybackUI } from './uiManager';
     window.addEventListener('keydown', (e) => {
         // Don't trigger if typing in search input
         if (document.activeElement === voiceSearch) { return; }
+        if (e.repeat) { return; }
 
         switch (e.code) {
             case 'Space':
@@ -966,6 +967,14 @@ import { reconcilePlaybackUI } from './uiManager';
             case 'ArrowLeft':
                 e.preventDefault();
                 if (btnPrevSentence) { btnPrevSentence.click(); }
+                break;
+            case 'ArrowDown':
+                e.preventDefault();
+                if (btnNext) { btnNext.click(); }
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                if (btnPrev) { btnPrev.click(); }
                 break;
         }
     });
