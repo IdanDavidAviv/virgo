@@ -6,6 +6,7 @@ export default defineConfig({
     environment: 'node', // Use node for non-DOM logic tests like documentParser
     globals: true,
     include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
+    setupFiles: ['./tests/vitest.setup.ts'],
   },
   resolve: {
     alias: {

@@ -60,10 +60,22 @@ export class WebviewStore {
   }
 
   /**
-   * Resets the singleton instance (primarily for testing).
+   * Resets the singleton instance and disposes of current listeners.
    */
   public static resetInstance(): void {
+    if (WebviewStore.instance) {
+      WebviewStore.instance.dispose();
+    }
     WebviewStore.instance = null;
+  }
+
+  /**
+   * Disposes of the instance by clearing all listeners and state.
+   */
+  public dispose(): void {
+    this.listeners.clear();
+    this.uiListeners.clear();
+    this.state = null;
   }
 
   /**
@@ -132,10 +144,17 @@ export class WebviewStore {
    */
   private updateState(newState: UISyncPacket): void {
     const oldState = this.state;
-    this.state = newState;
+    
+    // Ensure rate and volume have high-integrity defaults if missing from packet
+    // We merge with old state and provide ultimate fallbacks
+    const updatedState = { ...this.state, ...newState };
+    if (updatedState.rate === undefined) { updatedState.rate = 0; }
+    if (updatedState.volume === undefined) { updatedState.volume = 50; }
+    
+    this.state = updatedState as UISyncPacket;
 
     this.listeners.forEach((entry) => {
-      const newValue = entry.selector(newState);
+      const newValue = entry.selector(this.state!);
       if (oldState === null || !this.isEqual(newValue, entry.lastValue)) {
         entry.lastValue = newValue;
         entry.listener(newValue);

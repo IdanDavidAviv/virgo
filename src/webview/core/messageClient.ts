@@ -8,6 +8,8 @@ export class MessageClient {
   private static instance: MessageClient | null = null;
   private vscode: any;
   private handlers: Map<string, Array<(payload: any) => void>> = new Map();
+  private messageListener: ((event: MessageEvent) => void) | null = null;
+
 
   private constructor() {
     // VS Code API acquireVsCodeApi can only be called ONCE per session.
@@ -22,7 +24,8 @@ export class MessageClient {
     }
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('message', (event) => this.handleMessage(event));
+      this.messageListener = (event) => this.handleMessage(event);
+      window.addEventListener('message', this.messageListener);
     }
   }
 
@@ -37,10 +40,24 @@ export class MessageClient {
   }
 
   /**
-   * Resets the singleton instance (primarily for testing).
+   * Resets the singleton instance and disposes of current listeners.
    */
   public static resetInstance(): void {
+    if (MessageClient.instance) {
+      MessageClient.instance.dispose();
+    }
     MessageClient.instance = null;
+  }
+
+  /**
+   * Disposes of the instance by removing global event listeners and clearing handlers.
+   */
+  public dispose(): void {
+    if (typeof window !== 'undefined' && this.messageListener) {
+      window.removeEventListener('message', this.messageListener);
+      this.messageListener = null;
+    }
+    this.handlers.clear();
   }
 
   /**
