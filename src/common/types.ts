@@ -54,3 +54,47 @@ export interface UISyncPacket {
     rate: number;
     volume: number;
 }
+
+/**
+ * Commands sent FROM Extension TO Webview
+ */
+export enum IncomingCommand {
+    UI_SYNC = 'UI_SYNC',
+    PLAY_AUDIO = 'playAudio',
+    STOP = 'stop',
+    VOICES = 'voices',
+    ENGINE_STATUS = 'engineStatus',
+    SYNTHESIS_ERROR = 'synthesisError',
+    PURGE_MEMORY = 'PURGE_MEMORY',
+    PLAYBACK_STATE_CHANGED = 'playbackStateChanged'
+}
+
+/**
+ * Actions sent FROM Webview TO Extension
+ */
+export enum OutgoingAction {
+    READY = 'ready',
+    PLAY = 'play',
+    PAUSE = 'pause',
+    STOP = 'stop',
+    CONTINUE = 'continue',
+    LOAD_AND_PLAY = 'loadAndPlay',
+    JUMP_TO_CHAPTER = 'jumpToChapter',
+    JUMP_TO_SENTENCE = 'jumpToSentence',
+    PREV_CHAPTER = 'prevChapter',
+    NEXT_CHAPTER = 'nextChapter',
+    PREV_SENTENCE = 'prevSentence',
+    NEXT_SENTENCE = 'nextSentence',
+    SET_AUTO_PLAY_MODE = 'setAutoPlayMode',
+    SENTENCE_ENDED = 'sentenceEnded',
+    ENGINE_MODE_CHANGED = 'engineModeChanged',
+    VOICE_CHANGED = 'voiceChanged',
+    RATE_CHANGED = 'rateChanged',
+    VOLUME_CHANGED = 'volumeChanged',
+    RESET_CONTEXT = 'resetContext',
+    LOAD_DOCUMENT = 'loadDocument',
+    OPEN_FILE = 'OPEN_FILE',
+    REQUEST_SYNTHESIS = 'REQUEST_SYNTHESIS',
+    LOG = 'log',
+    ERROR = 'error'
+}

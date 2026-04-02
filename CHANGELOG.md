@@ -7,6 +7,17 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.4.3] - 2026-04-02
+
+### Added
+- **ESM Modularization Infrastructure (Phase 1 & 2)**: 
+    - **Reactive State Management**: Introduced `WebviewStore` with selector-based subscriptions for high-performance UI updates.
+    - **Resilient IPC Bridge**: Implemented `MessageClient` singleton to unify extension-to-dashboard communication.
+    - **Consolidated IPC Protocol**: Unified all IPC commands via shared TypeScript Enums for improved maintainability.
+
+### Fixed
+- **Dashboard Initialization Race**: Resolved a critical startup failure caused by a VS Code API singleton violation and script execution order.
+
 ## [1.4.2] - 2026-04-02
 
 ### Added
