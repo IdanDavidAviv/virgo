@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BaseComponent } from '@webview/core/BaseComponent';
 import { WebviewStore } from '@webview/core/WebviewStore';
-import { MessageClient } from '@webview/core/messageClient';
+import { MessageClient } from '@webview/core/MessageClient';
 import { IncomingCommand } from '@common/types';
 
 // Mock implementation for testing

@@ -614,13 +614,29 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* ---- Chapter Navigator ---- */
+.chapter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 4px 8px;
+    margin-top: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.chapter-header span:first-child {
+    font-size: 8px;
+    font-weight: 800;
+    color: #475569;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+}
 
 .chapter-progress-label {
-    font-size: 9px;
+    font-size: 10px;
     color: var(--primary);
     font-weight: 700;
-    letter-spacing: 0.08em;
-    opacity: 0.8;
+    letter-spacing: 0.05em;
+    opacity: 0.9;
 }
 
 .controls-row {

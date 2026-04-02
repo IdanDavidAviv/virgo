@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MessageClient } from '@webview/core/messageClient';
+import { MessageClient } from '@webview/core/MessageClient';
 import { IncomingCommand, OutgoingAction } from '@common/types';
 
 describe('MessageClient', () => {
@@ -33,9 +33,10 @@ describe('MessageClient', () => {
 
     client.postAction(OutgoingAction.READY, payload);
 
+    // MessageClient intentionally flattens payload into the top-level message object.
     expect(mockVsCodeApi.postMessage).toHaveBeenCalledWith({
       command: OutgoingAction.READY,
-      payload
+      test: true
     });
   });
 

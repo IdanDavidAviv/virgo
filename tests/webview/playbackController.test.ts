@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PlaybackController, PlaybackIntent, PlaybackMode } from '@webview/playbackController';
+import { MessageClient } from '@webview/core/MessageClient';
+import { WebviewStore } from '@webview/core/WebviewStore';
+import { OutgoingAction } from '@common/types';
 
 /**
  * @vitest-environment jsdom
@@ -10,9 +13,20 @@ describe('PlaybackController', () => {
     let controller: PlaybackController;
 
     beforeEach(() => {
-        vscode = { postMessage: vi.fn() };
+        WebviewStore.resetInstance();
+        vi.mock('@webview/core/MessageClient', () => {
+            const mockClient = {
+                getInstance: vi.fn(),
+                postAction: vi.fn(),
+                onCommand: vi.fn(),
+                handleMessage: vi.fn(),
+                subscribe: vi.fn(() => vi.fn())
+            };
+            mockClient.getInstance.mockReturnValue(mockClient);
+            return { MessageClient: mockClient };
+        });
         audio = { pause: vi.fn(), play: vi.fn(), currentTime: 0 };
-        controller = new PlaybackController(vscode, audio);
+        controller = new PlaybackController(audio);
         vi.useFakeTimers();
     });
 
@@ -21,7 +35,7 @@ describe('PlaybackController', () => {
         const state = controller.getState();
         expect(state.intent).toBe(PlaybackIntent.PLAYING);
         expect(state.isAwaitingSync).toBe(true);
-        expect(vscode.postMessage).toHaveBeenCalledWith({ command: 'continue' });
+        expect(MessageClient.getInstance().postAction).toHaveBeenCalledWith(OutgoingAction.CONTINUE);
     });
 
     it('should transition to STOPPED intent and clear lock immediately', () => {

@@ -399,15 +399,20 @@ export class PlaybackEngine extends EventEmitter {
                 const chunks: Buffer[] = [];
                 let hasErrored = false;
 
-                // START WATCHDOG (4s until Chunk 0)
-                this._startWatchdog(intentId, () => {
-                    if (hasErrored) { return; }
-                    this.logger(`[TTS HANG] Silent timeout (4s) for Intent ${intentId}. Recycling...`);
-                    hasErrored = true;
-                    this._reinitTTS(); // Force WebSocket cleanup
-                    audioStream.destroy();
-                    reject(new Error("Synthesis Timeout (4s)"));
-                });
+                // START ROLLING WATCHDOG (4s until Chunk 0, 10s between chunks)
+                const startWatchdog = (timeoutMs: number) => {
+                    this._clearWatchdog();
+                    this._startWatchdog(intentId, () => {
+                        if (hasErrored) { return; }
+                        this.logger(`[TTS HANG] Silent timeout (${timeoutMs}ms) for Intent ${intentId}. Recycling...`);
+                        hasErrored = true;
+                        this._reinitTTS(); // Force WebSocket cleanup
+                        audioStream.destroy();
+                        reject(new Error(`Synthesis Timeout (${timeoutMs}ms)`));
+                    });
+                };
+
+                startWatchdog(4000); // Wait 4s for first chunk
 
                 const onAbort = () => {
                     this.logger(`[TTS STREAM] ABORT SIGNAL received.`);
@@ -421,8 +426,11 @@ export class PlaybackEngine extends EventEmitter {
 
                 audioStream.on("data", (data: Buffer) => {
                     if (hasErrored) { return; }
+                    
+                    // Reset watchdog with a more generous 10s buffer between chunks
+                    startWatchdog(10000);
+                    
                     if (chunks.length === 0) {
-                        this._clearWatchdog();
                         this.logger(`[TTS STREAM] STARTING (chunk 0)`);
                     }
                     chunks.push(data);
@@ -445,20 +453,7 @@ export class PlaybackEngine extends EventEmitter {
                     reject(err);
                 });
 
-                // Safety timeout for synthesis
-                setTimeout(() => {
-                    if (hasErrored) { return; }
-                    this.logger(`[TTS STREAM] TIMEOUT (25s) - No data received from Azure.`);
-                    hasErrored = true;
-                    this._clearWatchdog();
-                    signal?.removeEventListener('abort', onAbort);
-
-                    // Hardening: Recycle the client on timeout to clear socket hangs
-                    this._reinitTTS();
-                    audioStream.destroy();
-
-                    reject(new Error("Synthesis Timeout (25s)"));
-                }, 25000);
+                // Global safety timeout removed in favor of rolling watchdog
             });
         } catch (err: any) {
             const errorMessage = err?.message || String(err);

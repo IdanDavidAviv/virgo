@@ -1,5 +1,5 @@
 import { BaseComponent } from '../core/BaseComponent';
-import { MessageClient } from '../core/messageClient';
+import { MessageClient } from '../core/MessageClient';
 import { OutgoingAction } from '../../common/types';
 import { renderWithLinks } from '../utils';
 

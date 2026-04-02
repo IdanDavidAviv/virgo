@@ -47,16 +47,51 @@ export class MessageClient {
    * Sends an action to the extension.
    * @param action The OutgoingAction to send.
    * @param payload The payload data associated with the action.
+   * @param silent If true, suppresses console logging for this specific call.
    */
-  public postAction<T = any>(action: OutgoingAction, payload?: T): void {
+  public postAction<T = any>(action: OutgoingAction, payload?: T, silent = false): void {
     if (!this.vscode) {
       console.warn(`[MessageClient] Cannot post action ${action}: VS Code API not available.`);
       return;
     }
-    this.vscode.postMessage({
-      command: action,
-      payload,
-    });
+
+    if (!silent) {
+      const summary = this.summarize(payload);
+      console.log(`%c[ACTION] %c${action}%c | ${JSON.stringify(summary || '')}`, 
+        'color: #3b82f6; font-weight: bold;', 
+        'color: #60a5fa;', 
+        'color: #94a3b8;');
+    }
+
+    const message: any = { command: action };
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      Object.assign(message, payload);
+    } else if (payload !== undefined) {
+      message.payload = payload;
+    }
+
+    this.vscode.postMessage(message);
+  }
+
+  /**
+   * Summarizes complex objects (arrays/large strings) for clean logging.
+   */
+  private summarize(obj: any): any {
+    if (obj === null || obj === undefined) { return obj; }
+    if (Array.isArray(obj)) {
+      return `[Array(${obj.length})]`;
+    }
+    if (typeof obj === 'string' && obj.length > 50) {
+      return `${obj.substring(0, 47)}...`;
+    }
+    if (typeof obj === 'object') {
+      const summary: any = {};
+      for (const [key, value] of Object.entries(obj)) {
+        summary[key] = this.summarize(value);
+      }
+      return summary;
+    }
+    return obj;
   }
 
   /**
@@ -88,6 +123,12 @@ export class MessageClient {
 
     // Support both legacy spread structure and new nested payload structure
     const finalPayload = payload !== undefined ? payload : rest;
+
+    const summary = this.summarize(finalPayload);
+    console.log(`%c[SIGNAL] %c${command}%c | ${JSON.stringify(summary || '')}`, 
+      'color: #10b981; font-weight: bold;', 
+      'color: #34d399;', 
+      'color: #94a3b8;');
 
     const commandHandlers = this.handlers.get(command);
     if (commandHandlers) {

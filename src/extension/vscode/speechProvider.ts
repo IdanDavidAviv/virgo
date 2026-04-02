@@ -19,18 +19,18 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _stateStore: StateStore;
     private _audioBridge: AudioBridge;
     private _dashboardRelay: DashboardRelay;
-    
+
     // Selection state (passive) - Moved to StateStore
-    
+
     private _playbackEngine: PlaybackEngine;
     private _needsSync: boolean = false;
     private _localVoices: any[] = [];
     private _neuralVoices: any[] = [];
     private _statusBarItem: vscode.StatusBarItem;
-    
+
     private _lastReportedProgress: number = -1;
     private _debounceTimers: Map<string, NodeJS.Timeout> = new Map();
-    
+
 
     constructor(
         private readonly _context: vscode.ExtensionContext,
@@ -85,7 +85,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             }
             this._saveProgressThrottled();
         });
-        
+
 
     }
 
@@ -124,7 +124,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         const fileName = path.basename(uri.fsPath);
         const isSupported = this._isFormatSupported(fileName);
-        
+
         let relativeDir = '';
         const folder = vscode.workspace.getWorkspaceFolder(uri);
         if (folder) {
@@ -151,7 +151,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._neuralVoices = neural;
             this._stateStore.setVoices(local, neural);
             this._logger(`[VOICE_SCAN] SUCCESS: Found ${this._localVoices.length} local SAPI voices and ${this._neuralVoices.length} neural voices.`);
-            
+
             // Critical: Ensure UI is synced after voices are loaded to prevent empty dropdowns
             this._syncUI();
         } catch (e) {
@@ -180,11 +180,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._saveProgressTimer = setTimeout(() => {
             const state = this._stateStore.state;
             if (!state.activeDocumentUri) { return; }
-            
+
             const uriStr = state.activeDocumentUri.toString();
             const saltStr = state.versionSalt ? `-${state.versionSalt}` : '';
             const hashStr = state.activeContentHash ? `#${state.activeContentHash}` : '';
-            
+
             // NEW: Composite Content-Aware Key
             const storageKey = `${uriStr}${saltStr}${hashStr}`;
 
@@ -193,16 +193,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 sentenceIndex: state.currentSentenceIndex,
                 lastUpdated: Date.now()
             };
-            
+
             const allProgress = this._context.globalState.get<Record<string, any>>('readAloud.docProgress', {});
-            
+
             // [REINFORCEMENT] If we have a legacy entry for this EXACT file, clean it up now that we're saving a hashed version
             if (allProgress[uriStr]) {
                 delete allProgress[uriStr];
             }
 
             allProgress[storageKey] = progress;
-            
+
             // [REINFORCEMENT] Scoped Garbage Collection (Limit to 50 entries)
             const keys = Object.keys(allProgress);
             if (keys.length > 50) {
@@ -228,17 +228,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const uriStr = uri.toString();
         const saltStr = salt ? `-${salt}` : '';
         const hashStr = hash ? `#${hash}` : '';
-        
+
         const storageKey = `${uriStr}${saltStr}${hashStr}`;
 
         // 1. Try the Content-Aware Key
         let progress = allProgress[storageKey];
-        
+
         // 2. [PASSIVE MIGRATION] Fallback to legacy URI-only key
         if (!progress && allProgress[uriStr]) {
             progress = allProgress[uriStr];
             this._logger(`[MIGRATION] Found legacy progress for ${uri.path}. Upgrading to content-aware key.`);
-            
+
             // Note: We don't delete here to keep this method READ-ONLY. 
             // The next _saveProgressThrottled (triggered by position updates) will handle the deletion.
         }
@@ -265,7 +265,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             const sanitized: any = {};
             for (const key in payload) {
                 const val = payload[key];
-                
+
                 // DATA: Always redact massive binary/base64 strings
                 if (key === 'data' && typeof val === 'string' && val.length > 1000) {
                     sanitized[key] = `[BINARY_DATA: ${Math.round(val.length / 1024)}KB]`;
@@ -367,7 +367,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
 
         webviewView.webview.html = this._getLoadingHtml();
-        
+
         // --- NEW NATIVE MODE ---
         this._view.webview.html = this._getHtmlForWebview(webviewView.webview);
     }
@@ -415,7 +415,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         try {
             this._stateStore.setRefreshing(true);
-            
+
             this._logger(`[REFRESH] INJECTING NATIVE WEBVIEW HTML`);
             this._view.webview.html = this._getHtmlForWebview(this._view.webview);
         } catch (e) {
@@ -428,18 +428,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     private _getHtmlForWebview(webview: vscode.Webview): string {
         const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'dashboard.js'));
-        const controllerUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'playbackController.js'));
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'style.css'));
-        
+
         const htmlPath = vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'speechEngine.html');
         let html = fs.readFileSync(htmlPath.fsPath, 'utf8');
 
         // Inject URIs
         html = html.replace('${inlineStyle}', '') // Remove old injection point
-                   .replace('${inlineScript}', '') // Remove old injection point
-                   .replace('</head>', `<link rel="stylesheet" href="${styleUri}">\n</head>`)
-                   .replace('</body>', `
-                        <script src="${controllerUri}"></script>
+            .replace('${inlineScript}', '') // Remove old injection point
+            .replace('</head>', `<link rel="stylesheet" href="${styleUri}">\n</head>`)
+            .replace('</body>', `
                         <script src="${scriptUri}"></script>
                     </body>`);
 
@@ -512,15 +510,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public refreshView() {
         this._syncUI();
         this._broadcastVoices();
-        
+
         if (this._docController.chapters.length > 0) {
             this._postToAll({
                 command: 'chapters',
-                chapters: this._docController.chapters.map((c, i) => ({ 
-                    title: c.title, 
-                    level: c.level, 
+                chapters: this._docController.chapters.map((c, i) => ({
+                    title: c.title,
+                    level: c.level,
                     index: i,
-                    count: c.sentences.length 
+                    count: c.sentences.length
                 })),
                 current: this._stateStore.state.currentChapterIndex,
                 total: this._docController.chapters.length
@@ -528,11 +526,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async _handleWebviewMessage(data: any, source: string) {
-        this._logger(`[READALOUD <- WEBVIEW] Command: ${data.command}`);
-        
+    private async _handleWebviewMessage(data: any, source: string = 'webview') {
+        if (!data || !data.command) {
+            this._logger(`[DASHBOARD -> EXTENSION] IGNORED_MALFORMED_MESSAGE: ${JSON.stringify(data)}`);
+            return;
+        }
 
-        switch (data.command) {
+        const cmd = data.command;
+        this._logger(`[READALOUD <- ${source.toUpperCase()}] Command: ${cmd}`);
+
+        switch (cmd) {
             case 'ready':
                 this._sendInitialState();
                 if (this._docController.chapters.length > 0) {
@@ -584,15 +587,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     this._audioBridge.next(this._getOptions(), false, this._stateStore.state.autoPlayMode);
                 }
                 break;
-            case 'nextSentence': 
-                this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode); 
+            case 'nextSentence':
+                this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode);
                 break;
             case 'prevSentence':
                 this._audioBridge.previous(this._getOptions());
                 break;
             case 'jumpToSentence': this.jumpToSentence(data.index); break;
             case 'continue': this.continue(); break;
-            case 'loadAndPlay': 
+            case 'loadAndPlay':
                 const loaded = await this.loadCurrentDocument();
                 if (loaded) {
                     this.continue();
@@ -615,7 +618,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(data.uri));
                 }
                 break;
-            case 'log': this._logger(`[${source.toUpperCase()}] ${data.message}`); break;
+            case 'error':
+                this._logger(`[DASHBOARD_CRITICAL] ${data.message || 'Unknown Error'}`);
+                break;
+            case 'log': 
+                const logType = (data.type || 'info').toUpperCase();
+                this._logger(`[${source.toUpperCase()}:${logType}] ${data.message}`); 
+                break;
         }
     }
 
@@ -627,7 +636,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public async loadCurrentDocument(): Promise<boolean> {
         // [REINFORCEMENT] Clear current playback immediately to prevent audio overlap
-        this.stop(); 
+        this.stop();
 
         const success = await this._docController.loadActiveDocument();
         if (!success) {
@@ -658,7 +667,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (saved) {
             this._logger(`[PERSISTENCE] Restored position: ${saved.chapterIndex}:${saved.sentenceIndex}`);
         }
-        
+
         // UNIFIED SYNC: Propagate the updated state to Dashboard
         this._syncUI();
 
@@ -666,14 +675,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             const currentPos = this._stateStore.state;
             const currentChapter = chapters[currentPos.currentChapterIndex] || chapters[0];
             const text = currentChapter.sentences[currentPos.currentSentenceIndex] || currentChapter.sentences[0];
-            
+
             this._postToAll({
                 command: 'sentenceChanged',
                 text: text,
                 index: currentPos.currentSentenceIndex
             });
         }
-        
+
         return true;
     }
 
@@ -681,7 +690,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._audioBridge.stop();
         this._docController.clear();
         this._stateStore.clearActiveContext();
-        
+
         this._syncUI();
         this._logger('[READALOUD] Context Reset: Reader cleared.');
     }
@@ -723,7 +732,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public jumpToChapter(index: number) {
         const chapters = this._docController.chapters;
-        if (index < 0 || index >= chapters.length) {return;}
+        if (index < 0 || index >= chapters.length) { return; }
         this._stateStore.setPreviewing(false);
         this._playbackEngine.setPlaying(true);
         this._audioBridge.start(index, 0, this._getOptions());

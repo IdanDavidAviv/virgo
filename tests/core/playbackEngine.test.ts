@@ -195,7 +195,7 @@ describe('PlaybackEngine', () => {
             await vi.advanceTimersByTimeAsync(4100);
 
             expect(logger).toHaveBeenCalledWith(expect.stringContaining('[TTS HANG]'));
-            await expect(p).rejects.toThrow('Synthesis Timeout (4s)');
+            await expect(p).rejects.toThrow('Synthesis Timeout (4000ms)');
         });
 
         it('should initiate retry loop on hang', async () => {
@@ -242,7 +242,7 @@ describe('PlaybackEngine', () => {
             await vi.advanceTimersByTimeAsync(4100); // 1st hang
             await vi.advanceTimersByTimeAsync(8100); // Backoff + 2nd hang
             
-            await expect(p).rejects.toThrow('Synthesis Timeout (4s)');
+            await expect(p).rejects.toThrow('Synthesis Timeout (4000ms)');
         });
     });
 

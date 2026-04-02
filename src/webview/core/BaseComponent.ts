@@ -1,10 +1,12 @@
 import { WebviewStore, Selector, Listener } from './WebviewStore';
+import { MessageClient } from './MessageClient';
+import { OutgoingAction } from '../../common/types';
 
 /**
  * BaseComponent: Abstract foundation for all UI components in the Read Aloud Dashboard.
  * Handles DOM element mapping, store subscriptions, and lifecycle hooks.
  */
-export abstract class BaseComponent<T extends Record<string, HTMLElement | null>> {
+export abstract class BaseComponent<T extends Record<string, HTMLElement | null | (HTMLElement | null)[] | undefined>> {
   protected els: T;
   protected store: WebviewStore;
   private unsubscribers: Array<() => void> = [];
@@ -16,14 +18,32 @@ export abstract class BaseComponent<T extends Record<string, HTMLElement | null>
   }
 
   /**
-   * Validates that all required elements are present in the DOM.
+   * Validates that all critical DOM elements are present.
    */
   protected validateElements(): void {
     Object.entries(this.els).forEach(([name, el]) => {
-      if (!el) {
+      if (Array.isArray(el)) {
+        el.forEach((subEl, i) => {
+          if (!subEl) {
+            console.warn(`[Component] Missing expected sub-element for ${this.constructor.name}: ${name}[${i}]`);
+          }
+        });
+      } else if (!el) {
         console.warn(`[Component] Missing expected element for ${this.constructor.name}: ${name}`);
       }
     });
+  }
+
+  /**
+   * Post an action to the extension with Tier-3 shorthand logging.
+   */
+  protected postAction(command: OutgoingAction, payload?: any): void {
+    console.log(`%c[ACTION] %c${command}%c | ${JSON.stringify(payload || '')}`, 
+      'color: #3b82f6; font-weight: bold;', 
+      'color: #60a5fa;', 
+      'color: #94a3b8;');
+    
+    MessageClient.getInstance().postAction(command, payload);
   }
 
   /**
@@ -31,6 +51,14 @@ export abstract class BaseComponent<T extends Record<string, HTMLElement | null>
    */
   protected subscribe<V>(selector: Selector<V>, listener: Listener<V>): void {
     const unsub = this.store.subscribe(selector, listener);
+    this.unsubscribers.push(unsub);
+  }
+
+  /**
+   * Subscribes to a local UI store slice and tracks the unsubscriber for cleanup.
+   */
+  protected subscribeUI<V>(selector: Selector<V, any>, listener: Listener<V>): void {
+    const unsub = this.store.subscribeUI(selector, listener);
     this.unsubscribers.push(unsub);
   }
 

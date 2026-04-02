@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SentenceNavigator } from '@webview/components/SentenceNavigator';
 import { WebviewStore } from '@webview/core/WebviewStore';
-import { MessageClient } from '@webview/core/messageClient';
+import { MessageClient } from '@webview/core/MessageClient';
 import { IncomingCommand, OutgoingAction } from '@common/types';
 
 describe('SentenceNavigator', () => {
