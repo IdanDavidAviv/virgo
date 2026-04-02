@@ -5,6 +5,11 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [Unreleased]
 
 ### Added
+- 
+
+## [1.4.5] - 2026-04-02
+
+### Added
 - **Dashboard Modularization (Phase 5.3)**: Extracted `SentenceNavigator` logic into a strictly-typed, reactive TypeScript component.
 - **Webview Component Infrastructure**: Introduced `BaseComponent` abstract class to standardize lifecycle hooks and `WebviewStore` subscription management.
 - **Enhanced UI Snap-back**: Integrated internal "Pending Jump" state in `SentenceNavigator` for immediate visual feedback during playback navigation.
