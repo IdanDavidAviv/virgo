@@ -7,6 +7,21 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.5.2] - 2026-04-02
+
+### Added
+- **Premium UI Restoration**:
+    - Restored **Glassmorphism** effects and deep transparency to the settings drawer.
+    - Implemented a custom, searchable **Voice Selector** with neural voice indicators (✨).
+    - Added real-time numeric feedback for speed and volume sliders.
+- **Testing Stability Infrastructure**:
+    - Added `dispose()` methods to `MessageClient`, `WebviewStore`, and `ToastManager` for high-integrity lifecycle management.
+    - Introduced a global `vitest.setup.ts` to provide `indexedDB` and `scrollIntoView` mocks for the JSDOM environment.
+
+### Fixed
+- **Testing Memory Leaks**: Resolved systemic event listener accumulation and pending timer leaks in the webview components.
+- **Audio Defaults**: Enforced safe startup defaults (`rate: 0`, `volume: 50%`) to prevent audio clipping and playback drift.
+
 ## [1.5.0] - 2026-04-02
 
 ### Added
