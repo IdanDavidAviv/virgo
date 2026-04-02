@@ -7,6 +7,11 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.4.4] - 2026-04-02
+
+### Fixed
+- **Markdown List Index Parsing (Issue #31)**: Implemented a position-aware, reinforced regex strategy to prevent multi-level indices (e.g., `1.1.`), Roman numerals, and mid-paragraph list markers from being incorrectly segmented as sentences.
+
 ## [1.4.3] - 2026-04-02
 
 ### Added
