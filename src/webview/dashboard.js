@@ -1,5 +1,8 @@
 import { CacheManager } from './cacheManager';
 import { reconcilePlaybackUI } from './uiManager';
+import { MessageClient } from './core/messageClient';
+import { WebviewStore } from './core/WebviewStore';
+import { OutgoingAction } from '../common/types';
 
 
 (function () {
@@ -10,6 +13,15 @@ import { reconcilePlaybackUI } from './uiManager';
             try { window.vscode.postMessage({ command: 'error', message: errorDetail }); } catch (e) { }
         }
     };
+
+    // --- High-Integrity Infrastructure (Phase 5.1 & 5.2) ---
+    const client = MessageClient.getInstance();
+    const store = WebviewStore.getInstance();
+
+    // Verification Probe: Reactive logging for state synchronization
+    store.subscribe((state) => state.isPlaying, (isPlaying) => {
+        console.log(`%c[WebviewStore] State Sync -> isPlaying: ${isPlaying}`, 'color: #00ff00; background: #222; padding: 2px 5px; border-radius: 4px;');
+    });
 
     const vscode = window.vscode;
     
@@ -39,6 +51,7 @@ import { reconcilePlaybackUI } from './uiManager';
     
     // --- Persistence ---
     const cache = new CacheManager();
+
 
     // --- Components ---
     class SentenceNavigator {
@@ -980,7 +993,11 @@ import { reconcilePlaybackUI } from './uiManager';
     });
 
     if (vscode) {
-        window.addEventListener('message', event => handleCommand(event.data));
+        window.addEventListener('message', event => {
+            // Hook new infrastructure into the main event loop
+            client.handleMessage(event.data);
+            handleCommand(event.data);
+        });
         
         // Delegated click listener for file links
         document.body.addEventListener('click', (e) => {
@@ -991,6 +1008,7 @@ import { reconcilePlaybackUI } from './uiManager';
             }
         });
 
-        vscode.postMessage({ command: 'ready' });
+        // Initial 'ready' signal using high-integrity client
+        client.postAction(OutgoingAction.READY);
     }
 }());

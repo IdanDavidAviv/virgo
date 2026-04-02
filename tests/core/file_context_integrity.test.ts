@@ -49,7 +49,7 @@ describe('File Context Integrity (Regression Suite)', () => {
         stateStore.setActiveDocument({ toString: () => activeUri } as any, 'active.md', 'data', 'V2');
         
         // 2. Act
-        relay.sync('auto', 'neural', 'voice', 0, 50, [], []);
+        relay.sync();
 
         // 3. Assert
         const postMessage = (relay as any)._view.webview.postMessage;
@@ -69,7 +69,7 @@ describe('File Context Integrity (Regression Suite)', () => {
         stateStore.setFocusedFile({ toString: () => 'uri' } as any, 'File.md', deepDir, true);
         
         // 2. Act
-        relay.sync('auto', 'neural', 'voice', 0, 50, [], []);
+        relay.sync();
 
         // 3. Assert
         const packet = (relay as any)._view.webview.postMessage.mock.calls[0][0];
@@ -83,7 +83,7 @@ describe('File Context Integrity (Regression Suite)', () => {
         stateStore.setFocusedFile({ toString: () => 'uri' } as any, 'file.md', 'dir', true, salt);
         
         // 2. Act
-        relay.sync('auto', 'neural', 'voice', 0, 50, [], []);
+        relay.sync();
 
         // 3. Assert
         const packet = (relay as any)._view.webview.postMessage.mock.calls[0][0];
@@ -95,7 +95,7 @@ describe('File Context Integrity (Regression Suite)', () => {
         stateStore.setFocusedFile({ toString: () => 'image.png' } as any, 'image.png', 'assets', false);
         
         // 2. Act
-        relay.sync('auto', 'neural', 'voice', 0, 50, [], []);
+        relay.sync();
 
         // 3. Assert
         const packet = (relay as any)._view.webview.postMessage.mock.calls[0][0];
@@ -109,7 +109,7 @@ describe('File Context Integrity (Regression Suite)', () => {
         
         // 2. Act: Focus undefined (simulating setActiveEditor(undefined))
         stateStore.setFocusedFile(undefined, 'No Selection', '', false);
-        relay.sync('auto', 'neural', 'voice', 0, 50, [], []);
+        relay.sync();
 
         // 3. Assert
         const packet = (relay as any)._view.webview.postMessage.mock.calls[0][0];
