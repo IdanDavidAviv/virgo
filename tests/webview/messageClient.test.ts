@@ -3,12 +3,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MessageClient } from '@webview/core/messageClient';
-import { IncomingCommand, OutgoingAction } from '@webview/types';
+import { IncomingCommand, OutgoingAction } from '@common/types';
 
 describe('MessageClient', () => {
   let mockVsCodeApi: any;
 
   beforeEach(() => {
+    (window as any).vscode = null;
     // Reset singleton if possible or mock the global vscode object
     mockVsCodeApi = {
       postMessage: vi.fn(),
@@ -38,14 +39,14 @@ describe('MessageClient', () => {
     });
   });
 
-  it('should route incoming commands to registered handlers', () => {
+  it('should route incoming commands with nested payload', () => {
     const client = MessageClient.getInstance();
     const handler = vi.fn();
     const payload = { state: 'updated' };
 
     client.onCommand(IncomingCommand.UI_SYNC, handler);
 
-    // Simulate incoming message
+    // Simulate incoming message with nested payload
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         command: IncomingCommand.UI_SYNC,
@@ -54,5 +55,28 @@ describe('MessageClient', () => {
     }));
 
     expect(handler).toHaveBeenCalledWith(payload);
+  });
+
+  it('should route legacy spread-style incoming commands', () => {
+    const client = MessageClient.getInstance();
+    const handler = vi.fn();
+    
+    // Legacy structure from DashboardRelay.ts: { command: 'UI_SYNC', ...packet }
+    const spreadPacket = {
+      state: { currentChapterIndex: 5 },
+      isPlaying: true
+    };
+
+    client.onCommand(IncomingCommand.UI_SYNC, handler);
+
+    // Simulate incoming message with spread properties
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        command: IncomingCommand.UI_SYNC,
+        ...spreadPacket
+      }
+    }));
+
+    expect(handler).toHaveBeenCalledWith(spreadPacket);
   });
 });

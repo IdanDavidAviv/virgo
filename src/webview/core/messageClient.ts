@@ -1,4 +1,4 @@
-import { IncomingCommand, OutgoingAction } from '../types';
+import { IncomingCommand, OutgoingAction } from '@common/types';
 
 /**
  * MessageClient singleton for webview-to-extension communication.
@@ -10,8 +10,20 @@ export class MessageClient {
   private handlers: Map<string, Array<(payload: any) => void>> = new Map();
 
   private constructor() {
-    this.vscode = (window as any).acquireVsCodeApi?.();
-    window.addEventListener('message', this.handleMessage.bind(this));
+    // VS Code API acquireVsCodeApi can only be called ONCE per session.
+    // We check window.vscode first to prevent fatal errors and support legacy scripts.
+    if ((window as any).vscode) {
+      this.vscode = (window as any).vscode;
+    } else if ((window as any).acquireVsCodeApi) {
+      this.vscode = (window as any).acquireVsCodeApi();
+      (window as any).vscode = this.vscode;
+    } else {
+      console.warn('[MessageClient] acquireVsCodeApi is not available. Are you in a VS Code webview?');
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('message', (event) => this.handleMessage(event));
+    }
   }
 
   /**
@@ -53,10 +65,11 @@ export class MessageClient {
    * @param callback The function to call when the command is received.
    */
   public onCommand<T = any>(command: IncomingCommand, callback: (payload: T) => void): void {
-    if (!this.handlers.has(command)) {
-      this.handlers.set(command, []);
+    const cmdStr = command as string;
+    if (!this.handlers.has(cmdStr)) {
+      this.handlers.set(cmdStr, []);
     }
-    this.handlers.get(command)?.push(callback);
+    this.handlers.get(cmdStr)?.push(callback);
   }
 
   /**
@@ -64,14 +77,21 @@ export class MessageClient {
    */
   private handleMessage(event: MessageEvent): void {
     const message = event.data;
-    if (!message || typeof message !== 'object') {return;}
+    if (!message || typeof message !== 'object') {
+      return;
+    }
 
-    const { command, payload } = message;
-    if (!command) {return;}
+    const { command, payload, ...rest } = message;
+    if (!command) {
+      return;
+    }
+
+    // Support both legacy spread structure and new nested payload structure
+    const finalPayload = payload !== undefined ? payload : rest;
 
     const commandHandlers = this.handlers.get(command);
     if (commandHandlers) {
-      commandHandlers.forEach((handler) => handler(payload));
+      commandHandlers.forEach((handler) => handler(finalPayload));
     }
   }
 }
