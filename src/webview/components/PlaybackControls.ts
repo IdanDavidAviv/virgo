@@ -1,6 +1,6 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { WebviewStore } from '../core/WebviewStore';
-import { MessageClient } from '../core/messageClient';
+import { MessageClient } from '../core/MessageClient';
 import { OutgoingAction } from '../../common/types';
 
 export interface PlaybackControlsElements extends Record<string, HTMLElement | null> {

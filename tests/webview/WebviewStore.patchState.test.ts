@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WebviewStore } from '@webview/core/WebviewStore';
-import { MessageClient } from '@webview/core/messageClient';
+import { MessageClient } from '@webview/core/MessageClient';
 import { IncomingCommand, UISyncPacket } from '@common/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

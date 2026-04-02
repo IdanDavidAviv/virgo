@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PlaybackControls } from '@webview/components/PlaybackControls';
 import { WebviewStore } from '@webview/core/WebviewStore';
-import { MessageClient } from '@webview/core/messageClient';
+import { MessageClient } from '@webview/core/MessageClient';
 import { IncomingCommand } from '@common/types';
 
 describe('PlaybackControls', () => {

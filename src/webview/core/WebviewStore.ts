@@ -1,4 +1,4 @@
-import { MessageClient } from './messageClient';
+import { MessageClient } from './MessageClient';
 import { IncomingCommand, UISyncPacket } from '@common/types';
 
 export type Selector<T, S = UISyncPacket> = (state: S) => T;

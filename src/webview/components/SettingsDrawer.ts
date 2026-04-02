@@ -1,7 +1,7 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { ToastManager } from './ToastManager';
 import { CacheManager } from '../cacheManager';
-import { MessageClient } from '../core/messageClient';
+import { MessageClient } from '../core/MessageClient';
 import { OutgoingAction } from '../../common/types';
 
 export interface SettingsDrawerElements extends Record<string, HTMLElement | HTMLInputElement | HTMLButtonElement | HTMLMediaElement | null | undefined> {
