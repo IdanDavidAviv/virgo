@@ -12,6 +12,8 @@ export interface SettingsDrawerElements extends Record<string, HTMLElement | HTM
     rateSlider: HTMLInputElement;
     btnCloudEngine: HTMLButtonElement;
     btnLocalEngine: HTMLButtonElement;
+    rateVal: HTMLElement | null;
+    volumeVal: HTMLElement | null;
     cacheDebugTag: HTMLElement;
     stateDebugTag: HTMLElement;
     engineToggleGroup: HTMLElement | null;
@@ -36,12 +38,19 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             if (!this.isDraggingSlider && this.els.volumeSlider) {
                 this.els.volumeSlider.value = String(volume);
             }
+            if (this.els.volumeVal) {
+                this.els.volumeVal.textContent = `${volume}%`;
+            }
         });
 
         // 2. Rate State Sync — guard against feedback loop during drag (#4)
         this.subscribe((state) => state.rate, (rate) => {
             if (!this.isDraggingSlider && this.els.rateSlider) {
                 this.els.rateSlider.value = String(rate);
+            }
+            if (this.els.rateVal) {
+                const displayRate = (1 + (rate / 10)).toFixed(1);
+                this.els.rateVal.textContent = `${displayRate}x`;
             }
         });
 
@@ -98,6 +107,9 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             this.els.volumeSlider.oninput = (e) => {
                 this.isDraggingSlider = true;
                 const val = parseFloat((e.target as HTMLInputElement).value);
+                if (this.els.volumeVal) {
+                    this.els.volumeVal.textContent = `${val}%`;
+                }
                 this.messenger.postAction(OutgoingAction.VOLUME_CHANGED, { volume: val });
             };
             this.els.volumeSlider.onchange = (e) => {
@@ -111,6 +123,10 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             this.els.rateSlider.oninput = (e) => {
                 this.isDraggingSlider = true;
                 const val = parseFloat((e.target as HTMLInputElement).value);
+                if (this.els.rateVal) {
+                    const displayRate = (1 + (val / 10)).toFixed(1);
+                    this.els.rateVal.textContent = `${displayRate}x`;
+                }
                 // Live playbackRate preview on the audio element (#8)
                 if (this.els.neuralPlayer && !(this.els.neuralPlayer as HTMLMediaElement).paused) {
                     (this.els.neuralPlayer as HTMLMediaElement).playbackRate =

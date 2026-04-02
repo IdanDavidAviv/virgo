@@ -2,11 +2,9 @@ import { BaseComponent } from '../core/BaseComponent';
 import { MessageClient } from '../core/MessageClient';
 import { OutgoingAction } from '../../common/types';
 
-export interface VoiceSelectorElements extends Record<string, HTMLElement | HTMLInputElement | HTMLSelectElement | null | undefined> {
-    container: HTMLElement;
-    searchInput: HTMLInputElement;
+export interface VoiceSelectorElements extends Record<string, HTMLElement | HTMLInputElement | null | undefined> {
     voiceList: HTMLElement;
-    voiceSelect: HTMLSelectElement;
+    searchInput: HTMLInputElement;
 }
 
 /**
@@ -35,12 +33,7 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
     }
 
     private setupListeners(): void {
-        if (this.els.voiceSelect) {
-            this.els.voiceSelect.onchange = (e) => {
-                const voiceId = (e.target as HTMLSelectElement).value;
-                this.client.postAction(OutgoingAction.VOICE_CHANGED, { voiceId });
-            };
-        }
+        // No manual change listener needed for div-based list; clicks handle it.
 
         if (this.els.searchInput) {
             this.els.searchInput.oninput = (e) => {
@@ -59,30 +52,58 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
     }
 
     /**
-     * Internal rendering logic for the select box.
+     * Internal rendering logic for the custom premium list.
      */
     private renderVoiceList(voicesToUse: any[], selectedVoice: string | undefined, mode: string): void {
-        if (!this.els.voiceSelect) {return;}
+        if (!this.els.voiceList) { return; }
         
-        this.els.voiceSelect.innerHTML = '';
+        this.els.voiceList.innerHTML = '';
 
-        voicesToUse.forEach((v: any) => {
+        const filtered = voicesToUse.filter((v: any) => {
+            const name = typeof v === 'string' ? v : v.name;
+            const lang = typeof v === 'string' ? '' : v.lang;
+            return !this.searchTerm || 
+                   name.toLowerCase().includes(this.searchTerm) || 
+                   lang.toLowerCase().includes(this.searchTerm);
+        });
+
+        if (filtered.length === 0) {
+            this.els.voiceList.innerHTML = '<div class="voice-placeholder">No voices found</div>';
+            return;
+        }
+
+        filtered.forEach((v: any) => {
             const name = typeof v === 'string' ? v : v.name;
             const lang = typeof v === 'string' ? '' : v.lang;
             const id = typeof v === 'string' ? v : v.id;
 
-            if (!this.searchTerm || name.toLowerCase().includes(this.searchTerm) || lang.toLowerCase().includes(this.searchTerm)) {
-                const opt = document.createElement('option');
-                opt.value = id;
-                
-                if (mode === 'neural') {
-                    opt.textContent = `✨ ${name} ${lang ? `(${lang})` : ''}`;
-                } else {
-                    opt.textContent = name;
-                }
+            const item = document.createElement('div');
+            item.className = 'voice-item';
+            if (id === selectedVoice) { item.classList.add('selected'); }
 
-                if (id === selectedVoice) { opt.selected = true; }
-                this.els.voiceSelect.appendChild(opt);
+            const label = document.createElement('span');
+            label.className = 'flex-1';
+            
+            if (mode === 'neural') {
+                label.innerHTML = `<span class="sparkle">✨</span> ${name} ${lang ? `<small style="opacity:0.5; font-size:9px">(${lang})</small>` : ''}`;
+            } else {
+                label.textContent = name;
+            }
+
+            item.appendChild(label);
+            
+            item.onclick = () => {
+                this.client.postAction(OutgoingAction.VOICE_CHANGED, { voiceId: id });
+                // Optimistic UI update
+                this.els.voiceList?.querySelectorAll('.voice-item').forEach(el => el.classList.remove('selected'));
+                item.classList.add('selected');
+            };
+
+            this.els.voiceList?.appendChild(item);
+            
+            // Scroll selected into view on first render
+            if (id === selectedVoice) {
+                setTimeout(() => item.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 50);
             }
         });
     }

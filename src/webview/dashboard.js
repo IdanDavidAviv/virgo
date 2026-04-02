@@ -131,6 +131,8 @@ import { PlaybackController } from './playbackController';
             drawer: getEl('settings-drawer'),
             rateSlider: getEl('rate-slider'),
             volumeSlider: getEl('volume-slider'),
+            rateVal: getEl('rate-val'),
+            volumeVal: getEl('volume-val'),
             btnCloudEngine: getEl('engine-neural'),
             btnLocalEngine: getEl('engine-local'),
             cacheDebugTag: getEl('cache-debug-tag'),
@@ -141,7 +143,7 @@ import { PlaybackController } from './playbackController';
         settingsDrawerController.mount();
 
         voiceSelectorController = new VoiceSelector({
-            voiceSelect: getEl('voice-select'),
+            voiceList: getEl('voice-list-container'),
             searchInput: getEl('voice-search')
         });
         voiceSelectorController.mount();

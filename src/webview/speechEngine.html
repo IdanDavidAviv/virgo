@@ -49,7 +49,7 @@
 
     <div class="card">
         <div class="header">
-            <span>Audio Settings</span>
+            <span>AUDIO SETTINGS</span>
             <div class="engine-toggle-group">
                 <button id="engine-local" class="toggle-pill active">SYSTEM</button>
                 <button id="engine-neural" class="toggle-pill">PREMIUM</button>
@@ -58,26 +58,33 @@
         </div>
         <div id="settings-drawer" class="settings-drawer">
             <div class="setting-item">
-                <input type="text" id="voice-search" placeholder="Search voices..." spellcheck="false" autocomplete="off">
-                <select id="voice-select">
-                    <option>Detecting Native Voices...</option>
-                </select>
+                <div class="voice-selector-premium">
+                    <input type="text" id="voice-search" placeholder="Search voices..." spellcheck="false" autocomplete="off">
+                    <div id="voice-list-container" class="voice-list-container">
+                        <!-- Custom rendered voice items go here -->
+                        <div class="voice-placeholder">Detecting Native Voices...</div>
+                    </div>
+                    <!-- Hidden native select for compatibility if needed, or we remove it -->
+                    <select id="voice-select" style="display:none"></select>
+                </div>
             </div>
 
-            <div class="setting-item">
-                <div class="setting-label">
-                    <span>Speed</span>
-                    <span id="rate-val">1.0x</span>
+            <div class="setting-group-horizontal">
+                <div class="setting-item flex-1">
+                    <div class="setting-label">
+                        <span>Speed</span>
+                        <span id="rate-val">1.0x</span>
+                    </div>
+                    <input type="range" id="rate-slider" min="-10" max="10" value="0" step="1">
                 </div>
-                <input type="range" id="rate-slider" min="-10" max="10" value="0" step="1">
-            </div>
 
-            <div class="setting-item">
-                <div class="setting-label">
-                    <span>Volume</span>
-                    <span id="volume-val">4%</span>
+                <div class="setting-item flex-1">
+                    <div class="setting-label">
+                        <span>Volume</span>
+                        <span id="volume-val">50%</span>
+                    </div>
+                    <input type="range" id="volume-slider" min="0" max="100" value="50">
                 </div>
-                <input type="range" id="volume-slider" min="0" max="100" value="4">
             </div>
         </div>
     </div>
