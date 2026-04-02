@@ -7,6 +7,24 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.5.0] - 2026-04-02
+
+### Added
+- **Dashboard Modularization (Phase 5.4)**: Extracted all remaining UI logic from the monolithic `dashboard.js` into strictly-typed, reactive ESM components: `PlaybackControls`, `SettingsDrawer`, `VoiceSelector`, `FileContext`, and `ToastManager`.
+- **Regression Test Suite (19 tests)**: Added `PlaybackControls.test.ts` (status-dot lifecycle), `WebviewStore.patchState.test.ts` (surgical IPC updates), and `utils.test.ts` (`renderWithLinks` + `escapeHtml` XSS guards). Total: 134 tests.
+- **Log Sanitizer**: Ported `logSafeMessage()` into `dashboard.js` — truncates binary blobs to `[BIN:NKB]`, shortens `file:///` paths to basename, collapses large arrays to `[CNT:N]`.
+
+### Fixed
+- **Status-Dot Engine Indicator**: Restored the `#status-dot` engine health indicator in `PlaybackControls`, toggling `online`/`stalled`/idle classes to match legacy behaviour.
+- **Voices IPC Handler**: Restored the `voices` command handler in `dashboard.js` using `store.patchState()` to surgically update `availableVoices` without a full `UI_SYNC` cycle.
+- **Slider Drag Guard**: Added `isDraggingSlider` flag in `SettingsDrawer` — `oninput` sets the flag, `onchange` clears it; `WebviewStore` subscriptions skip slider updates while dragging to prevent snap-back.
+- **Live Rate Preview**: Rate slider `oninput` now directly updates `neuralPlayer.playbackRate` for instant audio speed feedback during drag.
+- **Engine Toggle Group Sync**: `engineToggleGroup` is now shown/hidden alongside the settings drawer open/close transition.
+- **Drawer Auto-Close on Load**: `FileContext` now closes the settings drawer after clicking "Load File", matching legacy behaviour.
+- **Autoplay Restoration**: `PlaybackController` correctly signals `SENTENCE_ENDED` via `audio.onended`/`audio.onerror` to drive the autoplay chain.
+- **STOP & PLAYBACK_STATE_CHANGED Handlers**: Restored both IPC command handlers in `dashboard.js`.
+- **WebviewStore.patchState**: Added public `patchState()` method for targeted state updates from lightweight IPC commands.
+
 ## [1.4.5] - 2026-04-02
 
 ### Added
