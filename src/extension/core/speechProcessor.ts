@@ -15,7 +15,10 @@ export function cleanForSpeech(text: string): string {
     // - \u{1F3FB}-\u{1F3FF}: Skin tone modifiers
     cleaned = cleaned.replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\u{1F3FB}-\u{1F3FF}]/gu, '');
 
-    // 3. Cleanup: Remove double spaces potentially left by missing emojis
+    // 3. Filter XML/SSML symbols: Remove < and > which can break neural TTS XML wrapping (Issue #42)
+    cleaned = cleaned.replace(/[<>]/g, ' ');
+
+    // 4. Cleanup: Remove double spaces potentially left by missing symbols
     cleaned = cleaned.replace(/\s\s+/g, ' ');
 
     return cleaned.trim();
