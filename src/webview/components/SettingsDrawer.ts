@@ -1,10 +1,10 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { ToastManager } from './ToastManager';
 import { CacheManager } from '../cacheManager';
-import { MessageClient } from '../core/MessageClient';
+import { MessageClient } from '../core/messageClient';
 import { OutgoingAction } from '../../common/types';
 
-export interface SettingsDrawerElements extends Record<string, HTMLElement | HTMLInputElement | HTMLButtonElement | null | undefined> {
+export interface SettingsDrawerElements extends Record<string, HTMLElement | HTMLInputElement | HTMLButtonElement | HTMLMediaElement | null | undefined> {
     drawer: HTMLElement;
     btnOpen: HTMLButtonElement;
     btnClose: HTMLButtonElement;
@@ -14,6 +14,8 @@ export interface SettingsDrawerElements extends Record<string, HTMLElement | HTM
     btnLocalEngine: HTMLButtonElement;
     cacheDebugTag: HTMLElement;
     stateDebugTag: HTMLElement;
+    engineToggleGroup: HTMLElement | null;
+    neuralPlayer: HTMLMediaElement | null;
 }
 
 /**
@@ -29,16 +31,16 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
         super.mount();
         this.setupListeners();
 
-        // 1. Volume State Sync
+        // 1. Volume State Sync — guard against feedback loop during drag (#4)
         this.subscribe((state) => state.volume, (volume) => {
-            if (this.els.volumeSlider) {
+            if (!this.isDraggingSlider && this.els.volumeSlider) {
                 this.els.volumeSlider.value = String(volume);
             }
         });
 
-        // 2. Rate State Sync
+        // 2. Rate State Sync — guard against feedback loop during drag (#4)
         this.subscribe((state) => state.rate, (rate) => {
-            if (this.els.rateSlider) {
+            if (!this.isDraggingSlider && this.els.rateSlider) {
                 this.els.rateSlider.value = String(rate);
             }
         });
@@ -69,21 +71,37 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
     }
 
     private setupListeners(): void {
-        // Toggle Logic
+        // Drawer Toggle — also syncs engineToggleGroup visibility (#6)
+        const toggleDrawer = (open: boolean) => {
+            if (open) {
+                this.els.drawer?.classList.add('open');
+            } else {
+                this.els.drawer?.classList.remove('open');
+            }
+            if (this.els.engineToggleGroup) {
+                (this.els.engineToggleGroup as HTMLElement).style.display = open ? 'flex' : 'none';
+            }
+        };
+
         if (this.els.btnOpen) {
-            this.els.btnOpen.onclick = () => this.els.drawer?.classList.add('open');
+            this.els.btnOpen.onclick = () => {
+                const isOpen = this.els.drawer?.classList.contains('open');
+                toggleDrawer(!isOpen);
+            };
         }
         if (this.els.btnClose) {
-            this.els.btnClose.onclick = () => this.els.drawer?.classList.remove('open');
+            this.els.btnClose.onclick = () => toggleDrawer(false);
         }
 
-        // Sliders
+        // Sliders — set isDraggingSlider=true on drag start, false on release (#4)
         if (this.els.volumeSlider) {
             this.els.volumeSlider.oninput = (e) => {
+                this.isDraggingSlider = true;
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 this.messenger.postAction(OutgoingAction.VOLUME_CHANGED, { volume: val });
             };
             this.els.volumeSlider.onchange = (e) => {
+                this.isDraggingSlider = false;
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 this.messenger.postAction(OutgoingAction.VOLUME_CHANGED, { volume: val });
             };
@@ -91,10 +109,17 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
 
         if (this.els.rateSlider) {
             this.els.rateSlider.oninput = (e) => {
+                this.isDraggingSlider = true;
                 const val = parseFloat((e.target as HTMLInputElement).value);
+                // Live playbackRate preview on the audio element (#8)
+                if (this.els.neuralPlayer && !(this.els.neuralPlayer as HTMLMediaElement).paused) {
+                    (this.els.neuralPlayer as HTMLMediaElement).playbackRate =
+                        val >= 0 ? 1 + (val / 10) : 1 + (val / 20);
+                }
                 this.messenger.postAction(OutgoingAction.RATE_CHANGED, { rate: val });
             };
             this.els.rateSlider.onchange = (e) => {
+                this.isDraggingSlider = false;
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 this.messenger.postAction(OutgoingAction.RATE_CHANGED, { rate: val });
             };
