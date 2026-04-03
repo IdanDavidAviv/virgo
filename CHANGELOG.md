@@ -7,6 +7,13 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.6.3] - 2026-04-04
+
+### Added
+- **Unified Playback Controller**: Restored `src/webview/playbackController.ts` based on stable `dashboard.js` logic to ensure architectural parity across modern components.
+- **Fail-Safe Synchronization**: Implemented a 3.5s "Sync Watchdog" to prevent UI hanging during non-deterministic extension-to-webview handshakes.
+- **Atomic Intent Logic**: Standardized `CONTINUE` vs `LOAD_AND_PLAY` actions within the singleton controller for predictable playback transitions.
+
 ## [1.6.2] - 2026-04-03
 
 ### Added
