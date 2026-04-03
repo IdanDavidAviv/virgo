@@ -8,6 +8,7 @@ import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
 import { SequenceManager } from '@core/sequenceManager';
 import { AudioBridge } from '@core/audioBridge';
 import { DashboardRelay } from './dashboardRelay';
+import { OutgoingAction } from '@common/types';
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
@@ -427,7 +428,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _getHtmlForWebview(webview: vscode.Webview): string {
-        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'dashboard.js'));
+        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'app.js'));
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'style.css'));
 
         const htmlPath = vscode.Uri.joinPath(this._extensionUri, 'dist', 'media', 'speechEngine.html');
@@ -536,92 +537,106 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger(`[READALOUD <- ${source.toUpperCase()}] Command: ${cmd}`);
 
         switch (cmd) {
-            case 'ready':
+            case OutgoingAction.READY:
                 this._sendInitialState();
                 if (this._docController.chapters.length > 0) {
                     this.refreshView();
                 }
                 break;
-            case 'jumpToChapter':
+            case OutgoingAction.PLAY:
+                this.continue();
+                break;
+            case OutgoingAction.JUMP_TO_CHAPTER:
                 this.jumpToChapter(data.index);
                 break;
-            case 'nextChapter':
+            case OutgoingAction.NEXT_CHAPTER:
                 this.nextChapter();
                 break;
-            case 'prevChapter':
+            case OutgoingAction.PREV_CHAPTER:
                 this.prevChapter();
                 break;
 
-            case 'setAutoPlayMode':
+            case OutgoingAction.SET_AUTO_PLAY_MODE:
                 this._stateStore.setOptions({ autoPlayMode: data.mode });
+                this._syncUI(); // Ensure immediate visual feedback
                 break;
             case 'toggleAutoPlay':
                 // Backward compatibility for old calls if any
                 this._stateStore.setOptions({ autoPlayMode: data.enabled ? 'auto' : 'row' });
                 break;
-            case 'voiceChanged':
+            case OutgoingAction.VOICE_CHANGED:
                 this._stateStore.setOptions({ selectedVoice: data.voice });
-                this._context.globalState.update('readAloud.voice', data.voice);
+                if (this._context.globalState) {
+                    this._context.globalState.update('readAloud.voice', data.voice);
+                }
                 this._logger(`[VOICE] ${data.voice} | SURGICAL_PREVIEW`);
                 // Stop any current full playback but trigger a single-sentence preview synth
                 this._playbackEngine.stop();
                 this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions(), true);
                 break;
-            case 'rateChanged':
+            case OutgoingAction.RATE_CHANGED:
                 this._stateStore.setOptions({ rate: data.rate });
                 this._debounceSave('rate', data.rate);
                 break;
-            case 'volumeChanged':
+            case OutgoingAction.VOLUME_CHANGED:
                 this._stateStore.setOptions({ volume: data.volume });
                 this._debounceSave('volume', data.volume);
                 break;
-            case 'engineModeChanged':
+            case OutgoingAction.ENGINE_MODE_CHANGED:
                 this._stateStore.setOptions({ engineMode: data.mode });
                 this._playbackEngine.stop();
                 this._broadcastVoices();
                 this._broadcastCacheStats();
                 break;
 
-            case 'sentenceEnded':
+            case OutgoingAction.SENTENCE_ENDED:
                 if (!this._playbackEngine.isPaused) {
                     this._audioBridge.next(this._getOptions(), false, this._stateStore.state.autoPlayMode);
                 }
                 break;
-            case 'nextSentence':
+            case OutgoingAction.NEXT_SENTENCE:
                 this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode);
                 break;
-            case 'prevSentence':
+            case OutgoingAction.PREV_SENTENCE:
                 this._audioBridge.previous(this._getOptions());
                 break;
-            case 'jumpToSentence': this.jumpToSentence(data.index); break;
-            case 'continue': this.continue(); break;
-            case 'loadAndPlay':
+            case OutgoingAction.JUMP_TO_SENTENCE: this.jumpToSentence(data.index); break;
+            case OutgoingAction.CONTINUE: this.continue(); break;
+            case OutgoingAction.TOGGLE_PLAY_PAUSE:
+                if (this._playbackEngine.isPlaying && !this._playbackEngine.isPaused) {
+                    this.pause();
+                } else {
+                    this.continue();
+                }
+                break;
+            case OutgoingAction.LOAD_AND_PLAY:
                 const loaded = await this.loadCurrentDocument();
                 if (loaded) {
                     this.continue();
                 }
                 break;
-            case 'resetContext': this._resetContext(); break;
-            case 'stop': this.stop(); break;
-            case 'pause': this.pause(); break;
-            case 'loadDocument': this.loadCurrentDocument(); break;
-            case 'REQUEST_SYNTHESIS':
+            case OutgoingAction.RESET_CONTEXT: this._resetContext(); break;
+            case OutgoingAction.STOP: this.stop(); break;
+            case OutgoingAction.PAUSE: this.pause(); break;
+            case OutgoingAction.LOAD_DOCUMENT: this.loadCurrentDocument(); break;
+            case OutgoingAction.REQUEST_SYNTHESIS:
                 this._audioBridge.synthesize(data.cacheKey, this._getOptions());
                 break;
-            case 'CLEAR_CACHE':
+            case OutgoingAction.CLEAR_CACHE:
                 this._playbackEngine.clearCache();
                 this._logger(`[CACHE] Extension cache purged. Triggering webview sync...`);
                 this._syncUI();
                 break;
-            case 'OPEN_FILE':
-                if (data.uri) {
-                    vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(data.uri));
+            case OutgoingAction.OPEN_FILE:
+                const fileUri = data.uri || data.path;
+                if (fileUri) {
+                    vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(fileUri));
                 }
                 break;
-            case 'error':
+            case OutgoingAction.ERROR:
                 this._logger(`[DASHBOARD_CRITICAL] ${data.message || 'Unknown Error'}`);
                 break;
-            case 'log': 
+            case OutgoingAction.LOG: 
                 const logType = (data.type || 'info').toUpperCase();
                 this._logger(`[${source.toUpperCase()}:${logType}] ${data.message}`); 
                 break;
@@ -703,12 +718,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public pause() {
         this._audioBridge.pause();
-        this._postToAll({ command: 'playbackStateChanged', state: 'paused' });
+        this._playbackEngine.setPaused(true);
+        this._syncUI();
     }
 
     public stop() {
         this._audioBridge.stop();
-        this._postToAll({ command: 'stop' });
+        this._playbackEngine.setPlaying(false);
+        this._playbackEngine.setPaused(false);
+        this._syncUI();
         this._logger('[STOP] playback_stop');
     }
 
@@ -716,7 +734,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._stateStore.setPreviewing(false); // Commit to full playback
         this._playbackEngine.setPlaying(true);
         this._playbackEngine.setPaused(false);
-        this._postToAll({ command: 'playbackStateChanged', state: 'playing' });
+        this._syncUI();
         this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions());
     }
 

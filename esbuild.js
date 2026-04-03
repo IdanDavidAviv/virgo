@@ -60,9 +60,9 @@ async function build() {
 
     // 2. Dashboard WebView Bundle (Browser)
     const browserConfig = {
-        entryPoints: [
-            './src/webview/dashboard.js'
-        ],
+        entryPoints: {
+            app: './src/webview/index.ts'
+        },
         bundle: true,
         alias: commonAlias,
         outdir: './dist/media',

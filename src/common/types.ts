@@ -50,10 +50,13 @@ export interface UISyncPacket {
     availableVoices: { local: any[], neural: any[] }; // [PHASE 4] Full voice lists
     cacheCount: number;
     cacheSizeBytes: number;
+    cacheStats?: { count: number, size: number };
     selectedVoice?: string;
     rate: number;
     volume: number;
+    neuralVoices?: any[];
 }
+
 
 /**
  * Commands sent FROM Extension TO Webview
@@ -66,8 +69,12 @@ export enum IncomingCommand {
     ENGINE_STATUS = 'engineStatus',
     SYNTHESIS_ERROR = 'synthesisError',
     PURGE_MEMORY = 'PURGE_MEMORY',
-    PLAYBACK_STATE_CHANGED = 'playbackStateChanged'
+    PLAYBACK_STATE_CHANGED = 'playbackStateChanged',
+    CACHE_STATS = 'cacheStats',
+    SENTENCE_CHANGED = 'sentenceChanged',
+    PROGRESS = 'progress'
 }
+
 
 /**
  * Actions sent FROM Webview TO Extension
@@ -95,6 +102,8 @@ export enum OutgoingAction {
     LOAD_DOCUMENT = 'loadDocument',
     OPEN_FILE = 'OPEN_FILE',
     REQUEST_SYNTHESIS = 'REQUEST_SYNTHESIS',
+    CLEAR_CACHE = 'CLEAR_CACHE',
+    TOGGLE_PLAY_PAUSE = 'TOGGLE_PLAY_PAUSE',
     LOG = 'log',
     ERROR = 'error'
 }

@@ -25,6 +25,7 @@ export class MessageClient {
 
     if (typeof window !== 'undefined') {
       this.messageListener = (event) => this.handleMessage(event);
+      console.log('[MessageClient] Adding listener to window');
       window.addEventListener('message', this.messageListener);
     }
   }
@@ -33,6 +34,12 @@ export class MessageClient {
    * Returns the singleton instance of MessageClient.
    */
   public static getInstance(): MessageClient {
+    if (typeof window !== 'undefined') {
+      if (!(window as any).__MESSAGE_CLIENT__) {
+        (window as any).__MESSAGE_CLIENT__ = new MessageClient();
+      }
+      return (window as any).__MESSAGE_CLIENT__;
+    }
     if (!MessageClient.instance) {
       MessageClient.instance = new MessageClient();
     }
@@ -43,6 +50,12 @@ export class MessageClient {
    * Resets the singleton instance and disposes of current listeners.
    */
   public static resetInstance(): void {
+    if (typeof window !== 'undefined') {
+      if ((window as any).__MESSAGE_CLIENT__) {
+        (window as any).__MESSAGE_CLIENT__.dispose();
+        (window as any).__MESSAGE_CLIENT__ = null;
+      }
+    }
     if (MessageClient.instance) {
       MessageClient.instance.dispose();
     }
@@ -74,10 +87,7 @@ export class MessageClient {
 
     if (!silent) {
       const summary = this.summarize(payload);
-      console.log(`%c[ACTION] %c${action}%c | ${JSON.stringify(summary || '')}`, 
-        'color: #3b82f6; font-weight: bold;', 
-        'color: #60a5fa;', 
-        'color: #94a3b8;');
+      console.log(`[ACTION] ${action} | ${JSON.stringify(summary || '')}`);
     }
 
     const message: any = { command: action };
@@ -127,29 +137,32 @@ export class MessageClient {
   /**
    * Internal message handler that routes incoming window messages to registered callbacks.
    */
-  private handleMessage(event: MessageEvent): void {
+  public handleMessage(event: any): void {
     const message = event.data;
-    if (!message || typeof message !== 'object') {
-      return;
-    }
-
+    console.log('[MessageClient] handleMessage:', JSON.stringify(message));
     const { command, payload, ...rest } = message;
     if (!command) {
       return;
     }
 
     // Support both legacy spread structure and new nested payload structure
-    const finalPayload = payload !== undefined ? payload : rest;
+    const finalPayload = (payload !== undefined ? payload : (Object.keys(rest).length > 0 ? rest : message));
 
-    const summary = this.summarize(finalPayload);
-    console.log(`%c[SIGNAL] %c${command}%c | ${JSON.stringify(summary || '')}`, 
-      'color: #10b981; font-weight: bold;', 
-      'color: #34d399;', 
-      'color: #94a3b8;');
+    const isInternalCommand = command === IncomingCommand.UI_SYNC || 
+                             command === IncomingCommand.VOICES || 
+                             command === IncomingCommand.PLAY_AUDIO || 
+                             command === IncomingCommand.STOP;
+
+    if (isInternalCommand) {
+      const summary = this.summarize(finalPayload);
+      console.log(`[SIGNAL] ${command} | ${JSON.stringify(summary || '')}`);
+    }
 
     const commandHandlers = this.handlers.get(command);
     if (commandHandlers) {
       commandHandlers.forEach((handler) => handler(finalPayload));
+    } else if (!isInternalCommand) {
+      console.warn(`[MessageClient] Unhandled Command: ${command}`);
     }
   }
 }

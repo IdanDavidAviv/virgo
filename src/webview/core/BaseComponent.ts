@@ -38,11 +38,7 @@ export abstract class BaseComponent<T extends Record<string, HTMLElement | null 
    * Post an action to the extension with Tier-3 shorthand logging.
    */
   protected postAction(command: OutgoingAction, payload?: any): void {
-    console.log(`%c[ACTION] %c${command}%c | ${JSON.stringify(payload || '')}`, 
-      'color: #3b82f6; font-weight: bold;', 
-      'color: #60a5fa;', 
-      'color: #94a3b8;');
-    
+    console.log(`[ACTION] ${command} | ${JSON.stringify(payload || '')}`);
     MessageClient.getInstance().postAction(command, payload);
   }
 
@@ -66,7 +62,14 @@ export abstract class BaseComponent<T extends Record<string, HTMLElement | null 
    * Finalizes the component instance. Called by the subclass or entry point.
    */
   public mount(): void {
-    this.render();
+    const start = performance.now();
+    try {
+      this.render();
+      const duration = (performance.now() - start).toFixed(2);
+      console.log(`[MOUNT] ${this.constructor.name} | Initial Render: ${duration}ms`);
+    } catch (err) {
+      console.error(`[FATAL] ${this.constructor.name} | Mount Failed:`, err);
+    }
   }
 
   /**
@@ -81,4 +84,18 @@ export abstract class BaseComponent<T extends Record<string, HTMLElement | null 
    * Abstract render method to be implemented by child components.
    */
   public abstract render(): void;
+
+  /**
+   * Protected helper for sanitized, tagged logging.
+   */
+  protected log(msg: string, type: 'info' | 'warn' | 'error' = 'info'): void {
+    const formatted = `[${this.constructor.name}] ${msg}`;
+    if (type === 'error') {
+      console.error(formatted);
+    } else if (type === 'warn') {
+      console.warn(formatted);
+    } else {
+      console.log(formatted);
+    }
+  }
 }
