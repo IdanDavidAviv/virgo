@@ -32,6 +32,10 @@ export class FileContext extends BaseComponent<FileContextElements> {
                 setTimeout(() => btn.classList.remove('pulse'), 400);
 
                 // Dashboard Parity: Optimistic transition to loading state
+                if (this.els.activeFilename) {
+                    this.els.activeFilename.textContent = 'Loading Document...';
+                }
+
                 this.postAction(OutgoingAction.LOAD_DOCUMENT);
                 // Coordination via Central Layout Manager
                 LayoutManager.getInstance().closeOverlays();
@@ -49,8 +53,8 @@ export class FileContext extends BaseComponent<FileContextElements> {
                 store.optimisticPatch({
                     state: {
                         ...store.getState()?.state,
-                        activeDocumentUri: undefined,
-                        activeFileName: undefined
+                        activeDocumentUri: null as any,
+                        activeFileName: null as any
                     }
                 } as any, { isAwaitingSync: true });
 

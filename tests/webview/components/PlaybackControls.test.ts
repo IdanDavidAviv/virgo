@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PlaybackControls } from '@webview/components/PlaybackControls';
 import { WebviewStore } from '@webview/core/WebviewStore';
 import { MessageClient } from '@webview/core/MessageClient';
@@ -133,6 +133,53 @@ describe('PlaybackControls', () => {
                     }
                 }));
             }).not.toThrow();
+        });
+    });
+
+    describe('Optimistic UI & Haptics (Phase 2)', () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it('should optimistically cycle autoplay mode on click', () => {
+            const ctrl = new PlaybackControls(elements);
+            ctrl.mount();
+
+            const store = WebviewStore.getInstance();
+            const patchSpy = vi.spyOn(store, 'optimisticPatch');
+
+            // Default is 'auto' (implied)
+            elements.btnAutoplay.click();
+
+            // 1. Should patch to 'chapter' immediately
+            expect(patchSpy).toHaveBeenCalledWith({ autoPlayMode: 'chapter' }, { isAwaitingSync: false });
+            
+            // 2. UI should update instantly via store notification
+            expect(elements.btnAutoplay.textContent).toBe('1 CH');
+            expect(elements.btnAutoplay.classList.contains('pulse')).toBe(true);
+        });
+
+        it('should trigger pulse haptics on statusDot for transport actions', () => {
+            const ctrl = new PlaybackControls(elements);
+            ctrl.mount();
+
+            // Test Pause
+            elements.btnPause.click();
+            expect(elements.btnPause.classList.contains('pulse')).toBe(true);
+            expect(elements.statusDot.classList.contains('pulse')).toBe(true);
+
+            vi.advanceTimersByTime(400);
+            expect(elements.btnPause.classList.contains('pulse')).toBe(false);
+            expect(elements.statusDot.classList.contains('pulse')).toBe(false);
+
+            // Test Next
+            elements.btnNext.click();
+            expect(elements.btnNext.classList.contains('pulse')).toBe(true);
+            expect(elements.statusDot.classList.contains('pulse')).toBe(true);
         });
     });
 });

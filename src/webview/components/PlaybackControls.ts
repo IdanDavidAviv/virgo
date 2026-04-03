@@ -50,21 +50,37 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         const client = MessageClient.getInstance();
 
         if (btnPlay) {
-            btnPlay.onclick = () => {
+            btnPlay.onclick = (e) => {
+                const el = (e?.currentTarget || btnPlay) as HTMLElement;
+                el.classList.add('pulse');
+                setTimeout(() => el.classList.remove('pulse'), 400);
+                this.els.statusDot?.classList.add('pulse');
+                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 PlaybackController.getInstance().play(WebviewStore.getInstance().getSentenceKey());
             };
         }
         if (btnPause) {
-            btnPause.onclick = () => {
+            btnPause.onclick = (e) => {
+                const el = (e?.currentTarget || btnPause) as HTMLElement;
+                el.classList.add('pulse');
+                setTimeout(() => el.classList.remove('pulse'), 400);
+                this.els.statusDot?.classList.add('pulse');
+                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 PlaybackController.getInstance().pause();
             };
         }
         if (btnStop) {
             btnStop.onclick = (e) => {
-                (e.currentTarget as HTMLElement)?.classList.add('pulse');
-                setTimeout(() => (e.currentTarget as HTMLElement)?.classList.remove('pulse'), 400);
+                const el = (e?.currentTarget || btnStop) as HTMLElement;
+                el.classList.add('pulse');
+                setTimeout(() => el.classList.remove('pulse'), 400);
+                this.els.statusDot?.classList.add('pulse');
+                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 PlaybackController.getInstance().stop();
             };
@@ -73,8 +89,12 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         // Navigation (Debounced at the component/client level)
         if (btnPrev) {
             btnPrev.onclick = (e) => {
-                (e.currentTarget as HTMLElement)?.classList.add('pulse');
-                setTimeout(() => (e.currentTarget as HTMLElement)?.classList.remove('pulse'), 400);
+                const el = (e?.currentTarget || btnPrev) as HTMLElement;
+                el.classList.add('pulse');
+                setTimeout(() => el.classList.remove('pulse'), 400);
+                this.els.statusDot?.classList.add('pulse');
+                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.PREV_CHAPTER);
@@ -82,8 +102,12 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         }
         if (btnNext) {
             btnNext.onclick = (e) => {
-                (e.currentTarget as HTMLElement)?.classList.add('pulse');
-                setTimeout(() => (e.currentTarget as HTMLElement)?.classList.remove('pulse'), 400);
+                const el = (e?.currentTarget || btnNext) as HTMLElement;
+                el.classList.add('pulse');
+                setTimeout(() => el.classList.remove('pulse'), 400);
+                this.els.statusDot?.classList.add('pulse');
+                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.NEXT_CHAPTER);
@@ -91,8 +115,12 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         }
         if (btnPrevSentence) {
             btnPrevSentence.onclick = (e) => {
-                (e.currentTarget as HTMLElement)?.classList.add('pulse');
-                setTimeout(() => (e.currentTarget as HTMLElement)?.classList.remove('pulse'), 400);
+                const el = (e?.currentTarget || btnPrevSentence) as HTMLElement;
+                el.classList.add('pulse');
+                setTimeout(() => el.classList.remove('pulse'), 400);
+                this.els.statusDot?.classList.add('pulse');
+                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.PREV_SENTENCE);
@@ -100,8 +128,12 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         }
         if (btnNextSentence) {
             btnNextSentence.onclick = (e) => {
-                (e.currentTarget as HTMLElement)?.classList.add('pulse');
-                setTimeout(() => (e.currentTarget as HTMLElement)?.classList.remove('pulse'), 400);
+                const el = (e?.currentTarget || btnNextSentence) as HTMLElement;
+                el.classList.add('pulse');
+                setTimeout(() => el.classList.remove('pulse'), 400);
+                this.els.statusDot?.classList.add('pulse');
+                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.NEXT_SENTENCE);
