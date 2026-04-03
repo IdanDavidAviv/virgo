@@ -5,23 +5,28 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [Unreleased]
 
 ### Added
-- **🛡️ Document Loading Sovereignty**: Implemented a 2000ms "Sovereignty Window" for the \`LOAD_DOCUMENT\` action to protect the UI from stale synchronization data during heavy parsing.
-- **📍 Isolated Loading Feedback**: Redirected "Loading Document..." feedback exclusively to the **Reader (Active File)** slot; the **Focused File** context now remains stable and evidence-based.
+- 
+
+## [1.6.2] - 2026-04-03
+
+### Added
+- **Document Loading Sovereignty**: Implemented a 2000ms "Sovereignty Window" for the `LOAD_DOCUMENT` action to protect the UI from stale synchronization data during heavy parsing.
+- **Isolated Loading Feedback**: Redirected "Loading Document..." feedback exclusively to the **Reader (Active File)** slot; the **Focused File** context now remains stable and evidence-based.
 
 ### Fixed
-- **🖱️ Stuck Loading Button**: Resolved a UI state bug where the "Load File" button became non-interactive after a single click. Replaced the invasive \`.is-loading\` spinner with a lightweight \`.pulse\` gesture and native sync-locking.
+- **Stuck Loading Button**: Resolved a UI state bug where the "Load File" button became non-interactive after a single click. Replaced the invasive `.is-loading` spinner with a lightweight `.pulse` gesture and native sync-locking.
 
 ## [1.6.1] - 2026-04-03
 
 ### Added
-- **🛡️ Intent Sovereignty Guard**: Implemented a 500ms immunity window in `WebviewStore` to prioritize local user intent over stale `UI_SYNC` packets from the Extension Host.
+- **Intent Sovereignty Guard**: Implemented a 500ms immunity window in `WebviewStore` to prioritize local user intent over stale `UI_SYNC` packets from the Extension Host.
 
 ### Fixed
-- **📍 Optimistic Loading Slot**: Corrected `FileContext` routing; the "Loading Document..." feedback now correctly appears in the **Reader (Active File)** slot instead of the Focused context.
-- **🏛️ Modularization Finalized**: Fully decommissioned the legacy `dashboard.js` monolith, transitioning all UI logic to reactive ESM components.
+- **Optimistic Loading Slot**: Corrected `FileContext` routing; the "Loading Document..." feedback now correctly appears in the **Reader (Active File)** slot instead of the Focused context.
+- **Modularization Finalized**: Fully decommissioned the legacy `dashboard.js` monolith, transitioning all UI logic to reactive ESM components.
 
 ### Changed
-- **⚖️ Baseline Parity**: Reverted default `rate` value to `0` to maintain synchronization with the integration test suite.
+- **Baseline Parity**: Reverted default `rate` value to `0` to maintain synchronization with the integration test suite.
 
 ## [1.6.0] - 2026-04-03
 
