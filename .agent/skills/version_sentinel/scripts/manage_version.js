@@ -13,6 +13,15 @@ function manageVersion() {
     const args = process.argv.slice(2);
     const bumpType = args.includes('--bump') ? args[args.indexOf('--bump') + 1] : null;
     const isDryRun = args.includes('--dry-run');
+    const isAudit = args.includes('--audit');
+
+    if (isAudit) {
+        // PROXY TO AUDIT TOOL
+        console.log('🛡️ Version Sentinel: Triggering Prestige Audit...');
+        const { audit } = require('./git_history_audit.js');
+        audit();
+        return;
+    }
 
     if (!fs.existsSync(packageJsonPath)) {
         console.error('❌ package.json not found in root.');

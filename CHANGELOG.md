@@ -33,15 +33,16 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [1.5.3] - 2026-04-02
 
 ### Added
-- **Chapter List UI Polish**:
-    - Improved visual hierarchy with refined multi-level indentation (H1: 12px, H2: 24px, H3: 36px).
-    - Integrated interactive file links (`[label](file:///...)`) into chapter titles with premium, embedded styling.
-    - Implemented a "Link-First" click priority to prevent unwanted chapter jumps when interacting with file links.
-- **Keyboard Navigation Debouncing**:
-    - Implemented a 100ms throttle for navigation keys (`ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`) to prevent command flooding and extension host overhead during key-hold events.
-- **XML/SSML Synthesis Integrity (Issue #36)**:
-    - Implemented robust pre-filtration for ampersands (`&amp;`), tag delimiters (`<`/`>`), and quotes to ensure safe delivery to the Neural TTS engine.
-    - Centralized sanitization logic in `speechProcessor.ts` with comprehensive regression tests.
+- **Chapter List "Link-First" Priority**:
+    - Re-engineered the chapter navigation to support interactive, style-embedded file links (`[label](file:///...)`) within titles.
+    - Implemented an **Event Propagation Guard** that prioritizes file link interactions, preventing unwanted chapter jumps when interacting with document citations.
+    - Refined visual hierarchy with mathematical multi-level indentation (H1/H2/H3 depth normalization).
+- **Keyboard Navigation Hardware Guard**:
+    - Implemented a low-latency (100ms) hardware debounce for all navigation keys (`ArrowUp/Down/Left/Right`).
+    - Eliminates extension host command flooding and audio stutter during rapid-repeat key events.
+- **Neural SSML Integrity Layer (Issue #36)**:
+    - Introduced a centralized XML-safe sanitization protocol in the `speechProcessor.ts` core.
+    - Guarantees fail-safe delivery to the Neural TTS engine by automatically escaping ampersands, tag delimiters, and quotes.
 
 ## [1.5.2] - 2026-04-02
 

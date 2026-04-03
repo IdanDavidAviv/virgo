@@ -22,9 +22,19 @@ To ensure the "Readme Preview Read Aloud" extension maintains a professional, pr
 ## 4. Automated Management Protocol
 - **Verification**: `node .agent/skills/version_sentinel/scripts/manage_version.js` (No args)
 - **Bumping**: `node .agent/skills/version_sentinel/scripts/manage_version.js --bump [major|minor|patch]`
+- **Audit**: `node .agent/skills/version_sentinel/scripts/git_history_audit.js`
 - **Side Effects**: Automatically updates `package.json` and injects the current date into the `CHANGELOG.md` while preserving an empty `## [Unreleased]` section for the next cycle.
 
-## 5. Changelog Protocol
+## 5. Prestige Audit Protocol
+**MANDATORY**: Before finalyzing any MINOR or MAJOR release, the agent MUST perform a Prestige Audit:
+1. **Identify Anchor**: Run the audit tool to find the commit where the current version was set.
+2. **Impact Analysis**: Analyze the `git diff --stat` to identify high-impact files (e.g., +4,400 line test expansions).
+    - **Exclusion Rule**: Exclude `.agent/` changes from the `CHANGELOG.md`. These are internal-only.
+    - **Automation**: The audit tool excludes `.agent/` by default. Use `--all` for full infrastructure visibility.
+3. **Deep Audit**: Use `--diff --file [path]` to see the actual implementation of key features.
+4. **Representative Summary**: Synthesize a changelog entry that explains *architectural shifts* (e.g. "Intent Sovereignty") rather than just listing commit titles.
+
+## 6. Changelog Protocol
 - **Format**: Follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Staging**: Maintain an `## [Unreleased]` section.
 - **Finalization**: Handled automatically by the bumping script.
