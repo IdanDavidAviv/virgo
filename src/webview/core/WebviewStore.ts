@@ -314,14 +314,26 @@ export class WebviewStore {
         updatedState.playbackStalled = oldState.playbackStalled;
         updatedState.autoPlayMode = oldState.autoPlayMode;
         
-        // Protect document context
+        // Protect document context unless a new real document is arriving
         if (oldState.state && updatedState.state) {
-            // Nested object protection (deep copy what we want to keep)
-            updatedState.state = { 
-                ...updatedState.state, 
-                activeDocumentUri: oldState.state.activeDocumentUri,
-                activeFileName: oldState.state.activeFileName
-            };
+            const isOptimisticLoading = oldState.state.activeDocumentUri === 'loading';
+            const isRemoteLoading = newState.state?.activeDocumentUri === 'loading';
+            
+            // Only protect if we are still in sync-handshake and haven't received a real URI yet
+            if (!isRemoteLoading && (updatedState.state.activeDocumentUri === null || isOptimisticLoading)) {
+                // If remote says null but we are optimistic, keep the optimistic value
+            } else {
+                // Allow the update
+            }
+            
+            // [REFINED] Selective protection
+            if (isOptimisticLoading && (newState.state?.activeDocumentUri === null || !newState.state?.activeDocumentUri)) {
+                updatedState.state = { 
+                    ...updatedState.state, 
+                    activeDocumentUri: oldState.state.activeDocumentUri,
+                    activeFileName: oldState.state.activeFileName
+                };
+            }
         }
     }
 
@@ -361,7 +373,7 @@ export class WebviewStore {
    * [NEW] Optimistically patches the store state and protects it from sync overwrites
    * for a short duration (INTENT_TIMEOUT_MS).
    */
-  public optimisticPatch(patch: Partial<UISyncPacket>, options: { isAwaitingSync?: boolean, action?: string } = {}): void {
+  public optimisticPatch(patch: Partial<UISyncPacket>, options: { isAwaitingSync?: boolean, action?: string, intentTimeout?: number } = {}): void {
     if (!this.state) { 
         // Hydrate with empty state if missing to support testing/initial actions
         this.state = ({ 
@@ -378,7 +390,8 @@ export class WebviewStore {
     }
     
     this.lastIntentId++;
-    this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
+    const timeout = options.intentTimeout || this.INTENT_TIMEOUT_MS;
+    this.intentExpiry = Date.now() + timeout;
     
     // [REINFORCEMENT] Reset all loading and stall states before initiating a new user intent.
     // This prevents "Zombie Stalls" from a previous engine release.

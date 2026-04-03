@@ -29,20 +29,25 @@ export class FileContext extends BaseComponent<FileContextElements> {
             this.els.btnLoadFile.onclick = (e) => {
                 const btn = e.currentTarget as HTMLButtonElement;
                 btn.classList.add('pulse');
-                btn.classList.add('is-loading'); // [PARITY] Added missing loading class
                 setTimeout(() => btn.classList.remove('pulse'), 400);
 
-                // [AUDIT] Move loading feedback to the Reader slot (Active file)
-                // instead of overwriting the Focused file name.
-                if (this.els.readerFilename) {
-                    this.els.readerFilename.textContent = 'Loading Document...';
-                }
-                if (this.els.readerDir) {
-                    this.els.readerDir.textContent = '';
-                }
+                // [HARDENING] Use optimistic state to show "Loading..." in the Reader slot (active file)
+                // This ensures the Focused slot remains stable as per user requirement.
+                const store = WebviewStore.getInstance();
+                const currentState = store.getState();
+                
+                store.optimisticPatch({
+                    state: {
+                        ...(currentState?.state || {}),
+                        activeFileName: 'Loading Document...',
+                        activeDocumentUri: 'loading' as any // placeholder to light up the reader slot
+                    } as any
+                }, { 
+                    isAwaitingSync: true, 
+                    intentTimeout: 2000 // File loads can be heavy
+                });
 
                 this.postAction(OutgoingAction.LOAD_DOCUMENT);
-                // Coordination via Central Layout Manager
                 LayoutManager.getInstance().closeOverlays();
             };
         }
@@ -117,7 +122,13 @@ export class FileContext extends BaseComponent<FileContextElements> {
             }
         });
 
-        // 3. Load Button Mismatch Sync
+        // 3. Load Button Mismatch & Syncing state
+        this.subscribeUI((state) => state.isSyncing, (isSyncing) => {
+            if (this.els.btnLoadFile) {
+                this.els.btnLoadFile.disabled = isSyncing;
+            }
+        });
+
         this.subscribe((state) => {
             return (state.state.activeDocumentUri !== state.state.focusedDocumentUri) && state.state.focusedIsSupported;
         }, (isMismatch) => {

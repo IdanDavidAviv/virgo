@@ -4,7 +4,12 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [Unreleased]
 
--
+### Added
+- **🛡️ Document Loading Sovereignty**: Implemented a 2000ms "Sovereignty Window" for the \`LOAD_DOCUMENT\` action to protect the UI from stale synchronization data during heavy parsing.
+- **📍 Isolated Loading Feedback**: Redirected "Loading Document..." feedback exclusively to the **Reader (Active File)** slot; the **Focused File** context now remains stable and evidence-based.
+
+### Fixed
+- **🖱️ Stuck Loading Button**: Resolved a UI state bug where the "Load File" button became non-interactive after a single click. Replaced the invasive \`.is-loading\` spinner with a lightweight \`.pulse\` gesture and native sync-locking.
 
 ## [1.6.1] - 2026-04-03
 
