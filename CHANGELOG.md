@@ -48,12 +48,12 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ### Added
 - **Premium UI Restoration**:
-    - Restored **Glassmorphism** effects and deep transparency to the settings drawer.
+    - Restored **Glassmorphism** effects and deep transparency to the settings drawer with refined CSS haptics.
     - Implemented a custom, searchable **Voice Selector** with neural voice indicators (✨).
     - Added real-time numeric feedback for speed and volume sliders.
 - **Testing Stability Infrastructure**:
-    - Added `dispose()` methods to `MessageClient`, `WebviewStore`, and `ToastManager` for high-integrity lifecycle management.
-    - Introduced a global `vitest.setup.ts` to provide `indexedDB` and `scrollIntoView` mocks for the JSDOM environment.
+    - Introduced explicit `dispose()` protocols for `MessageClient`, `WebviewStore`, and `ToastManager` to guarantee zero memory leakage in test environments.
+    - Unified the test runner with a global `vitest.setup.ts` providing authoritative `indexedDB` and `scrollIntoView` mocks for the JSDOM environment.
 
 ### Fixed
 - **Testing Memory Leaks**: Resolved systemic event listener accumulation and pending timer leaks in the webview components.
@@ -62,9 +62,10 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [1.5.0] - 2026-04-02
 
 ### Added
-- **Dashboard Modularization (Phase 5.4)**: Extracted all remaining UI logic from the monolithic `dashboard.js` into strictly-typed, reactive ESM components: `PlaybackControls`, `SettingsDrawer`, `VoiceSelector`, `FileContext`, and `ToastManager`.
-- **Regression Test Suite (19 tests)**: Added `PlaybackControls.test.ts` (status-dot lifecycle), `WebviewStore.patchState.test.ts` (surgical IPC updates), and `utils.test.ts` (`renderWithLinks` + `escapeHtml` XSS guards). Total: 134 tests.
-- **Log Sanitizer**: Ported `logSafeMessage()` into `dashboard.js` — truncates binary blobs to `[BIN:NKB]`, shortens `file:///` paths to basename, collapses large arrays to `[CNT:N]`.
+- **The Great Modularization (Phase 5.4)**: Successfully decommissioned the monolithic `dashboard.js`, extracting all remaining UI logic into strictly-typed, reactive ESM components (`PlaybackControls`, `SettingsDrawer`, `VoiceSelector`, `ToastManager`).
+- **Surgical IPC Protocol**: Introduced `WebviewStore.patchState()`, enabling high-performance, incremental UI updates that bypass the overhead of full `UI_SYNC` cycles.
+- **Regression Logic Hardening**: Expanded the test suite with specialized validation for `PlaybackControls` (status-dot lifecycle) and `utils.test.ts` (XSS/Link-rendering guards).
+- **Log Sanitization v2**: Ported high-density `logSafeMessage` logic to provide truncated, human-readable IPC telemetry while protecting privacy.
 
 ### Fixed
 - **Status-Dot Engine Indicator**: Restored the `#status-dot` engine health indicator in `PlaybackControls`, toggling `online`/`stalled`/idle classes to match legacy behaviour.
@@ -80,9 +81,8 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [1.4.5] - 2026-04-02
 
 ### Added
-- **Dashboard Modularization (Phase 5.3)**: Extracted `SentenceNavigator` logic into a strictly-typed, reactive TypeScript component.
-- **Webview Component Infrastructure**: Introduced `BaseComponent` abstract class to standardize lifecycle hooks and `WebviewStore` subscription management.
-- **Enhanced UI Snap-back**: Integrated internal "Pending Jump" state in `SentenceNavigator` for immediate visual feedback during playback navigation.
+- **Infrastructure Genesis (Phase 5.3)**: Introduced the early **Reactive State Management** foundation (`WebviewStore`) and the **Resilient IPC Bridge** (`MessageClient`) to eliminate non-deterministic race conditions during dashboard initialization.
+- **Atomic Navigation Feedback**: Integrated a "Pending Jump" state in the `SentenceNavigator` component to provide immediate visual confirmation across the webview boundary.
 
 ## [1.4.4] - 2026-04-02
 
@@ -103,13 +103,12 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [1.4.2] - 2026-04-02
 
 ### Added
-- **Unicode Emoji Filtering (Issue #27)**: Implemented Unicode-aware suppression of emojis, flags, and skin tone modifiers to ensure clear, distraction-free speech synthesis.
 - **Smart-Logic Navigation**: 
-    - `ArrowUp` now intelligently restarts the current chapter if work is in progress, or jumps back if already at the start.
-    - Implemented hardware-level key repeat guards to prevent command flooding and audio stutter in the dashboard.
+    - Re-engineered `ArrowUp` to intelligently restart chapter progress vs. jumping back, backed by hardware-level key repeat guards to prevent command flooding.
+    - Implemented Unicode-aware suppression of emojis, flags, and skin tone modifiers to ensure clear, distraction-free speech synthesis.
 
 ### Fixed
-- **Atomic Chapter Navigation (Issue #28)**: Resolved a core logic leak where chapter-level keyboard shortcuts were incorrectly triggering sentence-level skips.
+- **Isolation Protocol (Issue #28)**: Resolved a critical navigation leak by enforcing atomic chapter jumps, preventing keyboard overflows from triggering accidental sentence skips.
 
 ## [1.4.1] - 2026-04-01
 
@@ -127,9 +126,9 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ### Added
 - **Rapid-Playback Engine (Zero-IPC Phase 2)**:
-    - **Intent-Ejection Protocol**: Instant termination of stale synthesis tasks during rapid document navigation, eliminating "Ghost Audio".
+    - **Intent-Ejection Protocol**: Implemented a transactional nonce system (`activeRequestId`) to immediately discard stale synthesis results during rapid navigation, eliminating "Ghost Audio".
     - **Zero-Handshake Ingestion**: Optimized `AudioBridge` to trigger webview cache checks immediately upon navigation.
-    - **Concurrent Task Deduping**: Shared task tracking for identical text segments, preventing redundant Azure TTS calls.
+    - **Concurrent Task Deduping**: Shared task tracking for identical text segments to prevent redundant Azure TTS calls.
 - **Neural Stability Watchdog**:
     - **MsEdgeTTS Recycling**: Automated client re-initialization and socket clearing on synthesis timeouts.
     - **Buffering Telemetry**: New `engineStatus: 'buffering'` event for improved UI feedback during network recovery.
@@ -138,8 +137,8 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [1.3.2] - 2026-03-31
 
 ### Added
-- **Content-Aware State Persistence (Issue #25)**:
-    - **MD5 Integrity Fingerprinting**: Implemented automated, platform-agnostic document hashing to track content changes, ensuring reading progress accurately resets on file modification.
+- **Content-Aware State (MD5 Integrity)**:
+    - **Integrity Fingerprinting**: Introduced automated **MD5 Integrity Fingerprinting** to track document changes, ensuring reading progress accurately resets on file modification.
     - **Composite Key Protocol**: Migrated storage from URI-only keys to `[URI]#[SALT]#[HASH]` mapping for collision-free state tracking.
     - **Passive Migration Gate**: Seamless, automatic upgrade path for existing user progress without data loss.
     - **Scoped Garbage Collection**: Added "Same-File Priority" management to the persistence layer, optimizing the 50-entry storage limit.
@@ -244,11 +243,11 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [1.2.0] - 2026-03-30
 
 ### Added
-- **Domain-Driven Architecture**: Decoupled the monolithic extension logic into isolated `@core`, `@vscode`, and `@webview` domains for ultimate stability and predictable path routing.
+- **Domain-Driven Architecture**: Executed the major decoupling of monolithic extension logic into isolated `@core`, `@vscode`, and `@webview` domains for ultimate architectural stability and predictable path routing.
 - **Global Path Aliasing**: Implemented high-integrity `tsconfig.json` mappings to eliminate brittle relative imports across all source files and test suites.
 
 ### Changed
-- **Asset Centralization**: Consolidated all marketplace branding (`icon.png`, `dashboard_preview.png`) into a root `/assets` directory to separate runtime resources from repository metadata.
+- **Asset Centralization Protocol**: Consolidated marketplace branding and animations into a root `/assets` directory to separate production runtime resources from repository metadata.
 
 ### Removed
 - **Legacy Hygiene**: Executed a massive repository cleanup, purging over 4,600 lines of obsolete `media/` assets and orphaned logic controllers.
@@ -287,8 +286,7 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [1.1.0] - 2026-03-29
 
 ### Added
-- **Serverless Architecture**: Fully decommissioned the legacy `BridgeServer` infrastructure, eliminating port collisions and installation locks on Windows.
-- **Native Webview Messaging**: Migrated all extension-to-dashboard communication to the native VS Code `postMessage` protocol.
+- **Serverless Evolution (Phase 1)**: Fully decommissioned the legacy `BridgeServer` infrastructure, migrating all extension-to-dashboard communication to the native **VS Code postMessage protocol**, eliminating port collisions and installation locks.
 - **Improved UI Sync**: Restored the "Row X / Y" tracking and header state synchronization for a professional playback experience.
 - **Direct Diagnostics**: Implemented a console-to-extension bridge to redirect webview logs directly to the "Read Aloud" output channel.
 - **Voice Stabilization**: Standardized voice changes to immediately purge local audio caches and reset playback state.

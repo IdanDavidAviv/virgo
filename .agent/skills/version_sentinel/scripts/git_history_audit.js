@@ -38,18 +38,24 @@ function audit() {
     const includeAgent = args.includes('--all');
     const fileFilter = args.find(a => a.startsWith('--file='))?.split('=')[1];
     
-    const anchor = getVersionAnchor();
+    const anchorArg = args.find(a => a.startsWith('--anchor='))?.split('=')[1];
+    const targetArg = args.find(a => a.startsWith('--target='))?.split('=')[1] || 'HEAD';
+    
+    const anchor = anchorArg || getVersionAnchor();
+    const target = targetArg;
+    
     if (!anchor) {
         console.error('❌ Error: Could not identify version anchor (package.json history is missing).');
         process.exit(1);
     }
 
-    console.log(`\n🔍 Version Anchor: [${anchor.substring(0, 7)}] (Current Version Source)`);
-    console.log(`📁 Delta: [${anchor.substring(0, 7)}] -> HEAD\n`);
+    console.log(`\n🔍 Version Anchor: [${anchor.substring(0, 7)}]`);
+    console.log(`📁 Target: [${target === 'HEAD' ? 'HEAD' : target.substring(0, 7)}]`);
+    console.log(`📁 Delta: [${anchor.substring(0, 7)}] -> [${target === 'HEAD' ? 'HEAD' : target.substring(0, 7)}]\n`);
 
     // 1. Log Delta (Filter out .agent changes unless --all)
     console.log('--- 📜 COMMIT LOG DELTA ---');
-    let logCmd = `git log --oneline ${anchor}..HEAD`;
+    let logCmd = `git log --oneline ${anchor}..${target}`;
     if (!includeAgent) {
         logCmd += ` -- . ":(exclude).agent"`;
     }
@@ -58,7 +64,7 @@ function audit() {
 
     // 2. Diff Stat (Impact Analysis - Filter out .agent changes unless --all)
     console.log('\n--- 📊 IMPACT ANALYSIS (STAT) ---');
-    let statCmd = `git diff --stat ${anchor}..HEAD`;
+    let statCmd = `git diff --stat ${anchor}..${target}`;
     if (!includeAgent) {
         statCmd += ` -- . ":(exclude).agent"`;
     }
@@ -68,7 +74,7 @@ function audit() {
     // 3. Diff Content (Deep Audit)
     if (showDiff) {
         console.log('\n--- 🕵️ DEEP AUDIT (DIFF CONTENT) ---');
-        let diffCmd = `git diff -U1 ${anchor}..HEAD`;
+        let diffCmd = `git diff -U1 ${anchor}..${target}`;
         if (fileFilter) {
             diffCmd += ` -- "${fileFilter}"`;
             console.log(`🎯 Filtering by file: ${fileFilter}`);
