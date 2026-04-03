@@ -3,6 +3,7 @@ import { WebviewStore } from '../core/WebviewStore';
 import { MessageClient } from '../core/MessageClient';
 import { OutgoingAction } from '../../common/types';
 import { WebviewAudioEngine } from '../core/WebviewAudioEngine';
+import { PlaybackController } from '../playbackController';
 
 export interface PlaybackControlsElements extends Record<string, HTMLElement | null> {
     btnPlay: HTMLElement | null;
@@ -29,7 +30,9 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         this.subscribe((state) => state.isPlaying, () => this.render());
         this.subscribe((state) => state.isPaused, () => this.render());
         this.subscribe((state) => state.playbackStalled, () => this.render());
-        this.subscribeUI((state) => state.isAwaitingSync, () => this.render());
+        // [REINFORCEMENT] Centralized Sync subscription (0ms for user, 400ms for background)
+        this.subscribeUI((state) => state.isSyncing, () => this.render());
+        this.subscribeUI((state) => state.playbackIntent, () => this.render());
         this.subscribe((state) => state.autoPlayMode, (mode) => this.updateAutoPlayUI(mode));
     }
 
@@ -48,45 +51,49 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
 
         if (btnPlay) {
             btnPlay.onclick = () => {
-                WebviewAudioEngine.getInstance().prepareForPlayback();
-                client.postAction(OutgoingAction.PLAY);
+                WebviewAudioEngine.getInstance().ensureAudioContext();
+                PlaybackController.getInstance().play(WebviewStore.getInstance().getSentenceKey());
             };
         }
         if (btnPause) {
             btnPause.onclick = () => {
-                WebviewAudioEngine.getInstance().pause();
-                client.postAction(OutgoingAction.PAUSE);
+                WebviewAudioEngine.getInstance().ensureAudioContext();
+                PlaybackController.getInstance().pause();
             };
         }
         if (btnStop) {
             btnStop.onclick = () => {
-                WebviewAudioEngine.getInstance().stop();
-                client.postAction(OutgoingAction.STOP);
+                WebviewAudioEngine.getInstance().ensureAudioContext();
+                PlaybackController.getInstance().stop();
             };
         }
 
         // Navigation (Debounced at the component/client level)
         if (btnPrev) {
             btnPrev.onclick = () => {
-                WebviewAudioEngine.getInstance().prepareForPlayback();
+                WebviewAudioEngine.getInstance().ensureAudioContext();
+                WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.PREV_CHAPTER);
             };
         }
         if (btnNext) {
             btnNext.onclick = () => {
-                WebviewAudioEngine.getInstance().prepareForPlayback();
+                WebviewAudioEngine.getInstance().ensureAudioContext();
+                WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.NEXT_CHAPTER);
             };
         }
         if (btnPrevSentence) {
             btnPrevSentence.onclick = () => {
-                WebviewAudioEngine.getInstance().prepareForPlayback();
+                WebviewAudioEngine.getInstance().ensureAudioContext();
+                WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.PREV_SENTENCE);
             };
         }
         if (btnNextSentence) {
             btnNextSentence.onclick = () => {
-                WebviewAudioEngine.getInstance().prepareForPlayback();
+                WebviewAudioEngine.getInstance().ensureAudioContext();
+                WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.NEXT_SENTENCE);
             };
         }
@@ -106,18 +113,14 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         const { isAwaitingSync } = mainStore.getUIState();
         
         if (!state) { 
-            this.log('Missing state, skipping render', 'warn');
             return; 
         }
 
-        this.log(`Rendering Playback Controls: Playing=${state.isPlaying}, Paused=${state.isPaused}, Stalled=${state.playbackStalled}`);
-
-        const isPlaying = state.isPlaying;
-        const isPaused = state.isPaused;
+        const { playbackIntent, lastStallAt, lastStallSource } = mainStore.getUIState();
         const isStalled = !!state.playbackStalled;
         
-        // V1.5.3 Fix: Treat the system as active if we are awaiting a sync (Intent is PLAYING)
-        const isActuallyActive = (isPlaying || isAwaitingSync) && !isPaused;
+        // V1.5.4 Optimized: Intent-driven activity detection (Screamingly fast icon flip)
+        const isActuallyActive = (playbackIntent === 'PLAYING');
 
         // 1. Play/Pause Visibility
         if (btnPlay) {
@@ -127,10 +130,16 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
             btnPause.style.display = isActuallyActive ? 'inline-block' : 'none';
         }
 
-        // 2. Loading State (Sync Lock / Buffer Stall)
-        const isLoading = isAwaitingSync || isStalled;
-        if (btnPlay) { btnPlay.classList.toggle('is-loading', isLoading); }
-        if (btnPause) { btnPause.classList.toggle('is-loading', isLoading); }
+        // [REINFORCEMENT] Restrict loading to Play/Pause (Conforming to legacy dashboard way)
+        const { isSyncing } = mainStore.getUIState();
+        const isAudiblyPlaying = !!state.isPlaying;
+        [btnPlay, btnPause].forEach(btn => {
+            if (btn) {
+                // Fix: Suppress spinner if audio is actually audible (parity with dashboard.js behavior)
+                const showLoading = isSyncing && !isAudiblyPlaying;
+                btn.classList.toggle('is-loading', showLoading);
+            }
+        });
 
         // 3. Wave Container Stall & Speaking Indicators
         if (waveContainer) {
@@ -138,11 +147,12 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
             waveContainer.classList.toggle('stalled', isStalled);
         }
 
-        // 4. Status Dot — engine health indicator (legacy: engineStatusTag)
+        // 4. Status Dot — engine health indicator
         if (statusDot) {
-            statusDot.classList.toggle('online', isActuallyActive);
+            // Dashboard parity: reflects absolute audio element state (isPlaying)
+            // but also respects pause state (Fixes PlaybackControls.test.ts)
+            statusDot.classList.toggle('online', isAudiblyPlaying && !state.isPaused);
             statusDot.classList.toggle('stalled', isStalled);
-            statusDot.classList.remove('fallback'); // reserved for future local-engine fallback
         }
     }
 

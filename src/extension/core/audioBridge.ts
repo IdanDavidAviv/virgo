@@ -88,6 +88,7 @@ export class AudioBridge extends EventEmitter {
             
             if (cachedData) {
                 this._logger(`[BRIDGE] Extension Cache HUB Hit: ${cacheKey}`);
+                this._stateStore.setLoadType('cache');
                 this.emit('playAudio', {
                     cacheKey,
                     data: cachedData,
@@ -99,6 +100,7 @@ export class AudioBridge extends EventEmitter {
                 });
             } else {
                 this._logger(`[BRIDGE] Zero-IPC: Triggering Webview Cache Check for ${cacheKey}`);
+                this._stateStore.setLoadType('cache'); // Assume cache check first, synthesize() will override if MISS
                 this.emit('playAudio', {
                     cacheKey,
                     data: '', // Signals the webview to check its own IndexedDB
@@ -130,6 +132,7 @@ export class AudioBridge extends EventEmitter {
         if (!sentence) { return; }
 
         this._logger(`[BRIDGE] Webview Cache MISS for ${cacheKey}. Starting synthesis...`);
+        this._stateStore.setLoadType('synth');
         await this._speakNeural(sentence, cacheKey, options, state.currentChapterIndex, state.currentSentenceIndex, this._activeRequestId);
     }
 

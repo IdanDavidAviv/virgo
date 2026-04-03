@@ -40,6 +40,7 @@ export interface StateMetadata {
     // UI Flags
     isPreviewing: boolean;
     isRefreshing: boolean;
+    lastLoadType: 'cache' | 'synth' | 'none';
 }
 
 export class StateStore extends EventEmitter {
@@ -75,7 +76,8 @@ export class StateStore extends EventEmitter {
             volume: 50,
 
             isPreviewing: false,
-            isRefreshing: false
+            isRefreshing: false,
+            lastLoadType: 'none'
         };
     }
 
@@ -141,6 +143,14 @@ export class StateStore extends EventEmitter {
         this._state.isPlaying = isPlaying;
         this._state.isPaused = isPaused;
         this._state.playbackStalled = playbackStalled;
+        this.emit('change', this.state);
+    }
+
+    /**
+     * Updates the last load type for the webview.
+     */
+    public setLoadType(type: 'cache' | 'synth' | 'none') {
+        this._state.lastLoadType = type;
         this.emit('change', this.state);
     }
 

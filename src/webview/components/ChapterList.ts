@@ -33,7 +33,6 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
             }
         });
 
-        this.subscribeUI((state) => state.pendingChapterIndex, () => this.updateHighlights());
         this.subscribe((state) => state.state.currentChapterIndex, () => this.updateHighlights());
         this.subscribe((state) => state.state.currentSentenceIndex, () => this.updateHighlights());
         this.subscribeUI((state) => state.collapsedIndices, () => this.render());
@@ -62,18 +61,22 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
     private jumpToChapter(index: number, count: number): void {
         const store = WebviewStore.getInstance();
         const client = MessageClient.getInstance();
+        const currentState = store.getState();
 
-        // Instant feedback
-        store.updateUIState({ pendingChapterIndex: index });
+        // 1. [SYNC] Universal Unlocker
+        WebviewAudioEngine.getInstance().ensureAudioContext();
+
+        // 2. [SYNC] Optimistic UI: Update highlight immediately
+        if (currentState) {
+            store.optimisticPatch({
+                state: { ...currentState.state, currentChapterIndex: index, currentSentenceIndex: 0 },
+                isPlaying: true,
+                isPaused: false
+            }, { isAwaitingSync: true });
+        }
+
         WebviewAudioEngine.getInstance().prepareForPlayback();
         client.postAction(OutgoingAction.JUMP_TO_CHAPTER, { index });
-
-        // Safety fallback: Clear pending highlight if extension doesn't respond
-        setTimeout(() => {
-            if (store.getUIState().pendingChapterIndex === index) {
-                store.updateUIState({ pendingChapterIndex: -1 });
-            }
-        }, 3000);
     }
 
     /**
@@ -87,7 +90,7 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
         }
 
         const state = WebviewStore.getInstance().getState();
-        const { collapsedIndices, pendingChapterIndex } = WebviewStore.getInstance().getUIState();
+        const { collapsedIndices } = WebviewStore.getInstance().getUIState();
         const chapters = state?.allChapters || [];
         const currentIdx = state?.state?.currentChapterIndex ?? -1;
 
@@ -137,9 +140,6 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
 
             if (isEmpty) {
                 item.classList.add('empty');
-            }
-            if (i === pendingChapterIndex) {
-                item.classList.add('pending');
             }
             if (i === currentIdx) {
                 item.classList.add('now-playing');
@@ -197,7 +197,6 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
      */
     private updateHighlights(): void {
         const state = WebviewStore.getInstance().getState();
-        const { pendingChapterIndex } = WebviewStore.getInstance().getUIState();
         if (!state) {
             return;
         }
@@ -250,10 +249,7 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
                 return;
             }
             const isNowPlaying = idx === currentChapterIdx;
-            const isPending = idx === pendingChapterIndex;
-
             el.classList.toggle('now-playing', isNowPlaying);
-            el.classList.toggle('pending', isPending);
 
             if (isNowPlaying) {
                 el.style.setProperty('--chapter-progress', `${progressPercentage}%`);
@@ -263,7 +259,7 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
         });
 
         // 3. Managed Scrolling (Smart)
-        const activeIdx = (pendingChapterIndex !== -1) ? pendingChapterIndex : currentChapterIdx;
+        const activeIdx = currentChapterIdx;
         const activeEl = this.itemElements[activeIdx];
         if (activeEl) {
             if (!this.isElementInViewport(activeEl)) {

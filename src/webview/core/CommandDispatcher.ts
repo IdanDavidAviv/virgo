@@ -2,6 +2,7 @@ import { IncomingCommand, UISyncPacket, OutgoingAction } from '../../common/type
 import { WebviewStore } from './WebviewStore';
 import { WebviewAudioEngine } from './WebviewAudioEngine';
 import { MessageClient } from './MessageClient';
+import { PlaybackController } from '../playbackController';
 
 /**
  * CommandDispatcher: Central IPC Router
@@ -40,17 +41,19 @@ export class CommandDispatcher {
     this.logSafeMessage(command, data);
     const store = WebviewStore.getInstance();
     const audioEngine = WebviewAudioEngine.getInstance();
+    const playback = PlaybackController.getInstance();
 
     switch (command) {
       case IncomingCommand.UI_SYNC:
         this.handleUiSync(data as UISyncPacket);
+        playback.handleSync(data as UISyncPacket);
         break;
 
       case IncomingCommand.PLAY_AUDIO:
-        // Zombie Guard: If user stopped while synthesizing, ignore incoming audio (Race Condition #42)
-        if (audioEngine.getIntent() === 'STOPPED') {
-            console.log('[Dispatcher] ✋ Ignoring Zombie Audio (Intent is STOPPED)');
-            audioEngine.releaseLock();
+        // Zombie Guard: Using PlaybackController intent for authoritative check
+        if (playback.getState().intent === 'STOPPED') {
+            console.log('[Dispatcher] ✋ Ignoring Zombie Audio (Controller Intent is STOPPED)');
+            playback.releaseLock();
             return;
         }
 
@@ -62,7 +65,7 @@ export class CommandDispatcher {
           const success = await audioEngine.playFromCache(data.cacheKey);
           if (!success) {
             console.warn(`[Dispatcher] ⚠️ Cache Miss for ${data.cacheKey} - requesting fresh synthesis.`);
-            audioEngine.acquireLock();
+            playback.acquireLock();
             MessageClient.getInstance().postAction(OutgoingAction.REQUEST_SYNTHESIS, { cacheKey: data.cacheKey });
           }
         }
@@ -70,7 +73,7 @@ export class CommandDispatcher {
 
       case IncomingCommand.STOP:
         audioEngine.stop();
-        audioEngine.releaseLock();
+        playback.releaseLock();
         store.patchState({ isPlaying: false, isPaused: false });
         break;
 
@@ -98,7 +101,7 @@ export class CommandDispatcher {
         // Restoring dashboard.js parity: warnings for fallbacks, errors for failures.
         const type = data?.isFallingBack ? 'warning' : 'error';
         ToastManager.show(errorMsg, type);
-        audioEngine.releaseLock();
+        playback.releaseLock();
         break;
       
       case IncomingCommand.ENGINE_STATUS:

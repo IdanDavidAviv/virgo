@@ -81,7 +81,8 @@ export class DashboardRelay {
             cacheSizeBytes: cacheStats.sizeBytes,
             selectedVoice: s.selectedVoice,
             rate: s.rate,
-            volume: s.volume
+            volume: s.volume,
+            lastLoadType: s.lastLoadType
         };
 
         this.postMessage({ command: 'UI_SYNC', ...packet });

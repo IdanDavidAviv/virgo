@@ -1,5 +1,6 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { MessageClient } from '../core/MessageClient';
+import { WebviewStore } from '../core/WebviewStore';
 import { OutgoingAction } from '../../common/types';
 import { renderWithLinks } from '../utils';
 import { WebviewAudioEngine } from '../core/WebviewAudioEngine';
@@ -16,8 +17,6 @@ export interface SentenceNavigatorState {
     currentIndex: number;
     isStalled: boolean;
     isSpeaking: boolean;
-    pendingIndex: number;
-    pendingTimer: any | null;
 }
 
 /**
@@ -29,9 +28,7 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
         sentences: [],
         currentIndex: -1,
         isStalled: false,
-        isSpeaking: false,
-        pendingIndex: -1,
-        pendingTimer: null
+        isSpeaking: false
     };
 
     constructor(elements: SentenceNavigatorElements) {
@@ -44,11 +41,6 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
         });
 
         this.subscribe((state) => state.state.currentSentenceIndex, (index) => {
-            // Ignore sync if we're waiting for a jump confirmation
-            if (this.state.pendingIndex !== -1 && index !== this.state.pendingIndex) {
-                return;
-            }
-            this.clearPending();
             this.state.currentIndex = index;
             this.render();
         });
@@ -72,31 +64,24 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
             return;
         }
 
-        this.state.pendingIndex = index;
-        this.render(); // Immediate feedback
+        const store = WebviewStore.getInstance();
+        const currentState = store.getState();
+        
+        // 1. [SYNC] Universal Unlocker
+        WebviewAudioEngine.getInstance().ensureAudioContext();
+        
+        // 2. [SYNC] Optimistic UI: Update highlight and play state immediately
+        if (currentState) {
+            store.optimisticPatch({
+                state: { ...currentState.state, currentSentenceIndex: index },
+                isPlaying: true,
+                isPaused: false
+            }, { isAwaitingSync: true });
+        }
 
         const client = MessageClient.getInstance();
         WebviewAudioEngine.getInstance().prepareForPlayback();
         client.postAction(OutgoingAction.JUMP_TO_SENTENCE, { index });
-
-        // Safety fallback: if extension doesn't confirm in 1s, snap back to reality
-        if (this.state.pendingTimer) {
-            clearTimeout(this.state.pendingTimer);
-        }
-        this.state.pendingTimer = setTimeout(() => {
-            if (this.state.pendingIndex !== -1) {
-                this.state.pendingIndex = -1;
-                this.render();
-            }
-        }, 1000);
-    }
-
-    private clearPending(): void {
-        this.state.pendingIndex = -1;
-        if (this.state.pendingTimer) {
-            clearTimeout(this.state.pendingTimer);
-            this.state.pendingTimer = null;
-        }
     }
 
     /**
@@ -109,7 +94,7 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
             return; 
         }
 
-        const displayIndex = this.state.pendingIndex !== -1 ? this.state.pendingIndex : this.state.currentIndex;
+        const displayIndex = this.state.currentIndex;
         const sentences = this.state.sentences;
 
         this.log(`Rendering Row: ${displayIndex} | Total: ${sentences.length}`);

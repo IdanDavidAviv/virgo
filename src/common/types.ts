@@ -55,6 +55,7 @@ export interface UISyncPacket {
     rate: number;
     volume: number;
     neuralVoices?: any[];
+    lastLoadType?: 'cache' | 'synth' | 'none';
 }
 
 

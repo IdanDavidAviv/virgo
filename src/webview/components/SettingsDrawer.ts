@@ -162,9 +162,9 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             };
         }
 
-        // Cache Clear
+        // Cache Clear (v1.5.3: Double Click to prevent accidental resets)
         if (this.els.cacheDebugTag) {
-            this.els.cacheDebugTag.onclick = async () => {
+            this.els.cacheDebugTag.ondblclick = async () => {
                 const confirmed = confirm('Clear all cached neural audio?');
                 if (confirmed) {
                     await this.cache.clearAll();
@@ -172,6 +172,11 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
                     this.els.cacheDebugTag.classList.add('pulse');
                     setTimeout(() => this.els.cacheDebugTag.classList.remove('pulse'), 500);
                 }
+            };
+            
+            // Add a hint on single click
+            this.els.cacheDebugTag.onclick = () => {
+                ToastManager.show('Double-click to clear cache', 'info');
             };
         }
     }
