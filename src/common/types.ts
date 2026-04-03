@@ -73,7 +73,10 @@ export enum IncomingCommand {
     PLAYBACK_STATE_CHANGED = 'playbackStateChanged',
     CACHE_STATS = 'cacheStats',
     SENTENCE_CHANGED = 'sentenceChanged',
-    PROGRESS = 'progress'
+    PROGRESS = 'progress',
+    NEURAL_CACHE_PUSH = 'NEURAL_CACHE_PUSH',
+    CLEAR_CACHE_WIPE = 'CLEAR_CACHE_WIPE',
+    CACHE_STATS_UPDATE = 'CACHE_STATS_UPDATE'
 }
 
 

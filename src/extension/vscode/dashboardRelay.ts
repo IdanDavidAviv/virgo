@@ -95,7 +95,16 @@ export class DashboardRelay {
     public postMessage(message: any) {
         if (!this._view) { return; }
 
-        const criticalCommands = ['playAudio', 'PURGE_MEMORY', 'synthesisError', 'stop', 'playbackStateChanged'];
+        const criticalCommands = [
+            'playAudio', 
+            'PURGE_MEMORY', 
+            'synthesisError', 
+            'stop', 
+            'playbackStateChanged',
+            'NEURAL_CACHE_PUSH',
+            'CLEAR_CACHE_WIPE',
+            'CACHE_STATS_UPDATE'
+        ];
         const isCritical = criticalCommands.includes(message.command);
 
         if (this._view.visible || isCritical) {

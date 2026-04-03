@@ -20,7 +20,7 @@ export interface FileContextElements extends Record<string, HTMLElement | HTMLBu
  * Replaces legacy updateContextSlot logic with reactive subscriptions.
  */
 export class FileContext extends BaseComponent<FileContextElements> {
-    
+
     public mount(): void {
         super.mount();
 
@@ -35,15 +35,15 @@ export class FileContext extends BaseComponent<FileContextElements> {
                 // This ensures the Focused slot remains stable as per user requirement.
                 const store = WebviewStore.getInstance();
                 const currentState = store.getState();
-                
+
                 store.optimisticPatch({
                     state: {
                         ...(currentState?.state || {}),
                         activeFileName: 'Loading Document...',
                         activeDocumentUri: 'loading' as any // placeholder to light up the reader slot
                     } as any
-                }, { 
-                    isAwaitingSync: true, 
+                }, {
+                    isAwaitingSync: true,
                     intentTimeout: 2000 // File loads can be heavy
                 });
 
@@ -81,15 +81,15 @@ export class FileContext extends BaseComponent<FileContextElements> {
             isSupported: state.state.focusedIsSupported
         }), (info) => {
             this.updateSlot(
-                info.uri || undefined, 
-                this.els.activeFilename, 
-                this.els.activeDir, 
-                info.version || undefined, 
-                info.name || undefined, 
+                info.uri || undefined,
+                this.els.activeFilename,
+                this.els.activeDir,
+                info.version || undefined,
+                info.name || undefined,
                 info.dir || undefined,
                 'No Selection'
             );
-            
+
             if (this.els.activeSlot) {
                 this.els.activeSlot.classList.toggle('active', !!info.uri);
                 this.els.activeSlot.classList.toggle('unsupported', !info.isSupported);
@@ -108,11 +108,11 @@ export class FileContext extends BaseComponent<FileContextElements> {
             version: state.state.versionSalt
         }), (info) => {
             this.updateSlot(
-                info.uri || undefined, 
-                this.els.readerFilename, 
-                this.els.readerDir, 
-                info.version || undefined, 
-                info.name || undefined, 
+                info.uri || undefined,
+                this.els.readerFilename,
+                this.els.readerDir,
+                info.version || undefined,
+                info.name || undefined,
                 info.dir || undefined,
                 'No File Loaded'
             );
@@ -126,6 +126,7 @@ export class FileContext extends BaseComponent<FileContextElements> {
         this.subscribeUI((state) => state.isSyncing, (isSyncing) => {
             if (this.els.btnLoadFile) {
                 this.els.btnLoadFile.disabled = isSyncing;
+                this.els.btnLoadFile.classList.toggle('is-loading', !!isSyncing);
             }
         });
 
@@ -146,11 +147,11 @@ export class FileContext extends BaseComponent<FileContextElements> {
      * Internal slot update logic (derived from legacy updateContextSlot)
      */
     private updateSlot(
-        uri: string | undefined, 
-        filenameEl: HTMLElement, 
-        dirEl: HTMLElement, 
-        version: string | undefined, 
-        precalcName: string | undefined, 
+        uri: string | undefined,
+        filenameEl: HTMLElement,
+        dirEl: HTMLElement,
+        version: string | undefined,
+        precalcName: string | undefined,
         precalcDir: string | undefined,
         fallbackText: string
     ): void {
@@ -161,8 +162,8 @@ export class FileContext extends BaseComponent<FileContextElements> {
         }
 
         const filename = precalcName || uri.split(/[\\\/]/).pop() || '';
-        const dir = precalcDir !== undefined 
-            ? precalcDir 
+        const dir = precalcDir !== undefined
+            ? precalcDir
             : (uri.split(/[\\\/]/).length > 3 ? uri.split(/[\\\/]/).slice(-3).join('/') : '');
 
         const versionHtml = version ? `<span class="version-badge">${version}</span>` : '';

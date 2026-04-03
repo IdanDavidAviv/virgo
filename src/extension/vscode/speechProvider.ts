@@ -55,6 +55,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._audioBridge.on('engineStatus', payload => this._dashboardRelay.postMessage({ command: 'engineStatus', ...payload }));
         this._audioBridge.on('playbackFinished', () => this._syncStatusBars());
 
+        // Register PlaybackEngine Events (Neural Optimization & Cache Parity)
+        this._playbackEngine.on('synthesis-complete', payload => {
+            this._dashboardRelay.postMessage({ command: 'NEURAL_CACHE_PUSH', ...payload });
+        });
+        this._playbackEngine.on('clear-cache', () => {
+            this._dashboardRelay.postMessage({ command: 'CLEAR_CACHE_WIPE' });
+        });
+        this._playbackEngine.on('cache-stats-update', payload => {
+            this._dashboardRelay.postMessage({ command: 'CACHE_STATS_UPDATE', ...payload });
+        });
+
         // Load Persisted Settings into StateStore
         const rate = this._context.globalState.get<number>('readAloud.rate', 0);
         const volume = this._context.globalState.get<number>('readAloud.volume', 50);

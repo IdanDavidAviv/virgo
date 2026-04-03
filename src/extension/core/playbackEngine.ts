@@ -111,6 +111,8 @@ export class PlaybackEngine extends EventEmitter {
         this._audioCache.clear();
         this._pendingTasks.clear();
         this._cacheSizeBytes = 0;
+        this.emit('clear-cache');
+        this.emit('cache-stats-update', { count: 0, sizeBytes: 0 });
     }
 
     public getCacheStats() {
@@ -203,6 +205,13 @@ export class PlaybackEngine extends EventEmitter {
 
         this._audioCache.set(key, data);
         this._cacheSizeBytes += segmentSize;
+        
+        // [TDD] Emit for Direct Push
+        this.emit('synthesis-complete', { cacheKey: key, data });
+        
+        // [TDD] Emit for Reactive Stats
+        this.emit('cache-stats-update', this.getCacheStats());
+        
         if (this._onCacheUpdate) { this._onCacheUpdate(); }
     }
 
