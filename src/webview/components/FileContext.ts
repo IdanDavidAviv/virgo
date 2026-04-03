@@ -28,7 +28,7 @@ export class FileContext extends BaseComponent<FileContextElements> {
         if (this.els.btnLoadFile) {
             this.els.btnLoadFile.onclick = (e) => {
                 const btn = e.currentTarget as HTMLButtonElement;
-                btn.classList.add('pulse', 'is-loading');
+                btn.classList.add('pulse');
                 setTimeout(() => btn.classList.remove('pulse'), 400);
 
                 // Dashboard Parity: Optimistic transition to loading state

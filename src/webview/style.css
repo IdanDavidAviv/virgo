@@ -777,24 +777,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
     justify-content: center;
 }
 
-.ctrl-btn.is-loading {
-    position: relative;
-    color: transparent !important;
-}
-
-.ctrl-btn.is-loading::after {
-    content: "";
-    position: absolute;
-    width: 14px;
-    height: 14px;
-    top: calc(50% - 7px);
-    left: calc(50% - 7px);
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    border-top-color: #fff;
-    animation: spin 0.6s linear infinite;
-}
-
 @keyframes spin {
     to { transform: rotate(360deg); }
 }
@@ -1335,6 +1317,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .is-loading {
     pointer-events: none;
     opacity: 0.8;
+    position: relative !important;
+    color: transparent !important;
 }
 
 .is-loading::after {
@@ -1342,9 +1326,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 14px;
-    height: 14px;
-    margin: -8px 0 0 -8px;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px; /* Perfect mathematical centering */
     border: 2px solid rgba(56, 189, 248, 0.1);
     border-top: 2px solid var(--primary);
     border-radius: 100%;
