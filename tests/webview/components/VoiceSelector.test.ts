@@ -6,6 +6,7 @@ import { VoiceSelector } from '@webview/components/VoiceSelector';
 import { ToastManager } from '@webview/components/ToastManager';
 import { WebviewStore } from '@webview/core/WebviewStore';
 import { MessageClient } from '@webview/core/MessageClient';
+import { CommandDispatcher } from '@webview/core/CommandDispatcher';
 import { IncomingCommand, OutgoingAction } from '@common/types';
 
 describe('VoiceSelector', () => {
@@ -26,6 +27,9 @@ describe('VoiceSelector', () => {
         (window as any).acquireVsCodeApi = vi.fn(() => ({ postMessage: vi.fn() }));
         MessageClient.resetInstance();
         WebviewStore.resetInstance();
+        CommandDispatcher.resetInstance();
+        // Wire up the dispatcher so UI_SYNC/VOICES messages reach the store
+        CommandDispatcher.getInstance();
     });
 
     afterEach(() => {
@@ -152,7 +156,7 @@ describe('VoiceSelector', () => {
         const item = elements.voiceList.querySelector('.voice-item');
         item.click();
 
-        expect(postActionSpy).toHaveBeenCalledWith(OutgoingAction.VOICE_CHANGED, { voiceId: 'v1' });
+        expect(postActionSpy).toHaveBeenCalledWith(OutgoingAction.VOICE_CHANGED, { voice: 'v1' });
         expect(item.classList.contains('selected')).toBe(true);
     });
 

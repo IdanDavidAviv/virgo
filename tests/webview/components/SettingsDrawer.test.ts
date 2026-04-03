@@ -6,6 +6,7 @@ import { SettingsDrawer } from '@webview/components/SettingsDrawer';
 import { ToastManager } from '@webview/components/ToastManager';
 import { WebviewStore } from '@webview/core/WebviewStore';
 import { MessageClient } from '@webview/core/MessageClient';
+import { CommandDispatcher } from '@webview/core/CommandDispatcher';
 import { IncomingCommand, OutgoingAction } from '@common/types';
 
 describe('SettingsDrawer', () => {
@@ -48,6 +49,9 @@ describe('SettingsDrawer', () => {
         (window as any).acquireVsCodeApi = vi.fn(() => ({ postMessage: vi.fn() }));
         MessageClient.resetInstance();
         WebviewStore.resetInstance();
+        CommandDispatcher.resetInstance();
+        // Wire up the dispatcher so UI_SYNC messages reach the store
+        CommandDispatcher.getInstance();
     });
 
     afterEach(() => {
@@ -112,7 +116,8 @@ describe('SettingsDrawer', () => {
 
         const slider = elements.volumeSlider as HTMLInputElement;
         slider.value = '40';
-        slider.dispatchEvent(new Event('input'));
+        // Use 'change' (onchange) which fires postAction directly without the 40ms debounce
+        slider.dispatchEvent(new Event('change'));
 
         expect(postActionSpy).toHaveBeenCalledWith(OutgoingAction.VOLUME_CHANGED, { volume: 40 });
     });
