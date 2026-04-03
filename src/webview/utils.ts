@@ -26,3 +26,18 @@ export function renderWithLinks(text: string): string {
         return `<a class="file-link" data-uri="${uri}" title="Open in Editor">${label}</a>`;
     });
 }
+
+/**
+ * High-performance debouncer for low-latency IPC throttling.
+ */
+export function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
+    let timeout: any | null = null;
+    return (...args: Parameters<T>) => {
+        if (timeout) {
+            clearTimeout(timeout);
+        }
+        timeout = setTimeout(() => {
+            func(...args);
+        }, wait);
+    };
+}

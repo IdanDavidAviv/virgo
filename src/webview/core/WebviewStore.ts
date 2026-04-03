@@ -1,5 +1,5 @@
 import { MessageClient } from './MessageClient';
-import { IncomingCommand, UISyncPacket } from '@common/types';
+import { IncomingCommand, UISyncPacket } from '../../common/types';
 
 export type Selector<T, S = UISyncPacket> = (state: S) => T;
 export type Listener<T> = (value: T) => void;
@@ -12,6 +12,8 @@ export interface LocalUIState {
   collapsedIndices: Set<number>;
   pendingChapterIndex: number;
   isAwaitingSync: boolean;
+  isLoadingVoices: boolean;
+  isDraggingSlider: boolean;
 }
 
 /**
@@ -34,8 +36,11 @@ export class WebviewStore {
   private uiState: LocalUIState = {
     collapsedIndices: new Set(),
     pendingChapterIndex: -1,
-    isAwaitingSync: false
+    isAwaitingSync: false,
+    isLoadingVoices: false,
+    isDraggingSlider: false
   };
+
   private uiListeners: Set<{
     selector: Selector<any, LocalUIState>,
     listener: Listener<any>,
@@ -53,6 +58,12 @@ export class WebviewStore {
    * Returns the singleton instance of WebviewStore.
    */
   public static getInstance(): WebviewStore {
+    if (typeof window !== 'undefined') {
+      if (!(window as any).__WEBVIEW_STORE__) {
+        (window as any).__WEBVIEW_STORE__ = new WebviewStore();
+      }
+      return (window as any).__WEBVIEW_STORE__;
+    }
     if (!WebviewStore.instance) {
       WebviewStore.instance = new WebviewStore();
     }
@@ -63,6 +74,9 @@ export class WebviewStore {
    * Resets the singleton instance and disposes of current listeners.
    */
   public static resetInstance(): void {
+    if (typeof window !== 'undefined') {
+      (window as any).__WEBVIEW_STORE__ = null;
+    }
     if (WebviewStore.instance) {
       WebviewStore.instance.dispose();
     }
@@ -76,6 +90,13 @@ export class WebviewStore {
     this.listeners.clear();
     this.uiListeners.clear();
     this.state = null;
+    this.uiState = {
+      isAwaitingSync: false,
+      isLoadingVoices: false,
+      isDraggingSlider: false,
+      collapsedIndices: new Set(),
+      pendingChapterIndex: -1
+    };
   }
 
   /**
@@ -83,6 +104,19 @@ export class WebviewStore {
    */
   public getState(): UISyncPacket | null {
     return this.state;
+  }
+
+  /**
+   * Generates a unique key for the current sentence audio segment.
+   * Format: voice-docId-salt-chapter-sentence
+   */
+  public getSentenceKey(): string | null {
+    const s = this.state;
+    if (!s) { return null; }
+{}    const voice = s.selectedVoice || 'default';
+    const uri = s.state.activeDocumentUri || 'unknown';
+    const salt = s.state.versionSalt || '0';
+    return `${voice}-${uri}-${salt}-${s.state.currentChapterIndex}-${s.state.currentSentenceIndex}`;
   }
 
   /**
@@ -142,24 +176,41 @@ export class WebviewStore {
   /**
    * Internal method to update the state and notify relevant listeners.
    */
-  private updateState(newState: UISyncPacket): void {
+  public updateState(newState: UISyncPacket): void {
+    // REINFORCEMENT: Suppress incoming syncs while user is dragging slider to prevent jitter
+    if (this.uiState.isDraggingSlider) {
+      return;
+    }
+
+    const start = performance.now();
     const oldState = this.state;
     
-    // Ensure rate and volume have high-integrity defaults if missing from packet
-    // We merge with old state and provide ultimate fallbacks
+    // Merge state
     const updatedState = { ...this.state, ...newState };
+
     if (updatedState.rate === undefined) { updatedState.rate = 0; }
     if (updatedState.volume === undefined) { updatedState.volume = 50; }
     
     this.state = updatedState as UISyncPacket;
 
-    this.listeners.forEach((entry) => {
+    let notifiedCount = 0;
+    this.listeners.forEach((entry, idx) => {
       const newValue = entry.selector(this.state!);
       if (oldState === null || !this.isEqual(newValue, entry.lastValue)) {
+        console.log(`[STORE] Selector #${idx} | Old: ${JSON.stringify(entry.lastValue)} | New: ${JSON.stringify(newValue)}`);
         entry.lastValue = newValue;
         entry.listener(newValue);
+        notifiedCount++;
       }
     });
+
+    // 2. [RECOVERY] Log playback state transitions for parity with legacy dashboard.js
+    if (oldState === null || oldState.isPlaying !== this.state.isPlaying || oldState.isPaused !== this.state.isPaused) {
+        console.log(`[WebviewStore] 🔄 State Sync -> isPlaying: ${this.state.isPlaying} | isPaused: ${this.state.isPaused}`);
+    }
+
+    const duration = (performance.now() - start).toFixed(2);
+    console.log(`[STORE] Update${oldState === null ? ' (Hydration)' : ''} | Notified: ${notifiedCount}/${this.listeners.size} | Duration: ${duration}ms`);
   }
 
   /**
