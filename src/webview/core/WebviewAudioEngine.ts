@@ -368,6 +368,7 @@ export class WebviewAudioEngine {
    * Sets the audio volume (0.0 to 1.0).
    */
   public setVolume(value: number): void {
+    if (!Number.isFinite(value)) { return; }
     // Sliders provide 0-100, HTMLAudioElement expects 0.0 to 1.0
     this.audio.volume = Math.max(0, Math.min(1, value / 100));
   }
@@ -376,6 +377,7 @@ export class WebviewAudioEngine {
    * Sets the playback rate (0.5 to 4.0).
    */
   public setRate(value: number): void {
+    if (!Number.isFinite(value)) { return; }
     // Map -10..10 to a usable playback rate (e.g. 0.5x to 2.0x)
     // Matches logic in playBlob
     this.audio.playbackRate = value >= 0 ? 1 + (value / 10) : 1 + (value / 20);

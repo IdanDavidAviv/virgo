@@ -177,8 +177,12 @@ export class CommandDispatcher {
 
     // 2. Synchronize Physical Audio Engine with State (Volume/Rate)
     const audioEngine = WebviewAudioEngine.getInstance();
-    audioEngine.setVolume(packet.volume);
-    audioEngine.setRate(packet.rate);
+    if (packet.volume !== undefined && packet.volume !== null) {
+      audioEngine.setVolume(packet.volume);
+    }
+    if (packet.rate !== undefined && packet.rate !== null) {
+      audioEngine.setRate(packet.rate);
+    }
 
     // 3. Clear UI-specific sync lock and watchdog timer
     // audioEngine.releaseLock(); // DEPRECATED in v1.5.3: Heartbeats should not release the playback intent lock.
