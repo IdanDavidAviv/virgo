@@ -62,7 +62,9 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
             };
         }
         if (btnStop) {
-            btnStop.onclick = () => {
+            btnStop.onclick = (e) => {
+                (e.currentTarget as HTMLElement)?.classList.add('pulse');
+                setTimeout(() => (e.currentTarget as HTMLElement)?.classList.remove('pulse'), 400);
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 PlaybackController.getInstance().stop();
             };
@@ -70,28 +72,36 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
 
         // Navigation (Debounced at the component/client level)
         if (btnPrev) {
-            btnPrev.onclick = () => {
+            btnPrev.onclick = (e) => {
+                (e.currentTarget as HTMLElement)?.classList.add('pulse');
+                setTimeout(() => (e.currentTarget as HTMLElement)?.classList.remove('pulse'), 400);
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.PREV_CHAPTER);
             };
         }
         if (btnNext) {
-            btnNext.onclick = () => {
+            btnNext.onclick = (e) => {
+                (e.currentTarget as HTMLElement)?.classList.add('pulse');
+                setTimeout(() => (e.currentTarget as HTMLElement)?.classList.remove('pulse'), 400);
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.NEXT_CHAPTER);
             };
         }
         if (btnPrevSentence) {
-            btnPrevSentence.onclick = () => {
+            btnPrevSentence.onclick = (e) => {
+                (e.currentTarget as HTMLElement)?.classList.add('pulse');
+                setTimeout(() => (e.currentTarget as HTMLElement)?.classList.remove('pulse'), 400);
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.PREV_SENTENCE);
             };
         }
         if (btnNextSentence) {
-            btnNextSentence.onclick = () => {
+            btnNextSentence.onclick = (e) => {
+                (e.currentTarget as HTMLElement)?.classList.add('pulse');
+                setTimeout(() => (e.currentTarget as HTMLElement)?.classList.remove('pulse'), 400);
                 WebviewAudioEngine.getInstance().ensureAudioContext();
                 WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
                 client.postAction(OutgoingAction.NEXT_SENTENCE);
@@ -159,7 +169,8 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
      * Cycles through Autoplay modes: AUTO -> 1 CHAPTER -> 1 ROW -> AUTO.
      */
     private cycleAutoPlayMode(): void {
-        const currentMode = WebviewStore.getInstance().getState()?.autoPlayMode || 'auto';
+        const store = WebviewStore.getInstance();
+        const currentMode = store.getState()?.autoPlayMode || 'auto';
         let nextMode: 'auto' | 'chapter' | 'row' = 'auto';
 
         if (currentMode === 'auto') {
@@ -169,6 +180,13 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         } else {
             nextMode = 'auto';
         }
+
+        // Dashboard Parity: Optimistic update for instant "snappy" toggle feel
+        store.optimisticPatch({ autoPlayMode: nextMode }, { isAwaitingSync: false });
+        
+        // Pulse animation for the toggle
+        this.els.btnAutoplay?.classList.add('pulse');
+        setTimeout(() => this.els.btnAutoplay?.classList.remove('pulse'), 400);
 
         MessageClient.getInstance().postAction(OutgoingAction.SET_AUTO_PLAY_MODE, { mode: nextMode });
     }

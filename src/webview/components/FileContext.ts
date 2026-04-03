@@ -2,6 +2,7 @@ import { BaseComponent } from '../core/BaseComponent';
 import { escapeHtml } from '../utils';
 import { OutgoingAction } from '../../common/types';
 import { LayoutManager } from '../core/LayoutManager';
+import { WebviewStore } from '../core/WebviewStore';
 
 export interface FileContextElements extends Record<string, HTMLElement | HTMLButtonElement | null | undefined> {
     activeSlot: HTMLElement;
@@ -25,7 +26,12 @@ export class FileContext extends BaseComponent<FileContextElements> {
 
         // 0. Interaction Listeners
         if (this.els.btnLoadFile) {
-            this.els.btnLoadFile.onclick = () => {
+            this.els.btnLoadFile.onclick = (e) => {
+                const btn = e.currentTarget as HTMLButtonElement;
+                btn.classList.add('pulse', 'is-loading');
+                setTimeout(() => btn.classList.remove('pulse'), 400);
+
+                // Dashboard Parity: Optimistic transition to loading state
                 this.postAction(OutgoingAction.LOAD_DOCUMENT);
                 // Coordination via Central Layout Manager
                 LayoutManager.getInstance().closeOverlays();
@@ -33,7 +39,21 @@ export class FileContext extends BaseComponent<FileContextElements> {
         }
 
         if (this.els.btnClearReader) {
-            this.els.btnClearReader.onclick = () => {
+            this.els.btnClearReader.onclick = (e) => {
+                const btn = e.currentTarget as HTMLButtonElement;
+                btn.classList.add('pulse');
+                setTimeout(() => btn.classList.remove('pulse'), 400);
+
+                // Dashboard Parity: Snappy UI clearing before host roundtrip
+                const store = WebviewStore.getInstance();
+                store.optimisticPatch({
+                    state: {
+                        ...store.getState()?.state,
+                        activeDocumentUri: undefined,
+                        activeFileName: undefined
+                    }
+                } as any, { isAwaitingSync: true });
+
                 this.postAction(OutgoingAction.RESET_CONTEXT);
             };
         }

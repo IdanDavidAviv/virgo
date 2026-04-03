@@ -311,6 +311,13 @@ export class WebviewStore {
         updatedState.isPlaying = this.state.isPlaying;
         updatedState.isPaused = this.state.isPaused;
         updatedState.playbackStalled = this.state.playbackStalled;
+        updatedState.autoPlayMode = this.state.autoPlayMode;
+        
+        // Protect document context if it was optimistically cleared
+        if (this.state.state && updatedState.state) {
+            updatedState.state.activeDocumentUri = this.state.state.activeDocumentUri;
+            updatedState.state.activeFileName = this.state.state.activeFileName;
+        }
     }
 
     if (updatedState.rate === undefined) { updatedState.rate = 0; }

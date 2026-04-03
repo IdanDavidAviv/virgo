@@ -157,7 +157,10 @@ describe('VoiceSelector', () => {
         item.click();
 
         expect(postActionSpy).toHaveBeenCalledWith(OutgoingAction.VOICE_CHANGED, { voice: 'v1' });
-        expect(item.classList.contains('selected')).toBe(true);
+        // Re-query: the original item is detached due to optimistic re-render
+        const selected = elements.voiceList.querySelector('.voice-item.selected');
+        expect(selected).not.toBeNull();
+        expect(selected.textContent).toContain('V1');
     });
 
     it('should scroll selected voice into view using timers', () => {

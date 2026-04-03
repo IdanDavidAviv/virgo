@@ -1317,3 +1317,52 @@ input[type="range"]::-webkit-slider-thumb:hover {
     padding: 0 3px;
     border-radius: 3px;
 }
+
+/* --- V1.5.5: Snappy UI Parity Animations --- */
+
+/* Pulse Haptic: Instant visual feedback for user clicks */
+.pulse {
+    animation: pulse-haptic 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
+@keyframes pulse-haptic {
+    0% { transform: scale(1); }
+    30% { transform: scale(0.96); background-color: rgba(56, 189, 248, 0.15); }
+    100% { transform: scale(1); }
+}
+
+/* Premium Loading Spinner */
+.is-loading {
+    pointer-events: none;
+    opacity: 0.8;
+}
+
+.is-loading::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 14px;
+    height: 14px;
+    margin: -8px 0 0 -8px;
+    border: 2px solid rgba(56, 189, 248, 0.1);
+    border-top: 2px solid var(--primary);
+    border-radius: 100%;
+    animation: spin-premium 0.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+@keyframes spin-premium {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Sparkle animation for neural voices */
+.sparkle-pulse {
+    animation: sparkle-pulse 2s infinite ease-in-out;
+}
+
+@keyframes sparkle-pulse {
+    0%, 100% { filter: brightness(1) drop-shadow(0 0 2px rgba(251, 191, 36, 0.2)); }
+    50% { filter: brightness(1.5) drop-shadow(0 0 8px rgba(251, 191, 36, 0.6)); }
+}

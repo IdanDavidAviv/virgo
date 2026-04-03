@@ -100,11 +100,15 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
 
             item.appendChild(label);
             
-            item.onclick = () => {
+            item.onclick = (e) => {
+                const el = e.currentTarget as HTMLElement;
+                el.classList.add('pulse');
+                setTimeout(() => el.classList.remove('pulse'), 400);
+
+                // Dashboard Parity: Optimistic store update for instant "snappy" row selection
+                this.store.optimisticPatch({ selectedVoice: id }, { isAwaitingSync: false });
+                
                 this.client.postAction(OutgoingAction.VOICE_CHANGED, { voice: id });
-                // Optimistic UI update
-                this.els.voiceList?.querySelectorAll('.voice-item').forEach(el => el.classList.remove('selected'));
-                item.classList.add('selected');
             };
 
             this.els.voiceList?.appendChild(item);
