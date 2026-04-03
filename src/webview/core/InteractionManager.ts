@@ -3,6 +3,7 @@ import { WebviewStore } from './WebviewStore';
 import { OutgoingAction } from '../../common/types';
 import { LayoutManager } from './LayoutManager';
 import { WebviewAudioEngine } from './WebviewAudioEngine';
+import { PlaybackController } from '../playbackController';
 
 /**
  * InteractionManager: Orchestrates global webview events.
@@ -87,7 +88,7 @@ export class InteractionManager {
             case 'Space':
                 event.preventDefault();
                 audioEngine.prepareForPlayback();
-                this.client.postAction(OutgoingAction.TOGGLE_PLAY_PAUSE);
+                PlaybackController.getInstance().togglePlayPause();
                 break;
 
             case 'ArrowLeft':

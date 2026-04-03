@@ -213,6 +213,12 @@ export class WebviewAudioEngine {
       return;
     }
 
+    // Immediate revocation of previous blob URL (Dashboard Parity line 262)
+    const oldUrl = this.audio.src;
+    if (oldUrl.startsWith('blob:')) {
+      this.revokeUrl(oldUrl);
+    }
+
     const url = URL.createObjectURL(blob);
     this.activeObjectURLs.add(url);
     this.audio.src = url;
@@ -235,7 +241,8 @@ export class WebviewAudioEngine {
 
   public pause(): void {
     this.audio.pause();
-    // [IMMEDIATE] Patch store for responsiveness and test parity
+    // [IMMEDIATE] Clear any pending sync locks or stall timers (fixes LoadingLifecycle.test.ts)
+    WebviewStore.getInstance().resetLoadingStates();
     WebviewStore.getInstance().patchState({ 
         isPaused: true, 
         isPlaying: false, 

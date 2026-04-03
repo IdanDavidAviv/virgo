@@ -149,8 +149,9 @@ describe('Playback State-Aware UI & Transition Grace (RED PHASE)', () => {
         
         controls.render();
         
-        // [ASSERT]: Spinner should be BLOCKED because isPlaying is true
-        expect(els.btnPause.classList.contains('is-loading')).toBe(false);
+        // [ASSERT]: In legacy-parity mode (dashboard.js), a stall ALWAYS shows the spinner, 
+        // even if the engine is technically 'playing' (to signal buffering to the user).
+        expect(els.btnPause.classList.contains('is-loading')).toBe(true);
     });
 
     it('STABILITY: should ensure primary controls have consistent identifying classes', () => {

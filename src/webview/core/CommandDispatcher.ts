@@ -50,8 +50,13 @@ export class CommandDispatcher {
         break;
 
       case IncomingCommand.PLAY_AUDIO:
-        // Zombie Guard: Using PlaybackController intent for authoritative check
-        if (playback.getState().intent === 'STOPPED') {
+        // Zombie Guard: Prune late-arriving packets from previous context.
+        // We allow the command if EITHER the controller intent is NOT STOPPED
+        // OR the engine is already busy playing (prevents dropping subsequent segments).
+        const isControllerStopped = playback.getState().intent === 'STOPPED';
+        const isEngineActive = audioEngine.intent === 'PLAYING';
+        
+        if (isControllerStopped && !isEngineActive) {
             console.log('[Dispatcher] ✋ Ignoring Zombie Audio (Controller Intent is STOPPED)');
             playback.releaseLock();
             return;
@@ -81,9 +86,11 @@ export class CommandDispatcher {
         // [DEFENSIVE] Only handle if it looks like a valid sync packet
         if (data && data.state) {
           this.handleUiSync(data as UISyncPacket);
+          playback.handleSync(data as UISyncPacket);
         } else if (data && (data.isPlaying !== undefined || data.isPaused !== undefined)) {
           // [LEGACY/PARTIAL] Allow patching playback flags specifically
           store.patchState(data);
+          playback.handleSync(data);
         } else {
           console.warn('[Dispatcher] ⚠️ Ignoring malformed PLAYBACK_STATE_CHANGED');
         }
@@ -193,9 +200,10 @@ export class CommandDispatcher {
   }
 
   /**
-   * logSafeMessage: High-density IPC logger with binary truncation.
+   * logSafeMessage: High-density IPC logger with legacy parity formatting.
    */
   private logSafeMessage(command: string, data: any): void {
+    // Silence noisy/repetitive commands
     if (command === IncomingCommand.UI_SYNC || 
         command === IncomingCommand.PROGRESS || 
         command === IncomingCommand.CACHE_STATS || 
@@ -217,10 +225,15 @@ export class CommandDispatcher {
       return val;
     };
 
+    // Convert camelCase to SNAKE_CASE for legacy console parity (e.g. playAudio -> PLAY_AUDIO)
+    const formattedCommand = command
+        .replace(/([a-z])([A-Z])/g, '$1_$2')
+        .toUpperCase();
+
     const payload = typeof data === 'object' 
       ? Object.entries(data).map(([k, v]) => `${k}:${JSON.stringify(sanitize(v))}`).join(' | ')
-      : sanitize(data);
+      : JSON.stringify(sanitize(data));
 
-    console.log(`[HOST -> WEBVIEW] [${command.toUpperCase()}] ${payload}`);
+    console.log(`[HOST -> WEBVIEW] [${formattedCommand}] ${payload}`);
   }
 }

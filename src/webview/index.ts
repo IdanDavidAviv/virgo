@@ -29,7 +29,7 @@ import { ToastManager } from './components/ToastManager';
  * Read Aloud Webview Entry Point (ESM/TS)
  * Replaces legacy dashboard.js with a modular, strictly-typed bootstrap.
  */
-function bootstrap() {
+export function bootstrap() {
   const start = performance.now();
   console.log('[ReadAloud] 🚀 Initializing High-Integrity Webview Engine...');
 
@@ -61,6 +61,11 @@ function bootstrap() {
       if (debugTag) {
         debugTag.style.display = 'inline-block';
       }
+
+      // [PARITY] Legacy dashboard.js state sync logging
+      store.subscribe((state) => state.isPlaying, (isPlaying) => {
+        console.log(`%c[WebviewStore] State Sync -> isPlaying: ${isPlaying}`, 'color: #00ff00; background: #222; padding: 2px 5px; border-radius: 4px;');
+      });
     }
 
     console.log('[BOOT] Infrastructure OK');
@@ -154,8 +159,12 @@ function bootstrap() {
 }
 
 // Start the engine
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', bootstrap);
+if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
+  console.log('[ReadAloud] 🧪 Test Environment Detected: Skipping auto-bootstrap.');
 } else {
-  bootstrap();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootstrap);
+  } else {
+    bootstrap();
+  }
 }

@@ -79,14 +79,8 @@ export class PlaybackController {
     this.setAwaitingSync(true);
     this.startWatchdog();
 
-    // Conform to dashboard.js logic:
-    // If we have a URI, we signal CONTINUE (extension host should decide if hit or fresh).
-    // If not, we signal LOAD_AND_PLAY.
-    if (!currentUri) {
-      MessageClient.getInstance().postAction(OutgoingAction.LOAD_AND_PLAY);
-    } else {
-      MessageClient.getInstance().postAction(OutgoingAction.CONTINUE);
-    }
+    const resolvedUri = currentUri || WebviewStore.getInstance().getSentenceKey();
+    MessageClient.getInstance().postAction(OutgoingAction.PLAY, resolvedUri ? { cacheKey: resolvedUri } : {});
   }
 
   public pause(): void {
@@ -99,14 +93,21 @@ export class PlaybackController {
     MessageClient.getInstance().postAction(OutgoingAction.PAUSE);
   }
 
+  public togglePlayPause(): void {
+    if (this.intent === PlaybackIntent.PLAYING) {
+      this.pause();
+    } else {
+      this.play();
+    }
+  }
+
   public stop(): void {
     this.intent = PlaybackIntent.STOPPED;
     // [RESPONSIVE] Atomic transition
     WebviewStore.getInstance().optimisticPatch({ isPlaying: false, isPaused: true }, { isAwaitingSync: true });
     
     this.releaseLock();
-    this.audio.pause();
-    this.audio.currentTime = 0;
+    WebviewAudioEngine.getInstance().stop();
     MessageClient.getInstance().postAction(OutgoingAction.STOP);
   }
 
@@ -141,6 +142,7 @@ export class PlaybackController {
     this.intent = this.mode === PlaybackMode.ACTIVE ? PlaybackIntent.PLAYING :
                   this.mode === PlaybackMode.PAUSED ? PlaybackIntent.PAUSED : PlaybackIntent.STOPPED;
 
+    WebviewStore.getInstance().updateUIState({ playbackIntent: this.intent as any });
     this.releaseLock();
   }
 

@@ -110,17 +110,14 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         const { btnPlay, btnPause, waveContainer, statusDot } = this.els;
         const mainStore = WebviewStore.getInstance();
         const state = mainStore.getState();
-        const { isAwaitingSync } = mainStore.getUIState();
+        const { isSyncing, lastStallSource, lastStallAt, playbackIntent, isAwaitingSync } = mainStore.getUIState();
         
         if (!state) { 
             return; 
         }
-
-        const { playbackIntent, lastStallAt, lastStallSource } = mainStore.getUIState();
-        const isStalled = !!state.playbackStalled;
-        
-        // V1.5.4 Optimized: Intent-driven activity detection (Screamingly fast icon flip)
+        const isAudiblyPlaying = !!state.isPlaying;
         const isActuallyActive = (playbackIntent === 'PLAYING');
+        const isStalled = !!state.playbackStalled;
 
         // 1. Play/Pause Visibility
         if (btnPlay) {
@@ -130,20 +127,22 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
             btnPause.style.display = isActuallyActive ? 'inline-block' : 'none';
         }
 
-        // [REINFORCEMENT] Restrict loading to Play/Pause (Conforming to legacy dashboard way)
-        const { isSyncing } = mainStore.getUIState();
-        const isAudiblyPlaying = !!state.isPlaying;
+        // V1.5.4: Loading spinner parity with dashboard.js behavior.
+        // - WebviewStore.isSyncing already handles the 400ms grace period for AUTO stalls.
+        // - Standardizing on the store's state ensures 100% test consistency.
+        const showSpinner = !!isSyncing;
+
         [btnPlay, btnPause].forEach(btn => {
             if (btn) {
-                // Fix: Suppress spinner if audio is actually audible (parity with dashboard.js behavior)
-                const showLoading = isSyncing && !isAudiblyPlaying;
-                btn.classList.toggle('is-loading', showLoading);
+                btn.classList.toggle('is-loading', showSpinner);
             }
         });
 
         // 3. Wave Container Stall & Speaking Indicators
         if (waveContainer) {
-            waveContainer.classList.toggle('speaking', isActuallyActive);
+            // Dashboard parity: animate wave ONLY when physically playing, 
+            // not just on intent (fixes UI flickering during segment changes).
+            waveContainer.classList.toggle('speaking', isAudiblyPlaying);
             waveContainer.classList.toggle('stalled', isStalled);
         }
 

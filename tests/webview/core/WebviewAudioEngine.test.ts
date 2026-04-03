@@ -27,6 +27,7 @@ describe('WebviewAudioEngine (TDD: Autoplay Regression)', () => {
             updateUIState: vi.fn(),
             optimisticPatch: vi.fn(),
             patchState: vi.fn(),
+            getSentenceKey: vi.fn(),
             subscribe: vi.fn()
         } as any);
 

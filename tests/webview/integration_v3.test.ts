@@ -127,8 +127,8 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             playbackStalled: false,
             autoPlayMode: 'auto',
             engineMode: 'local',
-            currentSentences: [],
-            allChapters: [],
+            currentSentences: [{ text: 'Hello', key: 's1' }],
+            allChapters: [{ title: 'C1', index: 0, sentences: [{ text: 'Hello', key: 's1' }] }],
             currentText: '',
             totalChapters: 0,
             canPrevChapter: false,
@@ -270,10 +270,13 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
     // SUITE 2: Playback Controls — Button Matrix
     // ─────────────────────────────────────────────────────────────────────────
     describe('Suite 2: Playback Controls — Button Matrix', () => {
-        it('T2.1 — PLAY button posts OutgoingAction.PLAY', () => {
+        it('T2.1 — PLAY button posts OutgoingAction.PLAY with metadata', () => {
             mountPlaybackControls();
             document.getElementById('btn-play')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.PLAY);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.PLAY, 
+                expect.objectContaining({ cacheKey: expect.any(String) })
+            );
         });
 
         it('T2.2 — PAUSE button posts OutgoingAction.PAUSE', () => {
@@ -387,11 +390,14 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
     // SUITE 4: Keyboard Shortcuts
     // ─────────────────────────────────────────────────────────────────────────
     describe('Suite 4: Keyboard Shortcuts', () => {
-        it('T4.1 — Space key triggers TOGGLE_PLAY_PAUSE', () => {
+        it('T4.1 — Space key triggers PLAY when currently stopped', () => {
             const interaction = InteractionManager.getInstance();
             interaction.mount();
             window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }));
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.TOGGLE_PLAY_PAUSE);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.PLAY, 
+                expect.objectContaining({ cacheKey: expect.any(String) })
+            );
         });
 
         it('T4.2 — ArrowLeft triggers PREV_SENTENCE', () => {

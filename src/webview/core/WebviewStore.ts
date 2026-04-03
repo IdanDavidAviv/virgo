@@ -140,10 +140,10 @@ export class WebviewStore {
   private refreshSyncingState(): void {
     const isAwaitingSync = this.uiState.isAwaitingSync;
     const isStalled = !!(this.state?.playbackStalled && this.state?.isPlaying);
-    const isAutoStall = this.uiState.lastStallSource === 'AUTO';
+    // [ROBUST] If intent has expired, treat as background sync (fixes flicker in PlaybackStateAgnostic.test.ts)
+    const isAutoStall = this.uiState.lastStallSource === 'AUTO' || Date.now() >= this.intentExpiry;
 
     // 1. User Intent (High Priority, Instant)
-    // ONLY if not an AUTO transition (continuous playback)
     if (isAwaitingSync && !isAutoStall) {
         this.clearSyncTimer();
         if (!this.uiState.isSyncing) {
@@ -256,7 +256,10 @@ export class WebviewStore {
    * Ensures that the UI feels responsive after a user gesture or engine release.
    */
   public resetLoadingStates(): void {
-    const patch: Partial<LocalUIState> = { lastStallAt: 0 };
+    const patch: Partial<LocalUIState> = { 
+        lastStallAt: 0,
+        lastStallSource: 'AUTO' // [STABILITY] Clear user intent once sync is resolved or aborted
+    };
     if (this.uiState.isAwaitingSync) { patch.isAwaitingSync = false; }
     this.updateUIState(patch);
     
@@ -365,11 +368,15 @@ export class WebviewStore {
     this.lastIntentId++;
     this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
     
+    // [REINFORCEMENT] Reset all loading and stall states before initiating a new user intent.
+    // This prevents "Zombie Stalls" from a previous engine release.
+    this.resetLoadingStates();
+
     // [REINFORCEMENT] Derive and track user intent
     let intent: 'PLAYING' | 'PAUSED' | 'STOPPED' = this.uiState.playbackIntent;
-    if (patch.isPaused === false) { intent = 'PLAYING'; }
+    if (patch.isPlaying === false) { intent = 'STOPPED'; } // STOP has highest priority
+    else if (patch.isPaused === false) { intent = 'PLAYING'; }
     else if (patch.isPaused === true) { intent = 'PAUSED'; }
-    else if (patch.isPlaying === false) { intent = 'STOPPED'; }
     
     this.updateUIState({ 
         playbackIntent: intent,
