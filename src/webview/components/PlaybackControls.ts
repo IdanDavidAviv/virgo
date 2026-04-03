@@ -2,6 +2,7 @@ import { BaseComponent } from '../core/BaseComponent';
 import { WebviewStore } from '../core/WebviewStore';
 import { MessageClient } from '../core/MessageClient';
 import { OutgoingAction } from '../../common/types';
+import { WebviewAudioEngine } from '../core/WebviewAudioEngine';
 
 export interface PlaybackControlsElements extends Record<string, HTMLElement | null> {
     btnPlay: HTMLElement | null;
@@ -47,21 +48,48 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
 
         if (btnPlay) {
             btnPlay.onclick = () => {
-                const state = WebviewStore.getInstance().getState();
-                const currentUri = state?.state?.activeDocumentUri || null;
-                // We still use the shared controller instance for its internal state/watchdog
-                // but we could eventually move it all here.
-                (window as any).readAloudController?.play(currentUri);
+                WebviewAudioEngine.getInstance().prepareForPlayback();
+                client.postAction(OutgoingAction.PLAY);
             };
         }
-        if (btnPause) { btnPause.onclick = () => (window as any).readAloudController?.pause(); }
-        if (btnStop) { btnStop.onclick = () => (window as any).readAloudController?.stop(); }
+        if (btnPause) {
+            btnPause.onclick = () => {
+                WebviewAudioEngine.getInstance().pause();
+                client.postAction(OutgoingAction.PAUSE);
+            };
+        }
+        if (btnStop) {
+            btnStop.onclick = () => {
+                WebviewAudioEngine.getInstance().stop();
+                client.postAction(OutgoingAction.STOP);
+            };
+        }
 
         // Navigation (Debounced at the component/client level)
-        if (btnPrev) { btnPrev.onclick = () => client.postAction(OutgoingAction.PREV_CHAPTER); }
-        if (btnNext) { btnNext.onclick = () => client.postAction(OutgoingAction.NEXT_CHAPTER); }
-        if (btnPrevSentence) { btnPrevSentence.onclick = () => client.postAction(OutgoingAction.PREV_SENTENCE); }
-        if (btnNextSentence) { btnNextSentence.onclick = () => client.postAction(OutgoingAction.NEXT_SENTENCE); }
+        if (btnPrev) {
+            btnPrev.onclick = () => {
+                WebviewAudioEngine.getInstance().prepareForPlayback();
+                client.postAction(OutgoingAction.PREV_CHAPTER);
+            };
+        }
+        if (btnNext) {
+            btnNext.onclick = () => {
+                WebviewAudioEngine.getInstance().prepareForPlayback();
+                client.postAction(OutgoingAction.NEXT_CHAPTER);
+            };
+        }
+        if (btnPrevSentence) {
+            btnPrevSentence.onclick = () => {
+                WebviewAudioEngine.getInstance().prepareForPlayback();
+                client.postAction(OutgoingAction.PREV_SENTENCE);
+            };
+        }
+        if (btnNextSentence) {
+            btnNextSentence.onclick = () => {
+                WebviewAudioEngine.getInstance().prepareForPlayback();
+                client.postAction(OutgoingAction.NEXT_SENTENCE);
+            };
+        }
 
         if (btnAutoplay) {
             btnAutoplay.onclick = () => this.cycleAutoPlayMode();
@@ -77,12 +105,19 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         const state = mainStore.getState();
         const { isAwaitingSync } = mainStore.getUIState();
         
-        if (!state) { return; }
+        if (!state) { 
+            this.log('Missing state, skipping render', 'warn');
+            return; 
+        }
+
+        this.log(`Rendering Playback Controls: Playing=${state.isPlaying}, Paused=${state.isPaused}, Stalled=${state.playbackStalled}`);
 
         const isPlaying = state.isPlaying;
         const isPaused = state.isPaused;
         const isStalled = !!state.playbackStalled;
-        const isActuallyActive = isPlaying && !isPaused;
+        
+        // V1.5.3 Fix: Treat the system as active if we are awaiting a sync (Intent is PLAYING)
+        const isActuallyActive = (isPlaying || isAwaitingSync) && !isPaused;
 
         // 1. Play/Pause Visibility
         if (btnPlay) {
@@ -97,8 +132,9 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         if (btnPlay) { btnPlay.classList.toggle('is-loading', isLoading); }
         if (btnPause) { btnPause.classList.toggle('is-loading', isLoading); }
 
-        // 3. Wave Container Stall Indicator
+        // 3. Wave Container Stall & Speaking Indicators
         if (waveContainer) {
+            waveContainer.classList.toggle('speaking', isActuallyActive);
             waveContainer.classList.toggle('stalled', isStalled);
         }
 

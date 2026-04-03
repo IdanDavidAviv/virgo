@@ -3,6 +3,7 @@ import { WebviewStore, LocalUIState } from '../core/WebviewStore';
 import { MessageClient } from '../core/MessageClient';
 import { OutgoingAction, UISyncPacket } from '../../common/types';
 import { escapeHtml, renderWithLinks } from '../utils';
+import { WebviewAudioEngine } from '../core/WebviewAudioEngine';
 
 export interface ChapterListElements extends Record<string, HTMLElement | null | (HTMLElement | null)[] | undefined> {
     container: HTMLElement | null;
@@ -64,6 +65,7 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
 
         // Instant feedback
         store.updateUIState({ pendingChapterIndex: index });
+        WebviewAudioEngine.getInstance().prepareForPlayback();
         client.postAction(OutgoingAction.JUMP_TO_CHAPTER, { index });
 
         // Safety fallback: Clear pending highlight if extension doesn't respond
@@ -80,6 +82,7 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
     public render(): void {
         const { container } = this.els;
         if (!container) {
+            this.log('Missing container element, skipping render', 'warn');
             return;
         }
 
@@ -88,23 +91,45 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
         const chapters = state?.allChapters || [];
         const currentIdx = state?.state?.currentChapterIndex ?? -1;
 
+        this.log(`Rendering Chapters: ${chapters.length} | Active: ${currentIdx} | UI State: ${JSON.stringify(WebviewStore.getInstance().getUIState())}`);
+
         container.innerHTML = '';
         this.itemElements = [];
 
         if (!chapters || chapters.length === 0) {
-            container.innerHTML = '<div class="chapter-placeholder">No headings found.</div>';
+            container.innerHTML = `
+                <div class="chapter-placeholder">
+                    <div class="placeholder-icon">📖</div>
+                    <div class="placeholder-text">READY TO LOAD</div>
+                    <div class="placeholder-subtext">Open a file and click 'LOAD FILE'</div>
+                </div>
+            `;
             return;
         }
 
+        let activeHeadingLevel = 1;
         let hideLevelAt = Infinity;
 
         chapters.forEach((ch, i) => {
-            if (ch.level <= hideLevelAt) {
+            const isHeading = ch.title.trim().startsWith('#') || ch.level > 0;
+            
+            // If it's a heading, update the 'contextual' level for its subsequent rows
+            if (ch.level > 0) {
+                activeHeadingLevel = ch.level;
+            }
+
+            // A row's indentation is its own level (if heading) OR its parent's level + 1 (if content)
+            const effectiveLevel = ch.level > 0 ? ch.level : activeHeadingLevel + 1;
+
+            if (ch.level <= hideLevelAt && ch.level > 0) {
                 hideLevelAt = Infinity;
             }
 
             const item = document.createElement('div');
-            item.className = `chapter-item level-${ch.level}`;
+            item.className = `chapter-item level-${effectiveLevel}`;
+            if (ch.level === 0) {
+                item.classList.add('content-row');
+            }
             item.dataset.index = i.toString();
             
             const isParent = (i < chapters.length - 1 && chapters[i + 1].level > ch.level);

@@ -3,11 +3,13 @@ import { ToastManager } from './ToastManager';
 import { CacheManager } from '../cacheManager';
 import { MessageClient } from '../core/MessageClient';
 import { OutgoingAction } from '../../common/types';
+import { debounce } from '../utils';
+import { WebviewAudioEngine } from '../core/WebviewAudioEngine';
 
 export interface SettingsDrawerElements extends Record<string, HTMLElement | HTMLInputElement | HTMLButtonElement | HTMLMediaElement | null | undefined> {
     drawer: HTMLElement;
-    btnOpen: HTMLButtonElement;
-    btnClose: HTMLButtonElement;
+    btnOpen: HTMLElement;           // accepts <span> or <button>
+    btnClose?: HTMLElement | null;  // optional: only bind if different from btnOpen
     volumeSlider: HTMLInputElement;
     rateSlider: HTMLInputElement;
     btnCloudEngine: HTMLButtonElement;
@@ -17,7 +19,7 @@ export interface SettingsDrawerElements extends Record<string, HTMLElement | HTM
     cacheDebugTag: HTMLElement;
     stateDebugTag: HTMLElement;
     engineToggleGroup: HTMLElement | null;
-    neuralPlayer: HTMLMediaElement | null;
+    neuralPlayer?: HTMLMediaElement | null;
 }
 
 /**
@@ -25,17 +27,18 @@ export interface SettingsDrawerElements extends Record<string, HTMLElement | HTM
  * Reactive and encapsulated.
  */
 export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
-    private isDraggingSlider = false;
     private cache = new CacheManager();
     private messenger = MessageClient.getInstance();
+    private audioEngine = WebviewAudioEngine.getInstance();
 
     public mount(): void {
         super.mount();
         this.setupListeners();
 
-        // 1. Volume State Sync — guard against feedback loop during drag (#4)
+        // 1. Volume State Sync — guard against feedback loop during drag
         this.subscribe((state) => state.volume, (volume) => {
-            if (!this.isDraggingSlider && this.els.volumeSlider) {
+            const isDragging = this.store.getUIState().isDraggingSlider;
+            if (!isDragging && this.els.volumeSlider) {
                 this.els.volumeSlider.value = String(volume);
             }
             if (this.els.volumeVal) {
@@ -43,9 +46,10 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             }
         });
 
-        // 2. Rate State Sync — guard against feedback loop during drag (#4)
+        // 2. Rate State Sync — guard against feedback loop during drag
         this.subscribe((state) => state.rate, (rate) => {
-            if (!this.isDraggingSlider && this.els.rateSlider) {
+            const isDragging = this.store.getUIState().isDraggingSlider;
+            if (!isDragging && this.els.rateSlider) {
                 this.els.rateSlider.value = String(rate);
             }
             if (this.els.rateVal) {
@@ -80,40 +84,46 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
     }
 
     private setupListeners(): void {
-        // Drawer Toggle — also syncs engineToggleGroup visibility (#6)
-        const toggleDrawer = (open: boolean) => {
-            if (open) {
-                this.els.drawer?.classList.add('open');
-            } else {
-                this.els.drawer?.classList.remove('open');
-            }
-            if (this.els.engineToggleGroup) {
-                (this.els.engineToggleGroup as HTMLElement).style.display = open ? 'flex' : 'none';
-            }
-        };
-
         if (this.els.btnOpen) {
-            this.els.btnOpen.onclick = () => {
-                const isOpen = this.els.drawer?.classList.contains('open');
-                toggleDrawer(!isOpen);
-            };
+            this.els.btnOpen.addEventListener('click', (e) => {
+                e.stopPropagation();
+                console.log('[SETTINGS] Toggle requested');
+                this.toggle();
+            });
         }
-        if (this.els.btnClose) {
-            this.els.btnClose.onclick = () => toggleDrawer(false);
+        
+        // Only bind close separately if it's a distinct element from btnOpen
+        const closeEl = this.els.btnClose;
+        if (closeEl && closeEl !== this.els.btnOpen) {
+            closeEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.close();
+            });
         }
 
         // Sliders — set isDraggingSlider=true on drag start, false on release (#4)
+        const debouncedVolume = debounce((val: number) => {
+            this.messenger.postAction(OutgoingAction.VOLUME_CHANGED, { volume: val });
+        }, 40);
+
+        const debouncedRate = debounce((val: number) => {
+            this.messenger.postAction(OutgoingAction.RATE_CHANGED, { rate: val });
+        }, 40);
+
         if (this.els.volumeSlider) {
             this.els.volumeSlider.oninput = (e) => {
-                this.isDraggingSlider = true;
+                this.store.updateUIState({ isDraggingSlider: true });
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 if (this.els.volumeVal) {
                     this.els.volumeVal.textContent = `${val}%`;
                 }
-                this.messenger.postAction(OutgoingAction.VOLUME_CHANGED, { volume: val });
+                
+                // Real-time audio engine update
+                this.audioEngine.setVolume(val);
+                debouncedVolume(val);
             };
             this.els.volumeSlider.onchange = (e) => {
-                this.isDraggingSlider = false;
+                this.store.updateUIState({ isDraggingSlider: false });
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 this.messenger.postAction(OutgoingAction.VOLUME_CHANGED, { volume: val });
             };
@@ -121,21 +131,19 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
 
         if (this.els.rateSlider) {
             this.els.rateSlider.oninput = (e) => {
-                this.isDraggingSlider = true;
+                this.store.updateUIState({ isDraggingSlider: true });
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 if (this.els.rateVal) {
                     const displayRate = (1 + (val / 10)).toFixed(1);
                     this.els.rateVal.textContent = `${displayRate}x`;
                 }
-                // Live playbackRate preview on the audio element (#8)
-                if (this.els.neuralPlayer && !(this.els.neuralPlayer as HTMLMediaElement).paused) {
-                    (this.els.neuralPlayer as HTMLMediaElement).playbackRate =
-                        val >= 0 ? 1 + (val / 10) : 1 + (val / 20);
-                }
-                this.messenger.postAction(OutgoingAction.RATE_CHANGED, { rate: val });
+                
+                // Real-time audio engine update
+                this.audioEngine.setRate(val);
+                debouncedRate(val);
             };
             this.els.rateSlider.onchange = (e) => {
-                this.isDraggingSlider = false;
+                this.store.updateUIState({ isDraggingSlider: false });
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 this.messenger.postAction(OutgoingAction.RATE_CHANGED, { rate: val });
             };
@@ -170,5 +178,28 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
 
     public render(): void {
         // Initial sync handled by subscriptions
+    }
+
+    public open(): void {
+        this.els.drawer?.classList.add('open');
+        if (this.els.engineToggleGroup) {
+            this.els.engineToggleGroup.style.display = 'flex';
+        }
+    }
+
+    public close(): void {
+        this.els.drawer?.classList.remove('open');
+        if (this.els.engineToggleGroup) {
+            this.els.engineToggleGroup.style.display = 'none';
+        }
+    }
+
+    public toggle(): void {
+        const isOpen = this.els.drawer?.classList.contains('open');
+        if (isOpen) {
+            this.close();
+        } else {
+            this.open();
+        }
     }
 }

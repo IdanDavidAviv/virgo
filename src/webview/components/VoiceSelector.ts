@@ -30,6 +30,13 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
                 this.renderVoiceList(list, info.selected, info.mode);
             }
         });
+
+        // 2. Loading state feedback
+        this.subscribeUI((ui) => ui.isLoadingVoices, (loading) => {
+            if (loading && this.els.voiceList) {
+                this.els.voiceList.innerHTML = '<div class="voice-placeholder animate-pulse">Loading optimized voices...</div>';
+            }
+        });
     }
 
     private setupListeners(): void {
@@ -55,7 +62,8 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
      * Internal rendering logic for the custom premium list.
      */
     private renderVoiceList(voicesToUse: any[], selectedVoice: string | undefined, mode: string): void {
-        if (!this.els.voiceList) { return; }
+        const { isLoadingVoices } = this.store.getUIState();
+        if (!this.els.voiceList || isLoadingVoices) { return; }
         
         this.els.voiceList.innerHTML = '';
 
@@ -93,7 +101,7 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
             item.appendChild(label);
             
             item.onclick = () => {
-                this.client.postAction(OutgoingAction.VOICE_CHANGED, { voiceId: id });
+                this.client.postAction(OutgoingAction.VOICE_CHANGED, { voice: id });
                 // Optimistic UI update
                 this.els.voiceList?.querySelectorAll('.voice-item').forEach(el => el.classList.remove('selected'));
                 item.classList.add('selected');
@@ -103,7 +111,7 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
             
             // Scroll selected into view on first render
             if (id === selectedVoice) {
-                setTimeout(() => item.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 50);
+                setTimeout(() => item.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }), 50);
             }
         });
     }

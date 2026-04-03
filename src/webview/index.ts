@@ -1,0 +1,161 @@
+import { WebviewStore } from './core/WebviewStore';
+import { MessageClient } from './core/MessageClient';
+import { CommandDispatcher } from './core/CommandDispatcher';
+import { WebviewAudioEngine } from './core/WebviewAudioEngine';
+import { InteractionManager } from './core/InteractionManager';
+import { LayoutManager } from './core/LayoutManager';
+import { IncomingCommand, OutgoingAction } from '../common/types';
+
+// Global Stylesheet — essential for bundling
+import './style.css';
+
+/**
+ * Polyfill atob/btoa for restricted environments (Issue #21)
+ */
+if (typeof atob === 'undefined') {
+  (window as any).atob = (str: string) => Buffer.from(str, 'base64').toString('binary');
+}
+
+// UI Components
+import { SentenceNavigator } from './components/SentenceNavigator';
+import { PlaybackControls } from './components/PlaybackControls';
+import { ChapterList } from './components/ChapterList';
+import { SettingsDrawer } from './components/SettingsDrawer';
+import { FileContext } from './components/FileContext';
+import { VoiceSelector } from './components/VoiceSelector';
+import { ToastManager } from './components/ToastManager';
+
+/**
+ * Read Aloud Webview Entry Point (ESM/TS)
+ * Replaces legacy dashboard.js with a modular, strictly-typed bootstrap.
+ */
+function bootstrap() {
+  const start = performance.now();
+  console.log('[ReadAloud] 🚀 Initializing High-Integrity Webview Engine...');
+
+  // Global Error Boundary (Issue #42)
+  window.onerror = (msg, url, line, col) => {
+    const errorDetail = `[ReadAloud] CRITICAL ERROR: ${msg} at ${line}:${col}`;
+    console.error(errorDetail);
+    MessageClient.getInstance().postAction(OutgoingAction.LOG, errorDetail);
+  };
+
+  try {
+    // 1. Initialize Infrastructure (Singletons)
+    const client = MessageClient.getInstance();
+    const store = WebviewStore.getInstance();
+    const audioEngine = WebviewAudioEngine.getInstance();
+    const dispatcher = CommandDispatcher.getInstance();
+    const interaction = InteractionManager.getInstance();
+
+    // Initialize Toasts early
+    const toastContainer = document.getElementById('toast-container');
+    if (toastContainer) {
+      ToastManager.setContainer(toastContainer);
+    }
+
+    // Debug Mode Indicator (Serverless Handshake)
+    const config = (window as any).__BOOTSTRAP_CONFIG__;
+    if (config && config.debugMode) {
+      const debugTag = document.getElementById('debug-mode-tag');
+      if (debugTag) {
+        debugTag.style.display = 'inline-block';
+      }
+    }
+
+    console.log('[BOOT] Infrastructure OK');
+
+    // 2. Map DOM Elements & Initialize Components
+    const components = {
+      navigator: new SentenceNavigator({
+        navigator: document.getElementById('sentence-navigator'),
+        prev: document.getElementById('sentence-prev'),
+        current: document.getElementById('sentence-current'),
+        next: document.getElementById('sentence-next')
+      }),
+      controls: new PlaybackControls({
+        btnPlay: document.getElementById('btn-play'),
+        btnPause: document.getElementById('btn-pause'),
+        btnStop: document.getElementById('btn-stop'),
+        btnPrev: document.getElementById('btn-prev'),
+        btnNext: document.getElementById('btn-next'),
+        btnPrevSentence: document.getElementById('btn-prev-sentence'),
+        btnNextSentence: document.getElementById('btn-next-sentence'),
+        btnAutoplay: document.getElementById('btn-autoplay'),
+        waveContainer: document.getElementById('sentence-navigator'),
+        statusDot: document.getElementById('status-dot')
+      }),
+      chapterList: new ChapterList({
+        container: document.getElementById('chapter-list'),
+        fullProgressHeader: document.getElementById('sentence-progress'),
+        chapterOnlyHeader: document.getElementById('chapter-progress')
+      }),
+      settings: new SettingsDrawer({
+        drawer: document.getElementById('settings-drawer') as HTMLElement,
+        btnOpen: document.getElementById('settings-toggle') as HTMLElement, // <span> in HTML
+        // btnClose omitted — handled by single toggle element
+        volumeSlider: document.getElementById('volume-slider') as HTMLInputElement,
+        rateSlider: document.getElementById('rate-slider') as HTMLInputElement,
+        btnCloudEngine: document.getElementById('engine-neural') as HTMLButtonElement,
+        btnLocalEngine: document.getElementById('engine-local') as HTMLButtonElement,
+        rateVal: document.getElementById('rate-val'),
+        volumeVal: document.getElementById('volume-val'),
+        cacheDebugTag: document.getElementById('cache-debug-tag') as HTMLElement,
+        stateDebugTag: document.getElementById('state-debug-tag') as HTMLElement,
+        engineToggleGroup: document.querySelector('.engine-toggle-group')
+      }),
+      fileContext: new FileContext({
+        activeSlot: document.querySelector('.context-slot.selection') as HTMLElement,
+        activeFilename: document.getElementById('active-filename') as HTMLElement,
+        activeDir: document.getElementById('active-dir') as HTMLElement,
+        readerSlot: document.querySelector('.context-slot.reader') as HTMLElement,
+        readerFilename: document.getElementById('reader-filename') as HTMLElement,
+        readerDir: document.getElementById('reader-dir') as HTMLElement,
+        btnLoadFile: document.getElementById('btn-load-file') as HTMLButtonElement,
+        btnClearReader: document.getElementById('btn-clear-reader') as HTMLButtonElement
+      }),
+      voiceSelector: new VoiceSelector({
+        voiceList: document.getElementById('voice-list-container') as HTMLElement,
+        searchInput: document.getElementById('voice-search') as HTMLInputElement
+      })
+    };
+
+    console.log('[BOOT] Mapping Elements...');
+
+    // Mount all components to attach event listeners
+    Object.values(components).forEach(c => c.mount());
+    interaction.mount();
+
+    // 2a. Register with Layout Manager (Issue #15)
+    const layout = LayoutManager.getInstance();
+    layout.registerSettings(components.settings);
+
+    // 3. Global Event Loop (Command Routing)
+    client.onCommand(IncomingCommand.UI_SYNC, (data) => dispatcher.dispatch(IncomingCommand.UI_SYNC, data));
+    client.onCommand(IncomingCommand.VOICES, (data) => dispatcher.dispatch(IncomingCommand.VOICES, data));
+    client.onCommand(IncomingCommand.PLAY_AUDIO, (data) => dispatcher.dispatch(IncomingCommand.PLAY_AUDIO, data));
+    client.onCommand(IncomingCommand.STOP, () => dispatcher.dispatch(IncomingCommand.STOP, null));
+    client.onCommand(IncomingCommand.PURGE_MEMORY, () => dispatcher.dispatch(IncomingCommand.PURGE_MEMORY, null));
+    client.onCommand(IncomingCommand.PLAYBACK_STATE_CHANGED, (data) => dispatcher.dispatch(IncomingCommand.PLAYBACK_STATE_CHANGED, data));
+    client.onCommand(IncomingCommand.SYNTHESIS_ERROR, (data) => dispatcher.dispatch(IncomingCommand.SYNTHESIS_ERROR, data));
+
+    // 4. Cleanup Hook
+    window.onbeforeunload = () => audioEngine.purgeMemory();
+
+    const duration = (performance.now() - start).toFixed(1);
+    console.log(`[ReadAloud] ✅ Webview Handshake Complete (${duration}ms).`);
+    
+    client.postAction(OutgoingAction.READY);
+
+  } catch (err) {
+    console.error('[FATAL] Webview Bootstrap Crashed:', err);
+    throw err;
+  }
+}
+
+// Start the engine
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootstrap);
+} else {
+  bootstrap();
+}

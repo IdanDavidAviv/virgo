@@ -1,6 +1,7 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { escapeHtml } from '../utils';
 import { OutgoingAction } from '../../common/types';
+import { LayoutManager } from '../core/LayoutManager';
 
 export interface FileContextElements extends Record<string, HTMLElement | HTMLButtonElement | null | undefined> {
     activeSlot: HTMLElement;
@@ -26,11 +27,8 @@ export class FileContext extends BaseComponent<FileContextElements> {
         if (this.els.btnLoadFile) {
             this.els.btnLoadFile.onclick = () => {
                 this.postAction(OutgoingAction.LOAD_DOCUMENT);
-                // Close the settings drawer if open (#5)
-                const drawer = document.getElementById('settings-drawer');
-                drawer?.classList.remove('open');
-                const engineToggleGroup = document.querySelector('.engine-toggle-group') as HTMLElement | null;
-                if (engineToggleGroup) { engineToggleGroup.style.display = 'none'; }
+                // Coordination via Central Layout Manager
+                LayoutManager.getInstance().closeOverlays();
             };
         }
 
@@ -58,6 +56,11 @@ export class FileContext extends BaseComponent<FileContextElements> {
                 'No Selection'
             );
             
+            if (this.els.activeSlot) {
+                this.els.activeSlot.classList.toggle('active', !!info.uri);
+                this.els.activeSlot.classList.toggle('unsupported', !info.isSupported);
+            }
+
             if (this.els.btnLoadFile) {
                 this.els.btnLoadFile.disabled = !info.isSupported;
             }
@@ -79,6 +82,10 @@ export class FileContext extends BaseComponent<FileContextElements> {
                 info.dir || undefined,
                 'No File Loaded'
             );
+
+            if (this.els.readerSlot) {
+                this.els.readerSlot.classList.toggle('active', !!info.uri);
+            }
         });
 
         // 3. Load Button Mismatch Sync
