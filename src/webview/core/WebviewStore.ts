@@ -288,7 +288,6 @@ export class WebviewStore {
     const hasActiveIntent = this.lastIntentId > 0 && now < this.intentExpiry;
 
     const start = performance.now();
-    const oldState = this.state;
     
     // If the voices seem identical in size and sample, we avoid a full merge to save main-thread time.
     if (newState.availableVoices && source === 'remote') {
@@ -303,27 +302,33 @@ export class WebviewStore {
         }
     }
 
-    // Merge state, respecting active intent for sensitive flags
-    const updatedState = { ...this.state, ...newState };
+    // 3. Merge state
+    const oldState = this.state;
+    const updatedState = { ...this.state, ...newState } as UISyncPacket;
 
-    if (hasActiveIntent && this.state && source === 'remote') {
+    // Apply Sovereignty Guard if needed
+    if (hasActiveIntent && oldState && source === 'remote') {
         // Protect the optimistic desire from being overwritten by delayed sync packets
-        updatedState.isPlaying = this.state.isPlaying;
-        updatedState.isPaused = this.state.isPaused;
-        updatedState.playbackStalled = this.state.playbackStalled;
-        updatedState.autoPlayMode = this.state.autoPlayMode;
+        updatedState.isPlaying = oldState.isPlaying;
+        updatedState.isPaused = oldState.isPaused;
+        updatedState.playbackStalled = oldState.playbackStalled;
+        updatedState.autoPlayMode = oldState.autoPlayMode;
         
-        // Protect document context if it was optimistically cleared
-        if (this.state.state && updatedState.state) {
-            updatedState.state.activeDocumentUri = this.state.state.activeDocumentUri;
-            updatedState.state.activeFileName = this.state.state.activeFileName;
+        // Protect document context
+        if (oldState.state && updatedState.state) {
+            // Nested object protection (deep copy what we want to keep)
+            updatedState.state = { 
+                ...updatedState.state, 
+                activeDocumentUri: oldState.state.activeDocumentUri,
+                activeFileName: oldState.state.activeFileName
+            };
         }
     }
 
-    if (updatedState.rate === undefined) { updatedState.rate = 0; }
+    if (updatedState.rate === undefined) { updatedState.rate = 0; } // [PARITY] Fixed regression from 1.0
     if (updatedState.volume === undefined) { updatedState.volume = 50; }
     
-    this.state = updatedState as UISyncPacket;
+    this.state = updatedState;
 
     let notifiedCount = 0;
     let idx = 0;

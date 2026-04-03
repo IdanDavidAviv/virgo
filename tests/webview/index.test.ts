@@ -13,39 +13,57 @@ describe('Webview Bootstrap: Debug Mode (TDD)', () => {
         document.body.innerHTML = `
             <div id="debug-mode-tag" style="display: none;"></div>
             <div id="toast-container"></div>
-            <div id="sentence-navigator"></div>
-            <div id="btn-play"></div>
-            <div id="btn-pause"></div>
-            <div id="btn-stop"></div>
-            <div id="btn-prev"></div>
-            <div id="btn-next"></div>
-            <div id="btn-prev-sentence"></div>
-            <div id="btn-next-sentence"></div>
-            <div id="btn-autoplay"></div>
-            <div id="status-dot"></div>
-            <div id="chapter-list"></div>
-            <div id="sentence-progress"></div>
-            <div id="chapter-progress"></div>
-            <div id="settings-drawer"></div>
-            <div id="settings-toggle"></div>
-            <input id="volume-slider" />
-            <input id="rate-slider" />
-            <button id="engine-neural"></button>
-            <button id="engine-local"></button>
-            <div id="rate-val"></div>
-            <div id="volume-val"></div>
-            <div id="cache-debug-tag"></div>
-            <div id="state-debug-tag"></div>
-            <div id="voice-list-container"></div>
-            <input id="voice-search" />
+            
+            <div id="active-selection" class="context-slot selection">
+                <span id="active-filename"></span>
+                <span id="active-dir"></span>
+            </div>
+            
+            <div id="reading-context" class="context-slot reader">
+                <span id="reader-filename"></span>
+                <span id="reader-dir"></span>
+            </div>
+
             <button id="btn-load-file"></button>
             <button id="btn-clear-reader"></button>
-            <div class="context-slot selection"></div>
-            <div id="active-filename"></div>
-            <div id="active-dir"></div>
-            <div class="context-slot reader"></div>
-            <div id="reader-filename"></div>
-            <div id="reader-dir"></div>
+
+            <div id="sentence-navigator" class="sentence-navigator">
+                <div id="sentence-prev"></div>
+                <div id="sentence-current"></div>
+                <div id="sentence-next"></div>
+            </div>
+
+            <div class="engine-toggle-group">
+                <button id="engine-local" class="toggle-pill active">SYSTEM</button>
+                <button id="engine-neural" class="toggle-pill">PREMIUM</button>
+            </div>
+
+            <div id="settings-drawer" class="settings-drawer">
+                <input type="range" id="rate-slider" min="-10" max="10" value="0" step="1">
+                <input type="range" id="volume-slider" min="0" max="100" value="50">
+                <div id="rate-val"></div>
+                <div id="volume-val"></div>
+                <div id="cache-debug-tag"></div>
+                <div id="state-debug-tag"></div>
+            </div>
+            <button id="settings-toggle"></button>
+
+            <div id="voice-list-container"></div>
+            <input type="text" id="voice-search">
+
+            <div id="chapter-list"></div>
+            <span id="sentence-progress"></span>
+            <span id="chapter-progress"></span>
+
+            <button id="btn-autoplay"></button>
+            <button id="btn-prev"></button>
+            <button id="btn-prev-sentence"></button>
+            <button id="btn-play"></button>
+            <button id="btn-pause"></button>
+            <button id="btn-next-sentence"></button>
+            <button id="btn-next"></button>
+            <button id="btn-stop"></button>
+            <span id="status-dot"></span>
         `;
         
         // Mock Globals

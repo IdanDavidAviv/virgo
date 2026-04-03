@@ -3,13 +3,19 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WebviewStore } from '../../src/webview/core/WebviewStore';
+import { MessageClient } from '../../src/webview/core/MessageClient';
 import { IncomingCommand } from '../../src/common/types';
 
 describe('WebviewStore Sovereignty (TDD: Stale Sync Guard)', () => {
     beforeEach(() => {
+        // Reset Singletons for clean state
         // @ts-ignore
         WebviewStore.instance = undefined;
+        // @ts-ignore
+        MessageClient.resetInstance();
+        
         vi.useFakeTimers();
+        vi.setSystemTime(new Date(2024, 0, 1));
     });
 
     it('SHOULD ignore stale UI_SYNC playback states if a recent user intent exists', () => {
