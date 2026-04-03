@@ -51,7 +51,7 @@ describe('FileContext (Optimistic UI)', () => {
         btn.click();
 
         // Immediate visual feedback
-        expect(elements.activeFilename.textContent).toBe('Loading Document...');
+        expect(elements.readerFilename.textContent).toBe('Loading Document...');
         expect(btn.classList.contains('pulse')).toBe(true);
         expect(btn.classList.contains('is-loading')).toBe(true);
     });

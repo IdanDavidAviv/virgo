@@ -29,11 +29,16 @@ export class FileContext extends BaseComponent<FileContextElements> {
             this.els.btnLoadFile.onclick = (e) => {
                 const btn = e.currentTarget as HTMLButtonElement;
                 btn.classList.add('pulse');
+                btn.classList.add('is-loading'); // [PARITY] Added missing loading class
                 setTimeout(() => btn.classList.remove('pulse'), 400);
 
-                // Dashboard Parity: Optimistic transition to loading state
-                if (this.els.activeFilename) {
-                    this.els.activeFilename.textContent = 'Loading Document...';
+                // [AUDIT] Move loading feedback to the Reader slot (Active file)
+                // instead of overwriting the Focused file name.
+                if (this.els.readerFilename) {
+                    this.els.readerFilename.textContent = 'Loading Document...';
+                }
+                if (this.els.readerDir) {
+                    this.els.readerDir.textContent = '';
                 }
 
                 this.postAction(OutgoingAction.LOAD_DOCUMENT);
