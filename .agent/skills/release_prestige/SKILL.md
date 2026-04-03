@@ -18,12 +18,13 @@ To ensure the ".vsix" file is always production-ready and free of regressions. T
 3.  **Major Release**: `npm run release:major`
 
 ### 1.2 Execution Sequence (Internal)
-The orchestrated command performs the following in a single transaction:
-1.  **Version Sentinel**: Bumps version, renames `[Unreleased]` changelog section, adds date.
-2.  **Linting**: Runs `npm run lint`.
-3.  **Production Compile**: Runs `npm run build` (esbuild production mode).
-4.  **Packaging**: Runs `npm run package` (vsce + cleanup).
-5.  **Audit**: Runs `verify_artifact.js` to ensure zero corruptions.
+The orchestrated command performs the following high-integrity flow:
+0.  **Phase 0: Deep Audit**: (Mandatory) Run `npm run release:audit`. Synthesize the "Representative Story" and obtain user "GO".
+1.  **Phase 1: Version Sentinel**: Bumps version, renames `[Unreleased]` changelog section, adds date.
+2.  **Phase 2: Quality Gates**: Runs `npm run lint` and `npm run typecheck`.
+3.  **Phase 3: Production Compile**: Runs `npm run build` (esbuild production mode).
+4.  **Phase 4: Packaging**: Runs `npm run package` (vsce + cleanup).
+5.  **Phase 5: Prestige Audit**: Runs `verify_artifact.js` to ensure zero corruptions.
 
 ## 2. Manual Verification Sandbox
 To verify the installation experience, perform the following manual checks:

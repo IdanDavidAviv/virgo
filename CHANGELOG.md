@@ -4,8 +4,19 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [Unreleased]
 
+-
+
+## [1.6.1] - 2026-04-03
+
 ### Added
-- 
+- **🛡️ Intent Sovereignty Guard**: Implemented a 500ms immunity window in `WebviewStore` to prioritize local user intent over stale `UI_SYNC` packets from the Extension Host.
+
+### Fixed
+- **📍 Optimistic Loading Slot**: Corrected `FileContext` routing; the "Loading Document..." feedback now correctly appears in the **Reader (Active File)** slot instead of the Focused context.
+- **🏛️ Modularization Finalized**: Fully decommissioned the legacy `dashboard.js` monolith, transitioning all UI logic to reactive ESM components.
+
+### Changed
+- **⚖️ Baseline Parity**: Reverted default `rate` value to `0` to maintain synchronization with the integration test suite.
 
 ## [1.6.0] - 2026-04-03
 

@@ -25,14 +25,13 @@ To ensure the "Readme Preview Read Aloud" extension maintains a professional, pr
 - **Audit**: `node .agent/skills/version_sentinel/scripts/git_history_audit.js`
 - **Side Effects**: Automatically updates `package.json` and injects the current date into the `CHANGELOG.md` while preserving an empty `## [Unreleased]` section for the next cycle.
 
-## 5. Prestige Audit Protocol
-**MANDATORY**: Before finalyzing any MINOR or MAJOR release, the agent MUST perform a Prestige Audit:
-1. **Identify Anchor**: Run the audit tool to find the commit where the current version was set.
-2. **Impact Analysis**: Analyze the `git diff --stat` to identify high-impact files (e.g., +4,400 line test expansions).
-    - **Exclusion Rule**: Exclude `.agent/` changes from the `CHANGELOG.md`. These are internal-only.
-    - **Automation**: The audit tool excludes `.agent/` by default. Use `--include-meta` for full infrastructure visibility. Use `--help` for a complete list of analysis flags.
-3. **Deep Audit**: Use `--diff --file [path]` to see the actual implementation of key features.
-4. **Representative Summary**: Synthesize a changelog entry that explains *architectural shifts* (e.g. "Intent Sovereignty") rather than just listing commit titles.
+## 5. Prestige Audit Protocol (MANDATORY)
+**MANDATORY**: Before finalizing **ANY** release (Patch, Minor, or Major), the agent MUST perform a Prestige Audit to ensure the representative story is accurate:
+1. **Trigger Deep Audit**: Run `npm run release:audit` or `node .agent/skills/version_sentinel/scripts/git_history_audit.js --diff`.
+2. **Impact Analysis**: Analyze the `git diff` to identify the *mechanism* of the change (e.g., "500ms Immunity Window") rather than just the *result*.
+    - **Exclusion Rule**: Always exclude `.agent/` changes from the user-facing `CHANGELOG.md`.
+3. **Synthesis**: Create a "Representative Story" that explains the architectural reasoning for the change.
+4. **Approval**: Present the synthesized story to the user for a "GO" before invoking the bump script.
 
 ## 6. Changelog Protocol
 - **Format**: Follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
