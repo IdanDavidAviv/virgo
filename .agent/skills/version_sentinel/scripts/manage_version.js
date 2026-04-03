@@ -9,8 +9,42 @@ const changelogPath = path.join(root, 'CHANGELOG.md');
  * 🛡️ Version Sentinel - Advanced Version Manager
  * Supports: Bumping, Changelog Staging, and Verification.
  */
+function showHelp() {
+    console.log(`
+🛡️ Version Sentinel - Help
+--------------------------
+Advanced version management and Prestige Audit integration.
+
+USAGE:
+    node manage_version.js [options]
+
+OPTIONS:
+    --help, -h          Show this help menu.
+    --bump <type>       Bump version (major|minor|patch). Updates package.json and CHANGELOG.md.
+    --dry-run           Preview changes without writing to disk.
+    --audit             Trigger the Prestige Audit tool to analyze git history.
+                        Supports all audit flags (e.g., --include-meta, --diff).
+
+EXAMPLES:
+    # Verify version synchronization:
+    node manage_version.js
+
+    # Trigger a Prestige Audit for the upcoming release:
+    node manage_version.js --audit --diff
+
+    # Bump a minor version:
+    node manage_version.js --bump minor
+    `);
+}
+
 function manageVersion() {
     const args = process.argv.slice(2);
+
+    if (args.includes('--help') || args.includes('-h')) {
+        showHelp();
+        return;
+    }
+
     const bumpType = args.includes('--bump') ? args[args.indexOf('--bump') + 1] : null;
     const isDryRun = args.includes('--dry-run');
     const isAudit = args.includes('--audit');

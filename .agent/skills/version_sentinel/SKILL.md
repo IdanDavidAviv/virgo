@@ -30,7 +30,7 @@ To ensure the "Readme Preview Read Aloud" extension maintains a professional, pr
 1. **Identify Anchor**: Run the audit tool to find the commit where the current version was set.
 2. **Impact Analysis**: Analyze the `git diff --stat` to identify high-impact files (e.g., +4,400 line test expansions).
     - **Exclusion Rule**: Exclude `.agent/` changes from the `CHANGELOG.md`. These are internal-only.
-    - **Automation**: The audit tool excludes `.agent/` by default. Use `--all` for full infrastructure visibility.
+    - **Automation**: The audit tool excludes `.agent/` by default. Use `--include-meta` for full infrastructure visibility. Use `--help` for a complete list of analysis flags.
 3. **Deep Audit**: Use `--diff --file [path]` to see the actual implementation of key features.
 4. **Representative Summary**: Synthesize a changelog entry that explains *architectural shifts* (e.g. "Intent Sovereignty") rather than just listing commit titles.
 

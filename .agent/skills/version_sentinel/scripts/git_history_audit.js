@@ -32,12 +32,56 @@ function getVersionAnchor() {
     return anchorHash;
 }
 
+function showHelp() {
+    console.log(`
+🛡️ Git History Audit Tool - Help
+-------------------------------
+Performs high-integrity analysis of git history to identify the "Representative Story" of a release.
+
+USAGE:
+    node git_history_audit.js [options]
+
+OPTIONS:
+    --help, -h          Show this help menu.
+    --include-meta      Include .agent/ infrastructure changes in the audit (Filtered by default).
+    --diff              Show full diff content for a deep audit of code logic.
+    --anchor=<hash>     Override the starting version anchor (default: auto-detected from package.json).
+    --target=<hash>     Set the target commit for analysis (default: HEAD).
+    --file=<path>       Filter the deep audit (diff) to a specific file or directory.
+    --all               [DEPRECATED] Alias for --include-meta.
+
+EXAMPLES:
+    # Standard user-facing audit:
+    node git_history_audit.js
+
+    # Deep logic audit with full diffs:
+    node git_history_audit.js --diff
+
+    # Full repository audit including agent infrastructure:
+    node git_history_audit.js --include-meta
+
+    # Custom range audit:
+    node git_history_audit.js --anchor=v1.5.0 --target=v1.6.0
+    `);
+}
+
 function audit() {
     const args = process.argv.slice(2);
-    const showDiff = args.includes('--diff');
-    const includeAgent = args.includes('--all');
-    const fileFilter = args.find(a => a.startsWith('--file='))?.split('=')[1];
     
+    if (args.includes('--help') || args.includes('-h')) {
+        showHelp();
+        return;
+    }
+
+    const showDiff = args.includes('--diff');
+    let includeMeta = args.includes('--include-meta');
+    
+    if (args.includes('--all')) {
+        console.warn('⚠️  Warning: The "--all" flag is deprecated. Use "--include-meta" for high-integrity agent alignment.');
+        includeMeta = true;
+    }
+
+    const fileFilter = args.find(a => a.startsWith('--file='))?.split('=')[1];
     const anchorArg = args.find(a => a.startsWith('--anchor='))?.split('=')[1];
     const targetArg = args.find(a => a.startsWith('--target='))?.split('=')[1] || 'HEAD';
     
@@ -53,19 +97,19 @@ function audit() {
     console.log(`📁 Target: [${target === 'HEAD' ? 'HEAD' : target.substring(0, 7)}]`);
     console.log(`📁 Delta: [${anchor.substring(0, 7)}] -> [${target === 'HEAD' ? 'HEAD' : target.substring(0, 7)}]\n`);
 
-    // 1. Log Delta (Filter out .agent changes unless --all)
+    // 1. Log Delta (Filter out .agent changes unless --include-meta)
     console.log('--- 📜 COMMIT LOG DELTA ---');
     let logCmd = `git log --oneline ${anchor}..${target}`;
-    if (!includeAgent) {
+    if (!includeMeta) {
         logCmd += ` -- . ":(exclude).agent"`;
     }
     const logs = run(logCmd);
     console.log(logs || '(No new user-facing commits since anchor)');
 
-    // 2. Diff Stat (Impact Analysis - Filter out .agent changes unless --all)
+    // 2. Diff Stat (Impact Analysis - Filter out .agent changes unless --include-meta)
     console.log('\n--- 📊 IMPACT ANALYSIS (STAT) ---');
     let statCmd = `git diff --stat ${anchor}..${target}`;
-    if (!includeAgent) {
+    if (!includeMeta) {
         statCmd += ` -- . ":(exclude).agent"`;
     }
     const stats = run(statCmd);
@@ -78,7 +122,7 @@ function audit() {
         if (fileFilter) {
             diffCmd += ` -- "${fileFilter}"`;
             console.log(`🎯 Filtering by file: ${fileFilter}`);
-        } else if (!includeAgent) {
+        } else if (!includeMeta) {
             diffCmd += ` -- . ":(exclude).agent"`;
         }
         const diffContent = run(diffCmd);
