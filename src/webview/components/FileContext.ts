@@ -17,6 +17,7 @@ export interface FileContextElements extends Record<string, HTMLElement | HTMLBu
     btnModeSnippet: HTMLButtonElement;
     fileModeContainer: HTMLElement;
     snippetLookupContainer: HTMLElement;
+    transferLayer: HTMLElement;
 }
 
 /**
@@ -170,6 +171,9 @@ export class FileContext extends BaseComponent<FileContextElements> {
             }
             if (this.els.snippetLookupContainer) {
                 this.els.snippetLookupContainer.style.display = isSnippet ? 'block' : 'none';
+            }
+            if (this.els.transferLayer) {
+                this.els.transferLayer.style.display = isSnippet ? 'none' : 'flex';
             }
         });
     }

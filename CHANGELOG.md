@@ -7,6 +7,11 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.0.2] - 2026-04-04
+
+### Stable Sovereignty & Navigation
+This release addresses critical UI state regressions by implementing the **Mode Sovereignty Protocol**. By establishing a 500ms immunity window on the `activeMode` intent, the extension now reliably protects user navigation from stale `UI_SYNC` packets during heavy document parsing. Additionally, the Antigravity navigation has been refactored into a high-density, 2nd-layer drill-down system with reactive "Premium Glow" indicators to ensure seamless visual parity between file and snippet sources.
+
 ## [2.0.1] - 2026-04-04
 
 ### Antigravity Bridge Genesis

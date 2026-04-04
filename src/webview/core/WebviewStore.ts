@@ -41,6 +41,7 @@ export class WebviewStore {
   // [REINFORCEMENT] Intent Sovereignty (Sequence Guard)
   private lastIntentId: number = 0;
   private intentExpiry: number = 0;
+  private modeIntentExpiry: number = 0;
   private readonly INTENT_TIMEOUT_MS = 500;
 
   // [REINFORCEMENT] Payload Cache
@@ -73,8 +74,11 @@ export class WebviewStore {
   private constructor() {
     const client = MessageClient.getInstance();
     client.onCommand<UISyncPacket>(IncomingCommand.UI_SYNC, (packet: UISyncPacket) => {
-      if (packet.activeMode) {
-        this.updateUIState({ activeMode: packet.activeMode });
+      const now = Date.now();
+      const hasActiveModeIntent = now < this.modeIntentExpiry;
+
+      if (packet.activeMode && !hasActiveModeIntent) {
+        this.updateUIState({ activeMode: packet.activeMode }, true);
       }
       this.updateState(packet, 'remote');
     });
@@ -288,7 +292,7 @@ export class WebviewStore {
   /**
    * Updates the local UI state and notifies subscribers.
    */
-  public updateUIState(patch: Partial<LocalUIState>): void {
+  public updateUIState(patch: Partial<LocalUIState>, isRemote: boolean = false): void {
     const oldState = { ...this.uiState };
     this.uiState = { ...this.uiState, ...patch };
 
@@ -300,9 +304,19 @@ export class WebviewStore {
       }
     });
 
+    this.refreshUIStateSideEffects(patch, isRemote);
+  }
+
+  private refreshUIStateSideEffects(patch: Partial<LocalUIState>, isRemote: boolean): void {
     // Reactively refresh syncing state if underlying triggers changed
     if (patch.isAwaitingSync !== undefined) {
         this.refreshSyncingState();
+    }
+
+    // [SOVEREIGNTY] Notify extension of mode changes if not from remote sync
+    if (patch.activeMode !== undefined && !isRemote) {
+        this.modeIntentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
+        MessageClient.getInstance().postAction(OutgoingAction.SET_ACTIVE_MODE, { mode: patch.activeMode });
     }
   }
 

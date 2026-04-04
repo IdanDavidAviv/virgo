@@ -143,17 +143,27 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _setupMcpWatcher() {
-        // Watch for NEW markdown files in the CURRENT session directory
-        const sessionPattern = new vscode.RelativePattern(this._antigravityRoot, `${this._sessionId}/*.md`);
-        const watcher = vscode.workspace.createFileSystemWatcher(sessionPattern, false, true, true);
+        // [UNIVERSAL WATCHER] Monitor the entire Antigravity root for cross-session injections
+        const globalPattern = new vscode.RelativePattern(this._antigravityRoot, `**/*.md`);
+        const watcher = vscode.workspace.createFileSystemWatcher(globalPattern, false, true, true);
         
         this._context.subscriptions.push(watcher);
-        this._logger(`[WATCHER] Active for session ${this._sessionId}`);
+        this._logger(`[WATCHER] Active for ALL sessions in ${this._antigravityRoot}`);
 
         this._context.subscriptions.push(watcher.onDidCreate(async uri => {
             this._logger(`[WATCHER] INCOMING_SNIPPET detected: ${path.basename(uri.fsPath)}`);
             
-            // 1. Force Stop current playback (if any) to prevent overlapping audio
+            // 0. Dynamic Session Pivot: Extract session ID from path
+            const relativePath = path.relative(this._antigravityRoot, uri.fsPath);
+            const pathParts = relativePath.split(path.sep);
+            const detectedSessionId = pathParts.length > 0 ? pathParts[0] : this._sessionId;
+
+            if (detectedSessionId !== this._sessionId) {
+                this._logger(`[WATCHER] PIVOTING: session context changed from ${this._sessionId} -> ${detectedSessionId}`);
+                (this as any)._sessionId = detectedSessionId; // Internal pivot
+            }
+
+            // 1. Force Stop current playback (if any)
             this.stop();
 
             // 2. Load the snippet into the controller
@@ -424,7 +434,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
      * This is the "Single Source of Truth" relay point.
      */
     private _syncUI(includeVoices: boolean = false, snippetHistory?: SnippetHistory) {
-        this._dashboardRelay.sync(includeVoices, snippetHistory);
+        this._dashboardRelay.sync(includeVoices, snippetHistory, this._sessionId);
     }
 
     private _syncUITimer?: NodeJS.Timeout;
@@ -810,6 +820,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     }
                 }
                 break;
+            
+            case OutgoingAction.SET_ACTIVE_MODE:
+                if (data.mode) {
+                    this._stateStore.setActiveMode(data.mode);
+                    // No need to syncUI back immediately as webview already has it locally,
+                    // but StateStore change will eventually trigger a sync anyway.
+                }
+                break;
         }
     }
 
@@ -819,14 +837,32 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
 
         try {
-            const sessions = fs.readdirSync(this._antigravityRoot)
-                .filter(f => fs.statSync(path.join(this._antigravityRoot, f)).isDirectory())
-                .sort((a, b) => b.localeCompare(a)) // Latest first
-                .slice(0, 3);
+            // 1. Get all session directories 
+            const allDirs = fs.readdirSync(this._antigravityRoot)
+                .map(f => {
+                    const fullPath = path.join(this._antigravityRoot, f);
+                    try {
+                        const stats = fs.statSync(fullPath);
+                        return stats.isDirectory() ? { id: f, mtime: stats.mtimeMs } : null;
+                    } catch { return null; }
+                })
+                .filter((x): x is { id: string; mtime: number } => x !== null)
+                .sort((a, b) => b.mtime - a.mtime);
+
+            // 2. Prioritize Active Session
+            const activeId = this._sessionId;
+            let sessionIds = allDirs.map(s => s.id).filter(id => id !== activeId);
+            
+            if (activeId && fs.existsSync(path.join(this._antigravityRoot, activeId))) {
+                sessionIds.unshift(activeId);
+            }
+
+            // 3. Limit to 10 total
+            sessionIds = sessionIds.slice(0, 10);
 
             const result: SnippetHistory = [];
 
-            for (const sessionId of sessions) {
+            for (const sessionId of sessionIds) {
                 const sessionPath = path.join(this._antigravityRoot, sessionId);
                 const files = fs.readdirSync(sessionPath)
                     .filter(f => f.endsWith('.md'))
@@ -841,6 +877,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                         return {
                             name: displayName,
                             fsPath: filePath,
+                            uri: vscode.Uri.file(filePath).toString(),
                             timestamp: stats.mtimeMs
                         };
                     })

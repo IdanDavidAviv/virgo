@@ -18,6 +18,22 @@ function log(msg: string) {
     }
 }
 
+function resolveLatestSessionId(antigravityRoot: string): string {
+    if (!fs.existsSync(antigravityRoot)) {
+        return 'default-session';
+    }
+    try {
+        const sessions = fs.readdirSync(antigravityRoot)
+            .filter(f => fs.statSync(path.join(antigravityRoot, f)).isDirectory())
+            .map(f => ({ id: f, mtime: fs.statSync(path.join(antigravityRoot, f)).mtimeMs }))
+            .sort((a, b) => b.mtime - a.mtime);
+        
+        return sessions.length > 0 ? sessions[0].id : 'default-session';
+    } catch (e) {
+        return 'default-session';
+    }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('Read Aloud Diagnostics');
     outputChannel.show(true); 
@@ -42,8 +58,8 @@ export async function activate(context: vscode.ExtensionContext) {
     const userProfile = process.env.USERPROFILE || process.env.HOME || '';
     const antigravityRoot = path.join(userProfile, '.gemini', 'antigravity', 'read_aloud');
     
-    // Aligned with Active Conversation ID: fa6340bf-1dcd-4e6f-9318-4397c55a3872
-    const sessionId = 'fa6340bf-1dcd-4e6f-9318-4397c55a3872'; 
+    // Dynamic Session Discovery (No more hardcoding)
+    const sessionId = resolveLatestSessionId(antigravityRoot); 
     const persistencePath = path.join(antigravityRoot, sessionId);
 
     const speechProvider = new SpeechProvider(context, log, mainStatusBarItem, antigravityRoot, sessionId, () => syncSelection());

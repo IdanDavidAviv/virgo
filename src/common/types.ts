@@ -66,12 +66,14 @@ export interface UISyncPacket {
     neuralVoices?: any[];
     lastLoadType?: 'cache' | 'synth' | 'none';
     activeMode: 'FILE' | 'SNIPPET';
+    activeSessionId?: string;
     logLevel: LogLevel;
 }
 
 export interface SnippetEntry {
     name: string;
     fsPath: string;
+    uri: string;
     timestamp: number;
 }
 
@@ -142,5 +144,6 @@ export enum OutgoingAction {
     ERROR = 'error',
     // Snippet Lookup (Antigravity)
     GET_ALL_SNIPPET_HISTORY = 'GET_ALL_SNIPPET_HISTORY',
-    LOAD_SNIPPET = 'LOAD_SNIPPET'
+    LOAD_SNIPPET = 'LOAD_SNIPPET',
+    SET_ACTIVE_MODE = 'SET_ACTIVE_MODE'
 }

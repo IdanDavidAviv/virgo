@@ -139,7 +139,8 @@ export function bootstrap() {
         btnModeFile: document.getElementById('mode-file') as HTMLButtonElement,
         btnModeSnippet: document.getElementById('mode-snippet') as HTMLButtonElement,
         fileModeContainer: document.getElementById('file-mode-container') as HTMLElement,
-        snippetLookupContainer: document.getElementById('snippet-lookup-container') as HTMLElement
+        snippetLookupContainer: document.getElementById('snippet-lookup-container') as HTMLElement,
+        transferLayer: document.querySelector('.transfer-layer') as HTMLElement
     }));
 
     safeMount('snippetLookup', document.getElementById('snippet-lookup-container'), (el) => new SnippetLookup({
