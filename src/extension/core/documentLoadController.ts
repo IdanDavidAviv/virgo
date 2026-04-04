@@ -76,6 +76,44 @@ export class DocumentLoadController {
     }
 
     /**
+     * Orchestrates loading a snippet from the Antigravity Root.
+     */
+    public async loadSnippet(fsPath: string): Promise<boolean> {
+        if (!fs.existsSync(fsPath)) {
+            this._logger(`[LOAD] Snippet not found: ${fsPath}`);
+            return false;
+        }
+
+        try {
+            const text = fs.readFileSync(fsPath, 'utf8');
+            
+            // Calculate Hash
+            const normalizedText = text.replace(/\r\n/g, '\n');
+            const md5 = crypto.createHash('md5').update(normalizedText).digest('hex');
+            const contentHash = `${normalizedText.length}#${md5}`;
+
+            // Mock a "Virtual" document for metadata
+            const fileName = path.basename(fsPath);
+            const uri = vscode.Uri.file(fsPath);
+
+            this._chapters = parseChapters(text);
+            this._metadata = {
+                fileName: fileName.replace(/^\d+_/, ''), // Remove timestamp prefix from UI
+                relativeDir: 'Antigravity / History',
+                uri,
+                versionSalt: '',
+                contentHash
+            };
+
+            this._logger(`[LOAD] snippet: ${this._metadata.fileName} | chapters: ${this._chapters.length}`);
+            return true;
+        } catch (e) {
+            this._logger(`[LOAD] Failed to load snippet: ${e}`);
+            return false;
+        }
+    }
+
+    /**
      * Resets the document context.
      */
     public clear(): void {

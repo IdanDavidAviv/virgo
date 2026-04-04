@@ -72,15 +72,29 @@ async function build() {
         sourcemap: true,
     };
 
+    // 3. Standalone MCP Server (Node.js)
+    const mcpConfig = {
+        entryPoints: ['./src/extension/mcp/mcpStandalone.ts'],
+        bundle: true,
+        alias: commonAlias,
+        outfile: './dist/mcp-standalone.js',
+        platform: 'node',
+        format: 'cjs',
+        minify: mode === 'production',
+        sourcemap: true,
+    };
+
     if (watch) {
         const nodeCtx = await esbuild.context(nodeConfig);
         const browserCtx = await esbuild.context(browserConfig);
-        await Promise.all([nodeCtx.watch(), browserCtx.watch()]);
+        const mcpCtx = await esbuild.context(mcpConfig);
+        await Promise.all([nodeCtx.watch(), browserCtx.watch(), mcpCtx.watch()]);
         console.log('👀 Watching for changes in development mode...');
     } else {
         await Promise.all([
             esbuild.build(nodeConfig),
-            esbuild.build(browserConfig)
+            esbuild.build(browserConfig),
+            esbuild.build(mcpConfig)
         ]);
         console.log(`🚀 ${mode.charAt(0).toUpperCase() + mode.slice(1)} build complete!`);
     }

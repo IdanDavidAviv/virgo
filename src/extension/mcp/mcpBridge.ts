@@ -158,6 +158,23 @@ export class McpBridge extends EventEmitter {
                         res.status(500).send(err.message);
                     }
                 }
+            } else if (req.body?.method === 'tools/call' && req.body.params?.name === 'inject_markdown') {
+                // FALLBACK: In development, handle direct 'inject_markdown' calls even without SSE transport
+                const { content, snippet_name: snippetName } = req.body.params.arguments || {};
+                if (content && snippetName) {
+                    this._logger(`[MCP_BRIDGE] WARNING: session-less injection (${sessionId}) - Direct Execution.`);
+                    const index = this._store.add(content, snippetName);
+                    this.emit("new_injection", this._store.getLatest());
+                    res.json({
+                        jsonrpc: "2.0",
+                        id: req.body.id,
+                        result: {
+                            content: [{ type: "text", text: `Directly injected snippet '${snippetName}' (Index: ${index}).` }]
+                        }
+                    });
+                } else {
+                    res.status(400).send("Invalid direct injection arguments.");
+                }
             } else {
                 this._logger(`[MCP_BRIDGE] ERROR: session not found (${sessionId})`);
                 res.status(404).send(`Session  ${sessionId} not found.`);

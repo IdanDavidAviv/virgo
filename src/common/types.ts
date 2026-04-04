@@ -30,6 +30,7 @@ export interface StateStoreState {
     // UI Flags
     isRefreshing: boolean;
     isPreviewing: boolean;
+    activeMode: 'FILE' | 'SNIPPET';
 }
 
 export enum LogLevel {
@@ -44,8 +45,11 @@ export interface UISyncPacket {
     playbackStalled: boolean;
     currentSentences: string[];
     allChapters: { title: string, level: number, index: number, count: number }[]; // [PHASE 4] Full chapter metadata
-    currentText: string;
+    currentChapterIndex: number;
     totalChapters: number;
+    isLooping: boolean;
+    snippetHistory?: SnippetHistory;
+    currentText: string;
     canPrevChapter: boolean;
     canNextChapter: boolean;
     canPrevSentence: boolean;
@@ -61,15 +65,34 @@ export interface UISyncPacket {
     volume: number;
     neuralVoices?: any[];
     lastLoadType?: 'cache' | 'synth' | 'none';
+    activeMode: 'FILE' | 'SNIPPET';
     logLevel: LogLevel;
 }
+
+export interface SnippetEntry {
+    name: string;
+    fsPath: string;
+    timestamp: number;
+}
+
+export interface SnippetSession {
+    sessionName: string;
+    snippets: SnippetEntry[];
+}
+
+export type SnippetHistory = SnippetSession[];
 
 
 /**
  * Commands sent FROM Extension TO Webview
  */
 export enum IncomingCommand {
+    // Synchronization & State
     UI_SYNC = 'UI_SYNC',
+    LOG_MESSAGE = 'LOG_MESSAGE',
+
+    // Snippet Management (Antigravity)
+    SNIPPET_SAVED = 'SNIPPET_SAVED',
     PLAY_AUDIO = 'playAudio',
     STOP = 'stop',
     VOICES = 'voices',
@@ -116,5 +139,8 @@ export enum OutgoingAction {
     CLEAR_CACHE = 'CLEAR_CACHE',
     TOGGLE_PLAY_PAUSE = 'TOGGLE_PLAY_PAUSE',
     LOG = 'log',
-    ERROR = 'error'
+    ERROR = 'error',
+    // Snippet Lookup (Antigravity)
+    GET_ALL_SNIPPET_HISTORY = 'GET_ALL_SNIPPET_HISTORY',
+    LOAD_SNIPPET = 'LOAD_SNIPPET'
 }
