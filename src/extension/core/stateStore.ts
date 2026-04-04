@@ -43,6 +43,7 @@ export interface StateMetadata {
     lastLoadType: 'cache' | 'synth' | 'none';
     activeMode: 'FILE' | 'SNIPPET';
     isLooping: boolean;
+    autoPlayOnInjection: boolean;
 }
 
 export class StateStore extends EventEmitter {
@@ -81,7 +82,8 @@ export class StateStore extends EventEmitter {
             isRefreshing: false,
             lastLoadType: 'none',
             activeMode: 'FILE',
-            isLooping: false
+            isLooping: false,
+            autoPlayOnInjection: false
         };
     }
 
@@ -158,21 +160,20 @@ export class StateStore extends EventEmitter {
         this.emit('change', this.state);
     }
 
-    /**
-     * Updates engine and user options. [ISSUE 17]
-     */
     public setOptions(options: { 
         engineMode?: 'local' | 'neural', 
         autoPlayMode?: 'auto' | 'chapter' | 'row',
         selectedVoice?: string,
         rate?: number,
-        volume?: number
+        volume?: number,
+        autoPlayOnInjection?: boolean
     }) {
         if (options.engineMode) { this._state.engineMode = options.engineMode; }
         if (options.autoPlayMode) { this._state.autoPlayMode = options.autoPlayMode; }
         if (options.selectedVoice !== undefined) { this._state.selectedVoice = options.selectedVoice; }
         if (options.rate !== undefined) { this._state.rate = options.rate; }
         if (options.volume !== undefined) { this._state.volume = options.volume; }
+        if (options.autoPlayOnInjection !== undefined) { this._state.autoPlayOnInjection = options.autoPlayOnInjection; }
         this.emit('change', this.state);
     }
 

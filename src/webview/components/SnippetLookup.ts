@@ -98,15 +98,24 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
                     <span class="title-text">${escapeHtml(session.sessionName)}</span>
                 </div>
                 <div class="snippets-list">
-                    ${session.snippets.map((s: any) => `
-                        <div class="snippet-item ${s.uri === activeDocumentUri ? 'active-glow' : ''}" data-path="${escapeHtml(s.fsPath)}">
-                            <span class="snippet-icon">📝</span>
-                            <div class="snippet-info">
-                                <span class="snippet-name">${escapeHtml(s.name)}</span>
-                                <span class="snippet-date">${escapeHtml(new Date(s.timestamp).toLocaleTimeString())}</span>
+                    ${session.snippets.map((s: any) => {
+                        // [AUTO_TURN_DETECTION] Extract turn number from name
+                        const turnMatch = s.name.match(/Turn_(\d+)$/i) || s.name.match(/^(\d+)_/);
+                        const turnLabel = turnMatch ? `T${turnMatch[1].padStart(3, '0')}` : null;
+
+                        return `
+                            <div class="snippet-item ${s.uri === activeDocumentUri ? 'active-glow' : ''}" data-path="${escapeHtml(s.fsPath)}">
+                                <span class="snippet-icon">📝</span>
+                                <div class="snippet-info">
+                                    <div class="snippet-name-row">
+                                        <span class="snippet-name">${escapeHtml(s.name)}</span>
+                                        ${turnLabel ? `<span class="turn-badge">${turnLabel}</span>` : ''}
+                                    </div>
+                                    <span class="snippet-date">${escapeHtml(new Date(s.timestamp).toLocaleTimeString())}</span>
+                                </div>
                             </div>
-                        </div>
-                    `).join('')}
+                        `;
+                    }).join('')}
                 </div>
             </div>
         `;

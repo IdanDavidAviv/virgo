@@ -76,13 +76,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const voice = config.get<string>('playback.voice', 'en-US-SteffanNeural');
         const engineMode = config.get<'local' | 'neural'>('playback.engineMode', 'neural');
         const autoPlayMode = config.get<'auto' | 'chapter' | 'row'>('playback.autoPlayMode', 'auto');
+        const autoPlayOnInjection = config.get<boolean>('playback.autoPlayOnInjection', false);
 
         this._stateStore.setOptions({
             rate,
             volume,
             selectedVoice: voice,
             engineMode,
-            autoPlayMode
+            autoPlayMode,
+            autoPlayOnInjection
         });
 
         // Apply Performance Tuning from Config
@@ -110,6 +112,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 if (e.affectsConfiguration('readAloud.playback.voice')) { updatedOptions.selectedVoice = updatedConfig.get('playback.voice'); }
                 if (e.affectsConfiguration('readAloud.playback.engineMode')) { updatedOptions.engineMode = updatedConfig.get('playback.engineMode'); }
                 if (e.affectsConfiguration('readAloud.playback.autoPlayMode')) { updatedOptions.autoPlayMode = updatedConfig.get('playback.autoPlayMode'); }
+                if (e.affectsConfiguration('readAloud.playback.autoPlayOnInjection')) { updatedOptions.autoPlayOnInjection = updatedConfig.get('playback.autoPlayOnInjection'); }
                 if (e.affectsConfiguration('readAloud.network.retryAttempts')) { this._playbackEngine.setRetryAttempts(updatedConfig.get<number>('network.retryAttempts', 3)); }
 
                 if (Object.keys(updatedOptions).length > 0) {
@@ -140,6 +143,24 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         // --- Portless MCP Watcher ---
         this._setupMcpWatcher();
+
+        // [AUTO_BOOTSTRAP] Ensure session state exists for Vocal Sync
+        this._ensureSessionState();
+    }
+
+    private _ensureSessionState() {
+        const sessionPath = path.join(this._antigravityRoot, this._sessionId);
+        const stateFile = path.join(sessionPath, 'state.json');
+
+        if (!fs.existsSync(sessionPath)) {
+            fs.mkdirSync(sessionPath, { recursive: true });
+        }
+
+        if (!fs.existsSync(stateFile)) {
+            const initialState = { current_turn_index: 0 };
+            fs.writeFileSync(stateFile, JSON.stringify(initialState, null, 2));
+            this._logger(`[BOOTSTRAP] Initialized state.json for session: ${this._sessionId}`);
+        }
     }
 
     private _setupMcpWatcher() {
@@ -181,12 +202,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     null // No saved progress for tool-injected snippets
                 );
 
-                // 4. Trigger UI Refresh and Immediate Playback
+                // 4. Trigger UI Refresh and Conditional Playback
                 this._stateStore.setActiveMode('SNIPPET');
-                this.refreshView();
-                this.continue();
+                await this.refreshView();
                 
-                this._logger(`[WATCHER] AUTO_PLAY sequence started for tool-injected snippet.`);
+                if (this._stateStore.state.autoPlayOnInjection) {
+                    this._logger(`[WATCHER] AUTO_PLAY starting for tool-injected snippet.`);
+                    this.continue();
+                } else {
+                    this._logger(`[WATCHER] SNIPPET_LOADED (Paused) - autoPlayOnInjection is false.`);
+                }
             }
         }));
     }
@@ -660,8 +685,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         `;
     }
 
-    public refreshView() {
-        this._syncUI();
+    public async refreshView() {
+        // [SYNC_FIX] Explicitly fetch latest history before syncing UI
+        const history = await this._getSnippetHistory();
+        this._syncUI(false, history);
         this._broadcastVoices();
 
         if (this._docController.chapters.length > 0) {

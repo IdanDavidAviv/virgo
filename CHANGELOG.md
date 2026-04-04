@@ -7,6 +7,21 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.0.3] - 2026-04-04
+
+### Vocal Sync & UI Persistence
+This release formalizes the **Vocal Sync Protocol** by automating turn-index management in the MCP bridge and standalone servers. It also resolves a critical UI bug where the snippet history list would flicker or disappear during high-frequency playback updates.
+
+#### 1. Automated Turn Management
+- **Persistent Indexing**: Implemented an atomic turn-state tracking mechanism per session using a local `state.json` store.
+- **Turn Index Feedback**: New injections now automatically prepend a `# [Turn XXX]` header to the markdown content, providing oral and visual serialization context.
+- **Session-Aware Watcher**: Refactored the Antigravity root watcher to handle automated session-id pivoting and conditional auto-play based on user settings.
+
+#### 2. UI Synchronization & Stability
+- **Sync Guardian Protocol**: Hardened `WebviewStore.ts` delta-sync logic to preserve `snippetHistory` and `activeSessionId` during partial state updates.
+- **Improved Performance**: Refactored `SnippetLookup` to use stabilized history arrays, reducing redundant renders and layout shifts.
+- **Autoplay Control**: Exposed `playback.autoPlayOnInjection` in settings to allow user-controlled immediate playback of tool-injected content.
+
 ## [2.0.2] - 2026-04-04
 
 ### Stable Sovereignty & Navigation

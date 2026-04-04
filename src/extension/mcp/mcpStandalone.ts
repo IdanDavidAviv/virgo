@@ -18,6 +18,28 @@ const server = new McpServer({
 // 2. Constants
 const ANTIGRAVITY_ROOT = "C:/Users/Idan4/.gemini/antigravity/read_aloud";
 
+/**
+ * Atomic state management for Turn-Aware Antigravity Sessions.
+ */
+function getAndUpdateTurnIndex(sessionPath: string): number {
+    const stateFile = path.join(sessionPath, 'state.json');
+    let index = 1;
+
+    try {
+        if (fs.existsSync(stateFile)) {
+            const data = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+            index = (data.current_turn_index || 0) + 1;
+        }
+        
+        fs.writeFileSync(stateFile, JSON.stringify({ current_turn_index: index }, null, 2));
+    } catch (err) {
+        console.error(`[MCP_STATE] Failed to update state.json: ${err}`);
+        // Fallback to 1 if we can't read/write, at least we mark the turn
+    }
+
+    return index;
+}
+
 // 3. Define the inject_markdown tool
 server.tool(
     "inject_markdown",
@@ -41,15 +63,23 @@ server.tool(
             }
         }
 
+        const index = getAndUpdateTurnIndex(sessionPath);
         const timestamp = Date.now();
         const safeName = snippet_name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
         const fileName = `${timestamp}_${safeName}.md`;
         const filePath = path.join(sessionPath, fileName);
 
+        // [AUTOMATION] Prepend Turn Header if not present
+        let finalContent = content;
+        if (!content.trim().startsWith('# [Turn')) {
+            const turnHeader = `# [Turn ${index.toString().padStart(3, '0')}] ${snippet_name}\n\n`;
+            finalContent = turnHeader + content;
+        }
+
         try {
-            fs.writeFileSync(filePath, content);
+            fs.writeFileSync(filePath, finalContent);
             // Log to stderr so it doesn't break JSON-RPC over stdout
-            console.error(`[MCP] Injected ${fileName} into ${sessionId}`);
+            console.error(`[MCP] Injected Turn ${index} (${fileName}) into ${sessionId}`);
             
             return {
                 content: [

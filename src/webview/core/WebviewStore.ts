@@ -361,9 +361,15 @@ export class WebviewStore {
     // 3. Merge state
     const oldState = this.state;
     
-    // [DELTA SYNC] Preserve existing voices if missing from incoming packet
+    // [DELTA SYNC] Preserve existing meta-state if missing from incoming packet
     if (newState.availableVoices === undefined && oldState?.availableVoices) {
         newState.availableVoices = oldState.availableVoices;
+    }
+    if (newState.snippetHistory === undefined && oldState?.snippetHistory) {
+        newState.snippetHistory = oldState.snippetHistory;
+    }
+    if (newState.activeSessionId === undefined && oldState?.activeSessionId) {
+        newState.activeSessionId = oldState.activeSessionId;
     }
 
     const updatedState = { ...this.state, ...newState } as UISyncPacket;

@@ -19,27 +19,52 @@ export class PendingInjectionStore {
         }
     }
 
-    public add(content: string, name: string) {
-        const timestamp = Date.now();
-        // Sanitize name for filename
-        const safeName = name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        const fileName = `${timestamp}_${safeName}.md`;
-        const filePath = path.join(this._basePath, fileName);
+    /**
+     * Atomically get and update the turn index from state.json
+     */
+    private getAndUpdateTurnIndex(sessionPath: string): number {
+        const stateFile = path.join(sessionPath, 'state.json');
+        let index = 1;
 
         try {
-            fs.writeFileSync(filePath, content);
+            if (fs.existsSync(stateFile)) {
+                const data = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+                index = (data.current_turn_index || 0) + 1;
+            }
+            
+            fs.writeFileSync(stateFile, JSON.stringify({ current_turn_index: index }, null, 2));
         } catch (err) {
-            console.error(`[MCP_BRIDGE] Failed to persist snippet: ${err}`);
+            console.error(`[MCP_BRIDGE_STATE] Failed to update state.json: ${err}`);
         }
 
-        const entry = {
-            timestamp,
-            content,
-            name,
-            filePath
-        };
-        this._injections.push(entry);
-        return this._injections.length - 1;
+        return index;
+    }
+
+    /**
+     * Direct file save to persistent storage for cross-session recovery.
+     */
+    public save(content: string, name: string, sessionId: string): { filePath: string, index: number } {
+        const sessionPath = path.join(this._basePath, sessionId);
+        if (!fs.existsSync(sessionPath)) {
+            fs.mkdirSync(sessionPath, { recursive: true });
+        }
+
+        const index = this.getAndUpdateTurnIndex(sessionPath);
+        const timestamp = Date.now();
+        const safeName = name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const fileName = `${timestamp}_${safeName}.md`;
+        const filePath = path.join(sessionPath, fileName);
+
+        // Prepend Turn Header if missing
+        let finalContent = content;
+        if (!content.trim().startsWith('# [Turn')) {
+            const turnHeader = `# [Turn ${index.toString().padStart(3, '0')}] ${name}\n\n`;
+            finalContent = turnHeader + content;
+        }
+
+        fs.writeFileSync(filePath, finalContent);
+        this._injections.push({ timestamp, content: finalContent, name, filePath });
+        return { filePath, index };
     }
 
     public getAll() {
@@ -81,23 +106,23 @@ export class McpBridge extends EventEmitter {
             "inject_markdown",
             {
                 content: z.string().describe("Markdown content to inject into the Read Aloud extension"),
-                snippet_name: z.string().describe("Descriptive name for the snippet (used in filename)")
+                snippet_name: z.string().describe("Descriptive name for the snippet (used in filename)"),
+                sessionId: z.string().describe("The active session ID")
             },
-            async ({ content, snippet_name }) => {
-                const index = this._store.add(content, snippet_name);
-                this._logger(`[MCP_BRIDGE] INCOMING_MARKDOWN | Name: ${snippet_name} | Size: ${content.length} bytes | Index: ${index}`);
-                
-                // Notify listeners (SpeechProvider) that new markdown is available
-                this.emit("new_injection", this._store.getLatest());
-
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Successfully injected Markdown snippet '${snippet_name}' (Index: ${index}). Content is persisted in the Antigravity Root.`
-                        }
-                    ]
-                };
+            async ({ content, snippet_name, sessionId }) => {
+                try {
+                    const { filePath, index } = this._store.save(content, snippet_name, sessionId);
+                    console.log(`[MCP_BRIDGE] Injected Turn ${index} into ${sessionId} at ${filePath}`);
+                    this.emit("injected", { content, name: snippet_name, filePath, index });
+                    return {
+                        content: [{ type: "text", text: `Injected Turn ${index} into session ${sessionId} successfully.` }]
+                    };
+                } catch (error: any) {
+                    return {
+                        isError: true,
+                        content: [{ type: "text", text: `Failed to inject: ${error.message}` }]
+                    };
+                }
             }
         );
 
@@ -162,9 +187,9 @@ export class McpBridge extends EventEmitter {
                 // FALLBACK: In development, handle direct 'inject_markdown' calls even without SSE transport
                 const { content, snippet_name: snippetName } = req.body.params.arguments || {};
                 if (content && snippetName) {
-                    this._logger(`[MCP_BRIDGE] WARNING: session-less injection (${sessionId}) - Direct Execution.`);
-                    const index = this._store.add(content, snippetName);
-                    this.emit("new_injection", this._store.getLatest());
+                    this._logger(`[MCP_BRIDGE] WARNING: session-less injection (${sessionId || 'unknown'}) - Direct Execution.`);
+                    const { index } = this._store.save(content, snippetName, sessionId || 'default');
+                    this.emit("injected", { content, name: snippetName, index });
                     res.json({
                         jsonrpc: "2.0",
                         id: req.body.id,

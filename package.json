@@ -2,7 +2,7 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
@@ -157,6 +157,11 @@
           ],
           "default": "auto",
           "description": "Control how playback advances. 'auto' reads the entire document. 'chapter' stops at chapter ends. 'row' stops after each sentence."
+        },
+        "readAloud.playback.autoPlayOnInjection": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically start playback when a new MCP snippet is injected (Vocal Sync). Use with caution to avoid unexpected audio."
         },
         "readAloud.playback.jumpDelayMs": {
           "type": "number",
