@@ -78,7 +78,8 @@ function finalizeChapter(raw: any, lines: string[]): Chapter | null {
     const sentences: string[] = [];
     const sentenceLines: number[] = [];
 
-    raw.tokens.forEach((token: any) => {
+    for (let i = 0; i < raw.tokens.length; i++) {
+        const token = raw.tokens[i];
         if (token.type === 'inline') {
             const startLine = token.map ? token.map[0] : raw.lineStart;
             const content = cleanInlineToken(token);
@@ -91,15 +92,43 @@ function finalizeChapter(raw: any, lines: string[]): Chapter | null {
                 });
             }
         } else if (token.type === 'fence') {
-            cleanText += '[Code block omitted]. ';
-            sentences.push('[Code block omitted].');
+            const lang = token.info ? token.info.trim() : '';
+            const desc = lang ? `[Code block in ${lang} omitted].` : '[Code block omitted].';
+            cleanText += desc + ' ';
+            sentences.push(desc);
             sentenceLines.push(token.map ? token.map[0] : raw.lineStart);
         } else if (token.type === 'table_open') {
-            cleanText += '[Table omitted]. ';
-            sentences.push('[Table omitted].');
+            let rows = 0;
+            let cols = 0;
+            let j = i;
+            let firstRowFound = false;
+
+            while (j < raw.tokens.length && raw.tokens[j].type !== 'table_close') {
+                if (raw.tokens[j].type === 'tr_open') {
+                    rows++;
+                    if (!firstRowFound) {
+                        let k = j + 1;
+                        while (k < raw.tokens.length && raw.tokens[k].type !== 'tr_close') {
+                            if (raw.tokens[k].type === 'th_open' || raw.tokens[k].type === 'td_open') {
+                                cols++;
+                            }
+                            k++;
+                        }
+                        firstRowFound = true;
+                    }
+                }
+                j++;
+            }
+            
+            const desc = `[Table with ${rows} rows and ${cols} columns omitted].`;
+            cleanText += desc + ' ';
+            sentences.push(desc);
             sentenceLines.push(token.map ? token.map[0] : raw.lineStart);
+            
+            // Fast-forward beyond the table to avoid processing internal inline tokens twice
+            i = j;
         }
-    });
+    }
 
     if (sentences.length === 0 && !raw.title) {return null;}
 
