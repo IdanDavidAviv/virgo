@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { SpeechProvider } from '@vscode/speechProvider';
 import { findChapterAtLine, findSentenceAtLine, parseChapters } from '@core/documentParser';
+import { McpBridge } from '../mcp/mcpBridge';
 
 let mainStatusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
@@ -41,12 +42,26 @@ export async function activate(context: vscode.ExtensionContext) {
     const speechProvider = new SpeechProvider(context, log, mainStatusBarItem, () => syncSelection());
     log('--- NATIVE WEBVIEW ARCHITECTURE ACTIVE (Serverless) ---');
 
+    // --- Antigravity Root Initialization ---
+    // Standard path for high-integrity agent memory
+    const userProfile = process.env.USERPROFILE || process.env.HOME || '';
+    const antigravityRoot = path.join(userProfile, '.gemini', 'antigravity', 'read_aloud');
+    const sessionId = new Date().toISOString().replace(/[:.]/g, '-'); 
+    const persistencePath = path.join(antigravityRoot, sessionId);
+    
+    log(`[ANTIGRAVITY] Root Initialized: ${persistencePath}`);
+
+    const mcpBridge = new McpBridge(persistencePath, log);
+    mcpBridge.start(7413);
+    log('--- MCP BRIDGE ACTIVE (Port 7413) ---');
+
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             'readme-preview-read-aloud.speech-engine',
             speechProvider,
             { webviewOptions: { retainContextWhenHidden: true } }
-        )
+        ),
+        mcpBridge
     );
 
     context.subscriptions.push(
