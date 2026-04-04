@@ -7,6 +7,34 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.0.0] - 2026-04-04
+
+## [2.0.0] - 2026-04-04
+
+### Major System Re-architecture
+This release marks the baseline transition to a modernized, reactive architecture designed for scalability and reduced latency. The system has been restructured into a domain-driven model to ensure strict separation of concerns and improved maintainability.
+
+#### Domain-Driven Architecture Implementation
+- **Structural Decoupling**: Segregated the monolithic legacy extension logic into distinct `@core` (business logic), `@vscode` (host integration), and `@webview` (interface layer) domains.
+- **Reactive State Management**: Implementation of a centralized `WebviewStore` based on a predictable state container pattern to eliminate synchronization errors common in the legacy monolithic bridge.
+- **Enhanced Inter-Process Communication (IPC)**: Standardized messaging using an enum-driven `MessageClient` bridge, improving the reliability of commands between the extension host and the webview renderer.
+
+#### Neural Synthesis and Performance Optimizations
+- **Direct Variable-Length Audio Distribution**: Optimized binary transmission to push audio data directly into the webview's internal cache, reducing the overhead associated with redundant IPC handshakes.
+- **Predictive Prefetching Engine**: Integrated an asynchronous look-ahead processor with a five-sentence circular buffer to provide continuous playback and eliminate gaps between segments.
+- **State Sovereignty and Synchronization Guardians**: Introduced isolation windows and synchronization watchdogs (3.5s and 4.0s timeout thresholds) to resolve race conditions and recycle stalled synthesis threads.
+
+#### Componentized Interface and User Experience
+- **Functional Component Migration**: Extracted all dashboard UI logic into isolated, reactive ESM modules for improved lifecycle management.
+- **Integrated Voice Discovery**: Implemented a filtered voice selection mechanism with real-time feedback and support for specialized high-fidelity neural voices.
+- **Context-Aware Document Parsing**: Added specialized processing for technical artifacts, including markdown code blocks (with language metadata detection) and statistical summaries for tabular data.
+
+#### Quality Engineering and Verification
+- **Automated Regression Suite**: Expanded test coverage (+4,400 lines) with a high-integrity verification pipeline, achieving full pass rates across 250 test cases.
+- **Deterministic State Persistence**: Migrated configuration state to the standard `settings.json` format and implemented MD5-based content hashing to track reading progress across file modifications.
+
+---
+
 ## [1.6.4] - 2026-04-04
 
 ### Added
