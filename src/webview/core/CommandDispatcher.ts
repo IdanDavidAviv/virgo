@@ -51,8 +51,6 @@ export class CommandDispatcher {
 
       case IncomingCommand.PLAY_AUDIO:
         // Zombie Guard: Prune late-arriving packets from previous context.
-        // We allow the command if EITHER the controller intent is NOT STOPPED
-        // OR the engine is already busy playing (prevents dropping subsequent segments).
         const isControllerStopped = playback.getState().intent === 'STOPPED';
         const isEngineActive = audioEngine.intent === 'PLAYING';
         
@@ -62,18 +60,30 @@ export class CommandDispatcher {
             return;
         }
 
+        const intentId = data?.intentId ?? data?.sequenceId;
+
         if (data?.data) {
           // Extension provided raw data (Synthesis Hit or Extension Cache Hit)
-          audioEngine.playFromBase64(data.data, data.cacheKey, data.sequenceId);
+          audioEngine.playFromBase64(data.data, data.cacheKey, intentId);
         } else if (data?.cacheKey) {
           // Zero-IPC Prefetch Hit - try to play from local IndexedDB
-          const success = await audioEngine.playFromCache(data.cacheKey);
+          const success = await audioEngine.playFromCache(data.cacheKey, intentId);
           if (!success) {
             console.warn(`[Dispatcher] ⚠️ Cache Miss for ${data.cacheKey} - requesting fresh synthesis.`);
             playback.acquireLock();
-            MessageClient.getInstance().postAction(OutgoingAction.REQUEST_SYNTHESIS, { cacheKey: data.cacheKey });
+            MessageClient.getInstance().postAction(OutgoingAction.REQUEST_SYNTHESIS, { cacheKey: data.cacheKey, intentId });
           }
         }
+        break;
+
+      case IncomingCommand.SYNTHESIS_STARTING:
+        console.log('[Dispatcher] ⚡ SYNTHESIS_STARTING Received', data);
+        audioEngine.startAdaptiveWait(data.cacheKey, data.intentId);
+        break;
+
+      case IncomingCommand.DATA_PUSH:
+        console.log('[Dispatcher] 📥 DATA_PUSH Received', { cacheKey: data.cacheKey, intentId: data.intentId });
+        audioEngine.ingestData(data.cacheKey, data.data, data.intentId);
         break;
 
       case IncomingCommand.STOP:

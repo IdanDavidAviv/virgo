@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { StateStore } from '@core/stateStore';
 import { DocumentLoadController } from '@core/documentLoadController';
 import { PlaybackEngine } from '@core/playbackEngine';
-import { UISyncPacket, StateStoreState } from '../../common/types';
+import { UISyncPacket, StateStoreState, IncomingCommand } from '../../common/types';
 
 export class DashboardRelay {
     private _view?: vscode.WebviewView;
@@ -22,7 +22,7 @@ export class DashboardRelay {
      * The single source of truth for the dashboard's state.
      * Aggregates StateStore, DocController, and logic into one packet.
      */
-    public sync() {
+    public sync(includeVoices: boolean = false) {
         if (!this._view) { return; }
 
         const s = this._stateStore.state;
@@ -55,6 +55,8 @@ export class DashboardRelay {
             : null;
 
         const cacheStats = this._playbackEngine.getCacheStats();
+        const config = vscode.workspace.getConfiguration('readAloud');
+        const logLevel = config.get<string>('logging.level', 'Standard') === 'Verbose' ? 2 : 1;
 
         const packet: UISyncPacket = {
             state,
@@ -70,7 +72,6 @@ export class DashboardRelay {
                 index: i,
                 count: c.sentences.length
             })),
-            availableVoices: s.availableVoices,
             canPrevChapter: currentChapterIndex > 0,
             canNextChapter: currentChapterIndex < chapters.length - 1,
             canPrevSentence: currentSentenceIndex > 0,
@@ -82,8 +83,13 @@ export class DashboardRelay {
             selectedVoice: s.selectedVoice,
             rate: s.rate,
             volume: s.volume,
-            lastLoadType: s.lastLoadType
+            lastLoadType: s.lastLoadType,
+            logLevel: logLevel
         };
+
+        if (includeVoices) {
+            packet.availableVoices = s.availableVoices;
+        }
 
         this.postMessage({ command: 'UI_SYNC', ...packet });
     }
@@ -95,15 +101,15 @@ export class DashboardRelay {
     public postMessage(message: any) {
         if (!this._view) { return; }
 
-        const criticalCommands = [
-            'playAudio', 
-            'PURGE_MEMORY', 
-            'synthesisError', 
-            'stop', 
-            'playbackStateChanged',
-            'NEURAL_CACHE_PUSH',
-            'CLEAR_CACHE_WIPE',
-            'CACHE_STATS_UPDATE'
+        const criticalCommands: string[] = [
+            IncomingCommand.PLAY_AUDIO, 
+            IncomingCommand.PURGE_MEMORY, 
+            IncomingCommand.SYNTHESIS_ERROR, 
+            IncomingCommand.STOP, 
+            IncomingCommand.PLAYBACK_STATE_CHANGED,
+            IncomingCommand.DATA_PUSH,
+            IncomingCommand.CLEAR_CACHE_WIPE,
+            IncomingCommand.CACHE_STATS_UPDATE
         ];
         const isCritical = criticalCommands.includes(message.command);
 

@@ -32,6 +32,11 @@ export interface StateStoreState {
     isPreviewing: boolean;
 }
 
+export enum LogLevel {
+    STANDARD = 1,
+    VERBOSE = 2
+}
+
 export interface UISyncPacket {
     state: StateStoreState;
     isPlaying: boolean;
@@ -47,7 +52,7 @@ export interface UISyncPacket {
     canNextSentence: boolean;
     autoPlayMode: 'auto' | 'chapter' | 'row';
     engineMode: 'local' | 'neural';
-    availableVoices: { local: any[], neural: any[] }; // [PHASE 4] Full voice lists
+    availableVoices?: { local: any[], neural: any[] }; // [PHASE 4] Full voice lists
     cacheCount: number;
     cacheSizeBytes: number;
     cacheStats?: { count: number, size: number };
@@ -56,6 +61,7 @@ export interface UISyncPacket {
     volume: number;
     neuralVoices?: any[];
     lastLoadType?: 'cache' | 'synth' | 'none';
+    logLevel: LogLevel;
 }
 
 
@@ -74,7 +80,8 @@ export enum IncomingCommand {
     CACHE_STATS = 'cacheStats',
     SENTENCE_CHANGED = 'sentenceChanged',
     PROGRESS = 'progress',
-    NEURAL_CACHE_PUSH = 'NEURAL_CACHE_PUSH',
+    DATA_PUSH = 'DATA_PUSH',
+    SYNTHESIS_STARTING = 'SYNTHESIS_STARTING',
     CLEAR_CACHE_WIPE = 'CLEAR_CACHE_WIPE',
     CACHE_STATS_UPDATE = 'CACHE_STATS_UPDATE'
 }

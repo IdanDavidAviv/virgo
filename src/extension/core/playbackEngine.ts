@@ -19,7 +19,7 @@ export class PlaybackEngine extends EventEmitter {
 
     // Unified LRU Cache for all synthesized audio
     private _audioCache: Map<string, string> = new Map();
-    private readonly MAX_CACHE_BYTES = 50 * 1024 * 1024; // 50MB Cap
+    private _maxCacheBytes = 50 * 1024 * 1024; // 50MB Cap (Default)
 
     // Track ongoing synthesis to prevent duplicates
     private _pendingTasks: Map<string, Promise<string | null>> = new Map();
@@ -38,10 +38,41 @@ export class PlaybackEngine extends EventEmitter {
     private _watchdogTimer: NodeJS.Timeout | null = null;
     private _isStalled: boolean = false;
 
+    private _logLevel: number = 1;
+    private _lastLoggedCacheCount: number = -1;
+    private _lastLoggedCacheTime: number = 0;
+    private _retryAttempts: number = 3;
+
     constructor(private logger: (msg: string) => void, onCacheUpdate?: () => void) {
         super();
         this._tts = new MsEdgeTTS();
         this._onCacheUpdate = onCacheUpdate;
+    }
+
+    public setLogLevel(level: number) {
+        this._logLevel = level;
+    }
+
+    public setCacheLimitMb(mb: number) {
+        this._maxCacheBytes = mb * 1024 * 1024;
+        this.logger(`[CACHE] Max size updated to ${mb}MB (${this._maxCacheBytes} bytes).`);
+        // Prune immediately if current size exceeds new limit
+        this._pruneCache();
+    }
+
+    private _pruneCache(incomingSizeBytes: number = 0) {
+        // LRU Eviction: while total size exceeds limit, remove oldest
+        while (this._audioCache.size > 0 && (this._cacheSizeBytes + incomingSizeBytes > this._maxCacheBytes)) {
+            const firstKey = this._audioCache.keys().next().value;
+            if (firstKey !== undefined) {
+                const evictedData = this._audioCache.get(firstKey);
+                if (evictedData) {
+                    this._cacheSizeBytes -= this._getSegmentSizeBytes(evictedData);
+                }
+                this.logger(`[LRU EVIC] key:${firstKey} | bytes:${evictedData ? this._getSegmentSizeBytes(evictedData) : 0}`);
+                this._audioCache.delete(firstKey);
+            }
+        }
     }
 
     private _reinitTTS() {
@@ -57,6 +88,7 @@ export class PlaybackEngine extends EventEmitter {
     public get isPlaying() { return this._isPlaying; }
     public get isPaused() { return this._isPaused; }
     public get isStalled() { return this._isStalled; }
+    public get playbackIntentId() { return this._playbackIntentId; }
 
     private _updateStatus(isPlaying?: boolean, isPaused?: boolean, isStalled?: boolean) {
         if (isPlaying !== undefined) { this._isPlaying = isPlaying; }
@@ -64,14 +96,16 @@ export class PlaybackEngine extends EventEmitter {
         if (isStalled !== undefined) { this._isStalled = isStalled; }
 
         // Logic: if playing, cannot be paused. If paused, cannot be playing.
-        if (this._isPlaying) { this._isPaused = false; }
-        if (this._isPaused) { this._isPlaying = false; }
-
         this.emit('status', {
             isPlaying: this._isPlaying,
             isPaused: this._isPaused,
             isStalled: this._isStalled
         });
+    }
+
+    public setRetryAttempts(attempts: number) {
+        this._retryAttempts = attempts;
+        this.logger(`[NEURAL] Retry attempts updated to ${attempts}.`);
     }
 
     public setPlaying(val: boolean) {
@@ -121,7 +155,18 @@ export class PlaybackEngine extends EventEmitter {
             totalBase64Chars += value.length;
         });
         const bytes = Math.floor(totalBase64Chars * 0.75);
-        this.logger(`[CACHE] count:${this._audioCache.size} | chars:${totalBase64Chars} | bytes:${bytes}`);
+        
+        // --- THROTTLED LOGGING ---
+        const now = Date.now();
+        const countChangedSignificantly = Math.abs(this._audioCache.size - this._lastLoggedCacheCount) >= 5;
+        const timeElapsedSignificantly = now - this._lastLoggedCacheTime > 60000;
+
+        if (this._logLevel >= 2 || countChangedSignificantly || timeElapsedSignificantly || this._audioCache.size === 0) {
+            this.logger(`[CACHE] count:${this._audioCache.size} | chars:${totalBase64Chars} | bytes:${bytes}`);
+            this._lastLoggedCacheCount = this._audioCache.size;
+            this._lastLoggedCacheTime = now;
+        }
+
         return {
             count: this._audioCache.size,
             sizeBytes: bytes
@@ -187,27 +232,16 @@ export class PlaybackEngine extends EventEmitter {
         return Math.floor(base64.length * 0.75);
     }
 
-    private _addToCache(key: string, data: string) {
+    private _addToCache(key: string, data: string, intentId?: number) {
         const segmentSize = this._getSegmentSizeBytes(data);
 
-        // LRU Eviction: while total size exceeds 50MB, remove oldest
-        while (this._audioCache.size > 0 && (this._cacheSizeBytes + segmentSize > this.MAX_CACHE_BYTES)) {
-            const firstKey = this._audioCache.keys().next().value;
-            if (firstKey !== undefined) {
-                const evictedData = this._audioCache.get(firstKey);
-                if (evictedData) {
-                    this._cacheSizeBytes -= this._getSegmentSizeBytes(evictedData);
-                }
-                this.logger(`[LRU EVIC] key:${firstKey} | bytes:${evictedData ? this._getSegmentSizeBytes(evictedData) : 0}`);
-                this._audioCache.delete(firstKey);
-            }
-        }
+        this._pruneCache(segmentSize);
 
         this._audioCache.set(key, data);
         this._cacheSizeBytes += segmentSize;
         
-        // [TDD] Emit for Direct Push
-        this.emit('synthesis-complete', { cacheKey: key, data });
+        // [TDD] Emit for Direct Push - include intentId to prevent sequence races
+        this.emit('synthesis-complete', { cacheKey: key, data, intentId });
         
         // [TDD] Emit for Reactive Stats
         this.emit('cache-stats-update', this.getCacheStats());
@@ -255,18 +289,19 @@ export class PlaybackEngine extends EventEmitter {
         }
 
         if (isPriority) {
-            this._updateStatus(true, false, true);
-
-            this._playbackIntentId++; // New intent
-            this.logger(`[NEURAL] NEW INTENT: ${this._playbackIntentId}`);
+            this.logger(`[NEURAL] PRIORITY synthesis requested for Intent: ${this._playbackIntentId}`);
 
             if (this._abortController) {
                 this._abortController.abort();
             }
             this._abortController = new AbortController();
+            this._updateStatus(true, false, true);
         }
 
         const currentIntentId = this._playbackIntentId;
+
+        // [RESILIENCE] Signal the start of synthesis immediately for Adaptive JIT
+        this.emit('synthesis-starting', { cacheKey, intentId: currentIntentId });
 
         // If not a priority request, a controller should already exist (from the last priority task)
         // or we use a temporary one. But it's better to skip aborting.
@@ -303,7 +338,7 @@ export class PlaybackEngine extends EventEmitter {
                     })
                 ]);
 
-                return await this._getNeuralAudio(text, options.voice, options.retryCount ?? 3, currentIntentId, isPriority);
+                return await this._getNeuralAudio(text, options.voice, options.retryCount ?? this._retryAttempts, currentIntentId, isPriority);
             } finally {
                 resolveLock();
                 this._pendingTasks.delete(cacheKey);
@@ -327,7 +362,7 @@ export class PlaybackEngine extends EventEmitter {
         try {
             const data = await task;
             if (data) {
-                this._addToCache(cacheKey, data);
+                this._addToCache(cacheKey, data, currentIntentId);
                 this.logger(`[NEURAL] success: ${cacheKey}`);
             }
             return data;

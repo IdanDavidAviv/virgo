@@ -3,6 +3,7 @@ import { OutgoingAction, IncomingCommand } from '../../common/types';
 import { CacheManager } from '../cacheManager';
 import { ToastManager } from '../components/ToastManager';
 import { WebviewStore } from './WebviewStore';
+import { PlaybackController } from '../playbackController';
 
 /**
  * WebviewAudioEngine: High-Integrity Audio Lifecycle Manager
@@ -14,8 +15,10 @@ export class WebviewAudioEngine {
   private audio: HTMLAudioElement;
   private activeObjectURLs: Set<string> = new Set();
   private cache: CacheManager;
-  private currentSequenceId: number = 0;
+  private activeIntentId: number = 0;
   public intent: 'PLAYING' | 'PAUSED' | 'STOPPED' = 'PAUSED';
+  private adaptiveWaitTimer: any = null;
+  private adaptiveWaitResolver: (() => void) | null = null;
 
   private constructor() {
     this.audio = new Audio();
@@ -146,19 +149,95 @@ export class WebviewAudioEngine {
   }
 
   public prepareForPlayback(): number {
-    this.currentSequenceId++;
-    console.log('[AudioEngine] 🚀 prepareForPlayback', { sequenceId: this.currentSequenceId });
-    return this.currentSequenceId;
+    this.activeIntentId++;
+    console.log('[AudioEngine] 🚀 prepareForPlayback', { intentId: this.activeIntentId });
+    return this.activeIntentId;
+  }
+
+  /**
+   * [v2.0.0] Adaptive JIT Wait: Enters a 30ms silent window while waiting for synthesis.
+   * If data arrives within 30ms, we play instantly without showing "Loading..." in the UI.
+   */
+  public startAdaptiveWait(cacheKey: string, intentId: number): Promise<void> {
+    if (intentId < this.activeIntentId) {
+      console.log('[AudioEngine] ✋ Ignoring stale Synthesis Starting', { intentId, current: this.activeIntentId });
+      return Promise.resolve();
+    }
+    
+    // 1. Update active intent
+    this.activeIntentId = intentId;
+    this.clearAdaptiveWait();
+
+    console.log('[AudioEngine] ⏳ Entering Adaptive Wait (30ms)', { cacheKey, intentId });
+    
+    return new Promise((resolve) => {
+      this.adaptiveWaitResolver = resolve;
+      this.adaptiveWaitTimer = setTimeout(() => {
+        console.log('[AudioEngine] ⏳ Adaptive Wait Expired - Showing Loading UI');
+        WebviewStore.getInstance().patchState({ playbackStalled: true });
+        this.clearAdaptiveWait();
+      }, 30);
+    });
+  }
+
+  private clearAdaptiveWait(): void {
+    if (this.adaptiveWaitTimer) {
+      clearTimeout(this.adaptiveWaitTimer);
+      this.adaptiveWaitTimer = null;
+    }
+    if (this.adaptiveWaitResolver) {
+      this.adaptiveWaitResolver();
+      this.adaptiveWaitResolver = null;
+    }
+  }
+
+  /**
+   * [v2.0.0] Direct Data Push: Ingests audio data pushed from the extension.
+   */
+  public async ingestData(cacheKey: string, base64Data: string, intentId: number): Promise<void> {
+    if (intentId < this.activeIntentId) {
+        console.log('[AudioEngine] ✋ Ignoring stale Push Data', { intentId, current: this.activeIntentId });
+        return;
+    }
+
+    // 1. Sanitize input: Strip 'data:audio/...;base64,' prefix if present
+    let cleaned = base64Data.trim();
+    const match = cleaned.match(/^data:audio\/[^;]+;base64,(.+)$/i);
+    if (match) {
+        cleaned = match[1];
+    }
+
+    const blob = this.base64ToBlob(cleaned, 'audio/mpeg');
+    // Always store in cache (non-blocking background task)
+    this.cache.set(cacheKey, blob).catch(err => console.error('[AudioEngine] Cache save failed:', err));
+    
+    // If this is the current active intent (or newer), play it immediately
+    if (intentId >= this.activeIntentId) {
+        this.activeIntentId = intentId;
+        console.log('[AudioEngine] 🔥 JIT Cache Hit via Direct Push - Playing Now', { cacheKey });
+        this.clearAdaptiveWait();
+        await this.playBlob(blob, cacheKey, intentId);
+    }
   }
 
   /**
    * Plays audio from a base64 string and optionally saves it to the cache.
    */
-  public async playFromBase64(base64: string, cacheKey?: string, sequenceId?: number): Promise<void> {
-    console.log('[AudioEngine] playFromBase64 called', { instanceId: this.instanceId, cacheKey, sequenceId });
-    try {
-      this.stop(); 
+  public async playFromBase64(base64: string, cacheKey?: string, intentId?: number): Promise<void> {
+    console.log('[AudioEngine] playFromBase64 called', { instanceId: this.instanceId, cacheKey, intentId });
+    
+    if (intentId !== undefined && intentId < this.activeIntentId) {
+        console.log('[AudioEngine] ✋ Ignoring stale playFromBase64', { intentId, current: this.activeIntentId });
+        return;
+    }
+    if (intentId !== undefined) {
+        this.activeIntentId = intentId;
+    }
+    
+    this.clearAdaptiveWait();
+    this.stop(); 
 
+    try {
       // 1. Sanitize input: Strip 'data:audio/...;base64,' prefix if present (Issue #88)
       let cleaned = base64.trim();
       const match = cleaned.match(/^data:audio\/[^;]+;base64,(.+)$/i);
@@ -173,7 +252,8 @@ export class WebviewAudioEngine {
         this.cache.set(cacheKey, blob).catch(err => console.error('[AudioEngine] Cache save failed:', err));
       }
 
-      await this.playBlob(blob, sequenceId);
+      const finalCacheKey = cacheKey || `base64-${Date.now()}`;
+      await this.playBlob(blob, finalCacheKey, intentId);
     } catch (err) {
       console.error('[AudioEngine] Failed to play base64 audio:', err);
     }
@@ -182,12 +262,20 @@ export class WebviewAudioEngine {
   /**
    * Plays audio directly from the IndexedDB cache.
    */
-  public async playFromCache(cacheKey: string): Promise<boolean> {
+  public async playFromCache(cacheKey: string, intentId?: number): Promise<boolean> {
     try {
       const blob = await this.cache.get(cacheKey);
       if (blob) {
+        if (intentId !== undefined && intentId < this.activeIntentId) {
+            console.log('[AudioEngine] ✋ Ignoring stale playFromCache', { intentId, current: this.activeIntentId });
+            return false;
+        }
+        if (intentId !== undefined) {
+            this.activeIntentId = intentId;
+        }
+        this.clearAdaptiveWait();
         this.stop();
-        await this.playBlob(blob);
+        await this.playBlob(blob, cacheKey, intentId);
         console.log(`[AudioEngine] ⚡ Cache Hit for ${cacheKey}`);
         this.triggerCachePulse();
         return true;
@@ -199,15 +287,18 @@ export class WebviewAudioEngine {
     }
   }
 
-  public async playBlob(blob: Blob, sequenceId?: number): Promise<void> {
+  public async playBlob(blob: Blob, cacheKey: string, intentId?: number): Promise<void> {
     // 1. Sequence Guard: If this is an old request, ignore it.
-    if (sequenceId !== undefined && sequenceId < this.currentSequenceId) {
-        console.warn(`[AudioEngine] 🧟 Ignoring Zombie Audio (Sequence mismatch: ${sequenceId} < ${this.currentSequenceId})`);
+    if (intentId !== undefined && intentId < this.activeIntentId) {
+        console.warn(`[AudioEngine] 🧟 Ignoring Zombie Audio (Sequence mismatch: ${intentId} < ${this.activeIntentId})`);
         return;
+    }
+    if (intentId !== undefined) {
+      this.activeIntentId = intentId;
     }
 
     // 2. Intent Guard: Using PlaybackController for authoritative intent
-    const controller = (window as any).__PLAYBACK_CONTROLLER__;
+    const controller = PlaybackController.getInstance();
     if (controller && controller.getState().intent === 'STOPPED') {
       console.log('[AudioEngine] 🧟 Ignoring Zombie Audio (Controller Intent was STOPPED)');
       return;

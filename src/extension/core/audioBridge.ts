@@ -6,13 +6,17 @@ import { SequenceManager } from '@core/sequenceManager';
 import { EventEmitter } from 'events';
 
 export interface AudioBridgeEvents {
-    'playAudio': (payload: { cacheKey: string, data: string, text: string, chapterIndex: number, sentenceIndex: number, totalSentences: number, sentences: string[] }) => void;
-    'synthesisError': (payload: { error: string, isFallingBack: boolean, cacheKey: string, chapterIndex: number, sentenceIndex: number }) => void;
-    'engineStatus': (payload: { status: string }) => void;
+    'playAudio': (payload: { cacheKey: string, data: string, text: string, chapterIndex: number, sentenceIndex: number, totalSentences: number, sentences: string[], intentId: number }) => void;
+    'synthesisStarting': (payload: { cacheKey: string, intentId: number }) => void;
+    'synthesisError': (payload: { error: string, isFallingBack: boolean, cacheKey: string, chapterIndex: number, sentenceIndex: number, intentId: number }) => void;
     'playbackFinished': () => void;
+    'engineStatus': (payload: { status: string }) => void;
+    'dataPush': (payload: { cacheKey: string, data: string, intentId: number }) => void;
 }
 
 export class AudioBridge extends EventEmitter {
+    private _pushDelayMs: number = 200;
+
     constructor(
         private readonly _stateStore: StateStore,
         private readonly _docController: DocumentLoadController,
@@ -28,9 +32,38 @@ export class AudioBridge extends EventEmitter {
             const isStalled = status?.isStalled ?? this._playbackEngine.isStalled;
             this._stateStore.setPlaybackStatus(isPlaying, isPaused, isStalled);
         });
+
+        this._playbackEngine.on('synthesis-starting', (payload) => {
+            this.emit('synthesisStarting', payload);
+        });
+
+        // [v2.0.0] Throttled Pushing: Ensure bridge priority for user IPC 
+        let pushQueue: any[] = [];
+        let pushTimeout: NodeJS.Timeout | null = null;
+
+        this._playbackEngine.on('synthesis-complete', (payload) => {
+            // Optimization: If the payload's intentId matches the current active intent, push immediately
+            // to bypass the throttle for the user's immediate hearing experience.
+            if (payload.intentId === this._playbackEngine.playbackIntentId) {
+                this.emit('dataPush', payload);
+                return;
+            }
+
+            pushQueue.push(payload);
+            if (pushTimeout) { return; }
+            pushTimeout = setTimeout(() => {
+                const results = [...pushQueue];
+                pushQueue = [];
+                pushTimeout = null;
+                results.forEach(p => this.emit('dataPush', p));
+            }, this._pushDelayMs);
+        });
     }
 
-    private _activeRequestId: number = 0;
+    public setPushDelay(ms: number) {
+        this._pushDelayMs = ms;
+        this._logger(`[BRIDGE] Push throttle updated to ${ms}ms.`);
+    }
 
     public on<K extends keyof AudioBridgeEvents>(event: K, listener: AudioBridgeEvents[K]): this {
         return super.on(event, listener);
@@ -59,8 +92,13 @@ export class AudioBridge extends EventEmitter {
         });
         
         const chapters = this._docController.chapters;
+        if (chapters.length === 0) {
+            this._logger(`[BRIDGE] No chapters found in the current document. Playback cannot start.`);
+            return;
+        }
+
         if (chapterIndex < 0 || chapterIndex >= chapters.length) {
-            this._logger(`[BRIDGE] Invalid chapter index: ${chapterIndex}`);
+            this._logger(`[BRIDGE] Invalid chapter index: ${chapterIndex} (Total: ${chapters.length})`);
             return;
         }
 
@@ -96,7 +134,8 @@ export class AudioBridge extends EventEmitter {
                     chapterIndex,
                     sentenceIndex,
                     totalSentences: chapter.sentences.length,
-                    sentences: chapter.sentences
+                    sentences: chapter.sentences,
+                    intentId: this._playbackEngine.playbackIntentId
                 });
             } else {
                 this._logger(`[BRIDGE] Zero-IPC: Triggering Webview Cache Check for ${cacheKey}`);
@@ -108,7 +147,8 @@ export class AudioBridge extends EventEmitter {
                     chapterIndex,
                     sentenceIndex,
                     totalSentences: chapter.sentences.length,
-                    sentences: chapter.sentences
+                    sentences: chapter.sentences,
+                    intentId: this._playbackEngine.playbackIntentId
                 });
             }
             
@@ -123,17 +163,31 @@ export class AudioBridge extends EventEmitter {
     /**
      * Called when the webview reports a cache miss and needs a fresh synthesis.
      */
-    public async synthesize(cacheKey: string, options: PlaybackOptions) {
+    public async synthesize(cacheKey: string, options: PlaybackOptions, intentId?: number) {
         const state = this._stateStore.state;
-        const chapter = this._docController.chapters[state.currentChapterIndex];
-        if (!chapter) { return; }
+        const chapters = this._docController.chapters;
         
+        // [HARDENING] Defensive check against stale indices during document reloads
+        if (state.currentChapterIndex < 0 || state.currentChapterIndex >= chapters.length) {
+            this._logger(`[BRIDGE] synthesis_blocked | Stale chapter index: ${state.currentChapterIndex}`);
+            return;
+        }
+
+        const chapter = chapters[state.currentChapterIndex];
+        if (!chapter || !chapter.sentences) { return; }
+        
+        if (state.currentSentenceIndex < 0 || state.currentSentenceIndex >= chapter.sentences.length) {
+            this._logger(`[BRIDGE] synthesis_blocked | Stale sentence index: ${state.currentSentenceIndex}`);
+            return;
+        }
+
         const sentence = chapter.sentences[state.currentSentenceIndex];
         if (!sentence) { return; }
 
-        this._logger(`[BRIDGE] Webview Cache MISS for ${cacheKey}. Starting synthesis...`);
+        const currentIntent = intentId ?? this._playbackEngine.playbackIntentId;
+        this._logger(`[BRIDGE] Webview Cache MISS for ${cacheKey} (Intent: ${currentIntent}). Starting synthesis...`);
         this._stateStore.setLoadType('synth');
-        await this._speakNeural(sentence, cacheKey, options, state.currentChapterIndex, state.currentSentenceIndex, this._activeRequestId);
+        await this._speakNeural(sentence, cacheKey, options, state.currentChapterIndex, state.currentSentenceIndex, currentIntent);
     }
 
     public stop() {
@@ -198,13 +252,13 @@ export class AudioBridge extends EventEmitter {
         }
     }
 
-    private async _speakNeural(sentence: string, cacheKey: string, options: PlaybackOptions, cIdx: number, sIdx: number, requestId: number) {
+    private async _speakNeural(sentence: string, cacheKey: string, options: PlaybackOptions, cIdx: number, sIdx: number, intentId: number) {
         try {
-            const data = await this._playbackEngine.speakNeural(sentence, cacheKey, options);
+            const data = await this._playbackEngine.speakNeural(sentence, cacheKey, options, true); // true = priority
             
-            // GUARD: Transactional Nonce check
-            if (this._activeRequestId !== requestId) {
-                this._logger(`[BRIDGE] Transaction Mismatch: Request ${requestId} is stale. Current: ${this._activeRequestId}`);
+            // GUARD: Transactional Nonce check - Unify with Engine Intent
+            if (this._playbackEngine.playbackIntentId !== intentId) {
+                this._logger(`[BRIDGE] Transaction Mismatch: Request Intent ${intentId} is stale. Current: ${this._playbackEngine.playbackIntentId}`);
                 return;
             }
             // If the user jumped again, cIdx/sIdx will no longer match the current state.
@@ -222,7 +276,8 @@ export class AudioBridge extends EventEmitter {
                     chapterIndex: cIdx,
                     sentenceIndex: sIdx,
                     totalSentences: this._docController.chapters[cIdx].sentences.length,
-                    sentences: this._docController.chapters[cIdx].sentences
+                    sentences: this._docController.chapters[cIdx].sentences,
+                    intentId: intentId
                 });
             }
         } catch (err: any) {
@@ -248,7 +303,8 @@ export class AudioBridge extends EventEmitter {
                 isFallingBack: false, // Explicitly false to prevent UI from expecting SAPI
                 cacheKey, 
                 chapterIndex: cIdx, 
-                sentenceIndex: sIdx 
+                sentenceIndex: sIdx,
+                intentId: intentId
             });
         }
     }

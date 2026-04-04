@@ -1,4 +1,4 @@
-import { IncomingCommand, OutgoingAction } from '@common/types';
+import { IncomingCommand, LogLevel, OutgoingAction, UISyncPacket } from '@common/types';
 
 /**
  * MessageClient singleton for webview-to-extension communication.
@@ -9,6 +9,7 @@ export class MessageClient {
   private vscode: any;
   private handlers: Map<string, Array<(payload: any) => void>> = new Map();
   private messageListener: ((event: MessageEvent) => void) | null = null;
+  private _logLevel: LogLevel = LogLevel.STANDARD;
 
 
   private constructor() {
@@ -86,8 +87,12 @@ export class MessageClient {
     }
 
     if (!silent) {
-      const summary = this.summarize(payload);
-      console.log(`[ACTION] ${action} | ${JSON.stringify(summary || '')}`);
+      if (this._logLevel === LogLevel.VERBOSE) {
+        console.log(`[ACTION] ${action} | ${JSON.stringify(payload || '')}`);
+      } else {
+        const summary = this.summarize(payload);
+        console.log(`[ACTION] ${action} | ${JSON.stringify(summary || '')}`);
+      }
     }
 
     const message: any = { command: action };
@@ -105,6 +110,10 @@ export class MessageClient {
    */
   private summarize(obj: any): any {
     if (obj === null || obj === undefined) { return obj; }
+    
+    // VERBOSE mode bypasses summarization
+    if (this._logLevel === LogLevel.VERBOSE) { return obj; }
+
     if (Array.isArray(obj)) {
       return `[Array(${obj.length})]`;
     }
@@ -119,6 +128,22 @@ export class MessageClient {
       return summary;
     }
     return obj;
+  }
+
+  /**
+   * Converts a packet to a high-density shorthand string for standard logging.
+   */
+  private toShorthand(command: string, payload: any): string {
+    if (command === IncomingCommand.UI_SYNC) {
+      const p = payload as UISyncPacket;
+      return `State: ${p.isPlaying ? 'PLAY' : 'STOP'} | Progress: C${p.state?.currentChapterIndex}S${p.state?.currentSentenceIndex} | Cache: ${p.cacheCount} (${(p.cacheSizeBytes / (1024 * 1024)).toFixed(2)}MB)`;
+    }
+    
+    if (command === IncomingCommand.DATA_PUSH) {
+      return `Push: ${payload.cacheKey} | Size: ${payload.data?.length || 0} bytes`;
+    }
+
+    return JSON.stringify(this.summarize(payload) || '');
   }
 
   /**
@@ -139,7 +164,6 @@ export class MessageClient {
    */
   public handleMessage(event: any): void {
     const message = event.data;
-    console.log('[MessageClient] handleMessage:', JSON.stringify(message));
     const { command, payload, ...rest } = message;
     if (!command) {
       return;
@@ -148,14 +172,24 @@ export class MessageClient {
     // Support both legacy spread structure and new nested payload structure
     const finalPayload = (payload !== undefined ? payload : (Object.keys(rest).length > 0 ? rest : message));
 
+    // Update log level if present in sync packet
+    if (command === IncomingCommand.UI_SYNC && finalPayload.logLevel) {
+      this._logLevel = finalPayload.logLevel;
+    }
+
     const isInternalCommand = command === IncomingCommand.UI_SYNC || 
                              command === IncomingCommand.VOICES || 
                              command === IncomingCommand.PLAY_AUDIO || 
-                             command === IncomingCommand.STOP;
+                             command === IncomingCommand.STOP ||
+                             command === IncomingCommand.DATA_PUSH;
 
     if (isInternalCommand) {
-      const summary = this.summarize(finalPayload);
-      console.log(`[SIGNAL] ${command} | ${JSON.stringify(summary || '')}`);
+      if (this._logLevel === LogLevel.VERBOSE) {
+        console.log(`[SIGNAL] ${command} | ${JSON.stringify(message)}`);
+      } else {
+        const shorthand = this.toShorthand(command, finalPayload);
+        console.log(`[SIGNAL] ${command} | ${shorthand}`);
+      }
     }
 
     const commandHandlers = this.handlers.get(command);

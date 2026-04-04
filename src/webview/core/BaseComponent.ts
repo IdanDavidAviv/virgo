@@ -1,6 +1,6 @@
 import { WebviewStore, Selector, Listener } from './WebviewStore';
 import { MessageClient } from './MessageClient';
-import { OutgoingAction } from '../../common/types';
+import { LogLevel, OutgoingAction } from '../../common/types';
 
 /**
  * BaseComponent: Abstract foundation for all UI components in the Read Aloud Dashboard.
@@ -38,7 +38,6 @@ export abstract class BaseComponent<T extends Record<string, HTMLElement | null 
    * Post an action to the extension with Tier-3 shorthand logging.
    */
   protected postAction(command: OutgoingAction, payload?: any): void {
-    console.log(`[ACTION] ${command} | ${JSON.stringify(payload || '')}`);
     MessageClient.getInstance().postAction(command, payload);
   }
 
@@ -66,7 +65,10 @@ export abstract class BaseComponent<T extends Record<string, HTMLElement | null 
     try {
       this.render();
       const duration = (performance.now() - start).toFixed(2);
-      console.log(`[MOUNT] ${this.constructor.name} | Initial Render: ${duration}ms`);
+      const logLevel = this.store.getState()?.logLevel || LogLevel.STANDARD;
+      if (logLevel === LogLevel.VERBOSE) {
+        console.log(`[MOUNT] ${this.constructor.name} | Initial Render: ${duration}ms`);
+      }
     } catch (err) {
       console.error(`[FATAL] ${this.constructor.name} | Mount Failed:`, err);
     }
@@ -95,7 +97,11 @@ export abstract class BaseComponent<T extends Record<string, HTMLElement | null 
     } else if (type === 'warn') {
       console.warn(formatted);
     } else {
-      console.log(formatted);
+      // Info logs are only visible in VERBOSE mode
+      const logLevel = this.store.getState()?.logLevel || LogLevel.STANDARD;
+      if (logLevel === LogLevel.VERBOSE) {
+        console.log(formatted);
+      }
     }
   }
 }

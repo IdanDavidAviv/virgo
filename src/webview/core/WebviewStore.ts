@@ -74,7 +74,7 @@ export class WebviewStore {
       this.updateState(packet, 'remote');
     });
 
-    client.onCommand<{ cacheKey: string, data: string }>(IncomingCommand.NEURAL_CACHE_PUSH, ({ cacheKey, data }) => {
+    client.onCommand<{ cacheKey: string, data: string }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data }) => {
       this.saveNeuralCache(cacheKey, data);
     });
 
@@ -334,21 +334,14 @@ export class WebviewStore {
 
     const start = performance.now();
     
-    // If the voices seem identical in size and sample, we avoid a full merge to save main-thread time.
-    if (newState.availableVoices && source === 'remote') {
-        const currentVoices = newState.availableVoices;
-        // Robust gating: stringify the voice list to detect content changes, not just reference changes
-        const currentHash = JSON.stringify(currentVoices);
-        if (currentHash === this.previousVoicesHash && this.state?.availableVoices) {
-            // Keep existing reference to avoid re-triggering massive voice list listeners
-            newState.availableVoices = this.state.availableVoices;
-        } else {
-            this.previousVoicesHash = currentHash;
-        }
-    }
-
     // 3. Merge state
     const oldState = this.state;
+    
+    // [DELTA SYNC] Preserve existing voices if missing from incoming packet
+    if (newState.availableVoices === undefined && oldState?.availableVoices) {
+        newState.availableVoices = oldState.availableVoices;
+    }
+
     const updatedState = { ...this.state, ...newState } as UISyncPacket;
 
     // Apply Sovereignty Guard if needed
