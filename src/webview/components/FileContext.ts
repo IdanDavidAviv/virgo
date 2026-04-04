@@ -13,6 +13,10 @@ export interface FileContextElements extends Record<string, HTMLElement | HTMLBu
     readerDir: HTMLElement;
     btnLoadFile: HTMLButtonElement;
     btnClearReader?: HTMLButtonElement;
+    btnModeFile: HTMLButtonElement;
+    btnModeSnippet: HTMLButtonElement;
+    fileModeContainer: HTMLElement;
+    snippetLookupContainer: HTMLElement;
 }
 
 /**
@@ -69,6 +73,19 @@ export class FileContext extends BaseComponent<FileContextElements> {
                 } as any, { isAwaitingSync: true });
 
                 this.postAction(OutgoingAction.RESET_CONTEXT);
+            };
+        }
+
+        // Mode Toggles
+        if (this.els.btnModeFile) {
+            this.els.btnModeFile.onclick = () => {
+                WebviewStore.getInstance().updateUIState({ activeMode: 'FILE' });
+            };
+        }
+
+        if (this.els.btnModeSnippet) {
+            this.els.btnModeSnippet.onclick = () => {
+                WebviewStore.getInstance().updateUIState({ activeMode: 'SNIPPET' });
             };
         }
 
@@ -135,6 +152,24 @@ export class FileContext extends BaseComponent<FileContextElements> {
         }, (isMismatch) => {
             if (this.els.btnLoadFile) {
                 this.els.btnLoadFile.classList.toggle('mismatch', !!isMismatch);
+            }
+        });
+
+        // 4. Mode Logic
+        this.subscribeUI((state) => state.activeMode, (mode) => {
+            const isSnippet = mode === 'SNIPPET';
+            if (this.els.btnModeFile) {
+                this.els.btnModeFile.classList.toggle('active', !isSnippet);
+            }
+            if (this.els.btnModeSnippet) {
+                this.els.btnModeSnippet.classList.toggle('active', isSnippet);
+            }
+            
+            if (this.els.fileModeContainer) {
+                this.els.fileModeContainer.style.display = isSnippet ? 'none' : 'flex';
+            }
+            if (this.els.snippetLookupContainer) {
+                this.els.snippetLookupContainer.style.display = isSnippet ? 'block' : 'none';
             }
         });
     }

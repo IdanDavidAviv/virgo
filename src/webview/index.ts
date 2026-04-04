@@ -24,6 +24,7 @@ import { SettingsDrawer } from './components/SettingsDrawer';
 import { FileContext } from './components/FileContext';
 import { VoiceSelector } from './components/VoiceSelector';
 import { ToastManager } from './components/ToastManager';
+import { SnippetLookup } from './components/SnippetLookup';
 
 /**
  * Read Aloud Webview Entry Point (ESM/TS)
@@ -71,34 +72,50 @@ export function bootstrap() {
     console.log('[BOOT] Infrastructure OK');
 
     // 2. Map DOM Elements & Initialize Components
-    const components = {
-      navigator: new SentenceNavigator({
-        navigator: document.getElementById('sentence-navigator'),
+    const components: any = {};
+    
+    const safeMount = (name: string, el: HTMLElement | null, factory: (el: HTMLElement) => any) => {
+        if (!el) {
+            console.warn(`[BOOT] SKIPPING ${name}: Element not found.`);
+            return;
+        }
+        try {
+            components[name] = factory(el);
+            console.log(`[BOOT] ${name} initialized.`);
+        } catch (e) {
+            console.error(`[BOOT] ${name} FAILED:`, e);
+        }
+    };
+
+    safeMount('navigator', document.getElementById('sentence-navigator'), (el) => new SentenceNavigator({
+        navigator: el,
         prev: document.getElementById('sentence-prev'),
         current: document.getElementById('sentence-current'),
         next: document.getElementById('sentence-next')
-      }),
-      controls: new PlaybackControls({
-        btnPlay: document.getElementById('btn-play'),
-        btnPause: document.getElementById('btn-pause'),
-        btnStop: document.getElementById('btn-stop'),
-        btnPrev: document.getElementById('btn-prev'),
-        btnNext: document.getElementById('btn-next'),
-        btnPrevSentence: document.getElementById('btn-prev-sentence'),
-        btnNextSentence: document.getElementById('btn-next-sentence'),
-        btnAutoplay: document.getElementById('btn-autoplay'),
-        waveContainer: document.getElementById('sentence-navigator'),
-        statusDot: document.getElementById('status-dot')
-      }),
-      chapterList: new ChapterList({
-        container: document.getElementById('chapter-list'),
+    }));
+
+    safeMount('controls', document.getElementById('btn-play'), (el) => new PlaybackControls({
+        btnPlay: el as HTMLButtonElement,
+        btnPause: document.getElementById('btn-pause') as HTMLButtonElement,
+        btnStop: document.getElementById('btn-stop') as HTMLButtonElement,
+        btnPrev: document.getElementById('btn-prev') as HTMLButtonElement,
+        btnNext: document.getElementById('btn-next') as HTMLButtonElement,
+        btnPrevSentence: document.getElementById('btn-prev-sentence') as HTMLButtonElement,
+        btnNextSentence: document.getElementById('btn-next-sentence') as HTMLButtonElement,
+        btnAutoplay: document.getElementById('btn-autoplay') as HTMLButtonElement,
+        waveContainer: document.getElementById('sentence-navigator') as HTMLElement,
+        statusDot: document.getElementById('status-dot') as HTMLElement
+    }));
+
+    safeMount('chapterList', document.getElementById('chapter-list'), (el) => new ChapterList({
+        container: el,
         fullProgressHeader: document.getElementById('sentence-progress'),
         chapterOnlyHeader: document.getElementById('chapter-progress')
-      }),
-      settings: new SettingsDrawer({
-        drawer: document.getElementById('settings-drawer') as HTMLElement,
-        btnOpen: document.getElementById('settings-toggle') as HTMLElement, // <span> in HTML
-        // btnClose omitted — handled by single toggle element
+    }));
+
+    safeMount('settings', document.getElementById('settings-drawer'), (el) => new SettingsDrawer({
+        drawer: el,
+        btnOpen: document.getElementById('settings-toggle') as HTMLElement,
         volumeSlider: document.getElementById('volume-slider') as HTMLInputElement,
         rateSlider: document.getElementById('rate-slider') as HTMLInputElement,
         btnCloudEngine: document.getElementById('engine-neural') as HTMLButtonElement,
@@ -107,28 +124,37 @@ export function bootstrap() {
         volumeVal: document.getElementById('volume-val'),
         cacheDebugTag: document.getElementById('cache-debug-tag') as HTMLElement,
         stateDebugTag: document.getElementById('state-debug-tag') as HTMLElement,
-        engineToggleGroup: document.querySelector('.engine-toggle-group')
-      }),
-      fileContext: new FileContext({
-        activeSlot: document.querySelector('.context-slot.selection') as HTMLElement,
+        engineToggleGroup: document.querySelector('.engine-toggle-group') as HTMLElement
+    }));
+
+    safeMount('fileContext', document.querySelector('.context-slot.selection'), (el) => new FileContext({
+        activeSlot: el,
         activeFilename: document.getElementById('active-filename') as HTMLElement,
         activeDir: document.getElementById('active-dir') as HTMLElement,
         readerSlot: document.querySelector('.context-slot.reader') as HTMLElement,
         readerFilename: document.getElementById('reader-filename') as HTMLElement,
         readerDir: document.getElementById('reader-dir') as HTMLElement,
         btnLoadFile: document.getElementById('btn-load-file') as HTMLButtonElement,
-        btnClearReader: document.getElementById('btn-clear-reader') as HTMLButtonElement
-      }),
-      voiceSelector: new VoiceSelector({
-        voiceList: document.getElementById('voice-list-container') as HTMLElement,
+        btnClearReader: document.getElementById('btn-clear-reader') as HTMLButtonElement,
+        btnModeFile: document.getElementById('mode-file') as HTMLButtonElement,
+        btnModeSnippet: document.getElementById('mode-snippet') as HTMLButtonElement,
+        fileModeContainer: document.getElementById('file-mode-container') as HTMLElement,
+        snippetLookupContainer: document.getElementById('snippet-lookup-container') as HTMLElement
+    }));
+
+    safeMount('snippetLookup', document.getElementById('snippet-lookup-container'), (el) => new SnippetLookup({
+        container: el
+    }));
+
+    safeMount('voiceSelector', document.getElementById('voice-list-container'), (el) => new VoiceSelector({
+        voiceList: el,
         searchInput: document.getElementById('voice-search') as HTMLInputElement
-      })
-    };
+    }));
 
     console.log('[BOOT] Mapping Elements...');
 
     // Mount all components to attach event listeners
-    Object.values(components).forEach(c => c.mount());
+    Object.values(components).forEach((c: any) => c.mount());
     interaction.mount();
 
     // 2a. Register with Layout Manager (Issue #15)

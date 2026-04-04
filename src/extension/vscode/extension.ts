@@ -4,7 +4,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { SpeechProvider } from '@vscode/speechProvider';
 import { findChapterAtLine, findSentenceAtLine, parseChapters } from '@core/documentParser';
-import { McpBridge } from '../mcp/mcpBridge';
 
 let mainStatusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
@@ -39,29 +38,24 @@ export async function activate(context: vscode.ExtensionContext) {
     mainStatusBarItem.tooltip = 'Click for Read Aloud Controls';
     mainStatusBarItem.show();
 
-    const speechProvider = new SpeechProvider(context, log, mainStatusBarItem, () => syncSelection());
-    log('--- NATIVE WEBVIEW ARCHITECTURE ACTIVE (Serverless) ---');
-
-    // --- Antigravity Root Initialization ---
     // Standard path for high-integrity agent memory
     const userProfile = process.env.USERPROFILE || process.env.HOME || '';
     const antigravityRoot = path.join(userProfile, '.gemini', 'antigravity', 'read_aloud');
-    const sessionId = new Date().toISOString().replace(/[:.]/g, '-'); 
-    const persistencePath = path.join(antigravityRoot, sessionId);
     
-    log(`[ANTIGRAVITY] Root Initialized: ${persistencePath}`);
+    // Aligned with Active Conversation ID: fa6340bf-1dcd-4e6f-9318-4397c55a3872
+    const sessionId = 'fa6340bf-1dcd-4e6f-9318-4397c55a3872'; 
+    const persistencePath = path.join(antigravityRoot, sessionId);
 
-    const mcpBridge = new McpBridge(persistencePath, log);
-    mcpBridge.start(7413);
-    log('--- MCP BRIDGE ACTIVE (Port 7413) ---');
+    const speechProvider = new SpeechProvider(context, log, mainStatusBarItem, antigravityRoot, sessionId, () => syncSelection());
+    log('--- PORTLESS SYNC ACTIVE (Filesystem Watcher) ---');
+    log(`[ANTIGRAVITY] Session: ${sessionId}`);
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             'readme-preview-read-aloud.speech-engine',
             speechProvider,
             { webviewOptions: { retainContextWhenHidden: true } }
-        ),
-        mcpBridge
+        )
     );
 
     context.subscriptions.push(

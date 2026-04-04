@@ -13,13 +13,24 @@
         <div id="active-selection" class="context-slot selection">
             <div class="slot-header">
                 <span class="slot-label">FOCUSED FILE</span>
+                <div class="mode-toggle-group">
+                    <button id="mode-file" class="mode-pill active" title="Local File Mode">FILE</button>
+                    <button id="mode-snippet" class="mode-pill" title="Antigravity Snippet Mode">SNIPPET</button>
+                </div>
             </div>
-            <div class="doc-info-compact">
+            
+            <!-- FILE MODE -->
+            <div id="file-mode-container" class="doc-info-compact">
                 <span id="active-icon">📄</span>
                 <div class="doc-title-stack">
                     <span id="active-filename" class="filename">No Selection</span>
                     <span id="active-dir" class="directory"></span>
                 </div>
+            </div>
+
+            <!-- SNIPPET MODE -->
+            <div id="snippet-lookup-container" class="snippet-lookup" style="display: none;">
+                <div class="snippet-placeholder">Loading snippets...</div>
             </div>
         </div>
         
