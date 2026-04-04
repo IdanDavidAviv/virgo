@@ -2,7 +2,7 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"

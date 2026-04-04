@@ -7,7 +7,12 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
-## [2.0.0] - 2026-04-04
+## [2.0.1] - 2026-04-04
+
+### Antigravity Bridge Genesis
+- **Antigravity Stream Protocol**: Establishing the `ReadAloud-Bridge`, allowing external AI agents to stream and inject Markdown content directly into the neural synthesis pipeline.
+- **Virtual Document Sovereignty**: Implemented atomic `activeMode` transitions ('FILE' vs 'SNIPPET') to ensure the webview dashboard correctly hydrates and tracks virtual content injected via the MCP bridge.
+- **Persistent Injection Store**: Integrated a file-backed persistence layer for external snippets, ensuring that injected AI content survives VS Code session restarts with full navigation parity.
 
 ## [2.0.0] - 2026-04-04
 

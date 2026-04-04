@@ -26,8 +26,18 @@ vi.mock('vscode', () => {
             getConfiguration: vi.fn().mockReturnValue({
                 get: vi.fn((key, def) => def),
                 update: vi.fn().mockResolvedValue(undefined)
-            })
-        }
+            }),
+            createFileSystemWatcher: vi.fn(() => ({
+                onDidCreate: vi.fn(listener => ({ dispose: vi.fn() })),
+                onDidDelete: vi.fn(listener => ({ dispose: vi.fn() })),
+                onDidChange: vi.fn(listener => ({ dispose: vi.fn() })),
+                dispose: vi.fn()
+            }))
+        },
+        RelativePattern: function (base: any, pattern: any) {
+            return { base, pattern };
+        },
+        ConfigurationTarget: { Global: 1 }
     };
 });
 
@@ -62,7 +72,7 @@ describe('SpeechProvider (Navigation Commands)', () => {
 
         mockLogger = vi.fn();
 
-        provider = new SpeechProvider(mockContext, mockLogger, mockStatusBarItem);
+        provider = new SpeechProvider(mockContext, mockLogger, mockStatusBarItem, '/test/antigravity', 'test-session');
         
         // Access internal components for mocking
         mockAudioBridge = (provider as any)._audioBridge;

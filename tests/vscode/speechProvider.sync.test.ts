@@ -21,6 +21,9 @@ vi.mock('vscode', () => {
         },
         ThemeColor: vi.fn(),
         ExtensionMode: { Development: 1 },
+        RelativePattern: function (base: any, pattern: any) {
+            return { base, pattern };
+        },
         workspace: {
             getWorkspaceFolder: vi.fn(),
             onDidChangeTextDocument: vi.fn(() => ({ dispose: vi.fn() })),
@@ -28,7 +31,13 @@ vi.mock('vscode', () => {
                 get: configGet,
                 update: configUpdate
             })),
-            onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() }))
+            onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
+            createFileSystemWatcher: vi.fn(() => ({
+                onDidCreate: vi.fn(listener => ({ dispose: vi.fn() })),
+                onDidDelete: vi.fn(listener => ({ dispose: vi.fn() })),
+                onDidChange: vi.fn(listener => ({ dispose: vi.fn() })),
+                dispose: vi.fn()
+            }))
         },
         ConfigurationTarget: { Global: 1 }
     };
@@ -66,7 +75,7 @@ describe('SpeechProvider (Sync)', () => {
 
         mockLogger = vi.fn();
 
-        provider = new SpeechProvider(mockContext, mockLogger, mockStatusBarItem);
+        provider = new SpeechProvider(mockContext, mockLogger, mockStatusBarItem, '/test/antigravity', 'test-session');
 
         mockWebviewView = {
             webview: {
