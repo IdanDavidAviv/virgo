@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { StateStore } from '@core/stateStore';
 import { DocumentLoadController } from '@core/documentLoadController';
 import { PlaybackEngine } from '@core/playbackEngine';
-import { UISyncPacket, StateStoreState, IncomingCommand } from '../../common/types';
+import { UISyncPacket, StateStoreState, IncomingCommand, SnippetHistory } from '../../common/types';
 
 export class DashboardRelay {
     private _view?: vscode.WebviewView;
@@ -22,7 +22,7 @@ export class DashboardRelay {
      * The single source of truth for the dashboard's state.
      * Aggregates StateStore, DocController, and logic into one packet.
      */
-    public sync(includeVoices: boolean = false) {
+    public sync(includeVoices: boolean = false, snippetHistory?: SnippetHistory) {
         if (!this._view) { return; }
 
         const s = this._stateStore.state;
@@ -43,7 +43,8 @@ export class DashboardRelay {
             currentChapterIndex: s.currentChapterIndex,
             currentSentenceIndex: s.currentSentenceIndex,
             isRefreshing: s.isRefreshing,
-            isPreviewing: s.isPreviewing
+            isPreviewing: s.isPreviewing,
+            activeMode: s.activeMode
         };
 
         const chapters = this._docController.chapters;
@@ -84,7 +85,11 @@ export class DashboardRelay {
             rate: s.rate,
             volume: s.volume,
             lastLoadType: s.lastLoadType,
-            logLevel: logLevel
+            activeMode: state.activeMode,
+            logLevel: logLevel,
+            currentChapterIndex: currentChapterIndex,
+            isLooping: s.isLooping,
+            snippetHistory: snippetHistory
         };
 
         if (includeVoices) {

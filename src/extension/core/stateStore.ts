@@ -41,6 +41,8 @@ export interface StateMetadata {
     isPreviewing: boolean;
     isRefreshing: boolean;
     lastLoadType: 'cache' | 'synth' | 'none';
+    activeMode: 'FILE' | 'SNIPPET';
+    isLooping: boolean;
 }
 
 export class StateStore extends EventEmitter {
@@ -77,7 +79,9 @@ export class StateStore extends EventEmitter {
 
             isPreviewing: false,
             isRefreshing: false,
-            lastLoadType: 'none'
+            lastLoadType: 'none',
+            activeMode: 'FILE',
+            isLooping: false
         };
     }
 
@@ -193,6 +197,23 @@ export class StateStore extends EventEmitter {
      */
     public setRefreshing(value: boolean) {
         this._state.isRefreshing = value;
+        this.emit('change', this.state);
+    }
+
+    /**
+     * Sets the active UI mode (FILE vs SNIPPET).
+     */
+    public setActiveMode(mode: 'FILE' | 'SNIPPET') {
+        this._state.activeMode = mode;
+        this._logger(`[STATE] active_mode_updated: ${mode}`);
+        this.emit('change', this.state);
+    }
+
+    /**
+     * Sets the looping flag.
+     */
+    public setLooping(value: boolean) {
+        this._state.isLooping = value;
         this.emit('change', this.state);
     }
 

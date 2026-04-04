@@ -8,7 +8,7 @@ import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
 import { SequenceManager } from '@core/sequenceManager';
 import { AudioBridge } from '@core/audioBridge';
 import { DashboardRelay } from './dashboardRelay';
-import { OutgoingAction, IncomingCommand } from '@common/types';
+import { OutgoingAction, IncomingCommand, SnippetHistory } from '@common/types';
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
@@ -37,6 +37,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         private readonly _context: vscode.ExtensionContext,
         private readonly _logger: (msg: string) => void,
         statusBarItem: vscode.StatusBarItem,
+        private readonly _antigravityRoot: string,
+        private readonly _sessionId: string,
         public onVisibilityChanged?: () => void
     ) {
         this._extensionUri = _context.extensionUri;
@@ -136,7 +138,47 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._saveProgressThrottled();
         });
 
+        // --- Portless MCP Watcher ---
+        this._setupMcpWatcher();
+    }
 
+    private _setupMcpWatcher() {
+        // Watch for NEW markdown files in the CURRENT session directory
+        const sessionPattern = new vscode.RelativePattern(this._antigravityRoot, `${this._sessionId}/*.md`);
+        const watcher = vscode.workspace.createFileSystemWatcher(sessionPattern, false, true, true);
+        
+        this._context.subscriptions.push(watcher);
+        this._logger(`[WATCHER] Active for session ${this._sessionId}`);
+
+        this._context.subscriptions.push(watcher.onDidCreate(async uri => {
+            this._logger(`[WATCHER] INCOMING_SNIPPET detected: ${path.basename(uri.fsPath)}`);
+            
+            // 1. Force Stop current playback (if any) to prevent overlapping audio
+            this.stop();
+
+            // 2. Load the snippet into the controller
+            const success = await this._docController.loadSnippet(uri.fsPath);
+            if (success) {
+                const metadata = this._docController.metadata;
+                
+                // 3. Update StateStore to point to this snippet
+                this._stateStore.setActiveDocument(
+                    metadata.uri,
+                    metadata.fileName,
+                    metadata.relativeDir,
+                    metadata.versionSalt,
+                    metadata.contentHash,
+                    null // No saved progress for tool-injected snippets
+                );
+
+                // 4. Trigger UI Refresh and Immediate Playback
+                this._stateStore.setActiveMode('SNIPPET');
+                this.refreshView();
+                this.continue();
+                
+                this._logger(`[WATCHER] AUTO_PLAY sequence started for tool-injected snippet.`);
+            }
+        }));
     }
 
 
@@ -381,8 +423,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
      * Unified Reactive Sync: Gather all state and broadcast to the webview.
      * This is the "Single Source of Truth" relay point.
      */
-    private _syncUI(includeVoices: boolean = false) {
-        this._dashboardRelay.sync(includeVoices);
+    private _syncUI(includeVoices: boolean = false, snippetHistory?: SnippetHistory) {
+        this._dashboardRelay.sync(includeVoices, snippetHistory);
     }
 
     private _syncUITimer?: NodeJS.Timeout;
@@ -739,12 +781,90 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 const logType = (data.type || 'info').toUpperCase();
                 this._logger(`[${source.toUpperCase()}:${logType}] ${data.message}`); 
                 break;
+            
+            case OutgoingAction.GET_ALL_SNIPPET_HISTORY:
+                const history = await this._getSnippetHistory();
+                this._dashboardRelay.postMessage({
+                    command: IncomingCommand.UI_SYNC, // Or a dedicated history command? UISyncPacket has snippetHistory
+                    snippetHistory: history
+                });
+                break;
+            
+            case OutgoingAction.LOAD_SNIPPET:
+                if (data.path) {
+                    this.stop();
+                    const success = await this._docController.loadSnippet(data.path);
+                    if (success) {
+                        const metadata = this._docController.metadata;
+                        this._stateStore.setActiveDocument(
+                            metadata.uri,
+                            metadata.fileName,
+                            metadata.relativeDir,
+                            metadata.versionSalt,
+                            metadata.contentHash,
+                            null // No progress for external snippets for now
+                        );
+                        this._stateStore.setActiveMode('SNIPPET');
+                        this._syncUI();
+                        this.refreshView();
+                    }
+                }
+                break;
         }
     }
 
-    private _sendInitialState() {
+    private async _getSnippetHistory(): Promise<SnippetHistory> {
+        if (!fs.existsSync(this._antigravityRoot)) {
+            return [];
+        }
+
+        try {
+            const sessions = fs.readdirSync(this._antigravityRoot)
+                .filter(f => fs.statSync(path.join(this._antigravityRoot, f)).isDirectory())
+                .sort((a, b) => b.localeCompare(a)) // Latest first
+                .slice(0, 3);
+
+            const result: SnippetHistory = [];
+
+            for (const sessionId of sessions) {
+                const sessionPath = path.join(this._antigravityRoot, sessionId);
+                const files = fs.readdirSync(sessionPath)
+                    .filter(f => f.endsWith('.md'))
+                    .map(f => {
+                        const filePath = path.join(sessionPath, f);
+                        const stats = fs.statSync(filePath);
+                        
+                        // Extract name: 1712250000000_my_snippet.md -> my_snippet
+                        const firstUnderscore = f.indexOf('_');
+                        const displayName = firstUnderscore !== -1 ? f.substring(firstUnderscore + 1).replace('.md', '') : f;
+                        
+                        return {
+                            name: displayName,
+                            fsPath: filePath,
+                            timestamp: stats.mtimeMs
+                        };
+                    })
+                    .sort((a, b) => b.timestamp - a.timestamp);
+
+                if (files.length > 0) {
+                    result.push({
+                        sessionName: sessionId,
+                        snippets: files
+                    });
+                }
+            }
+
+            return result;
+        } catch (e) {
+            this._logger(`[SNIPPET_HISTORY] FAILED: ${e}`);
+            return [];
+        }
+    }
+
+    private async _sendInitialState() {
         // [DELTA SYNC] Initial state MUST include voices to populate dropdowns
-        this._syncUI(true);
+        const history = await this._getSnippetHistory();
+        this._syncUI(true, history);
     }
 
 
@@ -777,6 +897,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             metadata.contentHash,
             saved
         );
+
+        this._stateStore.setActiveMode('FILE');
 
         if (saved) {
             this._logger(`[PERSISTENCE] Restored position: ${saved.chapterIndex}:${saved.sentenceIndex}`);

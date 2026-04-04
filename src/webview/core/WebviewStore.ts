@@ -1,5 +1,5 @@
 import { MessageClient } from './MessageClient';
-import { IncomingCommand, UISyncPacket } from '../../common/types';
+import { IncomingCommand, UISyncPacket, OutgoingAction } from '../../common/types';
 
 export type Selector<T, S = UISyncPacket> = (state: S) => T;
 export type Listener<T> = (value: T) => void;
@@ -19,6 +19,7 @@ export interface LocalUIState {
   isSyncing: boolean;
   pendingChapterIndex: number;
   neuralBuffer: { count: number, sizeMb: number };
+  activeMode: 'FILE' | 'SNIPPET';
 }
 
 /**
@@ -59,7 +60,8 @@ export class WebviewStore {
     lastStallSource: 'AUTO',
     isSyncing: false,
     pendingChapterIndex: -1,
-    neuralBuffer: { count: 0, sizeMb: 0 }
+    neuralBuffer: { count: 0, sizeMb: 0 },
+    activeMode: 'FILE'
   };
 
   private uiListeners: Set<{
@@ -70,11 +72,14 @@ export class WebviewStore {
 
   private constructor() {
     const client = MessageClient.getInstance();
-    client.onCommand<UISyncPacket>(IncomingCommand.UI_SYNC, (packet) => {
+    client.onCommand<UISyncPacket>(IncomingCommand.UI_SYNC, (packet: UISyncPacket) => {
+      if (packet.activeMode) {
+        this.updateUIState({ activeMode: packet.activeMode });
+      }
       this.updateState(packet, 'remote');
     });
 
-    client.onCommand<{ cacheKey: string, data: string }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data }) => {
+    client.onCommand<{ cacheKey: string, data: string }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data }: { cacheKey: string, data: string }) => {
       this.saveNeuralCache(cacheKey, data);
     });
 
@@ -82,10 +87,14 @@ export class WebviewStore {
       this.clearLocalCache();
     });
 
-    client.onCommand<{ count: number, sizeBytes: number }>(IncomingCommand.CACHE_STATS_UPDATE, ({ count, sizeBytes }) => {
+    client.onCommand<{ count: number, sizeBytes: number }>(IncomingCommand.CACHE_STATS_UPDATE, ({ count, sizeBytes }: { count: number, sizeBytes: number }) => {
       this.updateUIState({ 
         neuralBuffer: { count, sizeMb: Number((sizeBytes / (1024 * 1024)).toFixed(2)) }
       });
+    });
+
+    client.onCommand(IncomingCommand.SNIPPET_SAVED, () => {
+      this.requestSnippetHistory();
     });
   }
 
@@ -136,7 +145,8 @@ export class WebviewStore {
       lastStallSource: 'AUTO',
       isSyncing: false,
       pendingChapterIndex: -1,
-      neuralBuffer: { count: 0, sizeMb: 0 }
+      neuralBuffer: { count: 0, sizeMb: 0 },
+      activeMode: 'FILE'
     };
   }
 
@@ -487,5 +497,27 @@ export class WebviewStore {
     }
 
     return false;
+  }
+
+  /**
+   * [PHASE 4] Requests the full snippet history from the extension.
+   */
+  public requestSnippetHistory(): void {
+    MessageClient.getInstance().postAction(OutgoingAction.GET_ALL_SNIPPET_HISTORY);
+  }
+
+  /**
+   * [PHASE 4] Loads a specific snippet into the reader.
+   */
+  public loadSnippet(path: string): void {
+    this.optimisticPatch({ 
+        state: { 
+            activeDocumentUri: 'loading',
+            activeFileName: 'Loading Snippet...',
+            activeRelativeDir: 'Antigravity Root'
+        } as any 
+    }, { isAwaitingSync: true, action: 'LOAD_SNIPPET' });
+    
+    MessageClient.getInstance().postAction(OutgoingAction.LOAD_SNIPPET, { path });
   }
 }
