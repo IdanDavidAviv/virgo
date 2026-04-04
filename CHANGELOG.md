@@ -7,6 +7,17 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [1.6.4] - 2026-04-04
+
+### Added
+- **Delta Sync Protocol**: Introduced partial state synchronization to optimize IPC bandwidth; moved `availableVoices` to an explicit handshake phase.
+- **Throttled Synchronization**: Implemented 50ms sync-throttling in `SpeechProvider` to prevent command saturation.
+- **Haptic Prefetch Alignment**: Synchronized `AudioBridge` look-ahead logic with the new 200ms debounce architecture.
+
+### Fixed
+- **Test Suite Isolation**: Eliminated non-deterministic regressions in `audioBridge` and `RaceCondition` tests via strict `afterEach` cleanup protocols.
+- **TypeScript Type Integrity**: Resolved "unknown" type diagnostic errors in the voice discovery integration tests.
+
 ## [1.6.3] - 2026-04-04
 
 ### Added

@@ -2,7 +2,7 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
@@ -110,7 +110,70 @@
     },
     "configuration": {
       "title": "Read Aloud",
-      "properties": {}
+      "properties": {
+        "readAloud.logging.level": {
+          "type": "string",
+          "enum": [
+            "Standard",
+            "Verbose"
+          ],
+          "default": "Standard",
+          "description": "Control the verbosity of diagnostic logs. Standard uses shorthand and summarization. Verbose logs raw data blobs."
+        },
+        "readAloud.playback.rate": {
+          "type": "number",
+          "default": 0,
+          "minimum": -10,
+          "maximum": 10,
+          "description": "Speech rate (speed). Higher is faster."
+        },
+        "readAloud.playback.volume": {
+          "type": "number",
+          "default": 50,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Speech volume level."
+        },
+        "readAloud.playback.voice": {
+          "type": "string",
+          "default": "en-US-SteffanNeural",
+          "description": "The voice to use for neural synthesis."
+        },
+        "readAloud.playback.engineMode": {
+          "type": "string",
+          "enum": [
+            "neural",
+            "local"
+          ],
+          "default": "neural",
+          "description": "Switch between high-quality Cloud Neural voices (requires internet) and standard Local SAPI voices (offline)."
+        },
+        "readAloud.playback.autoPlayMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "chapter",
+            "row"
+          ],
+          "default": "auto",
+          "description": "Control how playback advances. 'auto' reads the entire document. 'chapter' stops at chapter ends. 'row' stops after each sentence."
+        },
+        "readAloud.playback.jumpDelayMs": {
+          "type": "number",
+          "default": 200,
+          "description": "Delay in milliseconds before prefetching or pushing audio segments to the webview."
+        },
+        "readAloud.cache.maxSizeMb": {
+          "type": "number",
+          "default": 50,
+          "description": "Maximum size of the audio cache in megabytes. Older segments are pruned automatically."
+        },
+        "readAloud.network.retryAttempts": {
+          "type": "number",
+          "default": 3,
+          "description": "Maximum number of retries for neural synthesis before giving up."
+        }
+      }
     },
     "keybindings": [
       {
