@@ -21,7 +21,12 @@ vi.mock('vscode', () => {
         ExtensionMode: { Development: 1 },
         workspace: {
             getWorkspaceFolder: vi.fn(),
-            onDidChangeTextDocument: vi.fn(() => ({ dispose: vi.fn() }))
+            onDidChangeTextDocument: vi.fn(() => ({ dispose: vi.fn() })),
+            onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
+            getConfiguration: vi.fn().mockReturnValue({
+                get: vi.fn((key, def) => def),
+                update: vi.fn().mockResolvedValue(undefined)
+            })
         }
     };
 });
@@ -45,7 +50,8 @@ describe('SpeechProvider (Navigation Commands)', () => {
             },
             extension: {
                 packageJSON: { version: '1.0.0' }
-            }
+            },
+            subscriptions: []
         };
 
         mockStatusBarItem = {

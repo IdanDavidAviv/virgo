@@ -162,6 +162,10 @@ describe('Handshake Audit: Full UI & Logic Synchronization', () => {
                 rate: 10,
                 engineMode: 'neural',
                 voiceName: 'V1',
+                availableVoices: {
+                    neural: [{ id: 'V1', name: 'Voice 1' }],
+                    local: []
+                },
                 chapters: [],
                 activeChapterIndex: 0
             }

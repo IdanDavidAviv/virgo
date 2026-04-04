@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AudioBridge } from '@core/audioBridge';
 import { StateStore } from '@core/stateStore';
 import { DocumentLoadController } from '@core/documentLoadController';
@@ -41,6 +41,13 @@ describe('AudioBridge', () => {
 
         const sequenceManager = new SequenceManager();
         audioBridge = new AudioBridge(stateStore, docController, playbackEngine, sequenceManager, logger);
+    });
+
+    afterEach(() => {
+        vi.clearAllMocks();
+        vi.clearAllTimers();
+        vi.useRealTimers();
+        audioBridge.removeAllListeners();
     });
 
     const options: PlaybackOptions = { voice: 'NeuralVoice', rate: 0, volume: 50, mode: 'neural' };
@@ -109,7 +116,7 @@ describe('AudioBridge', () => {
     it('should trigger pre-fetch after starting playback', async () => {
         await audioBridge.start(0, 0, options);
         
-        vi.advanceTimersByTime(300);
+        vi.advanceTimersByTime(250); // Above 200ms debounce
         
         expect(playbackEngine.triggerPrefetch).toHaveBeenCalled();
     });

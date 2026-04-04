@@ -20,7 +20,12 @@ vi.mock('vscode', () => ({
     ExtensionMode: { Development: 1 },
     workspace: {
         getWorkspaceFolder: vi.fn(),
-        onDidChangeTextDocument: vi.fn(() => ({ dispose: vi.fn() }))
+        onDidChangeTextDocument: vi.fn(() => ({ dispose: vi.fn() })),
+        onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
+        getConfiguration: vi.fn().mockReturnValue({
+            get: vi.fn((key, def) => def),
+            update: vi.fn().mockResolvedValue(undefined)
+        })
     }
 }));
 
@@ -32,6 +37,7 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
     let mockWebviewView: any;
 
     beforeEach(() => {
+        vi.useFakeTimers();
         vi.clearAllMocks();
 
         mockContext = {
@@ -43,7 +49,8 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
             },
             extension: {
                 packageJSON: { version: '1.0.0' }
-            }
+            },
+            subscriptions: []
         };
 
         mockStatusBarItem = {
@@ -74,17 +81,31 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
         provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
         const postMessageSpy = vi.spyOn(mockWebviewView.webview, 'postMessage');
         
+        // Pre-populate voices so we have something to broadcast
+        const stateStore = (provider as any)._stateStore as StateStore;
+        const testNeuralVoice = { id: 'nv1', name: 'Neural 1', lang: 'en' };
+        stateStore.setVoices([], [testNeuralVoice]);
+        
+        // Flush any reactive reactive throttled syncs
+        vi.advanceTimersByTime(100); 
+
         // Simulate the actual command 'ready' which dashboard.js sends on boot
+        // [RESOLVE] ready command MUST trigger _syncUI(true)
         const handler = (mockWebviewView.webview.onDidReceiveMessage as any).mock.calls[0][0];
         await handler({ command: 'ready' });
+        
+        // No timer needed for synchronous _syncUI(true) in ready handler, but let's be safe
+        vi.advanceTimersByTime(100); 
 
-        // Verify that 'UI_SYNC' was sent (via _sendInitialState)
-        const uiSyncCall = postMessageSpy.mock.calls.find((call: any) => call[0].command === 'UI_SYNC');
-        expect(uiSyncCall).toBeDefined();
-
-        // Verify that 'voices' command was also sent to populate the list
-        const voicesCall = postMessageSpy.mock.calls.find((call: any) => call[0].command === 'voices');
-        expect(voicesCall).toBeDefined();
+        // Verify that 'UI_SYNC' was sent with the voices
+        const fullSyncCall = postMessageSpy.mock.calls.reverse().find((call: any) => 
+            call[0].command === 'UI_SYNC' && call[0].availableVoices !== undefined
+        );
+        
+        expect(fullSyncCall).toBeDefined();
+        const packet = fullSyncCall![0] as any;
+        expect(packet.availableVoices.neural.length).toBeGreaterThan(0);
+        expect(packet.availableVoices.neural[0].id).toBe('nv1');
     });
 
     it('should update the state store correctly after background scan completes', async () => {
@@ -100,6 +121,7 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
 
         // Trigger the asynchronous load
         await (provider as any)._loadVoices();
+        vi.advanceTimersByTime(100); 
 
         expect(setVoicesSpy).toHaveBeenCalledWith(['Local1'], expect.arrayContaining([expect.objectContaining({ name: 'Neural1' })]));
         expect(stateStore.state.availableVoices.neural.length).toBe(1);
@@ -114,6 +136,7 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
         vi.spyOn(engine, 'getVoices').mockResolvedValue({ local: [], neural: [] });
 
         await (provider as any)._loadVoices();
+        vi.advanceTimersByTime(100); 
 
         // Verify [UI_SYNC] was triggered to notify dashboard that scan is done
         const syncCalls = postMessageSpy.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');

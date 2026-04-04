@@ -62,7 +62,8 @@ describe('PlaybackEngine TDD: Cache Optimization & Clearing', () => {
 
         expect(onComplete).toHaveBeenCalledWith({
             cacheKey: 'cache-key-1',
-            data: Buffer.from('audio-chunk').toString('base64')
+            data: Buffer.from('audio-chunk').toString('base64'),
+            intentId: 0
         });
     });
 

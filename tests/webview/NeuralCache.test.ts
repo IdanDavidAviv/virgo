@@ -18,7 +18,7 @@ describe('NeuralCache TDD: Storage Optimization & Clearing', () => {
 
         // Simulate message from extension (native VS Code message event)
         window.postMessage({
-            command: 'NEURAL_CACHE_PUSH',
+            command: 'DATA_PUSH',
             cacheKey: 'c1',
             data: 'audio-data'
         }, '*');

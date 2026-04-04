@@ -10,7 +10,15 @@ vi.mock('vscode', () => ({
         activeTextEditor: undefined,
         tabGroups: { activeTabGroup: { activeTab: undefined } }
     },
-    workspace: { getWorkspaceFolder: vi.fn(), openTextDocument: vi.fn() },
+    workspace: { 
+        getWorkspaceFolder: vi.fn(), 
+        openTextDocument: vi.fn(),
+        onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
+        getConfiguration: vi.fn().mockReturnValue({
+            get: vi.fn().mockReturnValue('Standard'),
+            update: vi.fn().mockResolvedValue(undefined)
+        })
+    },
     Uri: { file: (p: string) => ({ fsPath: p, toString: () => p }) }
 }));
 
