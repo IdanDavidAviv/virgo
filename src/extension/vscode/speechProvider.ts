@@ -83,7 +83,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             selectedVoice: voice,
             engineMode,
             autoPlayMode,
-            autoPlayOnInjection
+            autoPlayOnInjection,
+            autoInjectSITREP: config.get<boolean>('agent.autoInjectSITREP', true)
         });
 
         // Apply Performance Tuning from Config
@@ -113,6 +114,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 if (e.affectsConfiguration('readAloud.playback.autoPlayMode')) { updatedOptions.autoPlayMode = updatedConfig.get('playback.autoPlayMode'); }
                 if (e.affectsConfiguration('readAloud.playback.autoPlayOnInjection')) { updatedOptions.autoPlayOnInjection = updatedConfig.get('playback.autoPlayOnInjection'); }
                 if (e.affectsConfiguration('readAloud.network.retryAttempts')) { this._playbackEngine.setRetryAttempts(updatedConfig.get<number>('network.retryAttempts', 3)); }
+                if (e.affectsConfiguration('readAloud.agent.autoInjectSITREP')) { 
+                    const val = updatedConfig.get<boolean>('agent.autoInjectSITREP', true);
+                    updatedOptions.autoInjectSITREP = val;
+                    this._bridgeAgentState(val);
+                }
 
                 if (Object.keys(updatedOptions).length > 0) {
                     this._stateStore.setOptions(updatedOptions);
@@ -157,7 +163,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger(`[SYNC] PIVOTING: ${this._sessionId} -> ${newSessionId}`);
         this._sessionId = newSessionId;
         
-        // 1. Ensure the new session has a state.json and folder
+        // 1. Ensure the new session has a extension_state.json and folder
         this._ensureSessionState();
         
         // 2. Stop any current playback
@@ -172,7 +178,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     private _ensureSessionState() {
         const sessionPath = path.join(this._antigravityRoot, this._sessionId);
-        const stateFile = path.join(sessionPath, 'state.json');
+        const stateFile = path.join(sessionPath, 'extension_state.json');
 
         if (!fs.existsSync(sessionPath)) {
             fs.mkdirSync(sessionPath, { recursive: true });
@@ -184,7 +190,25 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 session_title: "New session - to be named"
             };
             fs.writeFileSync(stateFile, JSON.stringify(initialState, null, 2));
-            this._logger(`[BOOTSTRAP] Initialized state.json for session: ${this._sessionId}`);
+            this._logger(`[BOOTSTRAP] Initialized extension_state.json for session: ${this._sessionId}`);
+        }
+        
+        // Ensure the current session's extension_state.json has the latest policy [SSOT Bridge]
+        this._bridgeAgentState(this._stateStore.state.autoInjectSITREP);
+    }
+
+    private _bridgeAgentState(autoInjectSITREP: boolean) {
+        const stateFile = path.join(this._antigravityRoot, this._sessionId, 'extension_state.json');
+        if (fs.existsSync(stateFile)) {
+            try {
+                const content = fs.readFileSync(stateFile, 'utf8');
+                const state = JSON.parse(content);
+                state.autoInjectSITREP = autoInjectSITREP;
+                fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+                this._logger(`[BRIDGE] Synced autoInjectSITREP=${autoInjectSITREP} to ${this._sessionId}`);
+            } catch (err) {
+                this._logger(`[BRIDGE_ERROR] Failed to patch extension_state.json: ${err}`);
+            }
         }
     }
 
@@ -525,9 +549,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._view = webviewView;
         this._dashboardRelay.setView(webviewView);
         
-        // [DELTA SYNC] Initial handshake
-        this._syncUI();
-        this._broadcastVoices();
+        // [DELTA SYNC] Initial handshake happens on 'ready' message
         this._logger('--- ACTIVATING MISSION CONTROL (Sidebar) ---');
 
         webviewView.webview.options = {
@@ -535,9 +557,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'dist', 'media')]
         };
 
-        webviewView.webview.onDidReceiveMessage(data => {
+        webviewView.webview.onDidReceiveMessage(async data => {
             if (data.command === 'ready') {
-                this._sendInitialState();
+                await this._sendInitialState();
                 return;
             }
             if (data.command === 'log') {
@@ -830,6 +852,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
             case OutgoingAction.CLEAR_CACHE:
                 this._playbackEngine.clearCache();
+                // [SYNC_HARDENING] Explicitly zero out stats in the StateStore [ISSUE 26]
+                this._stateStore.patchState({
+                    cacheCount: 0,
+                    cacheSizeBytes: 0
+                });
                 this._logger(`[CACHE] Extension cache purged. Triggering webview sync...`);
                 this._syncUI();
                 break;
@@ -922,8 +949,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 
                 let displayName: string | undefined = undefined;
                 try {
-                    // [HUMAN_TITLES] Probe state.json for the human-readable title
-                    const stateFile = path.join(sessionPath, 'state.json');
+                    // [HUMAN_TITLES] Probe extension_state.json for the human-readable title
+                    const stateFile = path.join(sessionPath, 'extension_state.json');
                     if (fs.existsSync(stateFile)) {
                         const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
                         if (state.session_title) {
@@ -971,10 +998,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private async _sendInitialState() {
-        // [DELTA SYNC] Initial state
+        // [DELTA SYNC] Atomic Handshake
         const history = await this._getSnippetHistory();
-        this._broadcastVoices();
-        this._syncUI(history);
+        const { local, neural } = await this._playbackEngine.getVoices();
+        this._dashboardRelay.sync(history, this._sessionId, { local, neural });
     }
 
 

@@ -24,7 +24,7 @@ export class PendingInjectionStore {
      * Also updates the session title if provided.
      */
     private updateSessionState(sessionPath: string, sessionTitle?: string): number {
-        const stateFile = path.join(sessionPath, 'state.json');
+        const stateFile = path.join(sessionPath, 'extension_state.json');
         let index = 1;
         let currentState: any = {};
 

@@ -44,6 +44,13 @@ export interface StateMetadata {
     activeMode: 'FILE' | 'SNIPPET';
     isLooping: boolean;
     autoPlayOnInjection: boolean;
+
+    // Cache Stats [ISSUE 26]
+    cacheCount: number;
+    cacheSizeBytes: number;
+
+    // Agent Governance
+    autoInjectSITREP: boolean;
 }
 
 export class StateStore extends EventEmitter {
@@ -83,7 +90,10 @@ export class StateStore extends EventEmitter {
             lastLoadType: 'none',
             activeMode: 'FILE',
             isLooping: false,
-            autoPlayOnInjection: false
+            autoPlayOnInjection: false,
+            cacheCount: 0,
+            cacheSizeBytes: 0,
+            autoInjectSITREP: true
         };
     }
 
@@ -166,7 +176,8 @@ export class StateStore extends EventEmitter {
         selectedVoice?: string,
         rate?: number,
         volume?: number,
-        autoPlayOnInjection?: boolean
+        autoPlayOnInjection?: boolean,
+        autoInjectSITREP?: boolean
     }) {
         if (options.engineMode) { this._state.engineMode = options.engineMode; }
         if (options.autoPlayMode) { this._state.autoPlayMode = options.autoPlayMode; }
@@ -174,6 +185,7 @@ export class StateStore extends EventEmitter {
         if (options.rate !== undefined) { this._state.rate = options.rate; }
         if (options.volume !== undefined) { this._state.volume = options.volume; }
         if (options.autoPlayOnInjection !== undefined) { this._state.autoPlayOnInjection = options.autoPlayOnInjection; }
+        if (options.autoInjectSITREP !== undefined) { this._state.autoInjectSITREP = options.autoInjectSITREP; }
         this.emit('change', this.state);
     }
 
@@ -250,6 +262,14 @@ export class StateStore extends EventEmitter {
         };
         this._state = { ...this._getInitialState(), ...savedOptions };
         this._logger('[STATE] full_reset_complete');
+        this.emit('change', this.state);
+    }
+
+    /**
+     * [v2.0.7] Partial state update with automatic notification.
+     */
+    public patchState(patch: Partial<StateMetadata>) {
+        this._state = { ...this._state, ...patch };
         this.emit('change', this.state);
     }
 }

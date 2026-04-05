@@ -22,7 +22,7 @@ const ANTIGRAVITY_ROOT = "C:/Users/Idan4/.gemini/antigravity/read_aloud";
  * Atomic state management for Turn-Aware Antigravity Sessions.
  */
 export function getAndUpdateTurnIndex(sessionPath: string, sessionTitle?: string, incomingIndex?: number): number {
-    const stateFile = path.join(sessionPath, 'state.json');
+    const stateFile = path.join(sessionPath, 'extension_state.json');
     let index = 1;
     let currentState: any = {};
 

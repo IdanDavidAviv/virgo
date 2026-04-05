@@ -66,6 +66,10 @@ export interface UISyncPacket {
     activeMode: 'FILE' | 'SNIPPET';
     activeSessionId?: string;
     logLevel: LogLevel;
+    availableVoices?: {
+        local: any[];
+        neural: any[];
+    };
 }
 
 export interface SnippetEntry {
