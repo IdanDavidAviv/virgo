@@ -25,7 +25,7 @@ To maintain relational traceability between the conversational context and the e
 To maintain parity between the agent's work and the user's perception, formal injections MUST accompany key lifecycle events.
 
 - **Rule 4.1: Genesis Protocol**: A formal SITREP injection (Turn 001+) MUST occur immediately at **Session Start**, as part of the [session_lifecycle](file:///C:/Users/Idan4/.gemini/antigravity/knowledge/session_lifecycle/artifacts/SKILL.md) protocol. 
-- **Rule 4.2: SITREP Fidelity**: A formal injection MUST be performed for every **SITREP** or major decision gate. The chat output for these turns MUST obey the **Zero Drift Mandate** (Rule 2.3).
+- **Rule 4.2: SITREP Fidelity**: A formal injection MUST be performed for every **SITREP**, Summary or major decision gate. The chat output for these turns MUST obey the **Zero Drift Mandate** (Rule 2.3).
 
 ## 5. Sync Bridge Architecture (High Integrity)
 The protocol ensures that background injections correctly hydrate the webview state, even if the sidebar is sleeping or hidden.
