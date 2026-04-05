@@ -28,7 +28,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _needsHistorySync: boolean = false; // Specific flag for background snippet updates
     private _localVoices: any[] = [];
     private _neuralVoices: any[] = [];
-    private _statusBarItem: vscode.StatusBarItem;
 
     private _lastReportedProgress: number = -1;
     private _debounceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -37,9 +36,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     constructor(
         private readonly _context: vscode.ExtensionContext,
         private readonly _logger: (msg: string) => void,
-        statusBarItem: vscode.StatusBarItem,
+        private readonly _statusBarItem: vscode.StatusBarItem,
         private readonly _antigravityRoot: string,
-        private readonly _sessionId: string,
+        private _sessionId: string,
         public onVisibilityChanged?: () => void
     ) {
         this._extensionUri = _context.extensionUri;
@@ -50,7 +49,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
         this._audioBridge = new AudioBridge(this._stateStore, this._docController, this._playbackEngine, this._sequenceManager, this._logger);
         this._dashboardRelay = new DashboardRelay(this._stateStore, this._docController, this._playbackEngine, this._logger);
-        this._statusBarItem = statusBarItem;
 
         // Register AudioBridge Events
         this._audioBridge.on('playAudio', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.PLAY_AUDIO, ...payload }));
@@ -153,6 +151,25 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._ensureSessionState();
     }
 
+    public pivotSession(newSessionId: string) {
+        if (this._sessionId === newSessionId) { return; }
+        
+        this._logger(`[SYNC] PIVOTING: ${this._sessionId} -> ${newSessionId}`);
+        this._sessionId = newSessionId;
+        
+        // 1. Ensure the new session has a state.json and folder
+        this._ensureSessionState();
+        
+        // 2. Stop any current playback
+        this.stop();
+        
+        // 3. Trigger UI refresh (clears old snippet history in UI)
+        this.refresh();
+        
+        // 4. Log high-density sync event
+        this._logger(`[SYNC] SESSION_PIVOT_COMPLETE: ${newSessionId}`);
+    }
+
     private _ensureSessionState() {
         const sessionPath = path.join(this._antigravityRoot, this._sessionId);
         const stateFile = path.join(sessionPath, 'state.json');
@@ -162,7 +179,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
 
         if (!fs.existsSync(stateFile)) {
-            const initialState = { current_turn_index: 0 };
+            const initialState = { 
+                current_turn_index: 0,
+                session_title: "New session - to be named"
+            };
             fs.writeFileSync(stateFile, JSON.stringify(initialState, null, 2));
             this._logger(`[BOOTSTRAP] Initialized state.json for session: ${this._sessionId}`);
         }
@@ -179,14 +199,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._context.subscriptions.push(watcher.onDidCreate(async uri => {
             this._logger(`[WATCHER] INCOMING_SNIPPET detected: ${path.basename(uri.fsPath)}`);
             
-            // 0. Dynamic Session Pivot: Extract session ID from path
+            // 0. Dynamic Session Pivot: Ensure context is aligned
             const relativePath = path.relative(this._antigravityRoot, uri.fsPath);
             const pathParts = relativePath.split(path.sep);
             const detectedSessionId = pathParts.length > 0 ? pathParts[0] : this._sessionId;
 
             if (detectedSessionId !== this._sessionId) {
-                this._logger(`[WATCHER] PIVOTING: session context changed from ${this._sessionId} -> ${detectedSessionId}`);
-                (this as any)._sessionId = detectedSessionId; // Internal pivot
+                this.pivotSession(detectedSessionId);
             }
 
             // 1. Force Stop current playback (if any)
@@ -931,7 +950,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     })
                     .sort((a, b) => b.timestamp - a.timestamp);
 
-                if (files.length > 0) {
+                if (files.length > 0 || sessionId === activeId) {
                     result.push({
                         id: sessionId,
                         sessionName: displayName || sessionId,

@@ -18,20 +18,22 @@ function log(msg: string) {
     }
 }
 
-function resolveLatestSessionId(antigravityRoot: string): string {
-    if (!fs.existsSync(antigravityRoot)) {
-        return 'default-session';
+function resolveLatestSessionId(antigravityRoot: string, brainRoot?: string): string {
+    const searchDirs = [antigravityRoot];
+    if (brainRoot) { searchDirs.unshift(brainRoot); } // Brain is higher priority for "New" sessions
+
+    for (const root of searchDirs) {
+        if (!fs.existsSync(root)) { continue; }
+        try {
+            const sessions = fs.readdirSync(root)
+                .filter(f => fs.statSync(path.join(root, f)).isDirectory())
+                .map(f => ({ id: f, mtime: fs.statSync(path.join(root, f)).mtimeMs }))
+                .sort((a, b) => b.mtime - a.mtime);
+            
+            if (sessions.length > 0) { return sessions[0].id; }
+        } catch (e) {}
     }
-    try {
-        const sessions = fs.readdirSync(antigravityRoot)
-            .filter(f => fs.statSync(path.join(antigravityRoot, f)).isDirectory())
-            .map(f => ({ id: f, mtime: fs.statSync(path.join(antigravityRoot, f)).mtimeMs }))
-            .sort((a, b) => b.mtime - a.mtime);
-        
-        return sessions.length > 0 ? sessions[0].id : 'default-session';
-    } catch (e) {
-        return 'default-session';
-    }
+    return 'default-session';
 }
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -57,14 +59,35 @@ export async function activate(context: vscode.ExtensionContext) {
     // Standard path for high-integrity agent memory
     const userProfile = process.env.USERPROFILE || process.env.HOME || '';
     const antigravityRoot = path.join(userProfile, '.gemini', 'antigravity', 'read_aloud');
+    const brainRoot = path.join(userProfile, '.gemini', 'antigravity', 'brain');
     
-    // Dynamic Session Discovery (No more hardcoding)
-    const sessionId = resolveLatestSessionId(antigravityRoot); 
+    // Dynamic Session Discovery (Check brain first for real-time parity)
+    const sessionId = resolveLatestSessionId(antigravityRoot, brainRoot); 
     const persistencePath = path.join(antigravityRoot, sessionId);
 
     const speechProvider = new SpeechProvider(context, log, mainStatusBarItem, antigravityRoot, sessionId, () => syncSelection());
     log('--- PORTLESS SYNC ACTIVE (Filesystem Watcher) ---');
     log(`[ANTIGRAVITY] Session: ${sessionId}`);
+
+    // --- BRAIN SENSITIVITY PROTOCOL ---
+    // Monitor for new session directories in the brain root
+    const brainWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(brainRoot, '*')
+    );
+
+    brainWatcher.onDidCreate(async (uri) => {
+        const stats = await vscode.workspace.fs.stat(uri);
+        if (stats.type === vscode.FileType.Directory) {
+            const newSessionId = path.basename(uri.fsPath);
+            log(`[SYNC] PIVOTING: New session detected in brain: ${newSessionId}`);
+            
+            // Wait 500ms to ensure the agent has finished directory setup
+            setTimeout(() => {
+                speechProvider.pivotSession(newSessionId);
+            }, 500);
+        }
+    });
+    context.subscriptions.push(brainWatcher);
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
