@@ -21,18 +21,26 @@ export class PendingInjectionStore {
 
     /**
      * Atomically get and update the turn index from state.json
+     * Also updates the session title if provided.
      */
-    private getAndUpdateTurnIndex(sessionPath: string): number {
+    private updateSessionState(sessionPath: string, sessionTitle?: string): number {
         const stateFile = path.join(sessionPath, 'state.json');
         let index = 1;
+        let currentState: any = {};
 
         try {
             if (fs.existsSync(stateFile)) {
-                const data = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-                index = (data.current_turn_index || 0) + 1;
+                currentState = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+                index = (currentState.current_turn_index || 0) + 1;
             }
             
-            fs.writeFileSync(stateFile, JSON.stringify({ current_turn_index: index }, null, 2));
+            const newState = { 
+                ...currentState,
+                current_turn_index: index,
+                ...(sessionTitle ? { session_title: sessionTitle } : {})
+            };
+
+            fs.writeFileSync(stateFile, JSON.stringify(newState, null, 2));
         } catch (err) {
             console.error(`[MCP_BRIDGE_STATE] Failed to update state.json: ${err}`);
         }
@@ -43,13 +51,13 @@ export class PendingInjectionStore {
     /**
      * Direct file save to persistent storage for cross-session recovery.
      */
-    public save(content: string, name: string, sessionId: string): { filePath: string, index: number } {
+    public save(content: string, name: string, sessionId: string, sessionTitle?: string): { filePath: string, index: number } {
         const sessionPath = path.join(this._basePath, sessionId);
         if (!fs.existsSync(sessionPath)) {
             fs.mkdirSync(sessionPath, { recursive: true });
         }
 
-        const index = this.getAndUpdateTurnIndex(sessionPath);
+        const index = this.updateSessionState(sessionPath, sessionTitle);
         const timestamp = Date.now();
         const safeName = name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
         const fileName = `${timestamp}_${safeName}.md`;
@@ -107,11 +115,12 @@ export class McpBridge extends EventEmitter {
             {
                 content: z.string().describe("Markdown content to inject into the Read Aloud extension"),
                 snippet_name: z.string().describe("Descriptive name for the snippet (used in filename)"),
-                sessionId: z.string().describe("The active session ID")
+                sessionId: z.string().describe("The active session ID"),
+                session_title: z.string().optional().describe("Optional human-readable title for the session")
             },
-            async ({ content, snippet_name, sessionId }) => {
+            async ({ content, snippet_name, sessionId, session_title }) => {
                 try {
-                    const { filePath, index } = this._store.save(content, snippet_name, sessionId);
+                    const { filePath, index } = this._store.save(content, snippet_name, sessionId, session_title);
                     console.log(`[MCP_BRIDGE] Injected Turn ${index} into ${sessionId} at ${filePath}`);
                     this.emit("injected", { content, name: snippet_name, filePath, index });
                     return {
@@ -185,10 +194,10 @@ export class McpBridge extends EventEmitter {
                 }
             } else if (req.body?.method === 'tools/call' && req.body.params?.name === 'inject_markdown') {
                 // FALLBACK: In development, handle direct 'inject_markdown' calls even without SSE transport
-                const { content, snippet_name: snippetName } = req.body.params.arguments || {};
+                const { content, snippet_name: snippetName, session_title: sessionTitle } = req.body.params.arguments || {};
                 if (content && snippetName) {
                     this._logger(`[MCP_BRIDGE] WARNING: session-less injection (${sessionId || 'unknown'}) - Direct Execution.`);
-                    const { index } = this._store.save(content, snippetName, sessionId || 'default');
+                    const { index } = this._store.save(content, snippetName, sessionId || 'default', sessionTitle);
                     this.emit("injected", { content, name: snippetName, index });
                     res.json({
                         jsonrpc: "2.0",

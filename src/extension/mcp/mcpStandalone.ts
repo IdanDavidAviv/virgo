@@ -21,17 +21,24 @@ const ANTIGRAVITY_ROOT = "C:/Users/Idan4/.gemini/antigravity/read_aloud";
 /**
  * Atomic state management for Turn-Aware Antigravity Sessions.
  */
-function getAndUpdateTurnIndex(sessionPath: string): number {
+function getAndUpdateTurnIndex(sessionPath: string, sessionTitle?: string): number {
     const stateFile = path.join(sessionPath, 'state.json');
     let index = 1;
+    let currentState: any = {};
 
     try {
         if (fs.existsSync(stateFile)) {
-            const data = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-            index = (data.current_turn_index || 0) + 1;
+            currentState = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+            index = (currentState.current_turn_index || 0) + 1;
         }
         
-        fs.writeFileSync(stateFile, JSON.stringify({ current_turn_index: index }, null, 2));
+        const newState = {
+            ...currentState,
+            current_turn_index: index,
+            ...(sessionTitle ? { session_title: sessionTitle } : {})
+        };
+        
+        fs.writeFileSync(stateFile, JSON.stringify(newState, null, 2));
     } catch (err) {
         console.error(`[MCP_STATE] Failed to update state.json: ${err}`);
         // Fallback to 1 if we can't read/write, at least we mark the turn
@@ -46,9 +53,10 @@ server.tool(
     {
         content: z.string().describe("Markdown content to inject into the Read Aloud extension"),
         snippet_name: z.string().describe("Descriptive name for the snippet (used in filename)"),
-        sessionId: z.string().describe("The active Antigravity Session ID (Conversation ID) to target.")
+        sessionId: z.string().describe("The active Antigravity Session ID (Conversation ID) to target."),
+        session_title: z.string().optional().describe("Optional human-readable title for the session")
     },
-    async ({ content, snippet_name, sessionId }) => {
+    async ({ content, snippet_name, sessionId, session_title }) => {
         const sessionPath = path.join(ANTIGRAVITY_ROOT, sessionId);
         
         // Ensure path exists
@@ -63,7 +71,7 @@ server.tool(
             }
         }
 
-        const index = getAndUpdateTurnIndex(sessionPath);
+        const index = getAndUpdateTurnIndex(sessionPath, session_title);
         const timestamp = Date.now();
         const safeName = snippet_name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
         const fileName = `${timestamp}_${safeName}.md`;

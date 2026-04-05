@@ -891,6 +891,21 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
             for (const sessionId of sessionIds) {
                 const sessionPath = path.join(this._antigravityRoot, sessionId);
+                
+                let displayName: string | undefined = undefined;
+                try {
+                    // [HUMAN_TITLES] Probe state.json for the human-readable title
+                    const stateFile = path.join(sessionPath, 'state.json');
+                    if (fs.existsSync(stateFile)) {
+                        const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+                        if (state.session_title) {
+                            displayName = state.session_title;
+                        }
+                    }
+                } catch (e) {
+                    this._logger(`[SNIPPET_HISTORY] Failed to read state for ${sessionId}: ${e}`);
+                }
+
                 const files = fs.readdirSync(sessionPath)
                     .filter(f => f.endsWith('.md'))
                     .map(f => {
@@ -899,10 +914,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                         
                         // Extract name: 1712250000000_my_snippet.md -> my_snippet
                         const firstUnderscore = f.indexOf('_');
-                        const displayName = firstUnderscore !== -1 ? f.substring(firstUnderscore + 1).replace('.md', '') : f;
+                        const snippetName = firstUnderscore !== -1 ? f.substring(firstUnderscore + 1).replace('.md', '') : f;
                         
                         return {
-                            name: displayName,
+                            name: snippetName,
                             fsPath: filePath,
                             uri: vscode.Uri.file(filePath).toString(),
                             timestamp: stats.mtimeMs
@@ -912,7 +927,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
                 if (files.length > 0) {
                     result.push({
-                        sessionName: sessionId,
+                        id: sessionId,
+                        sessionName: displayName || sessionId,
+                        displayName: displayName,
                         snippets: files
                     });
                 }

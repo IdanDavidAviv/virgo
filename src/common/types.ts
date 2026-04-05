@@ -78,7 +78,9 @@ export interface SnippetEntry {
 }
 
 export interface SnippetSession {
-    sessionName: string;
+    id: string; // The session UUID/folder name
+    sessionName: string; // The human-readable title OR fallback to id
+    displayName?: string; // Explicit human-readable title if available
     snippets: SnippetEntry[];
 }
 
