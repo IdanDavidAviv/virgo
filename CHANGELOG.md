@@ -7,6 +7,16 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.0.5] - 2026-04-05
+
+### Added
+- **Critical UI_SYNC Command**: Promoted synchronization to a critical IPC command, ensuring background injections hydrate the webview state even when hidden.
+- **Visibility-Aware Sync**: Implemented a "Full Sync" trigger for the sidepanel to immediately re-hydrate snippet history upon sidebar reveal.
+- **Verbatim Parity Protocol**: Standardized 1:1 parity between conversational summaries and auditory injections for high-integrity vocal sync.
+
+### Fixed
+- **Snippet UI Latency**: Resolved an issue where snippet history would only update after a manual toggle or playback event.
+
 ## [2.0.4] - 2026-04-05
 
 ### Added
