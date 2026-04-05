@@ -7,6 +7,17 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.0.6] - 2026-04-05
+
+### Added
+- **Brain-Sensitive Pivoting**: Integrated a `FileSystemWatcher` on the Antigravity root to detect new session directories in real-time and trigger automatic session pivots in the extension.
+- **Identity Bootstrapping**: Automated the creation of a default "New session - to be named" title in `state.json` for every new bridge session, ensuring a premium first impression in the sidebar history.
+- **Protocol Reinforcement**: Formalized mandatory **Genesis** and **SITREP** text injections to maintain 1:1 parity between agent-led sessions and the portable Read Aloud history.
+- **Hardened Release Integrity**: Re-engineered the Prestige Audit to capture uncommitted changes and strictly separated Discovery from Execution in the release pipeline.
+
+### Fixed
+- **Invisible Session Bug**: Resolved a critical UI bug where the currently active session would disappear from the "Snippet History" sidebar if it contained zero snippets. Active sessions are now always visible.
+
 ## [2.0.5] - 2026-04-05
 
 ### Added

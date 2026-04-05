@@ -117,7 +117,7 @@ function audit() {
 
     // 3. Diff Content (Deep Audit)
     if (showDiff) {
-        console.log('\n--- 🕵️ DEEP AUDIT (DIFF CONTENT) ---');
+        console.log('\n--- 🕵️ DEEP AUDIT (DIFF CONTENT - COMMITTED) ---');
         let diffCmd = `git diff -U1 ${anchor}..${target}`;
         if (fileFilter) {
             diffCmd += ` -- "${fileFilter}"`;
@@ -127,7 +127,36 @@ function audit() {
         }
         const diffContent = run(diffCmd);
         console.log(diffContent || '(No user-facing diff content found)');
+
+        // 3.1 Uncommitted Diff Content
+        console.log('\n--- 🕵️ DEEP AUDIT (DIFF CONTENT - UNCOMMITTED) ---');
+        let uncommittedDiffCmd = `git diff -U1 HEAD`;
+        if (fileFilter) {
+            uncommittedDiffCmd += ` -- "${fileFilter}"`;
+        } else if (!includeMeta) {
+            uncommittedDiffCmd += ` -- . ":(exclude).agent"`;
+        }
+        const uncommittedDiff = run(uncommittedDiffCmd);
+        console.log(uncommittedDiff || '(No uncommitted diff content found)');
     }
+
+    // 4. Staged Changes (Index)
+    console.log('\n--- 📦 STAGED CHANGES (INDEX) ---');
+    let stagedCmd = 'git diff --cached --stat';
+    if (!includeMeta) {
+        stagedCmd += ` -- . ":(exclude).agent"`;
+    }
+    const staged = run(stagedCmd);
+    console.log(staged || '(No staged changes)');
+
+    // 5. Unstaged Changes (Working Directory)
+    console.log('\n--- ⚒️ UNSTAGED WORKING DELTA ---');
+    let unstagedCmd = 'git diff --stat';
+    if (!includeMeta) {
+        unstagedCmd += ` -- . ":(exclude).agent"`;
+    }
+    const unstaged = run(unstagedCmd);
+    console.log(unstaged || '(No unstaged changes)');
 
     console.log('\n✅ Audit Complete.');
 }
