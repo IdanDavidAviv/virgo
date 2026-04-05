@@ -42,13 +42,18 @@ describe('Control System Audit (Reproduction)', () => {
         MessageClient.resetInstance();
         WebviewStore.resetInstance();
         CommandDispatcher.resetInstance();
-        
-        // Initialize store with some dummy state
-        WebviewStore.getInstance().updateState({
+    });
+
+    beforeEach(async () => {
+        // [SOVEREIGNTY] Hydrate the store correctly via the authoritative handshake
+        const dispatcher = CommandDispatcher.getInstance();
+        await dispatcher.dispatch(IncomingCommand.UI_SYNC, {
             state: { currentChapterIndex: 0, currentSentenceIndex: 0 } as any,
             isPlaying: false,
             isPaused: false,
-            autoPlayMode: 'auto'
+            autoPlayMode: 'auto',
+            availableVoices: { local: [], neural: [] },
+            cacheStats: { count: 0, size: 0 }
         } as any);
     });
 
@@ -118,6 +123,10 @@ describe('Control System Audit (Reproduction)', () => {
         vi.spyOn(audioElement, 'play').mockResolvedValue(undefined);
 
         // ACT: Trigger playback from cache
+        // MUST set intent to PLAYING to pass controller intent guard
+        const controller = (await import('../../src/webview/playbackController')).PlaybackController.getInstance();
+        controller.handleSync({ isPlaying: true, isPaused: false });
+        
         await engine.playFromCache('test-key');
 
         // ASSERT: Zombie Guard should NOT fire anymore
@@ -138,7 +147,7 @@ describe('Control System Audit (Reproduction)', () => {
             neuralVoices: testVoices
         });
 
-        expect(store.getState()?.neuralVoices).toEqual(testVoices);
+        expect(store.getState()?.availableVoices?.neural).toEqual(testVoices);
     });
 
     it('IPC FIX: CACHE_STATS command updates store correctly', async () => {
@@ -146,10 +155,19 @@ describe('Control System Audit (Reproduction)', () => {
         const store = WebviewStore.getInstance();
 
         const stats = { count: 10, size: 1024 };
+
+        // [BOOTSTRAP] Hydrate the store first (Regression Guard #2)
+        await dispatcher.dispatch(IncomingCommand.UI_SYNC, {
+            cacheCount: 0,
+            cacheSizeBytes: 0,
+            cacheStats: { count: 0, size: 0 }
+        });
+
         await dispatcher.dispatch(IncomingCommand.CACHE_STATS, stats);
 
         expect((store.getState() as any).cacheCount).toBe(10);
-        expect((store.getState() as any).cacheStats).toEqual(stats);
+        // [PARITY] Match the store's internal composite object structure
+        expect((store.getState() as any).cacheStats).toEqual({ count: 10, size: 1024 });
     });
 
     it('REPRO: Clicking STOP should stop the local audio engine immediately', async () => {

@@ -9,6 +9,7 @@ import { IncomingCommand, UISyncPacket } from '../../src/common/types';
 describe('Document Loading Sovereignty & Slot Isolation', () => {
     beforeEach(() => {
         WebviewStore.resetInstance();
+        (WebviewStore.getInstance() as any)._isHydrated = true;
         vi.useFakeTimers();
         // Fixed baseline time
         vi.setSystemTime(new Date(2024, 0, 1));

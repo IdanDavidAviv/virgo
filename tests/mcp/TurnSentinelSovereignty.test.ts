@@ -28,7 +28,7 @@ describe('TurnSentinel Sovereignty (TDD: #43)', () => {
         fs.mkdirSync(sessionPath, { recursive: true });
         
         // 1. Simulate existing state at turn 10
-        fs.writeFileSync(path.join(sessionPath, 'state.json'), JSON.stringify({ current_turn_index: 10 }));
+        fs.writeFileSync(path.join(sessionPath, 'extension_state.json'), JSON.stringify({ current_turn_index: 10 }));
 
         // 2. Reject stale index
         expect(() => getAndUpdateTurnIndex(sessionPath, undefined, 5)).toThrow(/Stale turn index/);
@@ -37,7 +37,7 @@ describe('TurnSentinel Sovereignty (TDD: #43)', () => {
         const index = getAndUpdateTurnIndex(sessionPath, undefined, 11);
         expect(index).toBe(11);
         
-        const state = JSON.parse(fs.readFileSync(path.join(sessionPath, 'state.json'), 'utf-8'));
+        const state = JSON.parse(fs.readFileSync(path.join(sessionPath, 'extension_state.json'), 'utf-8'));
         expect(state.current_turn_index).toBe(11);
     });
 
@@ -46,13 +46,13 @@ describe('TurnSentinel Sovereignty (TDD: #43)', () => {
         fs.mkdirSync(sessionPath, { recursive: true });
         
         // 1. Initial State
-        fs.writeFileSync(path.join(sessionPath, 'state.json'), JSON.stringify({ current_turn_index: 5 }));
+        fs.writeFileSync(path.join(sessionPath, 'extension_state.json'), JSON.stringify({ current_turn_index: 5 }));
 
         // 2. Auto-increment
         const nextIndex = getAndUpdateTurnIndex(sessionPath);
         expect(nextIndex).toBe(6);
         
-        const state = JSON.parse(fs.readFileSync(path.join(sessionPath, 'state.json'), 'utf-8'));
+        const state = JSON.parse(fs.readFileSync(path.join(sessionPath, 'extension_state.json'), 'utf-8'));
         expect(state.current_turn_index).toBe(6);
     });
 });

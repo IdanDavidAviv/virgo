@@ -18,6 +18,7 @@ describe('Simplified Sync Playback UI', () => {
     document.body.innerHTML = '';
     WebviewStore.resetInstance();
     store = WebviewStore.getInstance();
+    (store as any)._isHydrated = true;
 
     // Mock Elements
     mockEls = {

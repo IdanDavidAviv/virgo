@@ -100,18 +100,25 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
 
         // Simulate the actual command 'ready' which dashboard.js sends on boot
         // [RESOLVE] ready command MUST trigger _syncUI(true)
+        const engine = (provider as any)._playbackEngine;
+        vi.spyOn(engine, 'getVoices').mockResolvedValue({ local: [], neural: [{ id: 'nv1', name: 'Neural 1', lang: 'en' }] });
+
         const handler = (mockWebviewView.webview.onDidReceiveMessage as any).mock.calls[0][0];
         await handler({ command: 'ready' });
         
-        // No timer needed for synchronous _syncUI(true) in ready handler, but let's be safe
-        vi.advanceTimersByTime(100); 
+        // ASSERT: Handshake MUST be atomic and include voices to prevent UI flicker
+        await vi.waitFor(() => {
+            const calls = postMessageSpy.mock.calls;
+            const fullSyncCall = [...calls].reverse().find((call: any) => 
+                call[0].command === 'UI_SYNC' && call[0].availableVoices !== undefined
+            );
+            expect(fullSyncCall).toBeDefined();
+        }, { timeout: 3000 });
 
-        // Verify that 'UI_SYNC' was sent with the voices
-        const fullSyncCall = postMessageSpy.mock.calls.reverse().find((call: any) => 
+        const calls = postMessageSpy.mock.calls;
+        const fullSyncCall = [...calls].reverse().find((call: any) => 
             call[0].command === 'UI_SYNC' && call[0].availableVoices !== undefined
         );
-        
-        expect(fullSyncCall).toBeDefined();
         const packet = fullSyncCall![0] as any;
         expect(packet.availableVoices.neural.length).toBeGreaterThan(0);
         expect(packet.availableVoices.neural[0].id).toBe('nv1');

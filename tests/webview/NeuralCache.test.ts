@@ -9,6 +9,7 @@ describe('NeuralCache TDD: Storage Optimization & Clearing', () => {
     beforeEach(() => {
         WebviewStore.resetInstance();
         MessageClient.resetInstance();
+        (WebviewStore.getInstance() as any)._isHydrated = true;
     });
 
     it('should handle NEURAL_CACHE_PUSH by saving to local store', async () => {
@@ -58,5 +59,6 @@ describe('NeuralCache TDD: Storage Optimization & Clearing', () => {
                 sizeMb: 1.0
             });
         }, { timeout: 1000 });
+
     });
 });
