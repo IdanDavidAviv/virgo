@@ -25,13 +25,15 @@ To ensure the "Readme Preview Read Aloud" extension maintains a professional, pr
 - **Audit**: `node .agent/skills/version_sentinel/scripts/git_history_audit.js`
 - **Side Effects**: Automatically updates `package.json` and injects the current date into the `CHANGELOG.md` while preserving an empty `## [Unreleased]` section for the next cycle.
 
-## 5. Prestige Audit Protocol (MANDATORY)
-**MANDATORY**: Before finalizing **ANY** release (Patch, Minor, or Major), the agent MUST perform a Prestige Audit to ensure the representative story is accurate:
-1. **Trigger Deep Audit**: Run `npm run release:audit` or `node .agent/skills/version_sentinel/scripts/git_history_audit.js --diff`.
-2. **Impact Analysis**: Analyze the `git diff` to identify the *mechanism* of the change (e.g., "500ms Immunity Window") rather than just the *result*.
-    - **Exclusion Rule**: Always exclude `.agent/` changes from the user-facing `CHANGELOG.md`.
-3. **Synthesis**: Create a "Representative Story" that explains the architectural reasoning for the change.
-4. **Approval**: Present the synthesized story to the user for a "GO" before invoking the bump script.
+## 5. Hierarchical Prestige Audit (MANDATORY)
+**MANDATORY**: Before finalizing **ANY** release, perform a Hierarchical Audit to ensure full visibility:
+1.  **Identify Intent**: Determine it is a `--patch`, `--minor`, or `--major` release.
+2.  **Execute Audit**: Run `npm run release:audit -- --[level]`.
+3.  **Hierarchical Baselines**:
+    *   `--patch`: Anchor is the current version (summarizes work since the last hotfix).
+    *   `--minor`: Anchor is the last minor (major.minor.0). Summarizes the entire minor series.
+    *   `--major`: Anchor is the last major (major.0.0). Summarizes the entire major series.
+4.  **Synthesis**: Create a "Representative Story" excluding agent-specific infrastructure.
 
 ## 6. Changelog Protocol
 - **Format**: Follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).

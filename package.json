@@ -221,7 +221,8 @@
     "release": "npm run release:verify && npm run lint && npm run typecheck && npm run test && npm run build && npm run package && node .agent/skills/release_prestige/scripts/verify_artifact.js",
     "release:patch": "node .agent/skills/version_sentinel/scripts/manage_version.js --bump patch && npm run release",
     "release:minor": "node .agent/skills/version_sentinel/scripts/manage_version.js --bump minor && npm run release",
-    "release:major": "node .agent/skills/version_sentinel/scripts/manage_version.js --bump major && npm run release"
+    "release:major": "node .agent/skills/version_sentinel/scripts/manage_version.js --bump major && npm run release",
+    "onboard": "node scripts/read_aloud_setup.js"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",

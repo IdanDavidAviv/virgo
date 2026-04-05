@@ -16,16 +16,45 @@ function run(command) {
     }
 }
 
-function getVersionAnchor() {
-    // 1. Find the commit that set the CURRENT version in package.json
+/**
+ * Calculates the version anchor based on the "height" of the current version and the scale of the upcoming release.
+ * - Patch (--patch): Anchor is currentVersion (e.g., 2.0.8 -> summarizes work for 2.0.9).
+ * - Minor (--minor): Anchor is Last Minor baseline (e.g., 2.0.8 -> 2.0.0; 2.1.5 -> 2.1.0).
+ * - Major (--major): Anchor is Last Major baseline (e.g., 2.0.8 -> 2.0.0; 2.1.5 -> 2.0.0).
+ */
+function calculateAnchorVersion(currentVersion, type = 'patch') {
+    const parts = currentVersion.split('.').map(Number);
+    if (parts.length !== 3) return currentVersion;
+    
+    const [major, minor, patch] = parts;
+    
+    if (type === 'minor') {
+        return `${major}.${minor}.0`; // Anchor to the start of the current minor series
+    }
+    
+    if (type === 'major') {
+        return `${major}.0.0`; // Anchor to the start of the current major series
+    }
+    
+    // Default: Patch (summarize since current release)
+    return currentVersion;
+}
+
+function getVersionAnchor(type = 'patch') {
+    // 1. Find the commit that set the ANCHOR version in package.json
     const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
     const currentVersion = packageJson.version;
+    const anchorVersion = calculateAnchorVersion(currentVersion, type);
+    
+    console.log(`🏷️  Current Version: ${currentVersion}`);
+    console.log(`⚓ Target Anchor: ${anchorVersion} (${type.toUpperCase()} Release)`);
     
     // Find the hash of the commit that introduced this exact version line
     // We use -G to search for the string in the diff
-    const anchorHash = run(`git log -G"\\\"version\\\": \\\"${currentVersion}\\\"" --pretty=format:%H -n 1 package.json`);
+    const anchorHash = run(`git log -G"\\\"version\\\": \\\"${anchorVersion}\\\"" --pretty=format:%H -n 1 package.json`);
     
     if (!anchorHash) {
+        console.warn(`⚠️  Warning: Could not find anchor commit for version ${anchorVersion}. Falling back to last package.json touch.`);
         // Fallback: Just use the last commit that touched package.json
         return run(`git log -n 1 --pretty=format:%H package.json`);
     }
@@ -43,6 +72,9 @@ USAGE:
 
 OPTIONS:
     --help, -h          Show this help menu.
+    --patch             Audit as a PATCH release (Anchor: current version).
+    --minor             Audit as a MINOR release (Anchor: X.0.0 baseline).
+    --major             Audit as a MAJOR release (Anchor: X.0.0 baseline).
     --include-meta      Include .agent/ infrastructure changes in the audit (Filtered by default).
     --diff              Show full diff content for a deep audit of code logic.
     --anchor=<hash>     Override the starting version anchor (default: auto-detected from package.json).
@@ -76,6 +108,12 @@ function audit() {
     const showDiff = args.includes('--diff');
     let includeMeta = args.includes('--include-meta');
     
+    // Release Scale Flags
+    let releaseType = 'patch';
+    if (args.includes('--minor')) releaseType = 'minor';
+    if (args.includes('--major')) releaseType = 'major';
+    if (args.includes('--patch')) releaseType = 'patch'; // Re-affirm default if explicit
+
     if (args.includes('--all')) {
         console.warn('⚠️  Warning: The "--all" flag is deprecated. Use "--include-meta" for high-integrity agent alignment.');
         includeMeta = true;
@@ -85,7 +123,7 @@ function audit() {
     const anchorArg = args.find(a => a.startsWith('--anchor='))?.split('=')[1];
     const targetArg = args.find(a => a.startsWith('--target='))?.split('=')[1] || 'HEAD';
     
-    const anchor = anchorArg || getVersionAnchor();
+    const anchor = anchorArg || getVersionAnchor(releaseType);
     const target = targetArg;
     
     if (!anchor) {
