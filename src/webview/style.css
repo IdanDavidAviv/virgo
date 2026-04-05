@@ -1589,7 +1589,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
     font-size: 9px; /* Reduced */
     font-weight: 800;
     color: var(--primary);
-    text-transform: uppercase;
     letter-spacing: 0.05em;
     cursor: pointer;
     display: flex;
@@ -1617,7 +1616,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
     font-size: 10px; /* Reduced */
     font-weight: 800;
     color: #64748b;
-    text-transform: uppercase;
     letter-spacing: 0.02em;
 }
 

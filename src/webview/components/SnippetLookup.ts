@@ -52,9 +52,9 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
     private renderSessionsLayer(history: any[], activeSessionId?: string): void {
         let html = '<div class="snippet-layer-sessions">';
         history.forEach((session) => {
-            const isActive = session.sessionName === activeSessionId;
+            const isActive = session.id === activeSessionId;
             html += `
-                <div class="snippet-session-card ${isActive ? 'is-active' : ''}" data-session="${escapeHtml(session.sessionName)}">
+                <div class="snippet-session-card ${isActive ? 'is-active' : ''}" data-session="${escapeHtml(session.id)}">
                     <div class="session-header-ui">
                         <span class="session-icon">📁</span>
                         <div class="session-meta">
@@ -81,7 +81,7 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
     }
 
     private renderSnippetsLayer(history: any[], activeSessionId?: string, activeDocumentUri?: string | null): void {
-        const session = history.find(s => s.sessionName === this._selectedSessionId);
+        const session = history.find(s => s.id === this._selectedSessionId);
         if (!session) {
             this._selectedSessionId = null;
             this.renderSessionsLayer(history, activeSessionId);
