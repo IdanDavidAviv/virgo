@@ -3,6 +3,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
+import { hydrateProtocols } from "../../common/protocolHydrator";
+import { TurnManager } from "../../common/mcp/turnManager";
+import { PathGuard } from "../../common/mcp/pathGuard";
 
 /**
  * Portless MCP Server for Read Aloud
@@ -16,47 +19,18 @@ const server = new McpServer({
 });
 
 // 2. Constants
-const ANTIGRAVITY_ROOT = "C:/Users/Idan4/.gemini/antigravity/read_aloud";
+const userHome = process.env.USERPROFILE || process.env.HOME || "";
+const ANTIGRAVITY_ROOT = path.join(userHome, ".gemini", "antigravity", "read_aloud");
 
 /**
  * Atomic state management for Turn-Aware Antigravity Sessions.
  */
-export function getAndUpdateTurnIndex(sessionPath: string, sessionTitle?: string, incomingIndex?: number): number {
-    const stateFile = path.join(sessionPath, 'extension_state.json');
-    let index = 1;
-    let currentState: any = {};
-
-    try {
-        if (fs.existsSync(stateFile)) {
-            currentState = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-            index = (currentState.current_turn_index || 0) + 1;
-        }
-
-        // [TurnSentinel] Validate sequence integrity if an index was provided
-        if (incomingIndex !== undefined) {
-            const current = currentState.current_turn_index || 0;
-            if (incomingIndex <= current) {
-                throw new Error(`[TurnSentinel] Stale turn index (${incomingIndex} <= ${current}). Possible drift detected.`);
-            }
-            index = incomingIndex; // Honor the explicit turn index
-        }
-        
-        const newState = {
-            ...currentState,
-            current_turn_index: index,
-            ...(sessionTitle ? { session_title: sessionTitle } : {})
-        };
-        
-        fs.writeFileSync(stateFile, JSON.stringify(newState, null, 2));
-    } catch (err) {
-        if (err instanceof Error && err.message.includes('[TurnSentinel]')) {
-            throw err;
-        }
-        console.error(`[MCP_STATE] Failed to update state.json: ${err}`);
-        // Fallback or rethrow based on severity
-    }
-
-    return index;
+function updateSessionState(sessionPath: string, sessionTitle?: string, incomingIndex?: number): number {
+    return TurnManager.updateTurnIndex(sessionPath, {
+        sessionTitle,
+        incomingIndex,
+        logger: (msg) => console.error(`[MCP_STATE] ${msg}`)
+    });
 }
 
 // 3. Define the inject_markdown tool
@@ -70,7 +44,8 @@ server.tool(
         turnIndex: z.number().optional().describe("Optional explicit turn index for sequence validation")
     },
     async ({ content, snippet_name, sessionId, session_title, turnIndex }) => {
-        const sessionPath = path.join(ANTIGRAVITY_ROOT, sessionId);
+        const safeSessionId = PathGuard.sanitize(sessionId, 'SessionID');
+        const sessionPath = path.join(ANTIGRAVITY_ROOT, safeSessionId);
         
         // Ensure path exists
         if (!fs.existsSync(sessionPath)) {
@@ -84,7 +59,7 @@ server.tool(
             }
         }
 
-        const index = getAndUpdateTurnIndex(sessionPath, session_title, turnIndex);
+        const index = updateSessionState(sessionPath, session_title, turnIndex);
         const timestamp = Date.now();
         const safeName = snippet_name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
         const fileName = `${timestamp}_${safeName}.md`;
@@ -121,6 +96,9 @@ server.tool(
 
 // 4. Start the server using Stdio
 async function main() {
+    // [Self-Healing Protocol] DNS Parity Enforcement
+    hydrateProtocols((msg) => console.error(msg));
+
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("[MCP_STANDALONE] Portless Server running (Stdio)");

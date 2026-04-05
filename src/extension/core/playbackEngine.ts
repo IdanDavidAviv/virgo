@@ -61,16 +61,22 @@ export class PlaybackEngine extends EventEmitter {
     }
 
     private _pruneCache(incomingSizeBytes: number = 0) {
+        // Defensive: ensure incoming size is a number
+        const safeIncomingSize = Number.isFinite(incomingSizeBytes) ? incomingSizeBytes : 0;
+        
         // LRU Eviction: while total size exceeds limit, remove oldest
-        while (this._audioCache.size > 0 && (this._cacheSizeBytes + incomingSizeBytes > this._maxCacheBytes)) {
+        while (this._audioCache.size > 0 && (this._cacheSizeBytes + safeIncomingSize > this._maxCacheBytes)) {
             const firstKey = this._audioCache.keys().next().value;
             if (firstKey !== undefined) {
                 const evictedData = this._audioCache.get(firstKey);
                 if (evictedData) {
-                    this._cacheSizeBytes -= this._getSegmentSizeBytes(evictedData);
+                    const segmentSize = this._getSegmentSizeBytes(evictedData);
+                    this._cacheSizeBytes = Math.max(0, this._cacheSizeBytes - segmentSize);
                 }
                 this.logger(`[LRU EVIC] key:${firstKey} | bytes:${evictedData ? this._getSegmentSizeBytes(evictedData) : 0}`);
                 this._audioCache.delete(firstKey);
+            } else {
+                break; // Safety break
             }
         }
     }
@@ -151,10 +157,18 @@ export class PlaybackEngine extends EventEmitter {
 
     public getCacheStats() {
         let totalBase64Chars = 0;
-        this._audioCache.forEach(value => {
-            totalBase64Chars += value.length;
-        });
+        try {
+            this._audioCache.forEach(value => {
+                if (typeof value === 'string') {
+                    totalBase64Chars += value.length;
+                }
+            });
+        } catch (e) {
+            this.logger(`[CACHE ERROR] Failed to iterate cache: ${e}`);
+        }
+
         const bytes = Math.floor(totalBase64Chars * 0.75);
+        const safeBytes = Number.isFinite(bytes) ? bytes : 0;
         
         // --- THROTTLED LOGGING ---
         const now = Date.now();
@@ -162,14 +176,14 @@ export class PlaybackEngine extends EventEmitter {
         const timeElapsedSignificantly = now - this._lastLoggedCacheTime > 60000;
 
         if (this._logLevel >= 2 || countChangedSignificantly || timeElapsedSignificantly || this._audioCache.size === 0) {
-            this.logger(`[CACHE] count:${this._audioCache.size} | chars:${totalBase64Chars} | bytes:${bytes}`);
+            this.logger(`[CACHE] count:${this._audioCache.size} | chars:${totalBase64Chars} | bytes:${safeBytes}`);
             this._lastLoggedCacheCount = this._audioCache.size;
             this._lastLoggedCacheTime = now;
         }
 
         return {
             count: this._audioCache.size,
-            sizeBytes: bytes
+            sizeBytes: safeBytes
         };
     }
 
@@ -233,12 +247,19 @@ export class PlaybackEngine extends EventEmitter {
     }
 
     private _addToCache(key: string, data: string, intentId?: number) {
-        const segmentSize = this._getSegmentSizeBytes(data);
+        // [HARDENING] Absolute Intent Guard - Reject data if user has skipped or changed context
+        if (intentId !== undefined && intentId !== this._playbackIntentId) {
+            this.logger(`[CACHE] REJECTED key:${key} | Intent mismatch: ${intentId} vs current ${this._playbackIntentId}`);
+            return;
+        }
 
-        this._pruneCache(segmentSize);
+        const segmentSize = this._getSegmentSizeBytes(data);
+        const safeSize = Number.isFinite(segmentSize) ? segmentSize : 0;
+
+        this._pruneCache(safeSize);
 
         this._audioCache.set(key, data);
-        this._cacheSizeBytes += segmentSize;
+        this._cacheSizeBytes = (Number.isFinite(this._cacheSizeBytes) ? this._cacheSizeBytes : 0) + safeSize;
         
         // [TDD] Emit for Direct Push - include intentId to prevent sequence races
         this.emit('synthesis-complete', { cacheKey: key, data, intentId });

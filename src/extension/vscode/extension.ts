@@ -3,7 +3,9 @@ import { PlaybackEngine } from '@core/playbackEngine';
 import * as path from 'path';
 import * as fs from 'fs';
 import { SpeechProvider } from '@vscode/speechProvider';
+import { hydrateProtocols } from '@common/protocolHydrator';
 import { findChapterAtLine, findSentenceAtLine, parseChapters } from '@core/documentParser';
+import { McpBridge } from '../mcp/mcpBridge';
 
 let mainStatusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
@@ -37,6 +39,9 @@ function resolveLatestSessionId(antigravityRoot: string, brainRoot?: string): st
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+    // [Self-Healing Protocol] 100% Zero-Friction DNA Sync
+    hydrateProtocols((msg) => log(msg));
+
     outputChannel = vscode.window.createOutputChannel('Read Aloud Diagnostics');
     outputChannel.show(true); 
     
@@ -45,6 +50,28 @@ export async function activate(context: vscode.ExtensionContext) {
         fs.writeFileSync(logFilePath, `--- SESSION START: ${new Date().toLocaleString()} ---\n`);
     } catch (e) {
         console.error('Failed to init log file', e);
+    }
+
+    // [Onboarding & Repair] Environment Sanity Check
+    const userProfile = process.env.USERPROFILE || process.env.HOME || '';
+    const antigravityRoot = path.join(userProfile, '.gemini', 'antigravity', 'read_aloud');
+    try {
+        if (!fs.existsSync(antigravityRoot)) {
+            fs.mkdirSync(antigravityRoot, { recursive: true });
+        }
+        // Test write permission
+        const testFile = path.join(antigravityRoot, '.write_test');
+        fs.writeFileSync(testFile, 'test');
+        fs.unlinkSync(testFile);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(
+            `Read Aloud Extension cannot write to its data directory: ${err.message}. Please check permissions for ${antigravityRoot}.`,
+            'Repair Permissions'
+        ).then(selection => {
+            if (selection === 'Repair Permissions') {
+                vscode.env.openExternal(vscode.Uri.parse('https://github.com/IdanDavidAviv/readme-preview-read-aloud/wiki/Troubleshooting#permissions'));
+            }
+        });
     }
 
     log('--- BOOTING READ ALOUD ENGINE ---');
@@ -57,8 +84,6 @@ export async function activate(context: vscode.ExtensionContext) {
     mainStatusBarItem.show();
 
     // Standard path for high-integrity agent memory
-    const userProfile = process.env.USERPROFILE || process.env.HOME || '';
-    const antigravityRoot = path.join(userProfile, '.gemini', 'antigravity', 'read_aloud');
     const brainRoot = path.join(userProfile, '.gemini', 'antigravity', 'brain');
     
     // Dynamic Session Discovery (Check brain first for real-time parity)
@@ -68,6 +93,13 @@ export async function activate(context: vscode.ExtensionContext) {
     const speechProvider = new SpeechProvider(context, log, mainStatusBarItem, antigravityRoot, sessionId, () => syncSelection());
     log('--- PORTLESS SYNC ACTIVE (Filesystem Watcher) ---');
     log(`[ANTIGRAVITY] Session: ${sessionId}`);
+
+    // --- MCP BRIDGE (Agentic Integration) ---
+    const mcpBridge = new McpBridge(antigravityRoot, log);
+    context.subscriptions.push(mcpBridge);
+    mcpBridge.start().catch((err: any) => {
+        log(`[MCP_ERROR] Bridge failed to start: ${err.message}`);
+    });
 
     // --- BRAIN SENSITIVITY PROTOCOL ---
     // Monitor for new session directories in the brain root

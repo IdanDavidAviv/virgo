@@ -21,6 +21,7 @@ export class WebviewAudioEngine {
   public intent: 'PLAYING' | 'PAUSED' | 'STOPPED' = 'PAUSED';
   private waitTimers: Map<string, any> = new Map();
   private waitResolvers: Map<string, () => void> = new Map();
+  private sovereignUrl: string | null = null;
 
   private constructor() {
     this.audio = new Audio();
@@ -77,35 +78,61 @@ export class WebviewAudioEngine {
     });
 
     // 2. [REACTIVE] Audio Element State Feedback (Legacy Dashboard Parity)
+    const isSovereign = () => {
+      // Comparison logic for Blob URLs and current intent
+      if (!this.audio.src || this.audio.src === 'null') {
+        return false;
+      }
+      if (this.audio.src !== this.sovereignUrl) {
+          console.warn('[AudioEngine] 🧟 Event ignored: Not sovereign', { 
+              eventSrc: this.audio.src, 
+              sovereign: this.sovereignUrl 
+          });
+          return false;
+      }
+      return true;
+    };
+
     this.audio.onplay = () => {
+      if (!isSovereign()) {
+        return;
+      }
       console.log('[AudioEngine] 🔊 onplay fired');
       store.patchState({ isPlaying: true, isPaused: false, playbackStalled: false });
     };
 
     this.audio.onpause = () => {
+      if (!isSovereign() && this.intent !== 'STOPPED') {
+        return;
+      }
       console.log('[AudioEngine] ⏸️ onpause fired');
-      // Fix: Dashboard parity - clear stalled state and isPlaying flag when paused
-      // (Fixes StuckLoadingFix.test.ts and PlaybackControls.test.ts)
       store.patchState({ isPaused: true, isPlaying: false, playbackStalled: false });
     };
 
     this.audio.onwaiting = () => {
+      if (!isSovereign()) {
+        return;
+      }
       console.log('[AudioEngine] ⏳ onwaiting fired');
-      // Only stall if the intent is actually to be playing (Fixes "Zombie Stall" regressions)
       if (this.intent === 'PLAYING') {
         store.patchState({ playbackStalled: true });
       }
     };
 
     this.audio.onplaying = () => {
+      if (!isSovereign()) {
+        return;
+      }
       console.log('[AudioEngine] ▶️ onplaying fired');
       store.patchState({ playbackStalled: false });
     };
 
     this.audio.onended = () => {
+      if (!isSovereign()) {
+        return;
+      }
       console.log('[AudioEngine] ✅ onended fired → signalling SENTENCE_ENDED');
       const controller = (window as any).__PLAYBACK_CONTROLLER__;
-      // Signal the extension host when a sentence finishes.
       if (controller && controller.getState().intent === 'PLAYING') {
         MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED);
       }
@@ -365,6 +392,7 @@ export class WebviewAudioEngine {
     // [v2.0.7] Immediate memory hygiene
     const url = URL.createObjectURL(blob);
     this.activeObjectURLs.add(url);
+    this.sovereignUrl = url;
     this.audio.src = url;
 
     // Apply current settings before load/play
@@ -412,6 +440,7 @@ export class WebviewAudioEngine {
     if (oldUrl.startsWith('blob:')) {
       this.revokeUrl(oldUrl);
     }
+    this.sovereignUrl = null;
   }
 
   /**

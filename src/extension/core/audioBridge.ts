@@ -41,21 +41,31 @@ export class AudioBridge extends EventEmitter {
         let pushQueue: any[] = [];
         let pushTimeout: NodeJS.Timeout | null = null;
 
-        this._playbackEngine.on('synthesis-complete', (payload) => {
+        this._playbackEngine.on('synthesis-complete', (payload: { cacheKey: string, data: string, intentId: number }) => {
+            const currentIntent = this._playbackEngine.playbackIntentId;
+            
             // Optimization: If the payload's intentId matches the current active intent, push immediately
             // to bypass the throttle for the user's immediate hearing experience.
-            if (payload.intentId === this._playbackEngine.playbackIntentId) {
+            if (payload.intentId === currentIntent) {
+                this._logger(`[BRIDGE] Priority PUSH: ${payload.cacheKey} | Intent: ${payload.intentId}`);
                 this.emit('dataPush', payload);
                 return;
             }
 
-            pushQueue.push(payload);
+            // [HARDENING] Only queue if it's not ancient (currentIntent - 2 range for prefetch buffer)
+            if (payload.intentId >= currentIntent - 2) {
+                pushQueue.push(payload);
+            }
+
             if (pushTimeout) { return; }
             pushTimeout = setTimeout(() => {
-                const results = [...pushQueue];
+                const results = pushQueue.filter(p => p.intentId === this._playbackEngine.playbackIntentId);
                 pushQueue = [];
                 pushTimeout = null;
-                results.forEach(p => this.emit('dataPush', p));
+                if (results.length > 0) {
+                    this._logger(`[BRIDGE] Batch PUSHing ${results.length} valid segments.`);
+                    results.forEach(p => this.emit('dataPush', p));
+                }
             }, this._pushDelayMs);
         });
     }

@@ -98,8 +98,8 @@ export class WebviewStore {
       });
     });
 
-    client.onCommand<{ cacheKey: string, data: string }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data }: { cacheKey: string, data: string }) => {
-      this.saveNeuralCache(cacheKey, data);
+    client.onCommand<{ cacheKey: string, data: string, intentId: number }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data, intentId }) => {
+      this.saveNeuralCache(cacheKey, data, intentId);
     });
 
 
@@ -109,15 +109,18 @@ export class WebviewStore {
         console.warn('[WebviewStore] Ignored CACHE_STATS update - store not hydrated');
         return;
       }
-      const bytes = data.sizeBytes ?? data.size ?? 0;
+      const bytes = Number(data.sizeBytes ?? data.size ?? 0);
+      const safeBytes = Number.isFinite(bytes) ? bytes : 0;
+      
       this.updateState({
         cacheCount: data.count,
-        cacheSizeBytes: bytes,
-        cacheStats: { count: data.count, size: bytes } // [PARITY] Restore composite object for #35 audit tests
+        cacheSizeBytes: safeBytes,
+        cacheStats: { count: data.count, size: safeBytes } // [PARITY] Restore composite object for #35 audit tests
       });
 
+      const sizeMb = Number((safeBytes / (1024 * 1024)).toFixed(2));
       this.updateUIState({ 
-        neuralBuffer: { count: data.count, sizeMb: Number((bytes / (1024 * 1024)).toFixed(2)) }
+        neuralBuffer: { count: data.count, sizeMb: Number.isFinite(sizeMb) ? sizeMb : 0 }
       });
       console.log('[WebviewStore DEBUG] handleCacheStats updated neuralBuffer to=', this.uiState.neuralBuffer);
     };
@@ -584,9 +587,9 @@ export class WebviewStore {
    * @param cacheKey The key to associate with the audio data.
    * @param data The base64 encoded audio data.
    */
-  private async saveNeuralCache(cacheKey: string, data: string): Promise<void> {
+  private async saveNeuralCache(cacheKey: string, data: string, intentId: number): Promise<void> {
     const { WebviewAudioEngine } = await import('./WebviewAudioEngine');
-    await WebviewAudioEngine.getInstance().ingestData(cacheKey, data, 0);
+    await WebviewAudioEngine.getInstance().ingestData(cacheKey, data, intentId);
   }
 
   /**

@@ -10,6 +10,7 @@
     "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
