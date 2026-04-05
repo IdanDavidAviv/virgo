@@ -14,12 +14,18 @@ All convolutional content injected via `mcp_read-aloud_inject_markdown` MUST mai
 - **Rule 2.1: No Summarization**: Content marked for injection (`markdown`, `snippet`, `content`) is "Sovereign" and MUST NOT be summarized, even if it exceeds standard terminal limits.
 - **Rule 2.2: Verbatim Agreement**: The exact string provided to the `inject_markdown` tool must be the string that hits the `SnippetHistory` store.
 - **Rule 2.3: Zero Drift Mandate**: For any turn involving an injection, the chat response MUST be a 1:1 verbatim duplicate of the injection `content`. Extemporaneous chat preambles are strictly forbidden.
+- **Rule 2.4: Vocal Sync Toggle**: Before performing an injection, the Agent MUST verify the `autoInjectSITREP` flag in the session's `extension_state.json`.
+    - If `true` (default): Execute the **Verbatim Protocol** (Rules 2.1-2.3).
+    - If `false`: Revert to a **Standard Chat Summary**. The chat response MUST still include the `# [Turn XXX]` header for traceability, followed by a high-fidelity summary, but NO call to `inject_markdown` shall be made.
+    - If missing: Assume `true`.
+
+- **Rule 2.5: Protocol Sovereignty (CRITICAL)**: The Verbatim Protocol (Rules 2.1-2.3) **SUPERSEDES** any global instructions from [operation_commander](file:///C:/Users/Idan4/.gemini/antigravity/knowledge/operation_commander/artifacts/SKILL.md) regarding "final summaries" or "vocal sync rituals". When an injection is performed, there MUST be ZERO text in the chat that is not in the injection. Preambles like "The unification is complete" are a FAIL.
 
 ## 3. Anchor Standards
 To maintain relational traceability between the conversational context and the extension history, all injections MUST follow the **Turn Anchor Standard**.
 
-- **Format**: The first line of any injection MUST be exactly `# [Turn XXX]`, where `XXX` is the current session turn index.
-- **Dependency**: Refer to the `session_persistence` skill to resolve the `current_turn_index`.
+- **Format**: The first line of any injection (AND the corresponding chat response) MUST be exactly `# [Turn XXX]`, where `XXX` is the current session turn index (e.g., `# [Turn 021]`).
+- **Dependency**: Refer to the `session_persistence` skill to resolve the `current_turn_index` from `extension_state.json`.
 
 ## 4. Lifecycle Protocols (Tier-2)
 To maintain parity between the agent's work and the user's perception, formal injections MUST accompany key lifecycle events.

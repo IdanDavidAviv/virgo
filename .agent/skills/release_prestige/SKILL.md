@@ -25,17 +25,26 @@ The execution pipeline is a deterministic process that burns the primed changelo
 2.  **Minor Release**: `npm run release:minor`
 3.  **Major Release**: `npm run release:major`
 
-### 2.2 Internal Order of Operations
-The orchestrated command chain performs the following high-integrity sequence:
-1.  **Version Sentinel**: Bumps version, renames `[Unreleased]` changelog section, adds current date.
-2.  **Consistency Gate**: `npm run release:verify` (ensures 1:1 parity between package and changelog version strings).
-3.  **Quality Gates**: `npm run lint` and `npm run typecheck`.
-4.  **Production Compile**: `npm run build` (Production mode).
-5.  **Packaging**: `npm run package` (vsce).
-6.  **Prestige Audit**: `verify_artifact.js` (Signature check for corruption).
+### 2.2 Internal Order of Operations (The Orchestrated Chain)
+The `npm run release` script is a high-integrity sequence that automates the following chain:
+1.  **Consistency Gate**: `npm run release:verify` (ensures 1:1 parity between package and changelog version strings).
+2.  **Quality Gates**: `npm run lint`, `npm run typecheck`, and `npm run test` (Ensuring zero static or runtime regressions).
+3.  **Production Compile**: `npm run build` (Production mode bundling).
+4.  **Packaging**: `npm run package` (vsce artifact generation).
+5.  **Prestige Audit**: `verify_artifact.js` (Signature check for VSIX creation).
 
-## 3. Manual Verification Sandbox
-To verify the installation experience, perform the following manual checks:
+## 3. Final Gate: Git Strategy (Unbroken Chain)
+**MANDATORY**: The execution pipeline is an unbroken automated chain. If the `npm run release:patch` (or minor/major) exits with code 0, all static and runtime gates are deemed secure, and the VSIX is validated. 
+
+The agent **MUST NOT** pause the automated workflow for manual validation. The agent **MUST** transition immediately to the **Git Commit & Push Protocol** as defined in the following high-integrity Knowledge Item:
+- **Internal Protocol**: [git_strategy](../../../../../../.gemini/antigravity/knowledge/git_strategy/artifacts/SKILL.md)
+- **Direct Reference**: `file:///C:/Users/Idan4/.gemini/antigravity/knowledge/git_strategy/artifacts/SKILL.md`
+
+You **MUST** strictly follow the **gitpush** protocol. All release commits (Version Bump, Changelog, and Stable Source) must be grouped and pushed following the atomic N-Group strategy before the task is considered complete.
+
+## [OPTIONAL] 4. Post-Release: Manual Verification Sandbox
+*This is a fallback or manual inspection step only. Do not pause automated pipelines for this.*
+To verify the installation experience manually:
 1.  **Clean Installation**: 
     -   Open VS Code Extensions view.
     -   Click "..." (Views and More Actions) -> "Install from VSIX...".
@@ -45,14 +54,3 @@ To verify the installation experience, perform the following manual checks:
     -   [ ] **Dashboard**: Ensure Glassmorphism UI is perfectly rendered.
     -   [ ] **Playback**: Test `Alt+R` on a valid Markdown file.
     -   [ ] **Constraint**: Ensure "LOAD FILE" button is disabled for non-markdown types.
-
-## 3. Final Gate
-`npm run release` (Run without args to verify an existing version sync).
-
-## 4. Final Gate: Git Strategy
-**MANDATORY**: After the artifact is verified by `verify_artifact.js`, the agent **MUST** transition immediately to the **Git Commit & Push Protocol** as defined in the following high-integrity Knowledge Item:
-- **Internal Protocol**: [git_strategy](../../../../../../.gemini/antigravity/knowledge/git_strategy/artifacts/SKILL.md)
-- **Direct Reference**: `file:///C:/Users/Idan4/.gemini/antigravity/knowledge/git_strategy/artifacts/SKILL.md`
-
-You **MUST** strictly follow the **gitpush** protocol. All release commits (Version Bump, Changelog, and Stable Source) must be grouped and pushed following the atomic N-Group strategy before the task is considered complete.
-

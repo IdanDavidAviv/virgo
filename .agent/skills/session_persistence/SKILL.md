@@ -11,9 +11,10 @@ To ensure human-readable session titles and turn metadata are correctly resolved
 ## 2. Storage Architecture
 - **Root Directory**: `C:\Users\Idan4\.gemini\antigravity\read_aloud\`
 - **Session Folder**: `<sessionId>\`
-- **State File**: `state.json`
+- **State File**: `extension_state.json`
+- **Location**: `.../antigravity/read_aloud/<sessionId>/extension_state.json`
 
-## 3. Metadata Schema (`state.json`)
+## 3. Metadata Schema (`extension_state.json`)
 ```json
 {
   "session_title": "Human Readable Title",
@@ -25,15 +26,16 @@ To ensure human-readable session titles and turn metadata are correctly resolved
 ## 4. Resolution Protocol
 ### 4.1 UI Resolution (Snippet History)
 In `speechProvider.ts`, use `_getSnippetHistory()` to resolve the `displayName`:
-1. Check for `state.json` in the session directory.
+1. Check for `extension_state.json` in the session directory.
 2. If present, parse `session_title`.
 3. If absent or empty, fallback to the `sessionId` (truncated).
 
 ### 4.2 MCP Injection
 In `mcpStandalone.ts` or `mcpBridge.ts`, the `inject_markdown` tool must accept an optional `session_title`:
-1. Update `state.json` with the new title if provided.
+1. Update `extension_state.json` with the new title if provided.
 2. Increment `current_turn_index` atomically.
 3. **Guard**: Adhere strictly to the verbatim parity rules defined in [read_aloud_injection_guard](../read_aloud_injection_guard/SKILL.md).
 
 ## 5. Maintenance
-- **Migration**: If `state.json` is missing but the session exists in `brain/`, migrate the `session_title` to the local `read_aloud` folder.
+- **Update Location**: Metadata updates MUST target `extension_state.json`.
+- **Abolition**: `state.json` in the `brain/` directory is deprecated and MUST NOT be used for session vitals.
