@@ -24,7 +24,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     // Selection state (passive) - Moved to StateStore
 
     private _playbackEngine: PlaybackEngine;
-    private _needsSync: boolean = false;
+    private _needsSync: boolean = false; // Tracks if a full sync is required on reveal
+    private _needsHistorySync: boolean = false; // Specific flag for background snippet updates
     private _localVoices: any[] = [];
     private _neuralVoices: any[] = [];
     private _statusBarItem: vscode.StatusBarItem;
@@ -137,6 +138,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._syncUIThrottled();
             } else {
                 this._needsSync = true;
+                // If the mode is SNIPPET, we likely need a history refresh too
+                if (this._stateStore.state.activeMode === 'SNIPPET') {
+                    this._needsHistorySync = true;
+                }
             }
             this._saveProgressThrottled();
         });
@@ -533,10 +538,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
-                if (this._needsSync) {
-                    this._logger('[VISIBILITY] Sidebar revealed. Partial Sync...');
-                    this._syncUI();
+                if (this._needsSync || this._needsHistorySync) {
+                    this._logger(`[VISIBILITY] Sidebar revealed. Triggering ${this._needsHistorySync ? 'FULL' : 'STATE'} sync...`);
+                    this.refreshView();
                     this._needsSync = false;
+                    this._needsHistorySync = false;
                 }
                 if (this.onVisibilityChanged) {
                     this.onVisibilityChanged();

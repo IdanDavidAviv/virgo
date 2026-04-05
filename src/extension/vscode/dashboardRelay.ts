@@ -108,6 +108,7 @@ export class DashboardRelay {
         if (!this._view) { return; }
 
         const criticalCommands: string[] = [
+            IncomingCommand.UI_SYNC, 
             IncomingCommand.PLAY_AUDIO, 
             IncomingCommand.PURGE_MEMORY, 
             IncomingCommand.SYNTHESIS_ERROR, 
