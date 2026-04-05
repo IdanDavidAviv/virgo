@@ -33,6 +33,7 @@ In `speechProvider.ts`, use `_getSnippetHistory()` to resolve the `displayName`:
 In `mcpStandalone.ts` or `mcpBridge.ts`, the `inject_markdown` tool must accept an optional `session_title`:
 1. Update `state.json` with the new title if provided.
 2. Increment `current_turn_index` atomically.
+3. **Guard**: Adhere strictly to the verbatim parity rules defined in [read_aloud_injection_guard](../read_aloud_injection_guard/SKILL.md).
 
 ## 5. Maintenance
 - **Migration**: If `state.json` is missing but the session exists in `brain/`, migrate the `session_title` to the local `read_aloud` folder.
