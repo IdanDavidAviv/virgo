@@ -112,4 +112,39 @@ export class CacheManager {
             console.error('CacheManager.clearAll failed:', e);
         }
     }
+
+    /**
+     * [v2.0.6] Returns metadata for the entire cache (Atomic Monitoring).
+     */
+    public async getStats(): Promise<{ count: number, size: number }> {
+        try {
+            const db = await this.getDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(this.storeName, 'readonly');
+                const store = transaction.objectStore(this.storeName);
+                const countReq = store.count();
+                
+                let size = 0;
+                const cursorReq = store.openCursor();
+
+                cursorReq.onsuccess = (event) => {
+                    const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+                    if (cursor) {
+                        if (cursor.value instanceof Blob) {
+                            size += cursor.value.size;
+                        }
+                        cursor.continue();
+                    } else {
+                        // Cursor finished
+                        resolve({ count: countReq.result || 0, size });
+                    }
+                };
+
+                cursorReq.onerror = () => reject(cursorReq.error);
+            });
+        } catch (e) {
+            console.error('CacheManager.getStats failed:', e);
+            return { count: 0, size: 0 };
+        }
+    }
 }

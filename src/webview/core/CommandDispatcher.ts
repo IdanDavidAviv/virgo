@@ -37,8 +37,6 @@ export class CommandDispatcher {
    * Dispatches an incoming message to the appropriate handler.
    */
   public async dispatch(command: string, data: any): Promise<void> {
-    console.log('[Dispatcher] DISPATCH:', command, JSON.stringify(data));
-    this.logSafeMessage(command, data);
     const store = WebviewStore.getInstance();
     const audioEngine = WebviewAudioEngine.getInstance();
     const playback = PlaybackController.getInstance();
@@ -108,6 +106,11 @@ export class CommandDispatcher {
 
       case IncomingCommand.PURGE_MEMORY:
         audioEngine.purgeMemory();
+        break;
+
+      case IncomingCommand.CLEAR_CACHE_WIPE:
+        await audioEngine.wipeCache();
+        store.resetCacheStats();
         break;
 
         case IncomingCommand.SYNTHESIS_ERROR:

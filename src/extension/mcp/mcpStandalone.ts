@@ -21,7 +21,7 @@ const ANTIGRAVITY_ROOT = "C:/Users/Idan4/.gemini/antigravity/read_aloud";
 /**
  * Atomic state management for Turn-Aware Antigravity Sessions.
  */
-function getAndUpdateTurnIndex(sessionPath: string, sessionTitle?: string): number {
+export function getAndUpdateTurnIndex(sessionPath: string, sessionTitle?: string, incomingIndex?: number): number {
     const stateFile = path.join(sessionPath, 'state.json');
     let index = 1;
     let currentState: any = {};
@@ -30,6 +30,15 @@ function getAndUpdateTurnIndex(sessionPath: string, sessionTitle?: string): numb
         if (fs.existsSync(stateFile)) {
             currentState = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
             index = (currentState.current_turn_index || 0) + 1;
+        }
+
+        // [TurnSentinel] Validate sequence integrity if an index was provided
+        if (incomingIndex !== undefined) {
+            const current = currentState.current_turn_index || 0;
+            if (incomingIndex <= current) {
+                throw new Error(`[TurnSentinel] Stale turn index (${incomingIndex} <= ${current}). Possible drift detected.`);
+            }
+            index = incomingIndex; // Honor the explicit turn index
         }
         
         const newState = {
@@ -40,8 +49,11 @@ function getAndUpdateTurnIndex(sessionPath: string, sessionTitle?: string): numb
         
         fs.writeFileSync(stateFile, JSON.stringify(newState, null, 2));
     } catch (err) {
+        if (err instanceof Error && err.message.includes('[TurnSentinel]')) {
+            throw err;
+        }
         console.error(`[MCP_STATE] Failed to update state.json: ${err}`);
-        // Fallback to 1 if we can't read/write, at least we mark the turn
+        // Fallback or rethrow based on severity
     }
 
     return index;
@@ -54,9 +66,10 @@ server.tool(
         content: z.string().describe("Markdown content to inject into the Read Aloud extension"),
         snippet_name: z.string().describe("Descriptive name for the snippet (used in filename)"),
         sessionId: z.string().describe("The active Antigravity Session ID (Conversation ID) to target."),
-        session_title: z.string().optional().describe("Optional human-readable title for the session")
+        session_title: z.string().optional().describe("Optional human-readable title for the session"),
+        turnIndex: z.number().optional().describe("Optional explicit turn index for sequence validation")
     },
-    async ({ content, snippet_name, sessionId, session_title }) => {
+    async ({ content, snippet_name, sessionId, session_title, turnIndex }) => {
         const sessionPath = path.join(ANTIGRAVITY_ROOT, sessionId);
         
         // Ensure path exists
@@ -71,7 +84,7 @@ server.tool(
             }
         }
 
-        const index = getAndUpdateTurnIndex(sessionPath, session_title);
+        const index = getAndUpdateTurnIndex(sessionPath, session_title, turnIndex);
         const timestamp = Date.now();
         const safeName = snippet_name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
         const fileName = `${timestamp}_${safeName}.md`;

@@ -87,9 +87,6 @@ export class WebviewStore {
       this.saveNeuralCache(cacheKey, data);
     });
 
-    client.onCommand(IncomingCommand.CLEAR_CACHE_WIPE, () => {
-      this.clearLocalCache();
-    });
 
     client.onCommand<{ count: number, sizeBytes: number }>(IncomingCommand.CACHE_STATS_UPDATE, ({ count, sizeBytes }: { count: number, sizeBytes: number }) => {
       this.updateUIState({ 
@@ -239,17 +236,6 @@ export class WebviewStore {
     }
   }
 
-  /**
-   * Performs an atomic wipe of local persistent storage.
-   */
-  private async clearLocalCache(): Promise<void> {
-    try {
-      console.log('[NeuralCache] Synchronized Wipe Initiated');
-      // Logic for purging 'audio-cache' DB
-    } catch (e) {
-      console.error('[NeuralCache] Wipe failed', e);
-    }
-  }
 
   /**
    * Returns the current local UI state.
@@ -539,5 +525,25 @@ export class WebviewStore {
     }, { isAwaitingSync: true, action: 'LOAD_SNIPPET' });
     
     MessageClient.getInstance().postAction(OutgoingAction.LOAD_SNIPPET, { path });
+  }
+
+  /**
+   * [v2.0.6] Atomic State Reset: Resets cache metrics to zero immediately.
+   * Call after clearAll (handled by Dispatcher) to ensure reactive UI parity.
+   */
+  public resetCacheStats(): void {
+    // 1. Extension-synchronized state reset
+    this.patchState({
+        cacheCount: 0,
+        cacheSizeBytes: 0,
+        cacheStats: { count: 0, size: 0 }
+    });
+
+    // 2. Local-only UI state reset (for SnippetLookup display)
+    this.updateUIState({
+        neuralBuffer: { count: 0, sizeMb: 0 }
+    });
+
+    console.log('[Store] 🧼 Cache state metrics reset to zero.');
   }
 }

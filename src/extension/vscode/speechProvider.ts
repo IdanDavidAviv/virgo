@@ -304,8 +304,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._logger(`[VOICE_SCAN] SUCCESS: Found ${this._localVoices.length} local SAPI voices and ${this._neuralVoices.length} neural voices.`);
 
             // Critical: Ensure UI is synced after voices are loaded to prevent empty dropdowns
-            // [DELTA SYNC] Force a full sync including voices
-            this._syncUI(true);
+            // [DELTA SYNC] Explicitly broadcast voices
+            this._broadcastVoices();
+            this._syncUI();
         } catch (e) {
             this._logger(`[VOICE_SCAN] CRITICAL FAILURE: ${e}`);
         }
@@ -482,8 +483,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
      * Unified Reactive Sync: Gather all state and broadcast to the webview.
      * This is the "Single Source of Truth" relay point.
      */
-    private _syncUI(includeVoices: boolean = false, snippetHistory?: SnippetHistory) {
-        this._dashboardRelay.sync(includeVoices, snippetHistory, this._sessionId);
+    private _syncUI(snippetHistory?: SnippetHistory) {
+        this._dashboardRelay.sync(snippetHistory, this._sessionId);
     }
 
     private _syncUITimer?: NodeJS.Timeout;
@@ -491,7 +492,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (this._syncUITimer) { return; }
         this._syncUITimer = setTimeout(() => {
             this._syncUITimer = undefined;
-            this._syncUI(false); // Throttled sync is ALWAYS partial (no voices)
+            this._syncUI(); // Throttled sync is ALWAYS partial (no voices)
         }, 50); // 50ms throttle for ultra-smooth slider updates
     }
 
@@ -524,8 +525,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._view = webviewView;
         this._dashboardRelay.setView(webviewView);
         
-        // [DELTA SYNC] Initial handshake MUST include voices
-        this._syncUI(true);
+        // [DELTA SYNC] Initial handshake
+        this._syncUI();
+        this._broadcastVoices();
         this._logger('--- ACTIVATING MISSION CONTROL (Sidebar) ---');
 
         webviewView.webview.options = {
@@ -648,7 +650,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const config = {
             native: true,
             extensionVersion: this._context.extension.packageJSON.version,
-            debugMode: this._context.extensionMode === vscode.ExtensionMode.Development
+            debugMode: this._context.extensionMode === vscode.ExtensionMode.Development,
+            logLevel: vscode.workspace.getConfiguration('readAloud').get<string>('logging.level', 'Standard') === 'Verbose' ? 2 : 1
         };
 
         const bootstrap = `
@@ -713,7 +716,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public async refreshView() {
         // [SYNC_FIX] Explicitly fetch latest history before syncing UI
         const history = await this._getSnippetHistory();
-        this._syncUI(false, history);
+        this._syncUI(history);
         this._broadcastVoices();
 
         if (this._docController.chapters.length > 0) {
@@ -968,9 +971,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private async _sendInitialState() {
-        // [DELTA SYNC] Initial state MUST include voices to populate dropdowns
+        // [DELTA SYNC] Initial state
         const history = await this._getSnippetHistory();
-        this._syncUI(true, history);
+        this._broadcastVoices();
+        this._syncUI(history);
     }
 
 

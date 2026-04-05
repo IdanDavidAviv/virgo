@@ -22,7 +22,7 @@ export class DashboardRelay {
      * The single source of truth for the dashboard's state.
      * Aggregates StateStore, DocController, and logic into one packet.
      */
-    public sync(includeVoices: boolean = false, snippetHistory?: SnippetHistory, activeSessionId?: string) {
+    public sync(snippetHistory?: SnippetHistory, activeSessionId?: string) {
         if (!this._view) { return; }
 
         const s = this._stateStore.state;
@@ -92,10 +92,6 @@ export class DashboardRelay {
             snippetHistory: snippetHistory,
             activeSessionId: activeSessionId
         };
-
-        if (includeVoices) {
-            packet.availableVoices = s.availableVoices;
-        }
 
         this.postMessage({ command: 'UI_SYNC', ...packet });
     }

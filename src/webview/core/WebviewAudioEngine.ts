@@ -439,5 +439,17 @@ export class WebviewAudioEngine {
     return this.audio;
   }
 
-
+  /**
+   * [v2.0.6] Atomic Cache Wipe: Revokes all URLs before clearing storage.
+   * Prevents "Ghost Audio" from persisting in memory after a cache clear.
+   */
+  public async wipeCache(): Promise<void> {
+    console.log('[AudioEngine] 🌪️ Initiating Atomic Cache Wipe...');
+    // 1. Synchronous Revocation (Immediate memory release)
+    this.purgeMemory();
+    
+    // 2. Clear Persistent Storage
+    await (this as any).cache.clearAll();
+    console.log('[AudioEngine] ✅ Cache wipe complete.');
+  }
 }

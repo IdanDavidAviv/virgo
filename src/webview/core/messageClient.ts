@@ -24,6 +24,12 @@ export class MessageClient {
       console.warn('[MessageClient] acquireVsCodeApi is not available. Are you in a VS Code webview?');
     }
 
+    // Initialize LogLevel from Bootstrap Config if available
+    const config = (window as any).__BOOTSTRAP_CONFIG__;
+    if (config && config.logLevel) {
+      this._logLevel = config.logLevel;
+    }
+
     if (typeof window !== 'undefined') {
       this.messageListener = (event) => this.handleMessage(event);
       console.log('[MessageClient] Adding listener to window');
@@ -141,6 +147,10 @@ export class MessageClient {
     
     if (command === IncomingCommand.DATA_PUSH) {
       return `Push: ${payload.cacheKey} | Size: ${payload.data?.length || 0} bytes`;
+    }
+
+    if (command === IncomingCommand.VOICES) {
+      return `Voices: ${payload.local?.length || 0} Local | ${payload.neural?.length || 0} Neural`;
     }
 
     return JSON.stringify(this.summarize(payload) || '');

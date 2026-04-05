@@ -7,6 +7,18 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.0.7] - 2026-04-05
+
+### Added
+- **IPC Protocol Hardening**: Decoupled `availableVoices` from the high-frequency `UI_SYNC` packet, significantly reducing routine synchronization bandwidth.
+- **Log Level Parity**: Synchronized `readAloud.logging.level` from the extension host to the webview, enabling consistent diagnostic telemetry across the bridge.
+- **Shorthand Log Sanitization**: Implemented payload truncation for massive IPC commands (Voices, Sync) in `Standard` logging mode to eliminate console bloat.
+- **Turn Sentinel Sovereignty**: Added TDD-backed logic to reject stale or out-of-order text injections in the MCP bridge.
+- **Cache Wipe Integrity**: Implemented proactive memory purging and blob URL revocation before cache clearing to prevent audio "ghosting."
+
+### Fixed
+- **Sync Signature mismatch**: Resolved a TypeScript lint error in `SpeechProvider.ts` caused by outdated `_syncUI` parameters.
+
 ## [2.0.6] - 2026-04-05
 
 ### Added

@@ -56,14 +56,12 @@ export interface UISyncPacket {
     canNextSentence: boolean;
     autoPlayMode: 'auto' | 'chapter' | 'row';
     engineMode: 'local' | 'neural';
-    availableVoices?: { local: any[], neural: any[] }; // [PHASE 4] Full voice lists
     cacheCount: number;
     cacheSizeBytes: number;
     cacheStats?: { count: number, size: number };
     selectedVoice?: string;
     rate: number;
     volume: number;
-    neuralVoices?: any[];
     lastLoadType?: 'cache' | 'synth' | 'none';
     activeMode: 'FILE' | 'SNIPPET';
     activeSessionId?: string;
