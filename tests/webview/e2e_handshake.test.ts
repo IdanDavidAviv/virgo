@@ -98,7 +98,12 @@ describe('Handshake Audit: Full UI & Logic Synchronization', () => {
             readerFilename: getEl('reader-filename'),
             readerDir: getEl('reader-dir'),
             btnLoadFile: getEl('btn-load-file') as HTMLButtonElement,
-            btnClearReader: getEl('btn-clear-reader') as HTMLButtonElement
+            btnClearReader: getEl('btn-clear-reader') as HTMLButtonElement,
+            btnModeFile: getEl('btn-mode-file') as HTMLButtonElement,
+            btnModeSnippet: getEl('btn-mode-snippet') as HTMLButtonElement,
+            fileModeContainer: getEl('file-mode-container'),
+            snippetLookupContainer: getEl('snippet-lookup-container'),
+            transferLayer: getEl('transfer-layer')
         });
 
         components.settings = new SettingsDrawer({
@@ -167,7 +172,15 @@ describe('Handshake Audit: Full UI & Logic Synchronization', () => {
                     local: []
                 },
                 chapters: [],
-                activeChapterIndex: 0
+                activeChapterIndex: 0,
+                snippetHistory: [
+                   {
+                       id: 'session-1',
+                       sessionName: 'Session 1',
+                       snippets: []
+                   }
+                ],
+                activeSessionId: null
             }
         }));
         

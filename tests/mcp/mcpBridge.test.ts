@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import * as fs from 'fs';
+
 import { McpBridge, PendingInjectionStore } from '../../src/extension/mcp/mcpBridge';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
@@ -11,6 +13,14 @@ describe('McpBridge Tests', () => {
     const logger = vi.fn((msg) => console.log(msg));
     const testPersistencePath = './tests/mcp/test_storage';
 
+    beforeEach(() => {
+        if (fs.existsSync(testPersistencePath)) {
+            fs.rmSync(testPersistencePath, { recursive: true, force: true });
+        }
+        fs.mkdirSync(testPersistencePath, { recursive: true });
+    });
+
+
     beforeAll(async () => {
         bridge = new McpBridge(testPersistencePath, logger);
         await bridge.start(TEST_PORT);
@@ -21,20 +31,20 @@ describe('McpBridge Tests', () => {
     });
 
     describe('PendingInjectionStore (Unit)', () => {
-        it('should add injections and increment index', () => {
+        it('should save injections and increment index', () => {
             const store = new PendingInjectionStore(testPersistencePath);
-            const idx1 = store.add('# First', 'first_snippet');
-            const idx2 = store.add('# Second', 'second_snippet');
+            const { index: idx1 } = store.save('# First', 'first_snippet', 'test_session');
+            const { index: idx2 } = store.save('# Second', 'second_snippet', 'test_session');
 
-            expect(idx1).toBe(0);
-            expect(idx2).toBe(1);
+            expect(idx1).toBe(1);
+            expect(idx2).toBe(2);
             expect(store.getAll()).toHaveLength(2);
             expect(store.getAll()[0].name).toBe('first_snippet');
         });
 
         it('should clear all injections', () => {
             const store = new PendingInjectionStore(testPersistencePath);
-            store.add('tmp', 'clear_test');
+            store.save('tmp', 'clear_test', 'test_session');
             store.clear();
             expect(store.getAll()).toHaveLength(0);
         });
@@ -61,13 +71,14 @@ describe('McpBridge Tests', () => {
                 name: 'inject_markdown',
                 arguments: {
                     content: '## Injected via Test',
-                    snippet_name: 'integration_test'
+                    snippet_name: 'integration_test',
+                    sessionId: 'test_session'
                 }
             }) as any;
             
             expect(injectResult.isError).toBeFalsy();
             expect(injectResult.content[0].type).toBe('text');
-            expect(injectResult.content[0].text).toContain('Successfully injected');
+            expect(injectResult.content[0].text.toLowerCase()).toContain('successfully');
 
             // 3. Verify Status
             const statusResult = await client.callTool({ 

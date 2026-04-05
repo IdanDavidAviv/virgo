@@ -39,9 +39,17 @@ const FULL_DOM = `
         <span id="active-dir"></span>
     </div>
     <div class="context-slot reader">
-        <button id="btn-clear-reader"></button>
-        <span id="reader-filename"></span>
-        <span id="reader-dir"></span>
+        <div class="mode-toggles">
+            <button id="btn-mode-file"></button>
+            <button id="btn-mode-snippet"></button>
+        </div>
+        <div id="file-mode-container">
+            <button id="btn-clear-reader"></button>
+            <span id="reader-filename"></span>
+            <span id="reader-dir"></span>
+        </div>
+        <div id="snippet-lookup-container" style="display:none"></div>
+        <div id="transfer-layer"></div>
     </div>
 
     <div id="sentence-navigator"></div>
@@ -149,8 +157,17 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
                 currentChapterIndex: 0,
                 currentSentenceIndex: 0,
                 isRefreshing: false,
-                isPreviewing: false
-            }
+                isPreviewing: false,
+                activeMode: 'FILE'
+            },
+            snippetHistory: [
+                {
+                    id: 'session-1',
+                    sessionName: 'Session 1',
+                    snippets: []
+                }
+            ],
+            activeSessionId: null
         } as any);
     });
 
@@ -204,7 +221,12 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             readerFilename: document.getElementById('reader-filename') as HTMLElement,
             readerDir: document.getElementById('reader-dir') as HTMLElement,
             btnLoadFile: document.getElementById('btn-load-file') as HTMLButtonElement,
-            btnClearReader: document.getElementById('btn-clear-reader') as HTMLButtonElement
+            btnClearReader: document.getElementById('btn-clear-reader') as HTMLButtonElement,
+            btnModeFile: document.getElementById('btn-mode-file') as HTMLButtonElement,
+            btnModeSnippet: document.getElementById('btn-mode-snippet') as HTMLButtonElement,
+            fileModeContainer: document.getElementById('file-mode-container') as HTMLElement,
+            snippetLookupContainer: document.getElementById('snippet-lookup-container') as HTMLElement,
+            transferLayer: document.getElementById('transfer-layer') as HTMLElement
         });
         context.mount();
         return context;
@@ -721,7 +743,14 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
                 currentSentenceIndex: 0,
                 isRefreshing: false,
                 isPreviewing: false
-            }
+            },
+            snippetHistory: [
+                {
+                    id: 'session-1',
+                    sessionName: 'Session 1',
+                    snippets: []
+                }
+            ]
         } as any;
 
         beforeEach(() => {
