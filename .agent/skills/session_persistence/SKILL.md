@@ -9,10 +9,10 @@ description: Protocol for local session metadata persistence in the Read Aloud e
 To ensure human-readable session titles and turn metadata are correctly resolved in the UI without relying on central agent memory, all session-specific state must be persisted locally.
 
 ## 2. Storage Architecture
-- **Root Directory**: `C:\Users\Idan4\.gemini\antigravity\read_aloud\`
-- **Session Folder**: `<sessionId>\`
+- **Root Directory**: `[ANTIGRAVITY_ROOT]/read_aloud/`
+- **Session Folder**: `<sessionId>/`
 - **State File**: `extension_state.json`
-- **Location**: `.../antigravity/read_aloud/<sessionId>/extension_state.json`
+- **Location**: `.../read_aloud/<sessionId>/extension_state.json`
 
 ## 3. Metadata Schema (`extension_state.json`)
 ```json
