@@ -7,6 +7,18 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.0.4] - 2026-04-05
+
+### Added
+- **Humanized Session Titles**: Refactored the "Snippet History" sidebar to resolve and display human-readable session names instead of UUIDs.
+- **Local Metadata Persistence**: Migrated session `state.json` storage from core agent directories to the extension-local `read_aloud` data store for absolute architectural decoupling.
+- **MCP Title Injection**: Updated Antigravity MCP servers to accept and persist an optional `session_title` parameter, allowing for seamless narrative context during text injection.
+- **Premium Glassmorphism**: Enhanced the `SnippetLookup` component with vibrant background blurs and optimized list haptics.
+- **Automated Metadata Migration**: Implemented a transition layer to bulk-migrate historical session titles to the new local persistence model.
+
+### Fixed
+- **UI State Flickering**: Resolved a race condition where snippet titles would momentarily reset to UUIDs during high-frequency synchronization events.
+
 ## [2.0.3] - 2026-04-04
 
 ### Vocal Sync & UI Persistence
