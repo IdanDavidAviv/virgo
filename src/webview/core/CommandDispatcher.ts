@@ -58,6 +58,11 @@ export class CommandDispatcher {
             return;
         }
 
+        // [SOVEREIGNTY] Set the active playback target
+        if (data?.cacheKey) {
+          audioEngine.setTarget(data.cacheKey);
+        }
+
         const intentId = data?.intentId ?? data?.sequenceId;
 
         if (data?.data) {
@@ -110,7 +115,7 @@ export class CommandDispatcher {
 
       case IncomingCommand.CLEAR_CACHE_WIPE:
         await audioEngine.wipeCache();
-        store.resetCacheStats();
+        store.patchState({ cacheCount: 0, cacheSizeBytes: 0 });
         break;
 
         case IncomingCommand.SYNTHESIS_ERROR:
@@ -145,9 +150,23 @@ export class CommandDispatcher {
       case IncomingCommand.CACHE_STATS:
         store.patchState({
             cacheCount: data.count,
-            cacheSizeBytes: data.size,
-            cacheStats: { count: data.count, size: data.size }
+            cacheSizeBytes: data.size !== undefined ? data.size : data.sizeBytes,
+            cacheStats: { count: data.count, size: data.size !== undefined ? data.size : data.sizeBytes }
         });
+        break;
+
+      case IncomingCommand.CACHE_STATS_UPDATE:
+        store.patchState({ 
+            cacheSizeBytes: data.sizeBytes, 
+            cacheCount: data.count,
+            cacheStats: { count: data.count, size: data.sizeBytes }
+        });
+        break;
+
+      case IncomingCommand.CLEAR_CACHE_WIPE:
+        console.log('[Dispatcher] 🧹 Wiping local IndexedDB cache...');
+        WebviewAudioEngine.getInstance().wipeCache();
+        store.patchState({ cacheSizeBytes: 0, cacheCount: 0 });
         break;
 
       case IncomingCommand.SENTENCE_CHANGED:

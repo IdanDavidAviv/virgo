@@ -16,9 +16,11 @@ export class WebviewAudioEngine {
   private activeObjectURLs: Set<string> = new Set();
   private cache: CacheManager;
   private activeIntentId: number = 0;
+  private pendingCacheKey: string | null = null;
+  private targetCacheKey: string | null = null;
   public intent: 'PLAYING' | 'PAUSED' | 'STOPPED' = 'PAUSED';
-  private adaptiveWaitTimer: any = null;
-  private adaptiveWaitResolver: (() => void) | null = null;
+  private waitTimers: Map<string, any> = new Map();
+  private waitResolvers: Map<string, () => void> = new Map();
 
   private constructor() {
     this.audio = new Audio();
@@ -155,8 +157,22 @@ export class WebviewAudioEngine {
   }
 
   /**
-   * [v2.0.0] Adaptive JIT Wait: Enters a 30ms silent window while waiting for synthesis.
-   * If data arrives within 30ms, we play instantly without showing "Loading..." in the UI.
+   * [SOVEREIGNTY] setTarget() - Formalizes the intent to play a specific cacheKey.
+   * This is the "Sovereign Intent" that governs UI stalling.
+   */
+  public setTarget(cacheKey: string | null): void {
+    console.log(`[AudioEngine] 🎯 Target set to: ${cacheKey}`);
+    this.targetCacheKey = cacheKey;
+    
+    // If the target is cleared, we should clear stalling as well
+    if (!cacheKey) {
+      WebviewStore.getInstance().patchState({ playbackStalled: false });
+    }
+  }
+
+  /**
+   * [v2.0.0] Adaptive JIT Wait: Enters a 40ms silent window while waiting for synthesis.
+   * If data arrives within 40ms, we play instantly without showing "Loading..." in the UI.
    */
   public startAdaptiveWait(cacheKey: string, intentId: number): Promise<void> {
     if (intentId < this.activeIntentId) {
@@ -166,28 +182,58 @@ export class WebviewAudioEngine {
     
     // 1. Update active intent
     this.activeIntentId = intentId;
-    this.clearAdaptiveWait();
+    this.pendingCacheKey = cacheKey;
 
-    console.log('[AudioEngine] ⏳ Entering Adaptive Wait (30ms)', { cacheKey, intentId });
+    // 2. Clean up any existing wait for THIS specific key to avoid overlaps
+    this.clearSpecificWait(cacheKey);
+
+    console.log('[AudioEngine] ⏳ Entering Adaptive Wait (40ms)', { cacheKey, intentId });
     
     return new Promise((resolve) => {
-      this.adaptiveWaitResolver = resolve;
-      this.adaptiveWaitTimer = setTimeout(() => {
-        console.log('[AudioEngine] ⏳ Adaptive Wait Expired - Showing Loading UI');
-        WebviewStore.getInstance().patchState({ playbackStalled: true });
-        this.clearAdaptiveWait();
-      }, 30);
+      this.waitResolvers.set(cacheKey, resolve);
+
+      const timer = setTimeout(() => {
+        // [SOVEREIGNTY]: Only show stall if audio is truly paused AND we are still waiting for THE TARGET.
+        const isTarget = cacheKey === this.targetCacheKey;
+        if (this.audio.paused && isTarget) {
+          console.log('[AudioEngine] ⏳ Adaptive Wait Expired - Showing Loading UI');
+          WebviewStore.getInstance().patchState({ playbackStalled: true });
+        } else {
+          console.log('[AudioEngine] ⏳ Adaptive Wait Expired - Suppressing Loading UI', { 
+            paused: this.audio.paused,
+            isTarget,
+            cacheKey,
+            target: this.targetCacheKey
+          });
+        }
+        this.resolveSpecificWait(cacheKey);
+      }, 40); // 40ms buffer for Windows IPC jitter
+
+      this.waitTimers.set(cacheKey, timer);
     });
   }
 
-  private clearAdaptiveWait(): void {
-    if (this.adaptiveWaitTimer) {
-      clearTimeout(this.adaptiveWaitTimer);
-      this.adaptiveWaitTimer = null;
+  private clearSpecificWait(cacheKey: string): void {
+    const timer = this.waitTimers.get(cacheKey);
+    if (timer) {
+      clearTimeout(timer);
+      this.waitTimers.delete(cacheKey);
     }
-    if (this.adaptiveWaitResolver) {
-      this.adaptiveWaitResolver();
-      this.adaptiveWaitResolver = null;
+    this.resolveSpecificWait(cacheKey);
+  }
+
+  private resolveSpecificWait(cacheKey: string): void {
+    const resolver = this.waitResolvers.get(cacheKey);
+    if (resolver) {
+      resolver();
+      this.waitResolvers.delete(cacheKey);
+    }
+  }
+
+  // Legacy support or mass cleanup
+  private clearAdaptiveWait(): void {
+    for (const key of this.waitTimers.keys()) {
+      this.clearSpecificWait(key);
     }
   }
 
@@ -211,11 +257,13 @@ export class WebviewAudioEngine {
     // Always store in cache (non-blocking background task)
     this.cache.set(cacheKey, blob).catch(err => console.error('[AudioEngine] Cache save failed:', err));
     
-    // If this is the current active intent (or newer), play it immediately
-    if (intentId >= this.activeIntentId) {
-        this.activeIntentId = intentId;
+    // If this is the data we needed, resolve the wait
+    if (this.pendingCacheKey === cacheKey) {
         console.log('[AudioEngine] 🔥 JIT Cache Hit via Direct Push - Playing Now', { cacheKey });
         this.clearAdaptiveWait();
+        WebviewStore.getInstance().patchState({ playbackStalled: false });
+        
+        // [CORRECTION] Actually play the blob we just received!
         await this.playBlob(blob, cacheKey, intentId);
     }
   }
@@ -304,12 +352,17 @@ export class WebviewAudioEngine {
       return;
     }
 
-    // Immediate revocation of previous blob URL (Dashboard Parity line 262)
+    // 3. Graceful Transition: Unload previous buffer and release memory [ISSUE 27]
+    this.audio.pause();
     const oldUrl = this.audio.src;
+    this.audio.src = '';
+    this.audio.load(); // Forces immediate cleanup of the previous track
+
     if (oldUrl.startsWith('blob:')) {
       this.revokeUrl(oldUrl);
     }
 
+    // [v2.0.7] Immediate memory hygiene
     const url = URL.createObjectURL(blob);
     this.activeObjectURLs.add(url);
     this.audio.src = url;
@@ -449,7 +502,11 @@ export class WebviewAudioEngine {
     this.purgeMemory();
     
     // 2. Clear Persistent Storage
-    await (this as any).cache.clearAll();
+    await this.cache.clearAll();
+    
+    // 3. Reset Store Metrics (Reactive UI parity)
+    WebviewStore.getInstance().resetCacheStats();
+    
     console.log('[AudioEngine] ✅ Cache wipe complete.');
   }
 }

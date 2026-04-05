@@ -43,6 +43,7 @@ export class WebviewStore {
   private intentExpiry: number = 0;
   private modeIntentExpiry: number = 0;
   private readonly INTENT_TIMEOUT_MS = 500;
+  private _isHydrated: boolean = false;
 
   // [REINFORCEMENT] Payload Cache
   private previousVoicesHash: string = '';
@@ -80,7 +81,21 @@ export class WebviewStore {
       if (packet.activeMode && !hasActiveModeIntent) {
         this.updateUIState({ activeMode: packet.activeMode }, true);
       }
+      this._isHydrated = true;
       this.updateState(packet, 'remote');
+    });
+
+    client.onCommand<any>(IncomingCommand.VOICES, (data: any) => {
+      if (!this._isHydrated) {
+        console.warn('[WebviewStore] Ignored VOICES update - store not hydrated');
+        return;
+      }
+      this.updateState({ 
+        availableVoices: { 
+          local: data.localVoices || [], 
+          neural: data.neuralVoices || [] 
+        } 
+      });
     });
 
     client.onCommand<{ cacheKey: string, data: string }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data }: { cacheKey: string, data: string }) => {
@@ -88,10 +103,35 @@ export class WebviewStore {
     });
 
 
-    client.onCommand<{ count: number, sizeBytes: number }>(IncomingCommand.CACHE_STATS_UPDATE, ({ count, sizeBytes }: { count: number, sizeBytes: number }) => {
-      this.updateUIState({ 
-        neuralBuffer: { count, sizeMb: Number((sizeBytes / (1024 * 1024)).toFixed(2)) }
+    // Unified Cache Stats handler (Legacy & Modern parity)
+    const handleCacheStats = (data: { count: number, sizeBytes?: number, size?: number }) => {
+      if (!this._isHydrated) {
+        console.warn('[WebviewStore] Ignored CACHE_STATS update - store not hydrated');
+        return;
+      }
+      const bytes = data.sizeBytes ?? data.size ?? 0;
+      this.updateState({
+        cacheCount: data.count,
+        cacheSizeBytes: bytes,
+        cacheStats: { count: data.count, size: bytes } // [PARITY] Restore composite object for #35 audit tests
       });
+
+      this.updateUIState({ 
+        neuralBuffer: { count: data.count, sizeMb: Number((bytes / (1024 * 1024)).toFixed(2)) }
+      });
+      console.log('[WebviewStore DEBUG] handleCacheStats updated neuralBuffer to=', this.uiState.neuralBuffer);
+    };
+
+    client.onCommand<any>(IncomingCommand.CACHE_STATS, handleCacheStats);
+    client.onCommand<any>(IncomingCommand.CACHE_STATS_UPDATE, handleCacheStats);
+
+    client.onCommand(IncomingCommand.CLEAR_CACHE_WIPE, () => {
+      this.clearLocalCache();
+    });
+
+    client.onCommand(IncomingCommand.PURGE_MEMORY, () => {
+        const { WebviewAudioEngine } = require('./WebviewAudioEngine');
+        WebviewAudioEngine.getInstance().purgeMemory();
     });
 
     client.onCommand(IncomingCommand.SNIPPET_SAVED, () => {
@@ -134,6 +174,7 @@ export class WebviewStore {
     this.listeners.clear();
     this.uiListeners.clear();
     this.state = null;
+    this._isHydrated = false;
     this.lastIntentId = 0;
     this.intentExpiry = 0;
     this.uiState = {
@@ -167,6 +208,8 @@ export class WebviewStore {
    */
   private refreshSyncingState(): void {
     const isAwaitingSync = this.uiState.isAwaitingSync;
+    // [SURGICAL] isStalled depends on engine-level playbackStalled signal, 
+    // which is now suppressed if audio is playing.
     const isStalled = !!(this.state?.playbackStalled && this.state?.isPlaying);
     // [ROBUST] If intent has expired, treat as background sync (fixes flicker in PlaybackStateAgnostic.test.ts)
     const isAutoStall = this.uiState.lastStallSource === 'AUTO' || Date.now() >= this.intentExpiry;
@@ -214,26 +257,10 @@ export class WebviewStore {
   public getSentenceKey(): string | null {
     const s = this.state;
     if (!s) { return null; }
-{}    const voice = s.selectedVoice || 'default';
+    const voice = s.selectedVoice || 'default';
     const uri = s.state.activeDocumentUri || 'unknown';
     const salt = s.state.versionSalt || '0';
     return `${voice}-${uri}-${salt}-${s.state.currentChapterIndex}-${s.state.currentSentenceIndex}`;
-  }
-
-  /**
-   * [OPTIONAL] Storage parity for Direct Data Push optimization.
-   * Persists synthesized neural segments into the browser's IndexedDB.
-   */
-  private async saveNeuralCache(cacheKey: string, data: string): Promise<void> {
-    try {
-      // Lazy load dependencies or use existing DB bridge
-      // For now, we emit a console trace to verify flow in integration
-      console.log(`[NeuralCache] Proactive Save: ${cacheKey} (${data.length} bytes)`);
-      // Note: Actual IndexedDB logic resides in common/storage or similar
-      // This is the anchor point for the push-optimization.
-    } catch (e) {
-      console.error('[NeuralCache] Push failed', e);
-    }
   }
 
 
@@ -327,6 +354,11 @@ export class WebviewStore {
    * Internal method to update the state and notify relevant listeners.
    */
   public updateState(newState: Partial<UISyncPacket>, source: 'remote' | 'local' = 'local'): void {
+    if (source === 'remote' && !this._isHydrated) {
+      console.warn('[WebviewStore] Ignored remote update - store not hydrated');
+      return;
+    }
+
     if (source === 'remote') {
       this.updateUIState({ 
         isAwaitingSync: false
@@ -348,9 +380,6 @@ export class WebviewStore {
     const oldState = this.state;
     
     // [DELTA SYNC] Preserve existing meta-state if missing from incoming packet
-    if (newState.availableVoices === undefined && oldState?.availableVoices) {
-        newState.availableVoices = oldState.availableVoices;
-    }
     if (newState.snippetHistory === undefined && oldState?.snippetHistory) {
         newState.snippetHistory = oldState.snippetHistory;
     }
@@ -439,6 +468,7 @@ export class WebviewStore {
             totalSentences: 0,
             totalChapters: 0,
             availableVoices: { local: [], neural: [] },
+            cacheStats: { count: 0, size: 0 }, // [PARITY] Initialize for tests
             state: {} as any
         } as unknown) as UISyncPacket;
     }
@@ -465,7 +495,7 @@ export class WebviewStore {
     });
 
     // Apply patch immediately and notify listeners synchronously
-    this.updateState({ ...this.state, ...patch } as any, 'local');
+    this.updateState(patch as any, 'local');
   }
 
   /**
@@ -473,8 +503,10 @@ export class WebviewStore {
    * Used for lightweight IPC commands (e.g. `voices`) that don't emit a full UI_SYNC.
    */
   public patchState(patch: Partial<UISyncPacket>): void {
-    if (!this.state) { return; }
-    this.updateState({ ...this.state, ...patch });
+    if (!this.state) {
+        return;
+    }
+    this.updateState(patch);
   }
 
   /**
@@ -545,5 +577,23 @@ export class WebviewStore {
     });
 
     console.log('[Store] 🧼 Cache state metrics reset to zero.');
+  }
+
+  /**
+   * [v2.0.0] JIT Data Ingestion: Forwards pushed audio data to the Audio Engine.
+   * @param cacheKey The key to associate with the audio data.
+   * @param data The base64 encoded audio data.
+   */
+  private async saveNeuralCache(cacheKey: string, data: string): Promise<void> {
+    const { WebviewAudioEngine } = await import('./WebviewAudioEngine');
+    await WebviewAudioEngine.getInstance().ingestData(cacheKey, data, 0);
+  }
+
+  /**
+   * [v2.0.6] Legacy Cleanup: Resets local cache state and wipes the Audio Engine.
+   */
+  private async clearLocalCache(): Promise<void> {
+    const { WebviewAudioEngine } = await import('./WebviewAudioEngine');
+    await WebviewAudioEngine.getInstance().wipeCache();
   }
 }

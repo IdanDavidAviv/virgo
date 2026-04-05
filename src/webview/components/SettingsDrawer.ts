@@ -167,7 +167,8 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             this.els.cacheDebugTag.ondblclick = async () => {
                 const confirmed = confirm('Clear all cached neural audio?');
                 if (confirmed) {
-                    await this.cache.clearAll();
+                    await this.audioEngine.wipeCache();
+                    MessageClient.getInstance().postAction(OutgoingAction.CLEAR_CACHE);
                     ToastManager.show('Audio cache cleared', 'info');
                     this.els.cacheDebugTag.classList.add('pulse');
                     setTimeout(() => this.els.cacheDebugTag.classList.remove('pulse'), 500);

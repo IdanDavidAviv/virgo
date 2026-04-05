@@ -145,12 +145,20 @@ export class MessageClient {
       return `State: ${p.isPlaying ? 'PLAY' : 'STOP'} | Progress: C${p.state?.currentChapterIndex}S${p.state?.currentSentenceIndex} | Cache: ${p.cacheCount} (${(p.cacheSizeBytes / (1024 * 1024)).toFixed(2)}MB)`;
     }
     
-    if (command === IncomingCommand.DATA_PUSH) {
-      return `Push: ${payload.cacheKey} | Size: ${payload.data?.length || 0} bytes`;
+    if (command === IncomingCommand.CACHE_STATS || command === IncomingCommand.CACHE_STATS_UPDATE) {
+      return `Count: ${payload.count} | Size: ${payload.size || payload.sizeBytes || 0} bytes`;
     }
 
-    if (command === IncomingCommand.VOICES) {
-      return `Voices: ${payload.local?.length || 0} Local | ${payload.neural?.length || 0} Neural`;
+    if (command === IncomingCommand.SENTENCE_CHANGED) {
+      return `Idx: ${payload.index} | Text: ${payload.text?.substring(0, 30) || ''}...`;
+    }
+
+    if (command === IncomingCommand.CLEAR_CACHE_WIPE) {
+      return `WIPE_COMPLETE`;
+    }
+
+    if (command === IncomingCommand.SYNTHESIS_STARTING) {
+      return `Key: ${payload.cacheKey}`;
     }
 
     return JSON.stringify(this.summarize(payload) || '');
@@ -191,7 +199,12 @@ export class MessageClient {
                              command === IncomingCommand.VOICES || 
                              command === IncomingCommand.PLAY_AUDIO || 
                              command === IncomingCommand.STOP ||
-                             command === IncomingCommand.DATA_PUSH;
+                             command === IncomingCommand.DATA_PUSH ||
+                             command === IncomingCommand.CACHE_STATS ||
+                             command === IncomingCommand.CACHE_STATS_UPDATE ||
+                             command === IncomingCommand.SYNTHESIS_STARTING ||
+                             command === IncomingCommand.SENTENCE_CHANGED ||
+                             command === IncomingCommand.CLEAR_CACHE_WIPE;
 
     if (isInternalCommand) {
       if (this._logLevel === LogLevel.VERBOSE) {

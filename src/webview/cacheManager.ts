@@ -122,10 +122,24 @@ export class CacheManager {
             return new Promise((resolve, reject) => {
                 const transaction = db.transaction(this.storeName, 'readonly');
                 const store = transaction.objectStore(this.storeName);
+                
                 const countReq = store.count();
+                const cursorReq = store.openCursor();
                 
                 let size = 0;
-                const cursorReq = store.openCursor();
+                let countReady = false;
+                let cursorReady = false;
+
+                const checkFinished = () => {
+                    if (countReady && cursorReady) {
+                        resolve({ count: countReq.result || 0, size });
+                    }
+                };
+
+                countReq.onsuccess = () => {
+                    countReady = true;
+                    checkFinished();
+                };
 
                 cursorReq.onsuccess = (event) => {
                     const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
@@ -135,11 +149,12 @@ export class CacheManager {
                         }
                         cursor.continue();
                     } else {
-                        // Cursor finished
-                        resolve({ count: countReq.result || 0, size });
+                        cursorReady = true;
+                        checkFinished();
                     }
                 };
 
+                transaction.onerror = () => reject(transaction.error);
                 cursorReq.onerror = () => reject(cursorReq.error);
             });
         } catch (e) {
