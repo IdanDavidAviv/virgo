@@ -21,12 +21,13 @@ describe('NeuralCache TDD: Storage Optimization & Clearing', () => {
         window.postMessage({
             command: 'DATA_PUSH',
             cacheKey: 'c1',
-            data: 'audio-data'
+            data: 'audio-data',
+            intentId: 1
         }, '*');
 
         // Give message some time to propagate through MessageClient
         await vi.waitFor(() => {
-            expect(saveSpy).toHaveBeenCalledWith('c1', 'audio-data');
+            expect(saveSpy).toHaveBeenCalledWith('c1', 'audio-data', 1);
         }, { timeout: 1000 });
     });
 

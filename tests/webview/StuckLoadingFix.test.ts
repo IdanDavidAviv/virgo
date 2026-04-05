@@ -47,6 +47,11 @@ describe('Stuck Loading State Fix Verification', () => {
     it('FIX VERIFICATION: playbackStalled should be cleared after pause', async () => {
         // 1. Set intent to PLAYING so onwaiting isn't ignored
         (engine as any).intent = 'PLAYING';
+        
+        // [SOVEREIGNTY MOCK] Align src and sovereignUrl to satisfy isSovereign() audit
+        const mockUrl = 'blob:mock-audio-data';
+        mockAudioInstance.src = mockUrl;
+        (engine as any).sovereignUrl = mockUrl;
 
         // 2. Simulate a stall (listeners are attached to mockAudioInstance by the engine)
         mockAudioInstance.onwaiting();

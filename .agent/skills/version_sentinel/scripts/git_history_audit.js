@@ -49,9 +49,18 @@ function getVersionAnchor(type = 'patch') {
     console.log(`🏷️  Current Version: ${currentVersion}`);
     console.log(`⚓ Target Anchor: ${anchorVersion} (${type.toUpperCase()} Release)`);
     
-    // Find the hash of the commit that introduced this exact version line
-    // We use -G to search for the string in the diff
-    const anchorHash = run(`git log -G"\\\"version\\\": \\\"${anchorVersion}\\\"" --pretty=format:%H -n 1 package.json`);
+    // PRIORITY 1: Check if a git tag for horizontal parity exists (vX.Y.Z)
+    const tagName = `v${anchorVersion}`;
+    const tagHash = run(`git rev-parse ${tagName}`);
+    if (tagHash) {
+        console.log(`✅ Found Git Tag anchor: ${tagName} [${tagHash.substring(0, 7)}]`);
+        return tagHash;
+    }
+
+    // PRIORITY 2: Fallback to string-searching with robust regex
+    // We use a simpler pattern that is less likely to break on Windows/PowerShell
+    console.log('🔍 Tag not found. Searching commit history for version string...');
+    const anchorHash = run(`git log -G"version.: .${anchorVersion}" --pretty=format:%H -n 1 package.json`);
     
     if (!anchorHash) {
         console.warn(`⚠️  Warning: Could not find anchor commit for version ${anchorVersion}. Falling back to last package.json touch.`);

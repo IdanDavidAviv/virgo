@@ -7,6 +7,29 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.1.0] - 2026-04-05
+
+### Added
+
+
+### Sovereign Playback & Hierarchical Audit
+This release formalizes the **Prestige Release Protocol** with the introduction of the **Hierarchical Audit**, providing full-spectrum visibility into the extension's architectural trajectory. It also marks the debut of the **Sovereign Playback Engine**, a hardened synchronization layer that eliminates "Ghost Audio" and ensures absolute intent-aware synthesis parity.
+
+#### 1. Hierarchical Audit Protocol
+- **Trajectory Discovery**: Enhanced `version_sentinel` with flag-driven auditing (`--patch`, `--minor`, `--major`) to capture deep architectural shifts across release cycles.
+- **Surgical Diff Analysis**: Automated the sanitization and grouping of commit deltas for high-context changelog generation.
+- **Release Prestige**: Automated the "Burn" pipeline to ensure 100% synchronized versioning across `package.json`, `CHANGELOG.md`, and VSIX metadata.
+
+#### 2. Sovereign Playback (Intent-Aware)
+- **Monotonic Intent IDs**: Introduced `playbackIntentId` in `PlaybackEngine` to provide authoritative rejection of stagnant audio buffers from previous navigation intents.
+- **Resource-Strict Mapping**: Updated the `WebviewAudioEngine` to bind audio streams strictly to their originating resource URIs, preventing "Zombie" playback across file transitions.
+- **Telemetry Hardening**: Added `Number.isFinite` and composite object guards in the `WebviewStore` to prevent state corruption during high-frequency synchronization.
+
+#### 3. MCP Bridge Hardening
+- **Turn Manager Architecture**: Refactored `TurnManager` into a high-integrity singleton for centralized turn-index tracking and sequence validation.
+- **Protocol Hydration**: Automated the generation of oral and visual turn headers (`# [Turn XXX]`) for virtual document injections via the MCP bridge.
+- **Multi-Root Workspace Parity**: Standardized path-agnostic metadata resolution to ensure persistent session history across complex VS Code workspaces.
+
 ## [2.0.8] - 2026-04-05
 
 ### Added

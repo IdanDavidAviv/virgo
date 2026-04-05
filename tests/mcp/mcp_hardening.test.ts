@@ -1,74 +1,58 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PathGuard } from '../../src/common/mcp/pathGuard';
 import { TurnManager } from '../../src/common/mcp/turnManager';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as assert from 'assert';
 
-async function testPathGuard() {
-    console.log('--- Testing PathGuard ---');
+describe('MCP Hardening Verification', () => {
     
-    // Whitelisted patterns
-    assert.strictEqual(PathGuard.sanitize('session-123', 'Session'), 'session-123');
-    assert.strictEqual(PathGuard.sanitize('user_name', 'User'), 'user_name');
-    
-    // Malicious patterns
-    try {
-        PathGuard.sanitize('../../etc/passwd', 'Evil');
-        assert.fail('Should have rejected path traversal');
-    } catch (e: any) {
-        console.log('✅ Correctly rejected path traversal: ' + e.message);
-    }
-    
-    try {
-        PathGuard.sanitize('session; rm -rf /', 'Injection');
-        assert.fail('Should have rejected script injection');
-    } catch (e: any) {
-        console.log('✅ Correctly rejected script injection: ' + e.message);
-    }
-}
+    it('PathGuard SHOULD sanitize whitelisted strings and reject malicious patterns', () => {
+        // Whitelisted patterns
+        expect(PathGuard.sanitize('session-123', 'Session')).toBe('session-123');
+        expect(PathGuard.sanitize('user_name', 'User')).toBe('user_name');
+        
+        // Malicious patterns
+        expect(() => PathGuard.sanitize('../../etc/passwd', 'Evil')).toThrow(/Only alphanumeric/);
+        expect(() => PathGuard.sanitize('session; rm -rf /', 'Injection')).toThrow(/Only alphanumeric/);
+    });
 
-async function testTurnManager() {
-    console.log('\n--- Testing TurnManager ---');
-    const testDir = path.join(__dirname, 'tmp_turn_test');
-    if (!fs.existsSync(testDir)) {fs.mkdirSync(testDir);}
-    
-    const stateFile = path.join(testDir, 'extension_state.json');
-    if (fs.existsSync(stateFile)) {fs.unlinkSync(stateFile);}
-    
-    // 1. Initial turn
-    const index1 = TurnManager.updateTurnIndex(testDir, { sessionTitle: 'Test Session' });
-    assert.strictEqual(index1, 1, 'Initial turn should be 1');
-    
-    // 2. Increment
-    const index2 = TurnManager.updateTurnIndex(testDir);
-    assert.strictEqual(index2, 2, 'Next turn should be 2');
-    
-    // 3. Valid explicit index
-    const index3 = TurnManager.updateTurnIndex(testDir, { incomingIndex: 5 });
-    assert.strictEqual(index3, 5, 'Should honor valid explicit index');
-    
-    // 4. Stale index rejection
-    try {
-        TurnManager.updateTurnIndex(testDir, { incomingIndex: 3 });
-        assert.fail('Should have rejected stale index');
-    } catch (e: any) {
-        console.log('✅ Correctly rejected stale turn index: ' + e.message);
-    }
-    
-    // Cleanup
-    fs.unlinkSync(stateFile);
-    fs.rmdirSync(testDir);
-}
+    describe('TurnManager Strategy', () => {
+        const testDir = path.join(__dirname, 'tmp_turn_test');
+        const stateFile = path.join(testDir, 'extension_state.json');
 
-async function runTests() {
-    try {
-        await testPathGuard();
-        await testTurnManager();
-        console.log('\n✨ ALL HARDENING LOGIC VERIFIED');
-    } catch (e) {
-        console.error('\n❌ VERIFICATION FAILED:', e);
-        process.exit(1);
-    }
-}
+        beforeEach(() => {
+            if (!fs.existsSync(testDir)) {
+                fs.mkdirSync(testDir);
+            }
+            if (fs.existsSync(stateFile)) {
+                fs.unlinkSync(stateFile);
+            }
+        });
 
-runTests();
+        afterEach(() => {
+            if (fs.existsSync(stateFile)) {
+                fs.unlinkSync(stateFile);
+            }
+            if (fs.existsSync(testDir)) {
+                fs.rmdirSync(testDir);
+            }
+        });
+
+        it('SHOULD atomicaly increment turn index and reject stale inputs', () => {
+            // 1. Initial turn
+            const index1 = TurnManager.updateTurnIndex(testDir, { sessionTitle: 'Test Session' });
+            expect(index1).toBe(1);
+            
+            // 2. Increment
+            const index2 = TurnManager.updateTurnIndex(testDir);
+            expect(index2).toBe(2);
+            
+            // 3. Valid explicit index
+            const index3 = TurnManager.updateTurnIndex(testDir, { incomingIndex: 5 });
+            expect(index3).toBe(5);
+            
+            // 4. Stale index rejection
+            expect(() => TurnManager.updateTurnIndex(testDir, { incomingIndex: 3 })).toThrow(/Stale turn index/);
+        });
+    });
+});

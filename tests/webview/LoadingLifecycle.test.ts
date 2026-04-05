@@ -51,7 +51,11 @@ describe('Loading Lifecycle Audit & Stabilization', () => {
 
     it('BUG REPRO: playbackStalled should be cleared by pause()', () => {
         // 1. Trigger buffer stall during active playback intent
+        // [SOVEREIGNTY]: We MUST set a target and align the src to pass isSovereign()
         (engine as any).intent = 'PLAYING';
+        (engine as any).sovereignUrl = 'neural-cache://test-segment';
+        mockAudioInstance.src = 'neural-cache://test-segment';
+        
         mockAudioInstance.onwaiting();
         expect(store.getState()?.playbackStalled).toBe(true);
 
