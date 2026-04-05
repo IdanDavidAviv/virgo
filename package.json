@@ -2,7 +2,7 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
@@ -177,6 +177,11 @@
           "type": "number",
           "default": 3,
           "description": "Maximum number of retries for neural synthesis before giving up."
+        },
+        "readAloud.agent.autoInjectSITREP": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically inject a SITREP/Summary into the Read Aloud extension when a task is completed (Multimodal Parity)."
         }
       }
     },
@@ -205,11 +210,15 @@
     "lint": "eslint src --ext ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:unit": "vitest run",
+    "test:core": "vitest run --project core",
+    "test:mcp": "vitest run --project mcp",
+    "test:vscode": "vitest run --project vscode",
+    "test:webview": "vitest run --project webview",
+    "test:integration": "vitest run --project integration",
     "package": "node scripts/package.js",
     "release:audit": "node .agent/skills/version_sentinel/scripts/git_history_audit.js --diff",
     "release:verify": "node .agent/skills/version_sentinel/scripts/manage_version.js",
-    "release": "npm run release:verify && npm run lint && npm run build && npm run package && node .agent/skills/release_prestige/scripts/verify_artifact.js",
+    "release": "npm run release:verify && npm run lint && npm run typecheck && npm run test && npm run build && npm run package && node .agent/skills/release_prestige/scripts/verify_artifact.js",
     "release:patch": "node .agent/skills/version_sentinel/scripts/manage_version.js --bump patch && npm run release",
     "release:minor": "node .agent/skills/version_sentinel/scripts/manage_version.js --bump minor && npm run release",
     "release:major": "node .agent/skills/version_sentinel/scripts/manage_version.js --bump major && npm run release"

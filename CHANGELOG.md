@@ -7,6 +7,16 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.0.8] - 2026-04-05
+
+### Added
+- **Store Hydration Sovereignty**: Hardened `WebviewStore` against premature asynchronous syncing. UI and Cache updates are now rejected until a fully formed `UI_SYNC` handshake establishes the baseline.
+- **Cache Statistical Parity**: Enforced strict `updateState` object alignment so the webview mirrors the exact `{ count, size }` composite data structures sent by the extension.
+- **Control System Audit**: Stabilized the `control_system_audit` tests by enforcing proper asynchronous dispatching and accurate backend object modeling.
+
+### Fixed
+- **Neural Buffer Ghost Wipe**: Resolved a test-environment regression in `NeuralCache.test.ts` where delayed promise resolution from async memory wipes (`AudioEngine`) would silently overwrite the state of sibling test suites.
+
 ## [2.0.7] - 2026-04-05
 
 ### Added
