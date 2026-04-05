@@ -13,6 +13,7 @@ All convolutional content injected via `mcp_read-aloud_inject_markdown` MUST mai
 
 - **Rule 2.1: No Summarization**: Content marked for injection (`markdown`, `snippet`, `content`) is "Sovereign" and MUST NOT be summarized, even if it exceeds standard terminal limits.
 - **Rule 2.2: Verbatim Agreement**: The exact string provided to the `inject_markdown` tool must be the string that hits the `SnippetHistory` store.
+- **Rule 2.3: Zero Drift Mandate**: For any turn involving an injection, the chat response MUST be a 1:1 verbatim duplicate of the injection `content`. Extemporaneous chat preambles are strictly forbidden.
 
 ## 3. Anchor Standards
 To maintain relational traceability between the conversational context and the extension history, all injections MUST follow the **Turn Anchor Standard**.
@@ -20,7 +21,13 @@ To maintain relational traceability between the conversational context and the e
 - **Format**: The first line of any injection MUST be exactly `# [Turn XXX]`, where `XXX` is the current session turn index.
 - **Dependency**: Refer to the `session_persistence` skill to resolve the `current_turn_index`.
 
-## 4. Sync Bridge Architecture (High Integrity)
+## 4. Lifecycle Protocols (Tier-2)
+To maintain parity between the agent's work and the user's perception, formal injections MUST accompany key lifecycle events.
+
+- **Rule 4.1: Genesis Protocol**: A formal SITREP injection (Turn 001+) MUST occur immediately at **Session Start**, as part of the [session_lifecycle](file:///C:/Users/Idan4/.gemini/antigravity/knowledge/session_lifecycle/artifacts/SKILL.md) protocol. 
+- **Rule 4.2: SITREP Fidelity**: A formal injection MUST be performed for every **SITREP** or major decision gate. The chat output for these turns MUST obey the **Zero Drift Mandate** (Rule 2.3).
+
+## 5. Sync Bridge Architecture (High Integrity)
 The protocol ensures that background injections correctly hydrate the webview state, even if the sidebar is sleeping or hidden.
 
 ### 4.1 Critical Command Whitelisting
