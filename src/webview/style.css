@@ -1448,6 +1448,89 @@ input[type="range"]::-webkit-slider-thumb:hover {
     background: var(--primary);
 }
 
+/* --- AUDIO UNLOCK SHIELD --- */
+.audio-unlock-shield {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(4, 6, 11, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.audio-unlock-shield.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.shield-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    text-align: center;
+    padding: 32px;
+    max-width: 320px;
+}
+
+.shield-icon-container {
+    width: 80px;
+    height: 80px;
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    color: var(--primary);
+    box-shadow: 0 0 40px rgba(56, 189, 248, 0.2);
+    animation: shield-pulse 2s infinite ease-in-out;
+}
+
+@keyframes shield-pulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(56, 189, 248, 0.2); }
+    50% { transform: scale(1.1); box-shadow: 0 0 50px rgba(56, 189, 248, 0.4); }
+}
+
+.shield-title {
+    font-size: 16px;
+    font-weight: 800;
+    color: #f1f5f9;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.shield-description {
+    font-size: 12px;
+    color: #94a3b8;
+    line-height: 1.6;
+    margin-bottom: 16px;
+}
+
+.shield-hint {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--primary);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    opacity: 0.8;
+}
+
+
 .chapter-item .file-link {
     font-size: 0.9em;
     padding: 0 3px;

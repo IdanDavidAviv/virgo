@@ -130,6 +130,9 @@ export class InteractionManager {
                 }
                 break;
         }
+
+        // [AUTOPLAY] Every keypress counts as a gesture to unlock the audio context
+        audioEngine.ensureAudioContext();
     }
 
     /**
@@ -155,5 +158,8 @@ export class InteractionManager {
                 this.client.postAction(OutgoingAction.OPEN_FILE, { uri: uri });
             }
         }
+
+        // [AUTOPLAY] Every click counts as a gesture to unlock the audio context
+        WebviewAudioEngine.getInstance().ensureAudioContext();
     }
 }
