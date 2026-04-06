@@ -175,14 +175,19 @@ export class WebviewAudioEngine {
     // the audio context during a user gesture without playing actual sounds.
     const primer = new Audio();
     primer.muted = true;
-    primer.play()
-        .then(() => {
+    const playPromise = primer.play();
+    
+    // Handle environments where play() might not return a Promise (e.g. JSDOM)
+    if (playPromise && typeof playPromise.then === 'function') {
+        playPromise.then(() => {
             this._isPrimed = true;
             console.log('[AudioEngine] 🔓 Audio subsystem primed silently via User Gesture');
-        })
-        .catch(() => {
+        }).catch(() => {
             // Expected if no interaction occurred yet, we will retry on next interaction
         });
+    } else {
+        this._isPrimed = true;
+    }
   }
 
   public prepareForPlayback(): number {
