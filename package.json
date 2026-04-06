@@ -2,7 +2,7 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
@@ -70,6 +70,26 @@
         "command": "readme-preview-read-aloud.read-from-cursor",
         "title": "Read Aloud From Here",
         "icon": "$(debug-start-from-here)"
+      },
+      {
+        "command": "readme-preview-read-aloud.prev-chapter",
+        "title": "Previous Chapter",
+        "icon": "$(arrow-left)"
+      },
+      {
+        "command": "readme-preview-read-aloud.next-chapter",
+        "title": "Next Chapter",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "readme-preview-read-aloud.prev-sentence",
+        "title": "Previous Sentence",
+        "icon": "$(triangle-left)"
+      },
+      {
+        "command": "readme-preview-read-aloud.next-sentence",
+        "title": "Next Sentence",
+        "icon": "$(triangle-right)"
       }
     ],
     "viewsContainers": {
@@ -182,6 +202,11 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically inject a SITREP/Summary into the Read Aloud extension when a task is completed (Multimodal Parity)."
+        },
+        "readAloud.playback.globalShortcuts": {
+          "type": "boolean",
+          "default": false,
+          "description": "If enabled, navigation shortcuts (Arrows, Shift+Arrows) work globally when the extension is active. If disabled, they only work when focused on a Markdown editor or the Dashboard."
         }
       }
     },
@@ -199,6 +224,26 @@
         "command": "readme-preview-read-aloud.read-from-cursor",
         "key": "alt+shift+r",
         "when": "editorLangId == markdown"
+      },
+      {
+        "command": "readme-preview-read-aloud.prev-chapter",
+        "key": "shift+left",
+        "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
+      },
+      {
+        "command": "readme-preview-read-aloud.next-chapter",
+        "key": "shift+right",
+        "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
+      },
+      {
+        "command": "readme-preview-read-aloud.prev-sentence",
+        "key": "left",
+        "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
+      },
+      {
+        "command": "readme-preview-read-aloud.next-sentence",
+        "key": "right",
+        "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
       }
     ]
   },

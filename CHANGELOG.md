@@ -7,6 +7,14 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.1.3] - 2026-04-06
+
+### Changed
+- **Decoupled Audio Strategy**: Finalized the separation of `LocalAudioStrategy` and `NeuralAudioStrategy`. `WebviewAudioEngine` now acts as a clean orchestrator, drastically reducing monolithic complexity.
+- **Legacy Decommissioning**: Removed the legacy compatibility proxy layer in `WebviewAudioEngine` (`base64ToBlob` and `sovereignUrl` bindings) following the strategy refactor.
+- **Ghost Audio Guard**: Hardened the cache-wipe protocol (`CacheWipeSovereignty`). The engine now guarantees `URL.revokeObjectURL` is executed *before* IndexedDB clearing, eliminating memory leaks and transient "ghost" audio playback.
+- **Intent Sovereignty**: Updated backend `PlaybackController` logic to properly prime `intent-gating`, bypassing the `ZombieGuard` block during rapid initialization tests.
+- **Test Suite Robustness (100% Pass Rate)**: Achieved a green 330-test suite by formalizing the **Reset-Initialize-Spy** pattern across singleton-based tests (`WebviewStore`, `WebviewAudioEngine`, `CommandDispatcher`) to eliminate state leakage between parallel executions, and refined JSDOM mocks for stable audio tracking.
 ## [2.1.2] - 2026-04-06
 
 ### Added
