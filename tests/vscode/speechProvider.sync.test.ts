@@ -91,10 +91,10 @@ describe('SpeechProvider (Sync)', () => {
         };
     });
 
-    it('should initialize with correct default state (volume: 50, rate: 0)', () => {
+    it('should initialize with correct default state (volume: 50, rate: 1.0)', () => {
         const stateStore = (provider as any)._stateStore as StateStore;
         expect(stateStore.state.volume).toBe(50);
-        expect(stateStore.state.rate).toBe(0);
+        expect(stateStore.state.rate).toBe(1.0);
     });
 
     it('should sync options (rate/volume) reactively from StateStore', () => {
@@ -127,7 +127,7 @@ describe('SpeechProvider (Sync)', () => {
         
         // In Delta Sync, reactive updates are partial. We skip voice list checks here
         // and rely on _syncUI(true) calls for full state consistency.
-        expect(lastSync.rate).toBe(0);
+        expect(lastSync.rate).toBe(1.0);
         expect(lastSync.volume).toBe(50);
     });
 
@@ -136,8 +136,8 @@ describe('SpeechProvider (Sync)', () => {
         const stateStore = (provider as any)._stateStore as StateStore;
         vi.clearAllMocks();
 
-        // Simulate voiceChanged command
-        await (provider as any)._handleWebviewMessage({ command: 'voiceChanged', voice: 'new-voice' });
+        // Simulate SET_VOICE command
+        await (provider as any)._handleWebviewMessage({ command: 'SET_VOICE', value: 'new-voice' });
 
         // 1. Verify StateStore update
         expect(stateStore.state.selectedVoice).toBe('new-voice');
@@ -206,7 +206,7 @@ describe('SpeechProvider (Sync)', () => {
         (docController as any)._chapters = [{ sentences: ['Hello'] }];
 
         // Mock progress loading (no saved progress for this test)
-        vi.spyOn(provider as any, '_loadProgress').mockReturnValue(null);
+        vi.spyOn((provider as any)._settingsManager, 'loadProgress').mockReturnValue(null);
         
         vi.clearAllMocks();
 

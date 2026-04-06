@@ -7,6 +7,17 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.1.2] - 2026-04-06
+
+### Added
+- **Architectural Modularization (Service Layer Parity)**: Decommissioned the monolithic `SpeechProvider` in favor of a lean orchestrator pattern supported by dedicated micro-services for improved testability and isolation.
+- **SettingsManager**: Extracted all configuration loading, legacy migration, and document progress persistence logic.
+- **VoiceManager**: Centralized voice discovery, caching, and broadcasting protocols.
+- **McpWatcher**: Dedicated service for tracking and synchronizing MCP-specific configurations.
+- **Optimistic State Updates**: Implemented immediate `StateStore` hydration in `SettingsManager` to ensure zero-latency UI responsiveness during background persistence cycles.
+- **Hardened Lifecycle Protocol**: Integrated cascading `dispose()` calls across all services, ensuring absolute resource cleanliness and zero memory leaks upon extension deactivation.
+- **Atomic Handshake Recovery**: Stabilized the dashboard initialization handshake to proactively sync voices before the initial state broadcast.
+
 ## [2.1.1] - 2026-04-06
 
 ### Silent Physics & Zero-Interrupt Audio

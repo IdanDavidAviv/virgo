@@ -9,6 +9,11 @@ import { SequenceManager } from '@core/sequenceManager';
 import { AudioBridge } from '@core/audioBridge';
 import { DashboardRelay } from './dashboardRelay';
 import { OutgoingAction, IncomingCommand, SnippetHistory } from '@common/types';
+import { McpWatcher } from '@vscode/McpWatcher';
+import { VoiceManager } from '@vscode/VoiceManager';
+import { SettingsManager } from '@vscode/SettingsManager';
+
+
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
@@ -20,14 +25,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _stateStore: StateStore;
     private _audioBridge: AudioBridge;
     private _dashboardRelay: DashboardRelay;
+    private _mcpWatcher: McpWatcher;
+
 
     // Selection state (passive) - Moved to StateStore
 
     private _playbackEngine: PlaybackEngine;
     private _needsSync: boolean = false; // Tracks if a full sync is required on reveal
     private _needsHistorySync: boolean = false; // Specific flag for background snippet updates
-    private _localVoices: any[] = [];
-    private _neuralVoices: any[] = [];
+    private _voiceManager!: VoiceManager;
+    private _settingsManager!: SettingsManager;
+    private _debounceSaveTimers: Map<string, NodeJS.Timeout> = new Map();
 
     private _lastReportedProgress: number = -1;
     private _debounceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -37,7 +45,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         private readonly _context: vscode.ExtensionContext,
         private readonly _logger: (msg: string) => void,
         private readonly _statusBarItem: vscode.StatusBarItem,
-        private readonly _antigravityRoot: string,
+        private _antigravityRoot: string,
         private _sessionId: string,
         public onVisibilityChanged?: () => void
     ) {
@@ -48,7 +56,38 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._stateStore = new StateStore(this._logger);
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
         this._audioBridge = new AudioBridge(this._stateStore, this._docController, this._playbackEngine, this._sequenceManager, this._logger);
+
+
+        // [PHASE 1 REFACTOR] Modularized MCP Watcher
+        this._mcpWatcher = new McpWatcher(
+            this._antigravityRoot,
+            this._sessionId,
+            this._stateStore,
+            this._docController,
+            this._logger
+        );
+        this._mcpWatcher.onSessionPivot(id => this.pivotSession(id));
+        this._mcpWatcher.onSnippetLoaded(async () => {
+            this.stop();
+            await this.refreshView();
+            if (this._stateStore.state.autoPlayOnInjection) {
+                this.continue();
+            }
+        });
+        this._context.subscriptions.push(this._mcpWatcher);
+
+        // 2. Initialize Core Services
+        this._settingsManager = new SettingsManager(
+            this._context,
+            this._stateStore,
+            msg => this._logger(msg),
+            this._antigravityRoot,
+            this._sessionId
+        );
+        this._settingsManager.initialize();
+
         this._dashboardRelay = new DashboardRelay(this._stateStore, this._docController, this._playbackEngine, this._logger);
+        this._voiceManager = new VoiceManager(this._playbackEngine, this._stateStore, this._dashboardRelay, this._logger);
 
         // Register AudioBridge Events
         this._audioBridge.on('playAudio', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.PLAY_AUDIO, ...payload }));
@@ -66,73 +105,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._dashboardRelay.postMessage({ command: IncomingCommand.CACHE_STATS_UPDATE, ...payload });
         });
 
-        // Load Settings using VS Code Configuration API
-        this._migrateLegacySettings();
-        const config = vscode.workspace.getConfiguration('readAloud');
-        
-        const rate = config.get<number>('playback.rate', 0);
-        const volume = config.get<number>('playback.volume', 50);
-        const voice = config.get<string>('playback.voice', 'en-US-SteffanNeural');
-        const engineMode = config.get<'local' | 'neural'>('playback.engineMode', 'neural');
-        const autoPlayMode = config.get<'auto' | 'chapter' | 'row'>('playback.autoPlayMode', 'auto');
-        const autoPlayOnInjection = config.get<boolean>('playback.autoPlayOnInjection', false);
-
-        this._stateStore.setOptions({
-            rate,
-            volume,
-            selectedVoice: voice,
-            engineMode,
-            autoPlayMode,
-            autoPlayOnInjection,
-            autoInjectSITREP: config.get<boolean>('agent.autoInjectSITREP', true)
-        });
-
-        // Apply Performance Tuning from Config
-        this._playbackEngine.setCacheLimitMb(config.get<number>('cache.maxSizeMb', 50));
-        this._playbackEngine.setRetryAttempts(config.get<number>('network.retryAttempts', 3));
-        this._audioBridge.setPushDelay(config.get<number>('playback.jumpDelayMs', 200));
-
-        // Listen for Configuration Changes (Sync settings.json -> Logic)
-        _context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('readAloud')) {
-                const updatedConfig = vscode.workspace.getConfiguration('readAloud');
-                
-                // 1. Performance Tuning
-                if (e.affectsConfiguration('readAloud.cache.maxSizeMb')) {
-                    this._playbackEngine.setCacheLimitMb(updatedConfig.get<number>('cache.maxSizeMb', 50));
-                }
-                if (e.affectsConfiguration('readAloud.playback.jumpDelayMs')) {
-                    this._audioBridge.setPushDelay(updatedConfig.get<number>('playback.jumpDelayMs', 200));
-                }
-
-                // 2. User Preferences (Sync settings.json -> StateStore -> UI)
-                const updatedOptions: any = {};
-                if (e.affectsConfiguration('readAloud.playback.rate')) { updatedOptions.rate = updatedConfig.get('playback.rate'); }
-                if (e.affectsConfiguration('readAloud.playback.volume')) { updatedOptions.volume = updatedConfig.get('playback.volume'); }
-                if (e.affectsConfiguration('readAloud.playback.voice')) { updatedOptions.selectedVoice = updatedConfig.get('playback.voice'); }
-                if (e.affectsConfiguration('readAloud.playback.engineMode')) { updatedOptions.engineMode = updatedConfig.get('playback.engineMode'); }
-                if (e.affectsConfiguration('readAloud.playback.autoPlayMode')) { updatedOptions.autoPlayMode = updatedConfig.get('playback.autoPlayMode'); }
-                if (e.affectsConfiguration('readAloud.playback.autoPlayOnInjection')) { updatedOptions.autoPlayOnInjection = updatedConfig.get('playback.autoPlayOnInjection'); }
-                if (e.affectsConfiguration('readAloud.network.retryAttempts')) { this._playbackEngine.setRetryAttempts(updatedConfig.get<number>('network.retryAttempts', 3)); }
-                if (e.affectsConfiguration('readAloud.agent.autoInjectSITREP')) { 
-                    const val = updatedConfig.get<boolean>('agent.autoInjectSITREP', true);
-                    updatedOptions.autoInjectSITREP = val;
-                    this._bridgeAgentState(val);
-                }
-
-                if (Object.keys(updatedOptions).length > 0) {
-                    this._stateStore.setOptions(updatedOptions);
-                    this._logger(`[CONFIG_CHANGE] Syncing settings.json -> StateStore: ${JSON.stringify(updatedOptions)}`);
-                }
-            }
-        }));
-
         // Initial setup of document context listeners
         this._setupDocumentListeners();
 
         // Tier-3: High-Density Log Format (Extension Boot)
         this._logger('[BOOT] extension_activated');
-        this._loadVoices();
+        this._voiceManager.scanAndSync();
 
         // [Reactive Sync] Subscribe to StateStore changes
         this._stateStore.on('change', () => {
@@ -147,11 +125,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     this._needsHistorySync = true;
                 }
             }
-            this._saveProgressThrottled();
         });
 
         // --- Portless MCP Watcher ---
-        this._setupMcpWatcher();
+
 
         // [AUTO_BOOTSTRAP] Ensure session state exists for Vocal Sync
         this._ensureSessionState();
@@ -176,6 +153,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger(`[SYNC] SESSION_PIVOT_COMPLETE: ${newSessionId}`);
     }
 
+    public updateSessionContext(root: string, sessionId: string) {
+        this._antigravityRoot = root;
+        this._sessionId = sessionId;
+        this._settingsManager.pivotSession(root, sessionId);
+        this._mcpWatcher?.pivot(root, sessionId);
+    }
+
     private _ensureSessionState() {
         const sessionPath = path.join(this._antigravityRoot, this._sessionId);
         const stateFile = path.join(sessionPath, 'extension_state.json');
@@ -192,9 +176,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             fs.writeFileSync(stateFile, JSON.stringify(initialState, null, 2));
             this._logger(`[BOOTSTRAP] Initialized extension_state.json for session: ${this._sessionId}`);
         }
-        
-        // Ensure the current session's extension_state.json has the latest policy [SSOT Bridge]
-        this._bridgeAgentState(this._stateStore.state.autoInjectSITREP);
     }
 
     private _bridgeAgentState(autoInjectSITREP: boolean) {
@@ -212,57 +193,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _setupMcpWatcher() {
-        // [UNIVERSAL WATCHER] Monitor the entire Antigravity root for cross-session injections
-        const globalPattern = new vscode.RelativePattern(this._antigravityRoot, `**/*.md`);
-        const watcher = vscode.workspace.createFileSystemWatcher(globalPattern, false, true, true);
-        
-        this._context.subscriptions.push(watcher);
-        this._logger(`[WATCHER] Active for ALL sessions in ${this._antigravityRoot}`);
-
-        this._context.subscriptions.push(watcher.onDidCreate(async uri => {
-            this._logger(`[WATCHER] INCOMING_SNIPPET detected: ${path.basename(uri.fsPath)}`);
-            
-            // 0. Dynamic Session Pivot: Ensure context is aligned
-            const relativePath = path.relative(this._antigravityRoot, uri.fsPath);
-            const pathParts = relativePath.split(path.sep);
-            const detectedSessionId = pathParts.length > 0 ? pathParts[0] : this._sessionId;
-
-            if (detectedSessionId !== this._sessionId) {
-                this.pivotSession(detectedSessionId);
-            }
-
-            // 1. Force Stop current playback (if any)
-            this.stop();
-
-            // 2. Load the snippet into the controller
-            const success = await this._docController.loadSnippet(uri.fsPath);
-            if (success) {
-                const metadata = this._docController.metadata;
-                
-                // 3. Update StateStore to point to this snippet
-                this._stateStore.setActiveDocument(
-                    metadata.uri,
-                    metadata.fileName,
-                    metadata.relativeDir,
-                    metadata.versionSalt,
-                    metadata.contentHash,
-                    null // No saved progress for tool-injected snippets
-                );
-
-                // 4. Trigger UI Refresh and Conditional Playback
-                this._stateStore.setActiveMode('SNIPPET');
-                await this.refreshView();
-                
-                if (this._stateStore.state.autoPlayOnInjection) {
-                    this._logger(`[WATCHER] AUTO_PLAY starting for tool-injected snippet.`);
-                    this.continue();
-                } else {
-                    this._logger(`[WATCHER] SNIPPET_LOADED (Paused) - autoPlayOnInjection is false.`);
-                }
-            }
-        }));
-    }
 
 
     private _setupDocumentListeners() {
@@ -319,148 +249,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         return artifactRegex.test(fileName);
     }
 
-    private async _loadVoices() {
-        try {
-            const { local, neural } = await this._playbackEngine.getVoices();
-            this._localVoices = local;
-            this._neuralVoices = neural;
-            this._stateStore.setVoices(local, neural);
-            this._logger(`[VOICE_SCAN] SUCCESS: Found ${this._localVoices.length} local SAPI voices and ${this._neuralVoices.length} neural voices.`);
-
-            // Critical: Ensure UI is synced after voices are loaded to prevent empty dropdowns
-            // [DELTA SYNC] Explicitly broadcast voices
-            this._broadcastVoices();
-            this._syncUI();
-        } catch (e) {
-            this._logger(`[VOICE_SCAN] CRITICAL FAILURE: ${e}`);
+    public dispose() {
+        this._voiceManager?.dispose();
+        this._settingsManager?.dispose();
+        if (this._updateDocumentInfoTimer) {
+            clearTimeout(this._updateDocumentInfoTimer);
         }
-    }
-
-    private _debounceSave(key: string, value: any) {
-        if (this._debounceTimers.has(key)) {
-            clearTimeout(this._debounceTimers.get(key)!);
-        }
-        this._debounceTimers.set(key, setTimeout(async () => {
-            const config = vscode.workspace.getConfiguration('readAloud');
-            const configKey = `playback.${key === 'selectedVoice' ? 'voice' : key}`;
-            
-            try {
-                await config.update(configKey, value, vscode.ConfigurationTarget.Global);
-                this._logger(`[CONFIG_SYNC] Updated ${configKey} -> ${value}`);
-            } catch (e) {
-                this._logger(`[CONFIG_SYNC] FAILED to update ${configKey}: ${e}`);
-            }
-            this._debounceTimers.delete(key);
-        }, 1000));
-    }
-
-    /**
-     * One-time migration of legacy globalState settings to VS Code configuration.
-     */
-    private _migrateLegacySettings() {
-        const legacyKeys = {
-            'rate': 'playback.rate',
-            'volume': 'playback.volume',
-            'voice': 'playback.voice',
-            'engineMode': 'playback.engineMode',
-            'autoPlayMode': 'playback.autoPlayMode',
-            'jumpDelayMs': 'playback.jumpDelayMs',
-            'cacheMaxSizeMb': 'cache.maxSizeMb',
-            'retryAttempts': 'network.retryAttempts'
-        };
-
-        const config = vscode.workspace.getConfiguration('readAloud');
-        let migratedAny = false;
-
-        for (const [oldKey, newKey] of Object.entries(legacyKeys)) {
-            const oldValue = this._context.globalState.get('readAloud.' + oldKey);
-            if (oldValue !== undefined) {
-                config.update(newKey, oldValue, vscode.ConfigurationTarget.Global);
-                this._context.globalState.update('readAloud.' + oldKey, undefined);
-                migratedAny = true;
-                this._logger(`[MIGRATION] Moved ${oldKey} from globalState to settings.json (${newKey})`);
-            }
-        }
-
-        if (migratedAny) {
-            this._logger(`[MIGRATION] Legacy settings migration completed.`);
-        }
-    }
-
-    private _broadcastVoices() {
-        this._dashboardRelay.broadcastVoices(this._localVoices, this._neuralVoices, this._stateStore.state.engineMode);
-    }
-
-    private _saveProgressTimer?: NodeJS.Timeout;
-    private _saveProgressThrottled() {
-        if (this._saveProgressTimer) { clearTimeout(this._saveProgressTimer); }
-        this._saveProgressTimer = setTimeout(() => {
-            const state = this._stateStore.state;
-            if (!state.activeDocumentUri) { return; }
-
-            const uriStr = state.activeDocumentUri.toString();
-            const saltStr = state.versionSalt ? `-${state.versionSalt}` : '';
-            const hashStr = state.activeContentHash ? `#${state.activeContentHash}` : '';
-
-            // NEW: Composite Content-Aware Key
-            const storageKey = `${uriStr}${saltStr}${hashStr}`;
-
-            const progress = {
-                chapterIndex: state.currentChapterIndex,
-                sentenceIndex: state.currentSentenceIndex,
-                lastUpdated: Date.now()
-            };
-
-            const allProgress = this._context.globalState.get<Record<string, any>>('readAloud.docProgress', {});
-
-            // [REINFORCEMENT] If we have a legacy entry for this EXACT file, clean it up now that we're saving a hashed version
-            if (allProgress[uriStr]) {
-                delete allProgress[uriStr];
-            }
-
-            allProgress[storageKey] = progress;
-
-            // [REINFORCEMENT] Scoped Garbage Collection (Limit to 50 entries)
-            const keys = Object.keys(allProgress);
-            if (keys.length > 50) {
-                // 1. Try to find older versions of the SAME file first
-                const otherVersions = keys.filter(k => k.startsWith(uriStr) && k !== storageKey);
-                if (otherVersions.length > 0) {
-                    const oldestVersion = otherVersions.sort((a, b) => (allProgress[a].lastUpdated || 0) - (allProgress[b].lastUpdated || 0))[0];
-                    delete allProgress[oldestVersion];
-                    this._logger(`[GC] Purged older version of current file: ${oldestVersion}`);
-                } else {
-                    // 2. Global fallback: Delete the oldest item overall
-                    const sortedKeys = keys.sort((a, b) => (allProgress[a].lastUpdated || 0) - (allProgress[b].lastUpdated || 0));
-                    delete allProgress[sortedKeys[0]];
-                }
-            }
-
-            this._context.globalState.update('readAloud.docProgress', allProgress);
-        }, 1000);
-    }
-
-    private _loadProgress(uri: vscode.Uri, salt?: string, hash?: string): { chapterIndex: number, sentenceIndex: number } | null {
-        const allProgress = this._context.globalState.get<Record<string, any>>('readAloud.docProgress', {});
-        const uriStr = uri.toString();
-        const saltStr = salt ? `-${salt}` : '';
-        const hashStr = hash ? `#${hash}` : '';
-
-        const storageKey = `${uriStr}${saltStr}${hashStr}`;
-
-        // 1. Try the Content-Aware Key
-        let progress = allProgress[storageKey];
-
-        // 2. [PASSIVE MIGRATION] Fallback to legacy URI-only key
-        if (!progress && allProgress[uriStr]) {
-            progress = allProgress[uriStr];
-            this._logger(`[MIGRATION] Found legacy progress for ${uri.path}. Upgrading to content-aware key.`);
-
-            // Note: We don't delete here to keep this method READ-ONLY. 
-            // The next _saveProgressThrottled (triggered by position updates) will handle the deletion.
-        }
-
-        return progress ? { chapterIndex: progress.chapterIndex, sentenceIndex: progress.sentenceIndex } : null;
     }
 
     private _getSanitizedPayload(payload: any, depth: number = 0): any {
@@ -560,6 +354,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async data => {
             if (data.command === 'ready') {
                 await this._sendInitialState();
+                if (this._docController.chapters.length > 0) {
+                    this.refreshView();
+                }
                 return;
             }
             if (data.command === 'log') {
@@ -739,7 +536,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         // [SYNC_FIX] Explicitly fetch latest history before syncing UI
         const history = await this._getSnippetHistory();
         this._syncUI(history);
-        this._broadcastVoices();
+        this._voiceManager.broadcastVoices();
 
         if (this._docController.chapters.length > 0) {
             this._postToAll({
@@ -785,36 +582,31 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this.prevChapter();
                 break;
 
-            case OutgoingAction.SET_AUTO_PLAY_MODE:
-                this._stateStore.setOptions({ autoPlayMode: data.mode });
-                this._syncUI(); // Ensure immediate visual feedback
+            case 'SET_SPEED':
+                this._settingsManager.saveSetting('rate', data.value);
                 break;
-            case 'toggleAutoPlay':
-                // Backward compatibility for old calls if any
-                this._stateStore.setOptions({ autoPlayMode: data.enabled ? 'auto' : 'row' });
+            case 'SET_VOLUME':
+                this._settingsManager.saveSetting('volume', data.value);
                 break;
-            case OutgoingAction.VOICE_CHANGED:
-                this._stateStore.setOptions({ selectedVoice: data.voice });
-                this._debounceSave('selectedVoice', data.voice);
-                
-                this._logger(`[VOICE] ${data.voice} | SURGICAL_PREVIEW`);
-                // Stop any current full playback but trigger a single-sentence preview synth
+            case 'SET_VOICE':
+                this._settingsManager.saveSetting('selectedVoice', data.value);
                 this._playbackEngine.stop();
                 this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions(), true);
                 break;
-            case OutgoingAction.RATE_CHANGED:
-                this._stateStore.setOptions({ rate: data.rate });
-                this._debounceSave('rate', data.rate);
-                break;
-            case OutgoingAction.VOLUME_CHANGED:
-                this._stateStore.setOptions({ volume: data.volume });
-                this._debounceSave('volume', data.volume);
-                break;
-            case OutgoingAction.ENGINE_MODE_CHANGED:
-                this._stateStore.setOptions({ engineMode: data.mode });
+            case 'SET_ENGINE_MODE':
+                this._settingsManager.saveSetting('engineMode', data.value);
                 this._playbackEngine.stop();
-                this._broadcastVoices();
+                this._voiceManager.broadcastVoices();
                 this._broadcastCacheStats();
+                break;
+            case 'SET_AUTOPLAY_MODE':
+                this._settingsManager.saveSetting('autoPlayMode', data.value);
+                break;
+            case 'SET_AUTOPLAY_INJECTION':
+                this._settingsManager.saveSetting('autoPlayOnInjection', data.value);
+                break;
+            case 'SET_AUTO_INJECT_SITREP':
+                this._settingsManager.saveSetting('agent.autoInjectSITREP', data.value);
                 break;
 
             case OutgoingAction.SENTENCE_ENDED:
@@ -999,9 +791,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     private async _sendInitialState() {
         // [DELTA SYNC] Atomic Handshake
+        await this._voiceManager.scanAndSync();
         const history = await this._getSnippetHistory();
-        const { local, neural } = await this._playbackEngine.getVoices();
-        this._dashboardRelay.sync(history, this._sessionId, { local, neural });
+        this._dashboardRelay.sync(history, this._sessionId, { 
+            local: this._voiceManager.localVoices, 
+            neural: this._voiceManager.neuralVoices 
+        });
     }
 
 
@@ -1022,9 +817,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const metadata = this._docController.metadata;
         const chapters = this._docController.chapters;
 
-        // [ATOMIC] Calculate progress BEFORE updating state to prevent double-sync flicker [ISSUE 25]
-        const saved = metadata.uri ? this._loadProgress(metadata.uri, metadata.versionSalt, metadata.contentHash) : null;
-
         // Commit to STATE: Update the active context (Loaded File) Atomically
         this._stateStore.setActiveDocument(
             metadata.uri,
@@ -1032,14 +824,21 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             metadata.relativeDir,
             metadata.versionSalt,
             metadata.contentHash,
-            saved
+            null
         );
 
-        this._stateStore.setActiveMode('FILE');
-
-        if (saved) {
-            this._logger(`[PERSISTENCE] Restored position: ${saved.chapterIndex}:${saved.sentenceIndex}`);
+        if (metadata.uri) {
+            const progress = this._settingsManager.loadProgress(metadata.uri, metadata.versionSalt, metadata.contentHash);
+            if (progress) {
+                this._stateStore.setProgress(progress.chapterIndex, progress.sentenceIndex);
+                this._logger(`[RECOVERY] Resumed ${metadata.uri.path} at C:${progress.chapterIndex} S:${progress.sentenceIndex}`);
+            }
         }
+
+
+
+
+        this._stateStore.setActiveMode('FILE');
 
         // UNIFIED SYNC: Propagate the updated state to Dashboard
         this._syncUI();
@@ -1149,6 +948,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public nextSentence() {
         this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode);
+    }
+
+    private _onSelectionChange(chapterIndex: number, sentenceIndex: number) {
+        const { activeDocumentUri, versionSalt, activeContentHash } = this._stateStore.state;
+        if (activeDocumentUri) {
+            this._settingsManager.saveProgress(activeDocumentUri, versionSalt, activeContentHash, chapterIndex, sentenceIndex);
+        }
     }
 
     private _getOptions(): PlaybackOptions {

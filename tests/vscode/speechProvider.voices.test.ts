@@ -136,7 +136,7 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
         });
 
         // Trigger the asynchronous load
-        await (provider as any)._loadVoices();
+        await (provider as any)._voiceManager.scanAndSync();
         vi.advanceTimersByTime(100); 
 
         expect(setVoicesSpy).toHaveBeenCalledWith(['Local1'], expect.arrayContaining([expect.objectContaining({ name: 'Neural1' })]));
@@ -151,7 +151,7 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
         const engine = (provider as any)._playbackEngine;
         vi.spyOn(engine, 'getVoices').mockResolvedValue({ local: [], neural: [] });
 
-        await (provider as any)._loadVoices();
+        await (provider as any)._voiceManager.scanAndSync();
         vi.advanceTimersByTime(100); 
 
         // Verify [UI_SYNC] was triggered to notify dashboard that scan is done

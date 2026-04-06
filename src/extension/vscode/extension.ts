@@ -10,6 +10,7 @@ import { McpBridge } from '../mcp/mcpBridge';
 let mainStatusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 let logFilePath: string;
+let speechProvider: SpeechProvider;
 
 function log(msg: string) {
     const time = new Date().toLocaleTimeString();
@@ -90,9 +91,10 @@ export async function activate(context: vscode.ExtensionContext) {
     const sessionId = resolveLatestSessionId(antigravityRoot, brainRoot); 
     const persistencePath = path.join(antigravityRoot, sessionId);
 
-    const speechProvider = new SpeechProvider(context, log, mainStatusBarItem, antigravityRoot, sessionId, () => syncSelection());
+    speechProvider = new SpeechProvider(context, log, mainStatusBarItem, antigravityRoot, sessionId, () => syncSelection());
     log('--- PORTLESS SYNC ACTIVE (Filesystem Watcher) ---');
     log(`[ANTIGRAVITY] Session: ${sessionId}`);
+    
 
     // --- MCP BRIDGE (Agentic Integration) ---
     const mcpBridge = new McpBridge(antigravityRoot, log);
@@ -255,5 +257,9 @@ export async function activate(context: vscode.ExtensionContext) {
     return {};
 }
 
-export function deactivate() {}
+export function deactivate() {
+    if (speechProvider) {
+        speechProvider.dispose();
+    }
+}
 
