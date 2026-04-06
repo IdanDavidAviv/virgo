@@ -9,17 +9,13 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [2.1.1] - 2026-04-06
 
-### Added
-- 
+### Silent Physics & Zero-Interrupt Audio
+This patch decommissions the intrusive "Audio System Locked" shield introduced in the previous iteration and replaces it with a **Silent Prime** strategy. This ensures high-fidelity playback parity with browser safety protocols without obstructing the user interface.
 
-## [2.1.1] - 2026-04-06
-
-### Audio Autoplay Resolution
-This patch addresses the "NotAllowedError" triggered by modern browser security policies when third-party injections (MCP) attempt to trigger speech synthesis without direct user interaction. 
-
-- **Audio Unlock Shield**: Introduced a premium glassmorphic overlay that informs the user when audio is blocked and provides a seamless, one-click "blessing" trigger.
-- **Gesture Propagation**: Enhanced `InteractionManager` to automatically prime the `AudioContext` on any global keypress or click, ensuring that subsequent automated injections are pre-authorized.
-- **Fail-Safe Playback**: Refactored `WebviewAudioEngine` to catch and manage browser-enforced blocks, preventing the internal state from hanging during "NotAllowedError" exceptions.
+- **Silent Context Priming**: Implemented a background "warm-up" mechanism that blesses the `AudioContext` on the first user interaction (click or keypress) without needing an overlay.
+- **Zero-Interrupt UI**: Completely removed the glassmorphic shield components, animations, and associated state logic for a 100% unobstructed experience.
+- **NotAllowedError Resilience**: Hardened the `WebviewAudioEngine` to silently manage browser-enforced autoplay blocks, ensuring the system is "always ready" for subsequent automated injections.
+- **Structural Integrity**: Repaired critical syntax corruption in the core audio engine resulting from previous multi-file sync operations.
 
 ## [2.1.0] - 2026-04-05
 

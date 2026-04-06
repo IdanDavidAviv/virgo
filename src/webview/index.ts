@@ -25,7 +25,7 @@ import { FileContext } from './components/FileContext';
 import { VoiceSelector } from './components/VoiceSelector';
 import { ToastManager } from './components/ToastManager';
 import { SnippetLookup } from './components/SnippetLookup';
-import { AudioUnlockShield } from './components/AudioUnlockShield';
+
 
 
 /**
@@ -154,9 +154,7 @@ export function bootstrap() {
         searchInput: document.getElementById('voice-search') as HTMLInputElement
     }));
 
-    safeMount('audioUnlockShield', document.getElementById('audio-unlock-shield'), (el) => new AudioUnlockShield({
-        container: el
-    }));
+
 
 
     console.log('[BOOT] Mapping Elements...');

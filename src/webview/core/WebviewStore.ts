@@ -20,7 +20,6 @@ export interface LocalUIState {
   pendingChapterIndex: number;
   neuralBuffer: { count: number, sizeMb: number };
   activeMode: 'FILE' | 'SNIPPET';
-  isAudioContextBlocked: boolean;
 }
 
 /**
@@ -64,8 +63,7 @@ export class WebviewStore {
     isSyncing: false,
     pendingChapterIndex: -1,
     neuralBuffer: { count: 0, sizeMb: 0 },
-    activeMode: 'FILE',
-    isAudioContextBlocked: false
+    activeMode: 'FILE'
   };
 
   private uiListeners: Set<{
@@ -193,8 +191,7 @@ export class WebviewStore {
       isSyncing: false,
       pendingChapterIndex: -1,
       neuralBuffer: { count: 0, sizeMb: 0 },
-      activeMode: 'FILE',
-      isAudioContextBlocked: false
+      activeMode: 'FILE'
     };
   }
 

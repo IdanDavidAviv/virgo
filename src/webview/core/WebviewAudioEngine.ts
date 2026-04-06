@@ -22,6 +22,7 @@ export class WebviewAudioEngine {
   private waitTimers: Map<string, any> = new Map();
   private waitResolvers: Map<string, () => void> = new Map();
   private sovereignUrl: string | null = null;
+  private _isPrimed: boolean = false;
 
   private constructor() {
     this.audio = new Audio();
@@ -152,12 +153,10 @@ export class WebviewAudioEngine {
     if (this.audio.src && this.audio.paused && !this.audio.ended) {
       try {
         await this.audio.play();
-        WebviewStore.getInstance().updateUIState({ isAudioContextBlocked: false });
         return;
       } catch (err: any) {
         if (err.name === 'NotAllowedError') {
-          console.warn('[AudioEngine] Autoplay blocked, raising shield.');
-          WebviewStore.getInstance().updateUIState({ isAudioContextBlocked: true });
+          console.warn('[AudioEngine] Autoplay blocked by browser policy.');
         } else {
           console.warn('[AudioEngine] Resume failed', err);
         }
@@ -169,22 +168,21 @@ export class WebviewAudioEngine {
    * [NEW] Universal Unlocker: Primes the audio subsystem during a user gesture.
    * CALL THIS synchronously in the onClick handler before any async/IPC logic.
    */
-  public ensureAudioContext(): boolean {
-    // Calling play() on an empty or paused element during a click handler
-    // satisfies the browser's user-gesture requirement for the entire session.
-    if (this.audio.paused) {
-        const p = this.audio.play();
-        if (p instanceof Promise) {
-            p.then(() => {
-                console.log('[AudioEngine] 🔓 Audio subsystem primed via User Gesture');
-                WebviewStore.getInstance().updateUIState({ isAudioContextBlocked: false });
-            }).catch(() => {
-                // Expected failure on empty src, but the "intent" is still registered by browser
-            });
-        }
-        return true;
-    }
-    return false;
+  public ensureAudioContext(): void {
+    if (this._isPrimed) { return; }
+
+    // [SILENT PRIME] Use a separate, muted, empty audio element to "bless" 
+    // the audio context during a user gesture without playing actual sounds.
+    const primer = new Audio();
+    primer.muted = true;
+    primer.play()
+        .then(() => {
+            this._isPrimed = true;
+            console.log('[AudioEngine] 🔓 Audio subsystem primed silently via User Gesture');
+        })
+        .catch(() => {
+            // Expected if no interaction occurred yet, we will retry on next interaction
+        });
   }
 
   public prepareForPlayback(): number {
@@ -419,11 +417,9 @@ export class WebviewAudioEngine {
     if (!controller || controller.getState().intent === 'PLAYING') {
       try {
         await this.audio.play();
-        WebviewStore.getInstance().updateUIState({ isAudioContextBlocked: false });
       } catch (err: any) {
         if (err.name === 'NotAllowedError') {
-          console.warn('[AudioEngine] 🛡️ Autoplay blocked by browser policy. User gesture required.');
-          WebviewStore.getInstance().updateUIState({ isAudioContextBlocked: true });
+          console.warn('[AudioEngine] 🛡️ Autoplay blocked by browser policy. Interaction required.');
         } else {
           console.error('[AudioEngine] Playback failed:', err);
         }
@@ -444,11 +440,9 @@ export class WebviewAudioEngine {
 
   public resume(): void {
     if (this.audio.src) {
-      this.audio.play().then(() => {
-        WebviewStore.getInstance().updateUIState({ isAudioContextBlocked: false });
-      }).catch(err => {
+      this.audio.play().catch(err => {
         if (err.name === 'NotAllowedError') {
-          WebviewStore.getInstance().updateUIState({ isAudioContextBlocked: true });
+          console.warn('[AudioEngine] Resume blocked by browser policy.');
         } else {
           console.error(err);
         }
