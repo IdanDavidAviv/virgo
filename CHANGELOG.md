@@ -7,6 +7,20 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.1.1] - 2026-04-06
+
+### Added
+- 
+
+## [2.1.1] - 2026-04-06
+
+### Audio Autoplay Resolution
+This patch addresses the "NotAllowedError" triggered by modern browser security policies when third-party injections (MCP) attempt to trigger speech synthesis without direct user interaction. 
+
+- **Audio Unlock Shield**: Introduced a premium glassmorphic overlay that informs the user when audio is blocked and provides a seamless, one-click "blessing" trigger.
+- **Gesture Propagation**: Enhanced `InteractionManager` to automatically prime the `AudioContext` on any global keypress or click, ensuring that subsequent automated injections are pre-authorized.
+- **Fail-Safe Playback**: Refactored `WebviewAudioEngine` to catch and manage browser-enforced blocks, preventing the internal state from hanging during "NotAllowedError" exceptions.
+
 ## [2.1.0] - 2026-04-05
 
 ### Added
