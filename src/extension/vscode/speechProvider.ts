@@ -849,6 +849,18 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._playbackEngine.setPaused(true);
     }
 
+    public togglePlayPause() {
+        const state = this._stateStore.state;
+        if (state.isPaused) {
+            this.continue();
+        } else if (state.isPlaying) {
+            this.pause();
+        } else {
+            // If stopped or not started, start from beginning or current progress
+            this.continue();
+        }
+    }
+
     public stop() {
         this._audioBridge.stop();
         this._playbackEngine.setPlaying(false);

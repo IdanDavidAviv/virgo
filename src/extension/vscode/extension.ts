@@ -189,6 +189,10 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('readme-preview-read-aloud.stop', () => speechProvider.stop()),
         vscode.commands.registerCommand('readme-preview-read-aloud.start-over', () => speechProvider.startOver()),
         vscode.commands.registerCommand('readme-preview-read-aloud.refresh-view', () => speechProvider.refreshView()),
+        vscode.commands.registerCommand('readme-preview-read-aloud.next-chapter', () => speechProvider.nextChapter()),
+        vscode.commands.registerCommand('readme-preview-read-aloud.prev-chapter', () => speechProvider.prevChapter()),
+        vscode.commands.registerCommand('readme-preview-read-aloud.next-sentence', () => speechProvider.nextSentence()),
+        vscode.commands.registerCommand('readme-preview-read-aloud.prev-sentence', () => speechProvider.prevSentence()),
 
 
         vscode.commands.registerCommand('readme-preview-read-aloud.read-from-cursor', async () => {

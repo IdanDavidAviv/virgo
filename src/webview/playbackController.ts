@@ -26,10 +26,7 @@ export class PlaybackController {
   private intent: PlaybackIntent = PlaybackIntent.STOPPED;
   private isAwaitingSync: boolean = false;
   private watchdog: NodeJS.Timeout | null = null;
-  private audio: HTMLAudioElement;
-
   private constructor() {
-    this.audio = WebviewAudioEngine.getInstance().getAudioElement();
     this.setupListeners();
   }
 
@@ -54,12 +51,7 @@ export class PlaybackController {
   }
 
   private setupListeners(): void {
-    // Report audio element errors back to the extension host.
-    this.audio.onerror = (e) => {
-      const msg = `[PlaybackController] ⛔ Audio element error: ${(e as ErrorEvent).message ?? 'unknown'}`;
-      console.error(msg);
-      MessageClient.getInstance().postAction(OutgoingAction.ERROR, { message: msg });
-    };
+    // [TRANSITION] Listeners for internal audio errors are now managed by strategies.
   }
 
   /**
@@ -89,7 +81,7 @@ export class PlaybackController {
     WebviewStore.getInstance().optimisticPatch({ isPaused: true }, { isAwaitingSync: true });
     
     this.releaseLock(); 
-    this.audio.pause();
+    WebviewAudioEngine.getInstance().pause();
     MessageClient.getInstance().postAction(OutgoingAction.PAUSE);
   }
 
