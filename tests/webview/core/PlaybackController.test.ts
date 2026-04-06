@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { WebviewStore } from '../../../src/webview/core/WebviewStore';
 import { PlaybackController, PlaybackIntent } from '../../../src/webview/playbackController';
 import { MessageClient } from '../../../src/webview/core/MessageClient';
+import { WebviewAudioEngine } from '../../../src/webview/core/WebviewAudioEngine';
 
 /**
  * @vitest-environment jsdom
@@ -12,9 +13,18 @@ describe('PlaybackController: Optimistic Transitions (TDD)', () => {
     let controller: PlaybackController;
 
     beforeEach(() => {
+        // Reset singletons for isolation
         WebviewStore.resetInstance();
         PlaybackController.resetInstance();
         MessageClient.resetInstance();
+        WebviewAudioEngine.resetInstance();
+
+        // Mock WebviewAudioEngine.getInstance
+        vi.spyOn(WebviewAudioEngine, 'getInstance').mockReturnValue({
+            pause: vi.fn(),
+            stop: vi.fn(),
+            getAudioElement: vi.fn(() => ({ pause: vi.fn(), onerror: null }))
+        } as any);
 
         store = WebviewStore.getInstance();
         controller = PlaybackController.getInstance();
@@ -32,8 +42,6 @@ describe('PlaybackController: Optimistic Transitions (TDD)', () => {
         
         controller.stop();
 
-        // EXPECTATION: The intent should be STOPPED, not PAUSED.
-        // Currently, the logic in WebviewStore.ts might set it to PAUSED if isPaused=true is checked first.
         expect(optimisticSpy).toHaveBeenCalledWith(
             expect.objectContaining({ isPlaying: false, isPaused: true }),
             expect.objectContaining({ isAwaitingSync: true })

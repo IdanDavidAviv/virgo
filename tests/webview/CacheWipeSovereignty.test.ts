@@ -23,18 +23,22 @@ describe('Cache Wipe Sovereignty (TDD: #45)', () => {
     });
 
     it('SHOULD revoke all blob URLs before clearing IndexedDB (Ghost Audio Guard)', async () => {
-        const purgeSpy = vi.spyOn(engine, 'purgeMemory');
+        const revokeSpy = vi.spyOn(URL, 'revokeObjectURL');
         // Accessing private cache for spy
-        const cacheClearSpy = vi.spyOn((engine as any).cache, 'clearAll');
+        const strategy = (engine as any).neuralStrategy;
+        const cacheClearSpy = vi.spyOn(strategy.cache, 'clearAll');
+
+        // Add a fake blob to registry so revocation actually happens
+        strategy.activeObjectURLs.add('blob:fake-url');
 
         await engine.wipeCache();
         
-        const purgeOrder = purgeSpy.mock.invocationCallOrder[0];
+        const revokeOrder = revokeSpy.mock.invocationCallOrder[0];
         const clearOrder = cacheClearSpy.mock.invocationCallOrder[0];
 
-        expect(purgeSpy).toHaveBeenCalled();
+        expect(revokeSpy).toHaveBeenCalled();
         expect(cacheClearSpy).toHaveBeenCalled();
-        expect(purgeOrder).toBeLessThan(clearOrder); // Revocation MUST happen first
+        expect(revokeOrder).toBeLessThan(clearOrder); // Revocation MUST happen first
     });
 
     it('SHOULD reset neuralBuffer stats to zero immediately after wipe', async () => {

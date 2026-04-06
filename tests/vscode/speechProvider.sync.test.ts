@@ -212,6 +212,7 @@ describe('SpeechProvider (Sync)', () => {
 
         // Trigger document load
         await provider.loadCurrentDocument();
+        vi.advanceTimersByTime(200); // Flush SyncManager throttle
 
         // 1. Verify UI_SYNC reflected the new state immediately
         const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');

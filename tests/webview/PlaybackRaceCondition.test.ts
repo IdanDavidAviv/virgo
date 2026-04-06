@@ -18,7 +18,7 @@ describe('PlaybackRaceCondition (TDD)', () => {
         engine = WebviewAudioEngine.getInstance();
         
         // Mock Audio element
-        (engine as any).audio = {
+        (engine as any).neuralStrategy.audio = {
             pause: vi.fn(),
             play: vi.fn().mockResolvedValue(undefined),
             load: vi.fn(),
@@ -39,7 +39,7 @@ describe('PlaybackRaceCondition (TDD)', () => {
 
     it('SHOULD NOT resolve main wait when a prefetch signal arrives', async () => {
         // 1. Set the "Target" to Sentence A
-        (engine as any).targetCacheKey = 'sentence-a';
+        (engine as any).neuralStrategy.targetCacheKey = 'sentence-a';
 
         // 2. Start a "Main" wait for Sentence A (intentId: 100)
         const mainWait = engine.startAdaptiveWait('sentence-a', 100);
@@ -71,7 +71,7 @@ describe('PlaybackRaceCondition (TDD)', () => {
 
     it('SHOULD NOT set playbackStalled for a non-target prefetch wait', async () => {
         // [GIVEN]: Target is Sentence A
-        (engine as any).targetCacheKey = 'sentence-a';
+        (engine as any).neuralStrategy.targetCacheKey = 'sentence-a';
         store.patchState({ playbackStalled: false });
 
         // [WHEN]: Wait starts for Sentence B (prefetch)

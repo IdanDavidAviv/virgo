@@ -7,7 +7,7 @@ import { MessageClient } from '../../../src/webview/core/MessageClient';
 import { WebviewStore } from '../../../src/webview/core/WebviewStore';
 import { PlaybackController } from '../../../src/webview/playbackController';
 
-describe('WebviewAudioEngine (TDD: Autoplay Regression)', () => {
+describe('WebviewAudioEngine (Strategy Architecture)', () => {
     let engine: WebviewAudioEngine;
     let controller: PlaybackController;
 
@@ -21,56 +21,81 @@ describe('WebviewAudioEngine (TDD: Autoplay Regression)', () => {
         } as any);
 
         // 2. Mock WebviewStore.getInstance
-        vi.spyOn(WebviewStore, 'getInstance').mockReturnValue({
-            getState: vi.fn(() => ({ volume: 50, rate: 0 })),
-            getUIState: vi.fn(() => ({ isAwaitingSync: false })),
+        const mockStore = {
+            getState: vi.fn(() => ({ volume: 50, rate: 0, selectedVoice: 'en-US-SteffanNeural' })),
+            getUIState: vi.fn(() => ({ isAwaitingSync: false, playbackIntent: 'PAUSED' })),
             updateUIState: vi.fn(),
             optimisticPatch: vi.fn(),
             patchState: vi.fn(),
             getSentenceKey: vi.fn(),
-            subscribe: vi.fn()
-        } as any);
+            subscribe: vi.fn((selector, handler) => { 
+                // Immediate trigger for initial strategy
+                if (selector.toString().includes('selectedVoice')) {
+                    handler('en-US-SteffanNeural');
+                }
+            }),
+            subscribeUI: vi.fn((selector, handler) => {
+                // Initial trigger
+                handler(selector({ playbackIntent: 'PAUSED' } as any));
+            })
+        };
+        vi.spyOn(WebviewStore, 'getInstance').mockReturnValue(mockStore as any);
 
-        // 3. Mock window and document globals for JSDOM
+        // 3. Mock window.speechSynthesis for Local Strategy
+        (window as any).speechSynthesis = {
+            speak: vi.fn(),
+            cancel: vi.fn(),
+            pause: vi.fn(),
+            resume: vi.fn(),
+            getVoices: vi.fn(() => []),
+            pending: false,
+            speaking: false,
+            paused: false
+        };
+
+        // 4. Mock window.Audio for Neural Strategy
         (window as any).Audio = class {
             volume = 1;
             playbackRate = 1;
-            onended = null;
-            onerror = null;
-            onplay = null;
-            onpause = null;
-            onwaiting = null;
             play = vi.fn().mockResolvedValue(undefined);
             pause = vi.fn();
+            muted = false;
         };
 
         // Reset singletons for isolation
-        // @ts-ignore
-        WebviewAudioEngine.instance = undefined;
-        // @ts-ignore
-        PlaybackController.instance = undefined;
-        // @ts-ignore
-        window.__AUDIO_ENGINE__ = undefined;
-        // @ts-ignore
-        window.__PLAYBACK_CONTROLLER__ = undefined;
+        WebviewAudioEngine.resetInstance();
+        PlaybackController.resetInstance();
         
         engine = WebviewAudioEngine.getInstance();
         controller = PlaybackController.getInstance();
     });
 
-    it('SHOULD NOT reset intent to STOPPED when a segment naturally ends', () => {
-        // 1. Simulate user starting playback via controller
-        controller.play(); 
+    it('should initialize with LocalAudioStrategy by default', () => {
+        // @ts-ignore - accessing private for verification
+        expect(engine.activeStrategy.id).toBe('local');
+    });
+
+    it('should switch to NeuralAudioStrategy for neural voices', () => {
+        const store = WebviewStore.getInstance();
+        // Trigger the subscription handler
+        // @ts-ignore - access private method for testing
+        engine.updateStrategy('Neural:en-US-SteffanNeural');
         
-        expect(controller.getState().intent).toBe('PLAYING');
+        // @ts-ignore
+        expect(engine.activeStrategy.id).toBe('neural');
+    });
 
-        // 2. Simulate audio segment ending in engine
-        const audio = engine.getAudioElement();
-        if (audio.onended) {
-            audio.onended(new Event('ended'));
-        }
+    it('pause() should call the active strategy pause', () => {
+        // @ts-ignore
+        const pauseSpy = vi.spyOn(engine.activeStrategy, 'pause');
+        engine.pause();
+        expect(pauseSpy).toHaveBeenCalled();
+    });
 
-        // 3. ASSERT: The controller intent should STAY 'PLAYING'
-        expect(controller.getState().intent).toBe('PLAYING');
+    it('stop() should call the active strategy stop', () => {
+        // @ts-ignore
+        const stopSpy = vi.spyOn(engine.activeStrategy, 'stop');
+        engine.stop();
+        expect(stopSpy).toHaveBeenCalled();
     });
 });

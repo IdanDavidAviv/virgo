@@ -94,37 +94,17 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
         // 2. Full DOM scaffold
         document.body.innerHTML = FULL_DOM;
 
-        // 3. Polyfill Audio for JSDOM
-        if (!global.Audio) {
-            (global as any).Audio = class {
-                play = vi.fn().mockResolvedValue(undefined);
-                pause = vi.fn();
-                load = vi.fn();
-                addEventListener = vi.fn();
-                removeEventListener = vi.fn();
-                setAttribute = vi.fn();
-                removeAttribute = vi.fn();
-                src = '';
-                volume = 1;
-                playbackRate = 1;
-                id = '';
-                onplay: any = null;
-                onended: any = null;
-                onerror: any = null;
-            };
-        }
-
         // Mock HTMLMediaElement prototype methods
         vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
-        vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
-        vi.spyOn(window.HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+        vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => { });
+        vi.spyOn(window.HTMLMediaElement.prototype, 'load').mockImplementation(() => { });
 
         store = WebviewStore.getInstance();
         client = MessageClient.getInstance();
         dispatcher = CommandDispatcher.getInstance();
 
         // Mock postAction globally for all tests
-        vi.spyOn(client, 'postAction').mockImplementation(() => {});
+        vi.spyOn(client, 'postAction').mockImplementation(() => { });
 
         // ─── Global Store Hydration ───────────────────────────────────────────
         // The store is null until the first updateState() call (by design).
@@ -296,7 +276,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             mountPlaybackControls();
             document.getElementById('btn-play')!.click();
             expect(client.postAction).toHaveBeenCalledWith(
-                OutgoingAction.PLAY, 
+                OutgoingAction.PLAY,
                 expect.objectContaining({ cacheKey: expect.any(String) })
             );
         });
@@ -417,7 +397,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             interaction.mount();
             window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }));
             expect(client.postAction).toHaveBeenCalledWith(
-                OutgoingAction.PLAY, 
+                OutgoingAction.PLAY,
                 expect.objectContaining({ cacheKey: expect.any(String) })
             );
         });
@@ -672,7 +652,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
 
         it('T7.3 — PURGE_MEMORY command calls audioEngine.purgeMemory()', async () => {
             const engine = WebviewAudioEngine.getInstance();
-            const purgeSpy = vi.spyOn(engine, 'purgeMemory').mockImplementation(() => {});
+            const purgeSpy = vi.spyOn(engine, 'purgeMemory').mockImplementation(() => Promise.resolve());
             await dispatcher.dispatch(IncomingCommand.PURGE_MEMORY, null);
             expect(purgeSpy).toHaveBeenCalled();
         });

@@ -21,6 +21,12 @@ describe('Stuck Loading State Fix Verification', () => {
             load = vi.fn();
             addEventListener = vi.fn();
             removeEventListener = vi.fn();
+            onplay = () => {};
+            onpause = () => {};
+            onended = () => {};
+            onerror = () => {};
+            onwaiting = () => {};
+            onplaying = () => {};
             src = '';
             readyState = 4;
             paused = true;
@@ -51,7 +57,7 @@ describe('Stuck Loading State Fix Verification', () => {
         // [SOVEREIGNTY MOCK] Align src and sovereignUrl to satisfy isSovereign() audit
         const mockUrl = 'blob:mock-audio-data';
         mockAudioInstance.src = mockUrl;
-        (engine as any).sovereignUrl = mockUrl;
+        (engine as any).neuralStrategy.sovereignUrl = mockUrl;
 
         // 2. Simulate a stall (listeners are attached to mockAudioInstance by the engine)
         mockAudioInstance.onwaiting();

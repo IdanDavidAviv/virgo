@@ -19,6 +19,12 @@ describe('Loading Lifecycle Audit & Stabilization', () => {
             load = vi.fn();
             addEventListener = vi.fn();
             removeEventListener = vi.fn();
+            onplay = () => {};
+            onpause = () => {};
+            onended = () => {};
+            onerror = () => {};
+            onwaiting = () => {};
+            onplaying = () => {};
             src = '';
             readyState = 4;
             paused = true;
@@ -53,7 +59,7 @@ describe('Loading Lifecycle Audit & Stabilization', () => {
         // 1. Trigger buffer stall during active playback intent
         // [SOVEREIGNTY]: We MUST set a target and align the src to pass isSovereign()
         (engine as any).intent = 'PLAYING';
-        (engine as any).sovereignUrl = 'neural-cache://test-segment';
+        (engine as any).neuralStrategy.sovereignUrl = 'neural-cache://test-segment';
         mockAudioInstance.src = 'neural-cache://test-segment';
         
         mockAudioInstance.onwaiting();
