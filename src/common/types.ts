@@ -72,6 +72,37 @@ export interface UISyncPacket {
     };
 }
 
+
+export interface AudioVoice {
+    id: string;
+    name: string;
+    lang: string;
+    engine: 'local' | 'neural';
+}
+
+export interface AudioStrategy {
+    id: string;
+    getName(): string;
+    synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void>;
+    play(): Promise<void>;
+    pause(): void;
+    resume(): void;
+    stop(): void;
+    setVolume(volume: number): void;
+    setRate(rate: number): void;
+    getVoices(): Promise<AudioVoice[]>;
+    dispose(): void;
+    
+    // Neural/Cloud specific (optional implementations)
+    setTarget?(cacheKey: string | null): void;
+    startAdaptiveWait?(cacheKey: string, intentId: number): Promise<void>;
+    ingestData?(cacheKey: string, base64: string, intentId: number): Promise<void>;
+    playFromBase64?(base64: string, cacheKey?: string, intentId?: number): Promise<void>;
+    playFromCache?(cacheKey: string, intentId?: number): Promise<boolean>;
+    wipeCache?(): Promise<void>;
+}
+
+
 export interface SnippetEntry {
     name: string;
     fsPath: string;
