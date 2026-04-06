@@ -12,7 +12,7 @@ import { OutgoingAction, IncomingCommand, SnippetHistory } from '@common/types';
 import { McpWatcher } from '@vscode/McpWatcher';
 import { VoiceManager } from '@vscode/VoiceManager';
 import { SettingsManager } from '@vscode/SettingsManager';
-
+import { SyncManager } from '@vscode/SyncManager';
 
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
@@ -31,10 +31,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     // Selection state (passive) - Moved to StateStore
 
     private _playbackEngine: PlaybackEngine;
-    private _needsSync: boolean = false; // Tracks if a full sync is required on reveal
-    private _needsHistorySync: boolean = false; // Specific flag for background snippet updates
+    private _needsSync: boolean = false; 
+    private _needsHistorySync: boolean = false; 
     private _voiceManager!: VoiceManager;
     private _settingsManager!: SettingsManager;
+    private _syncManager!: SyncManager;
     private _debounceSaveTimers: Map<string, NodeJS.Timeout> = new Map();
 
     private _lastReportedProgress: number = -1;
@@ -88,6 +89,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         this._dashboardRelay = new DashboardRelay(this._stateStore, this._docController, this._playbackEngine, this._logger);
         this._voiceManager = new VoiceManager(this._playbackEngine, this._stateStore, this._dashboardRelay, this._logger);
+        this._syncManager = new SyncManager(this._stateStore, this._dashboardRelay, this._logger);
+        this._syncManager.setSessionId(this._sessionId);
 
         // Register AudioBridge Events
         this._audioBridge.on('playAudio', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.PLAY_AUDIO, ...payload }));
@@ -112,20 +115,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger('[BOOT] extension_activated');
         this._voiceManager.scanAndSync();
 
-        // [Reactive Sync] Subscribe to StateStore changes
-        this._stateStore.on('change', () => {
-            if (this._view?.visible) {
-                // Determine if we need a full sync or throttled sync
-                // We use throttled sync for high-frequency updates (volume/rate)
-                this._syncUIThrottled();
-            } else {
-                this._needsSync = true;
-                // If the mode is SNIPPET, we likely need a history refresh too
-                if (this._stateStore.state.activeMode === 'SNIPPET') {
-                    this._needsHistorySync = true;
-                }
-            }
-        });
+        // [Reactive Sync] Handled by SyncManager
 
         // --- Portless MCP Watcher ---
 
@@ -139,6 +129,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         
         this._logger(`[SYNC] PIVOTING: ${this._sessionId} -> ${newSessionId}`);
         this._sessionId = newSessionId;
+        this._syncManager.setSessionId(newSessionId);
         
         // 1. Ensure the new session has a extension_state.json and folder
         this._ensureSessionState();
@@ -252,6 +243,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public dispose() {
         this._voiceManager?.dispose();
         this._settingsManager?.dispose();
+        this._syncManager?.dispose();
         if (this._updateDocumentInfoTimer) {
             clearTimeout(this._updateDocumentInfoTimer);
         }
@@ -297,23 +289,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         return payload;
     }
-    /**
-     * Unified Reactive Sync: Gather all state and broadcast to the webview.
-     * This is the "Single Source of Truth" relay point.
-     */
-    private _syncUI(snippetHistory?: SnippetHistory) {
-        this._dashboardRelay.sync(snippetHistory, this._sessionId);
-    }
-
-    private _syncUITimer?: NodeJS.Timeout;
-    private _syncUIThrottled() {
-        if (this._syncUITimer) { return; }
-        this._syncUITimer = setTimeout(() => {
-            this._syncUITimer = undefined;
-            this._syncUI(); // Throttled sync is ALWAYS partial (no voices)
-        }, 50); // 50ms throttle for ultra-smooth slider updates
-    }
-
     private _postToAll(msg: any) {
         this._dashboardRelay.postMessage(msg);
         this._syncStatusBars();
@@ -342,6 +317,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     ) {
         this._view = webviewView;
         this._dashboardRelay.setView(webviewView);
+        this._syncManager.setView(webviewView);
         
         // [DELTA SYNC] Initial handshake happens on 'ready' message
         this._logger('--- ACTIVATING MISSION CONTROL (Sidebar) ---');
@@ -533,9 +509,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public async refreshView() {
-        // [SYNC_FIX] Explicitly fetch latest history before syncing UI
         const history = await this._getSnippetHistory();
-        this._syncUI(history);
+        this._syncManager.requestSync(true, history);
         this._voiceManager.broadcastVoices();
 
         if (this._docController.chapters.length > 0) {
@@ -650,7 +625,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     cacheSizeBytes: 0
                 });
                 this._logger(`[CACHE] Extension cache purged. Triggering webview sync...`);
-                this._syncUI();
                 break;
             case OutgoingAction.OPEN_FILE:
                 const fileUri = data.uri || data.path;
@@ -689,8 +663,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                             null // No progress for external snippets for now
                         );
                         this._stateStore.setActiveMode('SNIPPET');
-                        this._syncUI();
-                        this.refreshView();
+                                this.refreshView();
                     }
                 }
                 break;
@@ -841,7 +814,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._stateStore.setActiveMode('FILE');
 
         // UNIFIED SYNC: Propagate the updated state to Dashboard
-        this._syncUI();
 
         if (chapters.length > 0) {
             const currentPos = this._stateStore.state;
@@ -863,7 +835,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._docController.clear();
         this._stateStore.clearActiveContext();
 
-        this._syncUI();
         this._logger('[READALOUD] Context Reset: Reader cleared.');
     }
 
@@ -876,14 +847,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public pause() {
         this._audioBridge.pause();
         this._playbackEngine.setPaused(true);
-        this._syncUI();
     }
 
     public stop() {
         this._audioBridge.stop();
         this._playbackEngine.setPlaying(false);
         this._playbackEngine.setPaused(false);
-        this._syncUI();
         this._logger('[STOP] playback_stop');
     }
 
@@ -891,7 +860,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._stateStore.setPreviewing(false); // Commit to full playback
         this._playbackEngine.setPlaying(true);
         this._playbackEngine.setPaused(false);
-        this._syncUI();
         this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions());
     }
 
