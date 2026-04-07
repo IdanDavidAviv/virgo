@@ -5,7 +5,14 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [Unreleased]
 
 ### Added
-- 
+- **Dual-Stream Log Resources**: Exposed `read_aloud://logs` (Native) and `read_aloud://logs/debug` (@diagnostics.log) as MCP resources for real-time agentic observability.
+- **PID-Injected Headers**: Injected Process ID (PID) into log streams to ensure absolute instance isolation and traceability in multi-window environments.
+- **Logging Unit Tests**: Introduced a high-integrity verification suite in `tests/mcp/mcpLogging.test.ts` to validate log extraction logic without SSE/Network dependencies.
+
+### Changed
+- **Zero-File Discovery Protocol**: Replaced filesystem-based `metadata.json` discovery with in-memory constructor injection for log paths, eliminating instance collisions.
+- **LogOutputChannel Hardening**: Implemented a type-safe detection pattern for `createLogOutputChannel` with a graceful fallback to standard `OutputChannel` for older VS Code versions.
+- **Refactored McpBridge**: Decoupled log content extraction from resource handling, improving testability and maintainability.
 
 ## [2.1.3] - 2026-04-06
 

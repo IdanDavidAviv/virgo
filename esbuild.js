@@ -49,7 +49,13 @@ async function build() {
     const nodeConfig = {
         entryPoints: ['./src/extension/vscode/extension.ts'],
         bundle: true,
-        alias: commonAlias,
+        alias: {
+            '@extension': path.join(__dirname, 'src/extension'),
+            '@core': path.join(__dirname, 'src/extension/core'),
+            '@vscode': path.join(__dirname, 'src/extension/vscode'),
+            '@webview': path.join(__dirname, 'src/webview'),
+            '@common': path.join(__dirname, 'src/common'),
+        },
         outfile: './dist/extension.js',
         external: ['vscode'],
         format: 'cjs',

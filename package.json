@@ -11,6 +11,10 @@
     "type": "git",
     "url": "https://github.com/IdanDavidAviv/readme-preview-read-aloud.git"
   },
+  "enabledApiProposals": [
+    "chatContextProvider",
+    "chatProvider"
+  ],
   "homepage": "https://github.com/IdanDavidAviv/readme-preview-read-aloud#readme",
   "bugs": {
     "url": "https://github.com/IdanDavidAviv/readme-preview-read-aloud/issues"
@@ -90,6 +94,16 @@
         "command": "readme-preview-read-aloud.next-sentence",
         "title": "Next Sentence",
         "icon": "$(triangle-right)"
+      },
+      {
+        "command": "readme-preview-read-aloud.restart-mcp",
+        "title": "Read Aloud: Restart MCP Bridge",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "readme-preview-read-aloud.restart-extension",
+        "title": "Read Aloud: Full Extension Restart",
+        "icon": "$(sync)"
       }
     ],
     "viewsContainers": {
