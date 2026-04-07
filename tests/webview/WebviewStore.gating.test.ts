@@ -2,13 +2,14 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { WebviewStore } from '../../src/webview/core/WebviewStore';
-import { IncomingCommand } from '../../src/common/types';
+import { WebviewStore } from '@webview/core/WebviewStore';
+import { IncomingCommand } from '@common/types';
+import { resetAllSingletons, wireDispatcher } from './testUtils';
 
 describe('WebviewStore: Delta Sync Integrity', () => {
     beforeEach(() => {
-        // @ts-ignore
-        WebviewStore.instance = undefined;
+        resetAllSingletons();
+        wireDispatcher();
     });
 
     it('SHOULD preserve existing voice list when availableVoices is OMITTED from UI_SYNC', () => {

@@ -7,26 +7,29 @@ import { PlaybackController } from '../../../src/webview/playbackController';
 import { WebviewStore } from '../../../src/webview/core/WebviewStore';
 import { NeuralAudioStrategy } from '../../../src/webview/strategies/NeuralAudioStrategy';
 
+import { resetAllSingletons } from '../testUtils';
+
 describe('Resilience: RaceCondition (v2.0.0 Hardening)', () => {
     let engine: WebviewAudioEngine;
     let controller: PlaybackController;
     let playSpy: any;
 
     beforeEach(() => {
-        vi.clearAllMocks();
-        
-        // 1. Reset Singleton State
-        (window as any).__WEBVIEW_STORE__ = undefined;
-        WebviewAudioEngine.resetInstance();
-        PlaybackController.resetInstance();
+        resetAllSingletons();
 
         // 2. Setup Store (Simulate User Intent to activate Sovereignty Guard)
         const store = WebviewStore.getInstance();
-        store.optimisticPatch({ 
+        (store as any).state = { 
             selectedVoice: 'Neural:test',
             isPlaying: false,
-            isPaused: false
-        }, { intentTimeout: 5000 }); // Long timeout for tests
+            isPaused: false,
+            volume: 50,
+            rate: 0,
+            currentChapterIndex: 0,
+            state: {
+                currentSentenceIndex: 0
+            }
+        };
         store.updateUIState({ playbackIntent: 'PLAYING' });
 
         // 3. Initialize Engine

@@ -6,6 +6,7 @@ import { BaseComponent } from '@webview/core/BaseComponent';
 import { WebviewStore } from '@webview/core/WebviewStore';
 import { MessageClient } from '@webview/core/MessageClient';
 import { IncomingCommand } from '@common/types';
+import { resetAllSingletons, wireDispatcher } from '../testUtils';
 
 // Mock implementation for testing
 class TestComponent extends BaseComponent<{ container: HTMLElement | null }> {
@@ -23,12 +24,8 @@ class TestComponent extends BaseComponent<{ container: HTMLElement | null }> {
 describe('BaseComponent', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="container"></div>';
-    (window as any).vscode = null;
-    (window as any).acquireVsCodeApi = vi.fn(() => ({
-      postMessage: vi.fn()
-    }));
-    MessageClient.resetInstance();
-    WebviewStore.resetInstance();
+    resetAllSingletons();
+    wireDispatcher();
   });
 
   it('should initialize and validate elements', () => {
@@ -72,7 +69,8 @@ describe('BaseComponent', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         command: IncomingCommand.UI_SYNC,
-        isPlaying: true
+        isPlaying: true,
+        state: { currentSentenceIndex: 0 }
       }
     }));
     

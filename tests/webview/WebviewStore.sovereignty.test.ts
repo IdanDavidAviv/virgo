@@ -18,6 +18,15 @@ describe('WebviewStore Sovereignty (TDD: Stale Sync Guard)', () => {
         vi.setSystemTime(new Date(2024, 0, 1));
     });
 
+    it('should trigger UI update on optimistic state change', async () => {
+        const store = WebviewStore.getInstance();
+        const listener = vi.fn();
+        store.subscribeUI((s) => s.isDraggingSlider, listener);
+
+        store.updateUIState({ isDraggingSlider: true });
+        expect(listener).toHaveBeenCalledWith(true);
+    });
+
     it('SHOULD ignore stale UI_SYNC playback states if a recent user intent exists', () => {
         const store = WebviewStore.getInstance();
         
@@ -36,8 +45,9 @@ describe('WebviewStore Sovereignty (TDD: Stale Sync Guard)', () => {
         
         expect(store.getState()?.isPlaying).toBe(false);
 
-        // 2. USER ACTION: Play (Optimistic Patch)
-        store.optimisticPatch({ isPlaying: true, isPaused: false });
+        // 2. USER ACTION: Play (Sovereign Patch)
+        store.patchState({ isPlaying: true, isPaused: false });
+        store.updateUIState({ isAwaitingSync: true });
         expect(store.getState()?.isPlaying).toBe(true);
 
         // 3. STALE SYNC: Host sends a packet saying it is STOPPED

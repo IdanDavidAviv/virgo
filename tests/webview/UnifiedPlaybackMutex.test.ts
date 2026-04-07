@@ -2,8 +2,9 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { WebviewAudioEngine } from '../../src/webview/core/WebviewAudioEngine';
-import { WebviewStore } from '../../src/webview/core/WebviewStore';
+import { WebviewAudioEngine } from '@webview/core/WebviewAudioEngine';
+import { WebviewStore } from '@webview/core/WebviewStore';
+import { resetAllSingletons, wireDispatcher } from './testUtils';
 
 describe('UnifiedPlaybackMutex (E2E Integration)', () => {
     let engine: WebviewAudioEngine;
@@ -11,9 +12,8 @@ describe('UnifiedPlaybackMutex (E2E Integration)', () => {
 
     beforeEach(() => {
         vi.useFakeTimers();
-        // Reset singletons
-        (WebviewAudioEngine as any).instance = undefined;
-        (WebviewStore as any).instance = undefined;
+        resetAllSingletons();
+        wireDispatcher();
 
         engine = WebviewAudioEngine.getInstance();
         store = WebviewStore.getInstance();
@@ -98,24 +98,31 @@ describe('UnifiedPlaybackMutex (E2E Integration)', () => {
         const unlock = await engine.acquirePlaybackLock();
         
         // 2. Queue Neural Playback
+        const neuralAudio = (engine as any).neuralStrategy.audio;
+        const audioSpy = vi.spyOn(neuralAudio, 'play');
+        
         const neuralPromise = engine.playBlob(new Blob(), 'key-1', 100);
 
-        // 3. Switch strategy to Local
-        (engine as any).updateStrategy('Local:Voice1');
+        // 3. Switch strategy to Local via updateState (which triggers updateStrategy subscription)
+        // [SOVEREIGNTY]: Engine switches strategy based on selectedVoice prefix
+        store.updateState({ selectedVoice: 'Local:Default' } as any, 'remote');
         
-        // 4. Release the manual lock
+        // 4. Release lock - Step 1 is done
         unlock();
         
-        // Neural should now get the lock but REJECT the playback because it's no longer active
+        // Neural should now get the lock but MUST reject the playback because it's no longer active
         await neuralPromise;
         
-        const audioSpy = (engine as any).neuralStrategy.audio.play;
+        // Verify audio.play was NOT called on the neural strategy's player
         expect(audioSpy).not.toHaveBeenCalled();
     });
     it('SHOULD recover and allow subsequent playback if a previous one fails', async () => {
         // 1. Trigger a failing playback (rejects its lock)
-        (engine as any).neuralStrategy.audio.play = vi.fn().mockRejectedValue(new Error('Audio Error'));
-        (engine as any).playbackIntent = 'PLAYING';
+        const neuralAudio = (engine as any).neuralStrategy.audio;
+        vi.spyOn(neuralAudio, 'play').mockRejectedValue(new Error('Audio Error'));
+        
+        // Ensure store intent is NOT STOPPED so guard doesn't prune it before calling play()
+        WebviewStore.getInstance().updateUIState({ playbackIntent: 'PLAYING' });
 
         try {
             await engine.playBlob(new Blob(), 'key-fail', 200);
@@ -125,7 +132,7 @@ describe('UnifiedPlaybackMutex (E2E Integration)', () => {
 
         // 2. Trigger a successful playback
         const successTraces: string[] = [];
-        (engine as any).neuralStrategy.audio.play = vi.fn().mockResolvedValue(undefined);
+        vi.spyOn(neuralAudio, 'play').mockResolvedValue(undefined);
         
         await engine.playBlob(new Blob(), 'key-success', 201).then(() => successTraces.push('success_done'));
         

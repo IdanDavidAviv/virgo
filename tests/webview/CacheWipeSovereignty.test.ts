@@ -43,17 +43,18 @@ describe('Cache Wipe Sovereignty (TDD: #45)', () => {
 
     it('SHOULD reset neuralBuffer stats to zero immediately after wipe', async () => {
         // 1. Manually hydrate store with "stale" cache stats
-        // [REINFORCEMENT] Use optimisticPatch to ensure this.state is hydrated in test environment
-        store.optimisticPatch({ 
-            cacheStats: { count: 15, size: 5242880 } // 5MB
-        });
+        // [REINFORCEMENT] Use updateState to ensure this.state is hydrated in test environment
+        store.updateState({ 
+            cacheCount: 15,
+            cacheSizeBytes: 5242880 // 5MB
+        }, 'local');
 
-        expect(store.getState()?.cacheStats?.count).toBe(15);
+        expect(store.getState()?.cacheCount).toBe(15);
 
         // 2. Trigger wipe (Stage: GREEN)
         store.resetCacheStats();
-        expect(store.getState()?.cacheStats?.count).toBe(0);
-        expect(store.getState()?.cacheStats?.size).toBe(0);
+        expect(store.getState()?.cacheCount).toBe(0);
+        expect(store.getState()?.cacheSizeBytes).toBe(0);
     });
 
     it('SHOULD trigger wipe when extension sends CLEAR_CACHE_WIPE command', async () => {

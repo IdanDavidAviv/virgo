@@ -7,17 +7,21 @@ import { MessageClient } from '../../../src/webview/core/MessageClient';
 import { WebviewStore } from '../../../src/webview/core/WebviewStore';
 import { PlaybackController } from '../../../src/webview/playbackController';
 
+import { resetAllSingletons, getCoreSystems } from '../testUtils';
+
 describe('WebviewAudioEngine (Strategy Architecture)', () => {
     let engine: WebviewAudioEngine;
     let controller: PlaybackController;
 
     beforeEach(() => {
-        vi.clearAllMocks();
+        resetAllSingletons();
 
         // 1. Mock MessageClient.getInstance
         vi.spyOn(MessageClient, 'getInstance').mockReturnValue({
             postAction: vi.fn(),
-            resetInstance: vi.fn()
+            onCommand: vi.fn(),
+            resetInstance: vi.fn(),
+            dispose: vi.fn()
         } as any);
 
         // 2. Mock WebviewStore.getInstance
@@ -25,8 +29,9 @@ describe('WebviewAudioEngine (Strategy Architecture)', () => {
             getState: vi.fn(() => ({ volume: 50, rate: 0, selectedVoice: 'en-US-SteffanNeural' })),
             getUIState: vi.fn(() => ({ isAwaitingSync: false, playbackIntent: 'PAUSED' })),
             updateUIState: vi.fn(),
-            optimisticPatch: vi.fn(),
             patchState: vi.fn(),
+            updateState: vi.fn(),
+            resetLoadingStates: vi.fn(),
             getSentenceKey: vi.fn(),
             subscribe: vi.fn((selector, handler) => { 
                 // Immediate trigger for initial strategy
@@ -37,7 +42,8 @@ describe('WebviewAudioEngine (Strategy Architecture)', () => {
             subscribeUI: vi.fn((selector, handler) => {
                 // Initial trigger
                 handler(selector({ playbackIntent: 'PAUSED' } as any));
-            })
+            }),
+            resetInstance: vi.fn()
         };
         vi.spyOn(WebviewStore, 'getInstance').mockReturnValue(mockStore as any);
 
@@ -62,10 +68,6 @@ describe('WebviewAudioEngine (Strategy Architecture)', () => {
             muted = false;
         };
 
-        // Reset singletons for isolation
-        WebviewAudioEngine.resetInstance();
-        PlaybackController.resetInstance();
-        
         engine = WebviewAudioEngine.getInstance();
         controller = PlaybackController.getInstance();
     });

@@ -4,25 +4,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PlaybackControls } from '@webview/components/PlaybackControls';
 import { WebviewStore } from '@webview/core/WebviewStore';
+import { PlaybackController } from '@webview/playbackController';
 import { MessageClient } from '@webview/core/MessageClient';
 import { IncomingCommand } from '@common/types';
+import { resetAllSingletons, wireDispatcher, FULL_DOM_TEMPLATE } from '../testUtils';
 
 describe('PlaybackControls', () => {
     let elements: any;
 
     beforeEach(() => {
-        document.body.innerHTML = `
-            <button id="btn-play">Play</button>
-            <button id="btn-pause">Pause</button>
-            <button id="btn-stop">Stop</button>
-            <button id="btn-prev">Prev</button>
-            <button id="btn-next">Next</button>
-            <button id="btn-prev-sentence">PrevS</button>
-            <button id="btn-next-sentence">NextS</button>
-            <button id="btn-autoplay">AUTO</button>
-            <div id="wave-container"></div>
-            <span id="status-dot"></span>
-        `;
+        document.body.innerHTML = FULL_DOM_TEMPLATE;
+        
+        // 1. Reset everything FIRST
+        resetAllSingletons();
+        
+        // 2. Mock Globals specifically for this test
+        const mockVscode = { postMessage: vi.fn() };
+        (window as any).acquireVsCodeApi = vi.fn(() => mockVscode);
+        (window as any).vscode = mockVscode;
+
         elements = {
             btnPlay: document.getElementById('btn-play'),
             btnPause: document.getElementById('btn-pause'),
@@ -35,10 +35,10 @@ describe('PlaybackControls', () => {
             waveContainer: document.getElementById('wave-container'),
             statusDot: document.getElementById('status-dot')
         };
-        (window as any).vscode = null;
-        (window as any).acquireVsCodeApi = vi.fn(() => ({ postMessage: vi.fn() }));
-        MessageClient.resetInstance();
-        WebviewStore.resetInstance();
+        
+        wireDispatcher();
+        // Initialize instance to trigger listeners
+        PlaybackController.getInstance();
     });
 
     describe('status-dot indicator (#1 regression guard)', () => {
@@ -150,15 +150,17 @@ describe('PlaybackControls', () => {
             ctrl.mount();
 
             const store = WebviewStore.getInstance();
-            const patchSpy = vi.spyOn(store, 'optimisticPatch');
+            store.updateState({ autoPlayMode: 'auto' } as any); // Pre-hydrate for patchState safety
+
+            const setAutoPlaySpy = vi.spyOn(PlaybackController.getInstance(), 'setAutoPlayMode');
 
             // Default is 'auto' (implied)
             elements.btnAutoplay.click();
 
-            // 1. Should patch to 'chapter' immediately
-            expect(patchSpy).toHaveBeenCalledWith({ autoPlayMode: 'chapter' }, { isAwaitingSync: false });
+            // 1. Should call controller immediately
+            expect(setAutoPlaySpy).toHaveBeenCalledWith('chapter');
             
-            // 2. UI should update instantly via store notification
+            // 2. UI should update instantly via store notification (which controller handles)
             expect(elements.btnAutoplay.textContent).toBe('1 CH');
             expect(elements.btnAutoplay.classList.contains('pulse')).toBe(true);
         });

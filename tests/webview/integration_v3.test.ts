@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { WebviewStore } from '../../src/webview/core/WebviewStore';
+import { WebviewStore, DEFAULT_SYNC_PACKET } from '../../src/webview/core/WebviewStore';
 import { MessageClient } from '../../src/webview/core/MessageClient';
 import { CommandDispatcher } from '../../src/webview/core/CommandDispatcher';
 import { InteractionManager } from '../../src/webview/core/InteractionManager';
 import { LayoutManager } from '../../src/webview/core/LayoutManager';
 import { WebviewAudioEngine } from '../../src/webview/core/WebviewAudioEngine';
+import { SessionController } from '../../src/webview/sessionController';
 import { IncomingCommand, OutgoingAction } from '../../src/common/types';
 
 // Components
@@ -86,6 +87,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
         // 1. Reset all singletons
         WebviewStore.resetInstance();
         MessageClient.resetInstance();
+        SessionController.resetInstance();
         CommandDispatcher.resetInstance();
         LayoutManager.resetInstance();
         InteractionManager.resetInstance();
@@ -100,32 +102,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
         vi.spyOn(window.HTMLMediaElement.prototype, 'load').mockImplementation(() => { });
 
         store = WebviewStore.getInstance();
-        client = MessageClient.getInstance();
-        dispatcher = CommandDispatcher.getInstance();
-
-        // Mock postAction globally for all tests
-        vi.spyOn(client, 'postAction').mockImplementation(() => { });
-
-        // ─── Global Store Hydration ───────────────────────────────────────────
-        // The store is null until the first updateState() call (by design).
-        // Hydrate with minimal defaults so patchState/getState() work in all suites.
         store.updateState({
-            isPlaying: false,
-            isPaused: false,
-            playbackStalled: false,
-            autoPlayMode: 'auto',
-            engineMode: 'local',
-            currentSentences: [{ text: 'Hello', key: 's1' }],
-            allChapters: [{ title: 'C1', index: 0, sentences: [{ text: 'Hello', key: 's1' }] }],
-            currentText: '',
-            totalChapters: 0,
-            canPrevChapter: false,
-            canNextChapter: false,
-            canPrevSentence: false,
-            canNextSentence: false,
-            availableVoices: { local: [], neural: [] },
-            cacheCount: 0,
-            cacheSizeBytes: 0,
             state: {
                 focusedFileName: '',
                 focusedRelativeDir: '',
@@ -137,18 +114,34 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
                 currentChapterIndex: 0,
                 currentSentenceIndex: 0,
                 isRefreshing: false,
-                isPreviewing: false,
-                activeMode: 'FILE'
+                isPreviewing: false
             },
-            snippetHistory: [
-                {
-                    id: 'session-1',
-                    sessionName: 'Session 1',
-                    snippets: []
-                }
-            ],
-            activeSessionId: null
+            isPlaying: false,
+            isPaused: false,
+            rate: 1.0,
+            volume: 50,
+            autoPlayMode: 'auto',
+            engineMode: 'local',
+            availableVoices: { local: [], neural: [] }
         } as any);
+        client = MessageClient.getInstance();
+        dispatcher = CommandDispatcher.getInstance();
+
+        // Mock postAction globally for all tests
+        vi.spyOn(client, 'postAction').mockImplementation(() => { });
+
+        // ─── Global Store Hydration ───────────────────────────────────────────
+        // The store is null until the first updateState() call (by design).
+        // Hydrate with full defaults so patchState/getState() work in all suites.
+        store.updateState({
+            ...DEFAULT_SYNC_PACKET,
+            currentSentences: ['Hello'],
+            allChapters: [{ title: 'C1', level: 1, index: 0, count: 1 }],
+            state: {
+                ...DEFAULT_SYNC_PACKET.state,
+                focusedIsSupported: true
+            }
+        });
     });
 
     afterEach(() => {
@@ -201,7 +194,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             readerFilename: document.getElementById('reader-filename') as HTMLElement,
             readerDir: document.getElementById('reader-dir') as HTMLElement,
             btnLoadFile: document.getElementById('btn-load-file') as HTMLButtonElement,
-            btnClearReader: document.getElementById('btn-clear-reader') as HTMLButtonElement,
+            btnResetContext: document.getElementById('btn-clear-reader') as HTMLButtonElement,
             btnModeFile: document.getElementById('btn-mode-file') as HTMLButtonElement,
             btnModeSnippet: document.getElementById('btn-mode-snippet') as HTMLButtonElement,
             fileModeContainer: document.getElementById('file-mode-container') as HTMLElement,
@@ -284,37 +277,55 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
         it('T2.2 — PAUSE button posts OutgoingAction.PAUSE', () => {
             mountPlaybackControls();
             document.getElementById('btn-pause')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.PAUSE);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.PAUSE,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T2.3 — STOP button posts OutgoingAction.STOP', () => {
             mountPlaybackControls();
             document.getElementById('btn-stop')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.STOP);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.STOP,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T2.4 — PREV CHAPTER button posts OutgoingAction.PREV_CHAPTER', () => {
             mountPlaybackControls();
             document.getElementById('btn-prev')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.PREV_CHAPTER);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.PREV_CHAPTER,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T2.5 — NEXT CHAPTER button posts OutgoingAction.NEXT_CHAPTER', () => {
             mountPlaybackControls();
             document.getElementById('btn-next')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.NEXT_CHAPTER);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.NEXT_CHAPTER,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T2.6 — PREV SENTENCE button posts OutgoingAction.PREV_SENTENCE', () => {
             mountPlaybackControls();
             document.getElementById('btn-prev-sentence')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.PREV_SENTENCE);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.PREV_SENTENCE,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T2.7 — NEXT SENTENCE button posts OutgoingAction.NEXT_SENTENCE', () => {
             mountPlaybackControls();
             document.getElementById('btn-next-sentence')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.NEXT_SENTENCE);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.NEXT_SENTENCE,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T2.8 — AUTOPLAY button cycles from auto → chapter and posts SET_AUTO_PLAY_MODE', () => {
@@ -343,18 +354,22 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
     // SUITE 3: Playback Controls — State-Reactive UI
     // ─────────────────────────────────────────────────────────────────────────
     describe('Suite 3: Playback Controls — Reactive State', () => {
-        it('T3.1 — Should show PAUSE button and hide PLAY when isPlaying=true, isPaused=false', () => {
+        it('T3.1 — Should show PAUSE button and hide PLAY when isPlaying=true, isPaused=false', async () => {
             mountPlaybackControls();
-            dispatcher.dispatch(IncomingCommand.PLAYBACK_STATE_CHANGED, { isPlaying: true, isPaused: false });
-            expect(document.getElementById('btn-play')!.style.display).toBe('none');
-            expect(document.getElementById('btn-pause')!.style.display).toBe('inline-block');
+            await dispatcher.dispatch(IncomingCommand.PLAYBACK_STATE_CHANGED, { isPlaying: true, isPaused: false });
+            await vi.waitFor(() => {
+                expect(document.getElementById('btn-play')!.style.display).toBe('none');
+                expect(document.getElementById('btn-pause')!.style.display).toBe('inline-block');
+            });
         });
 
-        it('T3.2 — Should show PLAY button and hide PAUSE when paused', () => {
+        it('T3.2 — Should show PLAY button and hide PAUSE when paused', async () => {
             mountPlaybackControls();
-            dispatcher.dispatch(IncomingCommand.PLAYBACK_STATE_CHANGED, { isPlaying: true, isPaused: true });
-            expect(document.getElementById('btn-play')!.style.display).toBe('inline-block');
-            expect(document.getElementById('btn-pause')!.style.display).toBe('none');
+            await dispatcher.dispatch(IncomingCommand.PLAYBACK_STATE_CHANGED, { isPlaying: true, isPaused: true });
+            await vi.waitFor(() => {
+                expect(document.getElementById('btn-play')!.style.display).toBe('inline-block');
+                expect(document.getElementById('btn-pause')!.style.display).toBe('none');
+            });
         });
 
         it('T3.3 — Status dot gets "online" class when actively playing', () => {
@@ -495,7 +510,10 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             } as any);
 
             document.getElementById('btn-load-file')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.LOAD_DOCUMENT, undefined);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.LOAD_DOCUMENT,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T5.2 — CLEAR READER button posts RESET_CONTEXT', () => {
@@ -504,7 +522,10 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             expect(btn).not.toBeNull();
             btn.click();
             // BaseComponent.postAction calls MessageClient.getInstance().postAction
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.RESET_CONTEXT, undefined);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.RESET_CONTEXT,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T5.3 — Active filename updates when UI_SYNC delivers focusedFileName', () => {

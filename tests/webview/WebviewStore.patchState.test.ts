@@ -3,14 +3,18 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WebviewStore } from '@webview/core/WebviewStore';
-import { MessageClient } from '@webview/core/MessageClient';
 import { IncomingCommand, UISyncPacket } from '@common/types';
+import { resetAllSingletons, wireDispatcher } from './testUtils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function dispatchSync(data: Partial<UISyncPacket>) {
     window.dispatchEvent(new MessageEvent('message', {
-        data: { command: IncomingCommand.UI_SYNC, ...data }
+        data: { 
+            command: IncomingCommand.UI_SYNC, 
+            state: { currentSentenceIndex: 0 }, 
+            ...data 
+        }
     }));
 }
 
@@ -22,15 +26,16 @@ describe('WebviewStore — patchState (#2 regression guard)', () => {
     beforeEach(() => {
         (window as any).vscode = null;
         (window as any).acquireVsCodeApi = vi.fn(() => ({ postMessage: vi.fn() }));
-        MessageClient.resetInstance();
-        WebviewStore.resetInstance();
+        resetAllSingletons();
+        wireDispatcher();
         store = WebviewStore.getInstance();
     });
 
     it('should be a no-op if no base state exists yet', () => {
-        // patchState before any UI_SYNC — should not throw
+        // patchState before any UI_SYNC — should now hydrate from DEFAULT_SYNC_PACKET
         expect(() => store.patchState({ isPlaying: true })).not.toThrow();
-        expect(store.getState()).toBeNull();
+        expect(store.getState()).not.toBeNull();
+        expect(store.getState()?.isPlaying).toBe(true);
     });
 
     it('should merge a partial patch into existing state', () => {

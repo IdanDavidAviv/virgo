@@ -8,12 +8,16 @@ import { WebviewStore } from '@webview/core/WebviewStore';
 import { MessageClient } from '@webview/core/MessageClient';
 import { CommandDispatcher } from '@webview/core/CommandDispatcher';
 import { IncomingCommand, OutgoingAction } from '@common/types';
+import { resetAllSingletons, wireDispatcher } from '../testUtils';
 
 describe('SettingsDrawer', () => {
     let elements: any;
     let ctrl: SettingsDrawer;
 
     beforeEach(() => {
+        vi.useFakeTimers();
+        resetAllSingletons();
+        wireDispatcher();
         document.body.innerHTML = `
             <div id="settings-drawer">
                 <button id="settings-toggle">Settings</button>
@@ -47,11 +51,9 @@ describe('SettingsDrawer', () => {
         };
         (window as any).vscode = null;
         (window as any).acquireVsCodeApi = vi.fn(() => ({ postMessage: vi.fn() }));
-        MessageClient.resetInstance();
-        WebviewStore.resetInstance();
-        CommandDispatcher.resetInstance();
-        // Wire up the dispatcher so UI_SYNC messages reach the store
-        CommandDispatcher.getInstance();
+        resetAllSingletons();
+        wireDispatcher();
+        vi.useFakeTimers();
     });
 
     afterEach(() => {
@@ -60,6 +62,7 @@ describe('SettingsDrawer', () => {
         }
         ToastManager.clearAll();
         vi.clearAllMocks();
+        vi.useRealTimers();
     });
 
     it('should update volume label when slider changes (oninput)', () => {
@@ -118,6 +121,9 @@ describe('SettingsDrawer', () => {
         slider.value = '40';
         // Use 'change' (onchange) which fires postAction directly without the 40ms debounce
         slider.dispatchEvent(new Event('change'));
+        
+        // Advance timers for debounced setVolume() in PlaybackController
+        vi.advanceTimersByTime(200);
 
         expect(postActionSpy).toHaveBeenCalledWith(OutgoingAction.VOLUME_CHANGED, { volume: 40 });
     });

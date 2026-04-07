@@ -3,8 +3,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WebviewStore } from '@webview/core/WebviewStore';
-import { MessageClient } from '@webview/core/MessageClient';
 import { IncomingCommand, UISyncPacket } from '@common/types';
+import { resetAllSingletons, wireDispatcher } from './testUtils';
 
 describe('WebviewStore', () => {
   beforeEach(() => {
@@ -12,8 +12,8 @@ describe('WebviewStore', () => {
     (window as any).acquireVsCodeApi = vi.fn(() => ({
       postMessage: vi.fn()
     }));
-    MessageClient.resetInstance();
-    WebviewStore.resetInstance();
+    resetAllSingletons();
+    wireDispatcher();
   });
 
   it('should hydrate state from UI_SYNC commands', () => {
@@ -28,6 +28,7 @@ describe('WebviewStore', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         command: IncomingCommand.UI_SYNC,
+        state: { currentSentenceIndex: 0 },
         ...mockPacket
       }
     }));
@@ -48,6 +49,7 @@ describe('WebviewStore', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         command: IncomingCommand.UI_SYNC,
+        state: { currentSentenceIndex: 0 },
         isPlaying: false,
         rate: 1.0
       }
@@ -60,6 +62,7 @@ describe('WebviewStore', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         command: IncomingCommand.UI_SYNC,
+        state: { currentSentenceIndex: 0 },
         isPlaying: false,
         rate: 2.0
       }
@@ -71,6 +74,7 @@ describe('WebviewStore', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         command: IncomingCommand.UI_SYNC,
+        state: { currentSentenceIndex: 0 },
         isPlaying: true,
         rate: 2.0
       }
@@ -89,6 +93,7 @@ describe('WebviewStore', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         command: IncomingCommand.UI_SYNC,
+        state: { currentSentenceIndex: 0 },
         rate: 3.0
       }
     }));

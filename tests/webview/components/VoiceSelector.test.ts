@@ -9,11 +9,15 @@ import { MessageClient } from '@webview/core/MessageClient';
 import { CommandDispatcher } from '@webview/core/CommandDispatcher';
 import { IncomingCommand, OutgoingAction } from '@common/types';
 
+import { resetAllSingletons, wireDispatcher } from '../testUtils';
+
 describe('VoiceSelector', () => {
     let elements: any;
     let ctrl: VoiceSelector;
 
     beforeEach(() => {
+        resetAllSingletons();
+        wireDispatcher();
         HTMLElement.prototype.scrollIntoView = vi.fn();
         document.body.innerHTML = `
             <div id="voice-list-container" class="voice-list-container"></div>
@@ -23,12 +27,8 @@ describe('VoiceSelector', () => {
             voiceList: document.getElementById('voice-list-container'),
             searchInput: document.getElementById('voice-search')
         };
-        (window as any).vscode = null;
-        (window as any).acquireVsCodeApi = vi.fn(() => ({ postMessage: vi.fn() }));
-        MessageClient.resetInstance();
-        WebviewStore.resetInstance();
-        CommandDispatcher.resetInstance();
-        // Wire up the dispatcher so UI_SYNC/VOICES messages reach the store
+        
+        // Ensure CommandDispatcher is active to bridge messages to store
         CommandDispatcher.getInstance();
     });
 
@@ -168,11 +168,12 @@ describe('VoiceSelector', () => {
         ctrl = new VoiceSelector(elements);
         ctrl.mount();
 
-        const scrollSpy = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+        const scrollSpy = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
 
         window.dispatchEvent(new MessageEvent('message', {
             data: {
                 command: IncomingCommand.UI_SYNC,
+                state: { currentSentenceIndex: 0 },
                 availableVoices: {
                     local: [{ id: 'v1', name: 'V1', lang: '' }],
                     neural: []
@@ -182,8 +183,7 @@ describe('VoiceSelector', () => {
             }
         }));
 
-        vi.advanceTimersByTime(50);
+        vi.advanceTimersByTime(100);
         expect(scrollSpy).toHaveBeenCalled();
-        scrollSpy.mockRestore();
     });
 });
