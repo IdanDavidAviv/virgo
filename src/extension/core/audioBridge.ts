@@ -12,6 +12,7 @@ export interface AudioBridgeEvents {
     'playbackFinished': () => void;
     'engineStatus': (payload: { status: string }) => void;
     'dataPush': (payload: { cacheKey: string, data: string, intentId: number }) => void;
+    'synthesisReady': (payload: { cacheKey: string, intentId: number }) => void;
 }
 
 export class AudioBridge extends EventEmitter {
@@ -47,8 +48,8 @@ export class AudioBridge extends EventEmitter {
             // Optimization: If the payload's intentId matches the current active intent, push immediately
             // to bypass the throttle for the user's immediate hearing experience.
             if (payload.intentId === currentIntent) {
-                this._logger(`[BRIDGE] Priority PUSH: ${payload.cacheKey} | Intent: ${payload.intentId}`);
-                this.emit('dataPush', payload);
+                this._logger(`[BRIDGE] NOTIFY_READY (Priority): ${payload.cacheKey} | Intent: ${payload.intentId}`);
+                this.emit('synthesisReady', { cacheKey: payload.cacheKey, intentId: payload.intentId });
                 return;
             }
 
@@ -63,8 +64,8 @@ export class AudioBridge extends EventEmitter {
                 pushQueue = [];
                 pushTimeout = null;
                 if (results.length > 0) {
-                    this._logger(`[BRIDGE] Batch PUSHing ${results.length} valid segments.`);
-                    results.forEach(p => this.emit('dataPush', p));
+                    this._logger(`[BRIDGE] Batch NOTIFYing ${results.length} valid segments.`);
+                    results.forEach(p => this.emit('synthesisReady', { cacheKey: p.cacheKey, intentId: p.intentId }));
                 }
             }, this._pushDelayMs);
         });
@@ -135,11 +136,11 @@ export class AudioBridge extends EventEmitter {
             const cachedData = this._playbackEngine.getCached(cacheKey);
             
             if (cachedData) {
-                this._logger(`[BRIDGE] Extension Cache HUB Hit: ${cacheKey}`);
+                this._logger(`[BRIDGE] Extension Cache HUB Hit: ${cacheKey}. Notifying READY (Pull Mode).`);
                 this._stateStore.setLoadType('cache');
                 this.emit('playAudio', {
                     cacheKey,
-                    data: cachedData,
+                    data: '', // Decommissioned Push: Data is now pulled via FETCH_AUDIO
                     text: sentence,
                     chapterIndex,
                     sentenceIndex,
@@ -147,12 +148,14 @@ export class AudioBridge extends EventEmitter {
                     sentences: chapter.sentences,
                     intentId: this._playbackEngine.playbackIntentId
                 });
+                // Trigger the Pull handshake
+                this.emit('synthesisReady', { cacheKey, intentId: this._playbackEngine.playbackIntentId });
             } else {
                 this._logger(`[BRIDGE] Zero-IPC: Triggering Webview Cache Check for ${cacheKey}`);
                 this._stateStore.setLoadType('cache'); // Assume cache check first, synthesize() will override if MISS
                 this.emit('playAudio', {
                     cacheKey,
-                    data: '', // Signals the webview to check its own IndexedDB
+                    data: '', // Decommissioned Push: Data is now pulled via FETCH_AUDIO
                     text: sentence,
                     chapterIndex,
                     sentenceIndex,
@@ -160,6 +163,8 @@ export class AudioBridge extends EventEmitter {
                     sentences: chapter.sentences,
                     intentId: this._playbackEngine.playbackIntentId
                 });
+                // Trigger the Pull handshake
+                this.emit('synthesisReady', { cacheKey, intentId: this._playbackEngine.playbackIntentId });
             }
             
             if (!this._stateStore.state.isPreviewing) {
@@ -281,7 +286,7 @@ export class AudioBridge extends EventEmitter {
             if (data && (this._playbackEngine.isPlaying || state.isPreviewing)) {
                 this.emit('playAudio', {
                     cacheKey,
-                    data,
+                    data: '', // Decommissioned Push: Data is now pulled via FETCH_AUDIO
                     text: sentence,
                     chapterIndex: cIdx,
                     sentenceIndex: sIdx,

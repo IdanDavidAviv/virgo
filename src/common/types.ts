@@ -80,11 +80,28 @@ export interface AudioVoice {
     engine: 'local' | 'neural';
 }
 
+export enum AudioEngineEventType {
+    PLAYING = 'PLAYING',
+    PAUSED = 'PAUSED',
+    ENDED = 'ENDED',
+    STALLED = 'STALLED',
+    ERROR = 'ERROR',
+    BUFFERING = 'BUFFERING'
+}
+
+export interface AudioEngineEvent {
+    type: AudioEngineEventType;
+    intentId?: number;
+    cacheKey?: string;
+    message?: string;
+}
+
 export interface AudioStrategy {
     id: string;
     getName(): string;
+    onEvent?: (event: AudioEngineEvent) => void;
     synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void>;
-    play(): Promise<void>;
+    play(intentId?: number): Promise<void>;
     pause(): void;
     resume(): void;
     stop(): void;
@@ -97,6 +114,7 @@ export interface AudioStrategy {
     setTarget?(cacheKey: string | null): void;
     startAdaptiveWait?(cacheKey: string, intentId: number): Promise<void>;
     ingestData?(cacheKey: string, base64: string, intentId: number): Promise<void>;
+    handleSynthesisReady?(cacheKey: string, intentId: number): void;
     playFromBase64?(base64: string, cacheKey?: string, intentId?: number): Promise<void>;
     playFromCache?(cacheKey: string, intentId?: number): Promise<boolean>;
     wipeCache?(): Promise<void>;
@@ -141,6 +159,7 @@ export enum IncomingCommand {
     SENTENCE_CHANGED = 'sentenceChanged',
     PROGRESS = 'progress',
     DATA_PUSH = 'DATA_PUSH',
+    SYNTHESIS_READY = 'SYNTHESIS_READY',
     SYNTHESIS_STARTING = 'SYNTHESIS_STARTING',
     CLEAR_CACHE_WIPE = 'CLEAR_CACHE_WIPE',
     CACHE_STATS_UPDATE = 'CACHE_STATS_UPDATE'
@@ -173,6 +192,7 @@ export enum OutgoingAction {
     LOAD_DOCUMENT = 'loadDocument',
     OPEN_FILE = 'OPEN_FILE',
     REQUEST_SYNTHESIS = 'REQUEST_SYNTHESIS',
+    FETCH_AUDIO = 'FETCH_AUDIO',
     CLEAR_CACHE = 'CLEAR_CACHE',
     TOGGLE_PLAY_PAUSE = 'TOGGLE_PLAY_PAUSE',
     LOG = 'log',

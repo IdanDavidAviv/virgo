@@ -50,10 +50,9 @@ export class CommandDispatcher {
       case IncomingCommand.PLAY_AUDIO:
         // Zombie Guard: Prune late-arriving packets from previous context.
         const isControllerStopped = playback.getState().intent === 'STOPPED';
-        const isEngineActive = audioEngine.intent === 'PLAYING';
         const isDataPayload = !!data?.data;
         
-        if (isControllerStopped && !isEngineActive && isDataPayload) {
+        if (isControllerStopped && isDataPayload) {
             console.log('[Dispatcher] ✋ Ignoring Zombie Audio Payload (Controller Intent is STOPPED)');
             playback.releaseLock();
             return;
@@ -116,7 +115,7 @@ export class CommandDispatcher {
 
       case IncomingCommand.CLEAR_CACHE_WIPE:
         await audioEngine.wipeCache();
-        store.patchState({ cacheCount: 0, cacheSizeBytes: 0 });
+        store.resetCacheStats();
         break;
 
         case IncomingCommand.SYNTHESIS_ERROR:
@@ -154,6 +153,12 @@ export class CommandDispatcher {
             cacheSizeBytes: data.size !== undefined ? data.size : data.sizeBytes,
             cacheStats: { count: data.count, size: data.size !== undefined ? data.size : data.sizeBytes }
         });
+        store.updateUIState({
+            neuralBuffer: {
+                count: data.count,
+                sizeMb: Number(((data.size !== undefined ? data.size : data.sizeBytes) / (1024 * 1024)).toFixed(2))
+            }
+        });
         break;
 
       case IncomingCommand.CACHE_STATS_UPDATE:
@@ -162,13 +167,15 @@ export class CommandDispatcher {
             cacheCount: data.count,
             cacheStats: { count: data.count, size: data.sizeBytes }
         });
+        store.updateUIState({
+            neuralBuffer: {
+                count: data.count,
+                sizeMb: Number((data.sizeBytes / (1024 * 1024)).toFixed(2))
+            }
+        });
         break;
 
-      case IncomingCommand.CLEAR_CACHE_WIPE:
-        console.log('[Dispatcher] 🧹 Wiping local IndexedDB cache...');
-        WebviewAudioEngine.getInstance().wipeCache();
-        store.patchState({ cacheSizeBytes: 0, cacheCount: 0 });
-        break;
+
 
       case IncomingCommand.SENTENCE_CHANGED:
         const currentState = store.getState();
@@ -215,7 +222,9 @@ export class CommandDispatcher {
       cacheCount: packet.cacheCount,
       cacheSizeBytes: packet.cacheSizeBytes,
       rate: packet.rate,
-      volume: packet.volume
+      volume: packet.volume,
+      availableVoices: packet.availableVoices,
+      selectedVoice: packet.selectedVoice
     } as any);
 
     // 2. Synchronize Physical Audio Engine with State (Volume/Rate)

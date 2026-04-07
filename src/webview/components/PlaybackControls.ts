@@ -1,8 +1,5 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { WebviewStore } from '../core/WebviewStore';
-import { MessageClient } from '../core/MessageClient';
-import { OutgoingAction } from '../../common/types';
-import { WebviewAudioEngine } from '../core/WebviewAudioEngine';
 import { PlaybackController } from '../playbackController';
 
 export interface PlaybackControlsElements extends Record<string, HTMLElement | null> {
@@ -47,7 +44,7 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
             btnAutoplay, waveContainer
         } = this.els;
 
-        const client = MessageClient.getInstance();
+        // No local state needed, all intents delegated to PlaybackController
 
         if (btnPlay) {
             btnPlay.onclick = (e) => {
@@ -57,8 +54,7 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
                 this.els.statusDot?.classList.add('pulse');
                 setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
 
-                WebviewAudioEngine.getInstance().ensureAudioContext();
-                PlaybackController.getInstance().play(WebviewStore.getInstance().getSentenceKey());
+                PlaybackController.getInstance().play();
             };
         }
         if (btnPause) {
@@ -69,7 +65,6 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
                 this.els.statusDot?.classList.add('pulse');
                 setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
 
-                WebviewAudioEngine.getInstance().ensureAudioContext();
                 PlaybackController.getInstance().pause();
             };
         }
@@ -81,7 +76,6 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
                 this.els.statusDot?.classList.add('pulse');
                 setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
 
-                WebviewAudioEngine.getInstance().ensureAudioContext();
                 PlaybackController.getInstance().stop();
             };
         }
@@ -95,9 +89,7 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
                 this.els.statusDot?.classList.add('pulse');
                 setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
 
-                WebviewAudioEngine.getInstance().ensureAudioContext();
-                WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
-                client.postAction(OutgoingAction.PREV_CHAPTER);
+                PlaybackController.getInstance().prevChapter();
             };
         }
         if (btnNext) {
@@ -108,9 +100,7 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
                 this.els.statusDot?.classList.add('pulse');
                 setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
 
-                WebviewAudioEngine.getInstance().ensureAudioContext();
-                WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
-                client.postAction(OutgoingAction.NEXT_CHAPTER);
+                PlaybackController.getInstance().nextChapter();
             };
         }
         if (btnPrevSentence) {
@@ -121,9 +111,7 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
                 this.els.statusDot?.classList.add('pulse');
                 setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
 
-                WebviewAudioEngine.getInstance().ensureAudioContext();
-                WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
-                client.postAction(OutgoingAction.PREV_SENTENCE);
+                PlaybackController.getInstance().prevSentence();
             };
         }
         if (btnNextSentence) {
@@ -134,9 +122,7 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
                 this.els.statusDot?.classList.add('pulse');
                 setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
 
-                WebviewAudioEngine.getInstance().ensureAudioContext();
-                WebviewStore.getInstance().optimisticPatch({ isPaused: false }, { isAwaitingSync: true });
-                client.postAction(OutgoingAction.NEXT_SENTENCE);
+                PlaybackController.getInstance().nextSentence();
             };
         }
 
@@ -158,7 +144,8 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
             return; 
         }
         const isAudiblyPlaying = !!state.isPlaying;
-        const isActuallyActive = (playbackIntent === 'PLAYING');
+        const isActuallyPaused = !!state.isPaused;
+        const isActuallyActive = (playbackIntent === 'PLAYING' || (isAudiblyPlaying && !isActuallyPaused));
         const isStalled = !!state.playbackStalled;
 
         // 1. Play/Pause Visibility
@@ -213,14 +200,12 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
             nextMode = 'auto';
         }
 
-        // Dashboard Parity: Optimistic update for instant "snappy" toggle feel
-        store.optimisticPatch({ autoPlayMode: nextMode }, { isAwaitingSync: false });
+        // Dashboard Parity: Authoritative update via Controller
+        PlaybackController.getInstance().setAutoPlayMode(nextMode);
         
         // Pulse animation for the toggle
         this.els.btnAutoplay?.classList.add('pulse');
         setTimeout(() => this.els.btnAutoplay?.classList.remove('pulse'), 400);
-
-        MessageClient.getInstance().postAction(OutgoingAction.SET_AUTO_PLAY_MODE, { mode: nextMode });
     }
 
     /**

@@ -1,13 +1,16 @@
-import { AudioStrategy, AudioVoice, OutgoingAction } from '../../common/types';
-import { MessageClient } from '../core/MessageClient';
+import { AudioStrategy, AudioVoice, AudioEngineEventType, AudioEngineEvent } from '../../common/types';
 
 /**
  * LocalAudioStrategy: Standard Web Speech API Implementation.
  * Provides high-integrity, offline playback using browser built-in synthesis.
+ * [PASSIVE WORKER]: Reports lifecycle events to the Engine/Controller.
  */
 export class LocalAudioStrategy implements AudioStrategy {
   public readonly id = 'local';
   private synth: SpeechSynthesis;
+  public onEvent?: (event: AudioEngineEvent) => void;
+  
+  private activeIntentId: number = 0;
   private currentUtterance: SpeechSynthesisUtterance | null = null;
   private volume: number = 50;
   private rate: number = 0;
@@ -20,71 +23,79 @@ export class LocalAudioStrategy implements AudioStrategy {
     return 'Local (Browser)';
   }
 
-    public async synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void> {
-        this.stop();
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        
-        // Voice Selection logic
-        if (voice) {
-            const voices = this.synth.getVoices();
-            const foundVoice = voices.find(v => v.name === voice.id || v.voiceURI === voice.id);
-            if (foundVoice) {
-                utterance.voice = foundVoice;
-            }
-        }
-
-        // Param Mapping: Sliders use -10..10, SpeechSynthesis uses 0.1..10
-        this.applySettingsToUtterance(utterance);
-        
-        return new Promise((resolve) => {
-            let isResolved = false;
-            const safeResolve = () => {
-                if (!isResolved) {
-                    isResolved = true;
-                    resolve();
-                }
-            };
-
-            // [SAFETY] Chrome/Safari sometimes hang on onstart if tab is backgrounded.
-            // 500ms is enough for the local engine to "grab" the audio focus.
-            const timeout = setTimeout(() => {
-                console.warn(`[LocalStrategy] ⏳ onstart timeout (intentId: ${intentId})`);
-                safeResolve();
-            }, 500);
-
-            utterance.onstart = () => {
-                console.log(`[LocalStrategy] ▶️ Playback started (intentId: ${intentId})`);
-                clearTimeout(timeout);
-                safeResolve();
-            };
-
-            utterance.onend = () => {
-                console.log(`[LocalStrategy] ✅ Playback ended (intentId: ${intentId})`);
-                clearTimeout(timeout);
-                safeResolve();
-                MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED);
-            };
-
-            utterance.onerror = (e) => {
-                console.error(`[LocalStrategy] ⛔ Synthesis error:`, e);
-                clearTimeout(timeout);
-                safeResolve(); 
-            };
-
-            this.currentUtterance = utterance;
-            this.synth.speak(utterance);
-        });
+  public async synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void> {
+    if (intentId !== undefined) {
+      this.activeIntentId = intentId;
     }
+    
+    this.stop();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    
+    // Voice Selection logic
+    if (voice) {
+        const voices = this.synth.getVoices();
+        const foundVoice = voices.find(v => v.name === voice.id || v.voiceURI === voice.id);
+        if (foundVoice) {
+            utterance.voice = foundVoice;
+        }
+    }
+
+    // Param Mapping: Sliders use -10..10, SpeechSynthesis uses 0.1..10
+    this.applySettingsToUtterance(utterance);
+    
+    return new Promise((resolve) => {
+        let isResolved = false;
+        const safeResolve = () => {
+            if (!isResolved) {
+                isResolved = true;
+                resolve();
+            }
+        };
+
+        // [SAFETY] 500ms timeout for browser audio focus
+        const timeout = setTimeout(() => {
+            console.warn(`[LocalStrategy] ⏳ onstart timeout (intentId: ${this.activeIntentId})`);
+            safeResolve();
+        }, 500);
+
+        utterance.onstart = () => {
+            console.log(`[LocalStrategy] ▶️ Playback started (intentId: ${this.activeIntentId})`);
+            clearTimeout(timeout);
+            this.onEvent?.({ type: AudioEngineEventType.PLAYING, intentId: this.activeIntentId });
+            safeResolve();
+        };
+
+        utterance.onend = () => {
+            console.log(`[LocalStrategy] ✅ Playback ended (intentId: ${this.activeIntentId})`);
+            clearTimeout(timeout);
+            this.onEvent?.({ type: AudioEngineEventType.ENDED, intentId: this.activeIntentId });
+            safeResolve();
+        };
+
+        utterance.onerror = (e) => {
+            console.error(`[LocalStrategy] ⛔ Synthesis error:`, e);
+            clearTimeout(timeout);
+            this.onEvent?.({ 
+              type: AudioEngineEventType.ERROR, 
+              intentId: this.activeIntentId, 
+              message: `Synthesis error: ${e.error}` 
+            });
+            safeResolve(); 
+        };
+
+        this.currentUtterance = utterance;
+        this.synth.speak(utterance);
+    });
+  }
 
   private applySettingsToUtterance(utterance: SpeechSynthesisUtterance): void {
       utterance.rate = this.rate >= 0 ? 1 + (this.rate / 5) : 1 + (this.rate / 10);
       utterance.volume = Math.max(0, Math.min(1, this.volume / 100));
   }
 
-  public async play(): Promise<void> {
-      // Chrome/Safari often require a fresh utterance if paused too long, 
-      // but standard resume() usually works if already speaking.
+  public async play(intentId?: number): Promise<void> {
+      if (intentId !== undefined && intentId < this.activeIntentId) {return;}
       if (this.synth.paused) {
           this.synth.resume();
       }
@@ -152,3 +163,4 @@ export class LocalAudioStrategy implements AudioStrategy {
     this.stop();
   }
 }
+

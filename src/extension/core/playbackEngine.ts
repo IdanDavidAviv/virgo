@@ -95,6 +95,7 @@ export class PlaybackEngine extends EventEmitter {
     public get isPaused() { return this._isPaused; }
     public get isStalled() { return this._isStalled; }
     public get playbackIntentId() { return this._playbackIntentId; }
+    public getAudioFromCache(cacheKey: string): string | undefined { return this._audioCache.get(cacheKey); }
 
     private _updateStatus(isPlaying?: boolean, isPaused?: boolean, isStalled?: boolean) {
         if (isPlaying !== undefined) { this._isPlaying = isPlaying; }
@@ -262,7 +263,7 @@ export class PlaybackEngine extends EventEmitter {
         this._cacheSizeBytes = (Number.isFinite(this._cacheSizeBytes) ? this._cacheSizeBytes : 0) + safeSize;
         
         // [TDD] Emit for Direct Push - include intentId to prevent sequence races
-        this.emit('synthesis-complete', { cacheKey: key, data, intentId });
+        this.emit('synthesis-complete', { cacheKey: key, intentId });
         
         // [TDD] Emit for Reactive Stats
         this.emit('cache-stats-update', this.getCacheStats());

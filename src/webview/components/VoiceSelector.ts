@@ -1,6 +1,5 @@
 import { BaseComponent } from '../core/BaseComponent';
-import { MessageClient } from '../core/MessageClient';
-import { OutgoingAction } from '../../common/types';
+import { PlaybackController } from '../playbackController';
 
 export interface VoiceSelectorElements extends Record<string, HTMLElement | HTMLInputElement | null | undefined> {
     voiceList: HTMLElement;
@@ -12,7 +11,6 @@ export interface VoiceSelectorElements extends Record<string, HTMLElement | HTML
  * Filtered by engine mode (Local/Neural) and user search term.
  */
 export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
-    private client = MessageClient.getInstance();
     private searchTerm = '';
 
     public mount(): void {
@@ -105,10 +103,8 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
                 el.classList.add('pulse');
                 setTimeout(() => el.classList.remove('pulse'), 400);
 
-                // Dashboard Parity: Optimistic store update for instant "snappy" row selection
-                this.store.optimisticPatch({ selectedVoice: id }, { isAwaitingSync: false });
-                
-                this.client.postAction(OutgoingAction.VOICE_CHANGED, { voice: id });
+                // [DELEGATION] All authority moved to PlaybackController
+                PlaybackController.getInstance().selectVoice(id);
             };
 
             this.els.voiceList?.appendChild(item);

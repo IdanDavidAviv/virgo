@@ -597,6 +597,20 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
             case OutgoingAction.JUMP_TO_SENTENCE: this.jumpToSentence(data.index); break;
             case OutgoingAction.CONTINUE: this.continue(); break;
+            case OutgoingAction.FETCH_AUDIO:
+                const audio = this._playbackEngine.getAudioFromCache(data.cacheKey);
+                if (audio) {
+                    this._logger(`[BRIDGE] PULL_FETCH: ${data.cacheKey} | Intent: ${data.intentId}`);
+                    this._postToAll({
+                        command: IncomingCommand.DATA_PUSH,
+                        cacheKey: data.cacheKey,
+                        data: audio,
+                        intentId: data.intentId
+                    });
+                } else {
+                    this._logger(`[BRIDGE_WARN] FETCH_FAILED: ${data.cacheKey} not found in cache.`);
+                }
+                break;
             case OutgoingAction.TOGGLE_PLAY_PAUSE:
                 if (this._playbackEngine.isPlaying && !this._playbackEngine.isPaused) {
                     this.pause();

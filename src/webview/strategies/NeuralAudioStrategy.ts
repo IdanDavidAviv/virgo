@@ -1,24 +1,25 @@
-import { AudioStrategy, AudioVoice, OutgoingAction } from '../../common/types';
-import { MessageClient } from '../core/MessageClient';
+import { AudioStrategy, AudioVoice, AudioEngineEventType, AudioEngineEvent } from '../../common/types';
 import { CacheManager } from '../cacheManager';
 import { WebviewStore } from '../core/WebviewStore';
-import { ToastManager } from '../components/ToastManager';
 
 /**
  * NeuralAudioStrategy: High-Fidelity Blob/Cache Implementation.
  * Orchestrates JIT synthesis, Direct-Push ingestion, and memory-safe Blob playback.
+ * [PASSIVE WORKER]: Reports lifecycle events to the Engine/Controller.
  */
 export class NeuralAudioStrategy implements AudioStrategy {
-    public readonly id = 'neural';
+    public id: string = 'neural';
     public audio: HTMLAudioElement;
     private cache: CacheManager;
-    private activeObjectURLs: Set<string> = new Set();
+    public onEvent?: (event: AudioEngineEvent) => void;
+    
     private activeIntentId: number = 0;
+    private sovereignUrl: string | null = null;
+    private activeObjectURLs: Set<string> = new Set();
+    private waitResolvers: Map<string, () => void> = new Map();
+    private waitTimers: Map<string, any> = new Map();
     private pendingCacheKey: string | null = null;
     private targetCacheKey: string | null = null;
-    private waitTimers: Map<string, any> = new Map();
-    private waitResolvers: Map<string, () => void> = new Map();
-    public sovereignUrl: string | null = null;
 
     constructor() {
         this.audio = new Audio();
@@ -35,38 +36,35 @@ export class NeuralAudioStrategy implements AudioStrategy {
     private setupAudioListeners(): void {
         this.audio.onplay = () => {
             if (this.audio.src !== this.sovereignUrl) {return;}
-            WebviewStore.getInstance().patchState({ isPlaying: true, isPaused: false, playbackStalled: false });
+            this.onEvent?.({ type: AudioEngineEventType.PLAYING, intentId: this.activeIntentId });
         };
 
         this.audio.onpause = () => {
             if (this.audio.src !== this.sovereignUrl) {return;}
-            WebviewStore.getInstance().patchState({ isPaused: true, isPlaying: false, playbackStalled: false });
+            this.onEvent?.({ type: AudioEngineEventType.PAUSED, intentId: this.activeIntentId });
         };
 
         this.audio.onended = () => {
             if (this.audio.src !== this.sovereignUrl) {return;}
             console.log('[NeuralStrategy] ✅ onended fired');
-            MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED);
+            this.onEvent?.({ type: AudioEngineEventType.ENDED, intentId: this.activeIntentId });
         };
 
         this.audio.onerror = (e) => {
             if (this.audio.src !== this.sovereignUrl) {return;}
-            const msg = `[NeuralStrategy] ⛔ Audio element error: ${(e as any).message || 'Unknown error'}`;
-            console.error(msg);
-            ToastManager.show(msg, 'error');
+            const msg = `Audio error: ${(e as any).message || 'Unknown error'}`;
+            this.onEvent?.({ type: AudioEngineEventType.ERROR, intentId: this.activeIntentId, message: msg });
         };
 
         this.audio.onwaiting = () => {
             if (this.audio.src === this.sovereignUrl) {
-                console.log(`[NeuralStrategy] ⏳ onwaiting fired (Stall detected) | Intent: ${this.activeIntentId} | Source: ${this.audio.src}`);
-                WebviewStore.getInstance().patchState({ playbackStalled: true });
+                this.onEvent?.({ type: AudioEngineEventType.STALLED, intentId: this.activeIntentId });
             }
         };
 
         this.audio.onplaying = () => {
             if (this.audio.src !== this.sovereignUrl) {return;}
-            console.log(`[NeuralStrategy] 🔊 onplaying fired | Intent: ${this.activeIntentId}`);
-            WebviewStore.getInstance().patchState({ playbackStalled: false });
+            this.onEvent?.({ type: AudioEngineEventType.PLAYING, intentId: this.activeIntentId });
         };
 
         this.audio.onstalled = () => {
@@ -80,25 +78,18 @@ export class NeuralAudioStrategy implements AudioStrategy {
         };
     }
 
-    public async synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void> {
+    public async synthesize(_text: string, _voice?: AudioVoice, intentId?: number): Promise<void> {
         if (intentId !== undefined) {
             this.activeIntentId = intentId;
         }
-        
-        // Strategy level: Neural synthesis is handled by the extension.
-        // We just prepare the target key if we can derive it.
-        const store = WebviewStore.getInstance();
-        const cacheKey = store.getSentenceKey();
-        this.targetCacheKey = cacheKey;
-
-        if (cacheKey) {
-            const hit = await this.playFromCache(cacheKey, intentId);
-            if (hit) {return;}
-            MessageClient.getInstance().postAction(OutgoingAction.REQUEST_SYNTHESIS, { cacheKey, intentId });
-        }
+        // [PASSIVE] Synthesis requests are now driven by the Controller.
     }
 
-    public async play(): Promise<void> {
+    public async play(intentId?: number): Promise<void> {
+        if (intentId !== undefined && intentId < this.activeIntentId) {
+            console.log(`[NeuralStrategy] 🧟 Zombie Guard: Rejecting play() for stale intent ${intentId}`);
+            return;
+        }
         if (this.audio.src && this.audio.paused) {
             await this.audio.play();
         }
@@ -140,13 +131,10 @@ export class NeuralAudioStrategy implements AudioStrategy {
 
     public setTarget(cacheKey: string | null): void {
         this.targetCacheKey = cacheKey;
-        if (!cacheKey) {
-            WebviewStore.getInstance().patchState({ playbackStalled: false });
-        }
     }
 
-    public startAdaptiveWait(cacheKey: string, intentId: number): Promise<void> {
-        if (intentId < this.activeIntentId) {return Promise.resolve();}
+    public async startAdaptiveWait(cacheKey: string, intentId: number): Promise<void> {
+        if (intentId < this.activeIntentId) {return;}
         this.activeIntentId = intentId;
         this.pendingCacheKey = cacheKey;
 
@@ -156,7 +144,7 @@ export class NeuralAudioStrategy implements AudioStrategy {
             this.waitResolvers.set(cacheKey, resolve);
             const timer = setTimeout(() => {
                 if (this.audio.paused && cacheKey === this.targetCacheKey) {
-                    WebviewStore.getInstance().patchState({ playbackStalled: true });
+                    this.onEvent?.({ type: AudioEngineEventType.STALLED, intentId: this.activeIntentId });
                 }
                 this.resolveSpecificWait(cacheKey);
             }, 40);
@@ -164,29 +152,38 @@ export class NeuralAudioStrategy implements AudioStrategy {
         });
     }
 
+    public handleSynthesisReady(cacheKey: string, intentId: number): void {
+        console.log(`[NeuralStrategy] 🔔 handleSynthesisReady received: ${cacheKey} | Intent: ${intentId}`);
+        // [PASSIVE] Fetch orchestration moved to PlaybackController.
+    }
+
     public async ingestData(cacheKey: string, base64: string, intentId: number): Promise<void> {
-        console.log('[NeuralStrategy] 📥 ingestData', { cacheKey, intentId, activeIntent: this.activeIntentId });
+        console.log('[NeuralStrategy] 📥 ingestData (Passive Worker)', { cacheKey, intentId });
+        
+        // [INTENT LATCH]
         if (intentId < this.activeIntentId) {
-            console.log('[NeuralStrategy] ⚠️ ingestData rejected: old intentId');
+            console.log('[NeuralStrategy] ⚠️ ingestData rejected: stale intentId');
             return;
         }
+
         const blob = this.base64ToBlob(base64);
         this.cache.set(cacheKey, blob).catch(err => console.error('[NeuralStrategy] Cache save failed:', err));
 
-        // [ADAPTIVE JIT] If we were waiting for this push, resolve the wait
+        // [RESOLUTION]
         if (this.pendingCacheKey === cacheKey || this.targetCacheKey === cacheKey) {
             this.clearAdaptiveWait();
-            WebviewStore.getInstance().patchState({ playbackStalled: false });
         }
 
-        // [RESILIENCE] Play even if wait timed out, as long as it's the current intent
         if (intentId === this.activeIntentId) {
             await this.playBlob(blob, cacheKey, intentId);
         }
     }
 
     public async playFromBase64(base64: string, cacheKey?: string, intentId?: number): Promise<void> {
-        if (intentId !== undefined && intentId < this.activeIntentId) {return;}
+        if (intentId !== undefined && intentId < this.activeIntentId) {
+            console.log(`[NeuralStrategy] 🧟 Zombie Guard: Rejecting playFromBase64 for stale intent ${intentId} (current: ${this.activeIntentId})`);
+            return;
+        }
         if (intentId !== undefined) {this.activeIntentId = intentId;}
         
         const blob = this.base64ToBlob(base64);
@@ -204,6 +201,7 @@ export class NeuralAudioStrategy implements AudioStrategy {
                 console.log(`[NeuralStrategy] 🧟 Zombie Guard: Pruning late cache play for intent ${intentId} (current: ${this.activeIntentId})`);
                 return false;
             }
+            if (intentId !== undefined) {this.activeIntentId = intentId;}
             
             this.clearAdaptiveWait();
             await this.playBlob(blob, cacheKey, intentId);
@@ -215,38 +213,28 @@ export class NeuralAudioStrategy implements AudioStrategy {
     public async wipeCache(): Promise<void> {
         this.dispose();
         await this.cache.clearAll();
-        WebviewStore.getInstance().resetCacheStats();
     }
 
     public async playBlob(blob: Blob, cacheKey: string, intentId?: number): Promise<void> {
-        // 1. [INTENT GUARD] Atomic intent tracking
-        if (intentId !== undefined) {
-            if (intentId < this.activeIntentId) {
-                return;
-            }
-            this.activeIntentId = intentId;
-        }
-
-        const store = WebviewStore.getInstance();
-        const intent = store.getUIState().playbackIntent;
-        const isIntentMatched = intentId !== undefined && intentId === this.activeIntentId;
-        const lastStallSource = store.getUIState().lastStallSource;
-
-        // [USER-SOVEREIGN GUARD] 
-        // 1. If the user explicitly stopped/paused, honor it immediately regardless of intent matching.
-        // 2. If it was an automatic/background sync (AUTO), allow audio through if it matches the current atomic intent sequence.
-        const isUserHalt = (intent === 'STOPPED' || intent === 'PAUSED') && lastStallSource === 'USER';
-        const isAutoHalt = (intent === 'STOPPED' || intent === 'PAUSED') && lastStallSource === 'AUTO';
-
-        // [DIAGNOSTIC] Log zombie guard logic
-        if (intent === 'STOPPED' || intent === 'PAUSED') {
-            console.log(`[NeuralStrategy] 🧟 Zombie Check: Intent=${intent}, Source=${lastStallSource}, Matched=${isIntentMatched}, IntentID=${intentId}, Active=${this.activeIntentId}`);
-        }
-
-        if (isUserHalt || (isAutoHalt && !isIntentMatched)) {
-            console.log(`[NeuralStrategy] 🧟 Zombie Guard: Pruning blob due to ${intent} state (Source: ${lastStallSource}, Match: ${isIntentMatched}).`);
+        // [SOVEREIGNTY GUARD] Check global intent before any playback
+        const { playbackIntent } = WebviewStore.getInstance().getUIState();
+        if (playbackIntent === 'STOPPED') {
+            console.log(`[NeuralStrategy] 🛑 Sovereignty Guard: Rejecting blob for intentId ${intentId} - USER HAS STOPPPED.`);
             return;
         }
+
+        // [SOVEREIGNTY] Strategy must only play if its engine type is ACTIVE in the store
+        const { selectedVoice } = WebviewStore.getInstance().getState() || {};
+        if (selectedVoice && !selectedVoice.startsWith('Neural:')) {
+            console.log(`[NeuralStrategy] 🛑 Strategy inactive (Voice: ${selectedVoice}). Rejecting playBlob.`);
+            return;
+        }
+
+        if (intentId !== undefined && intentId < this.activeIntentId) {
+            console.log(`[NeuralStrategy] 🧟 Zombie Guard: Pruning blob for stale intentId ${intentId} (current: ${this.activeIntentId}).`);
+            return;
+        }
+        if (intentId !== undefined) {this.activeIntentId = intentId;}
         
         // Teardown previous state
         this.audio.pause();
@@ -266,19 +254,13 @@ export class NeuralAudioStrategy implements AudioStrategy {
         
         console.log(`[NeuralStrategy] 🚀 playBlob PREPARE: ${url} | Size: ${blob.size} bytes | Type: ${blob.type} | Intent: ${this.activeIntentId}`);
         
-        // 2. [SANITY CHECK]
-        if (this.audio.networkState === HTMLMediaElement.NETWORK_IDLE || this.audio.networkState === HTMLMediaElement.NETWORK_LOADING) {
-             console.log(`[NeuralStrategy] Network state looks healthy: ${this.audio.networkState}`);
-        }
-
         this.audio.src = url;
 
-        // 3. [WATCHDOG] Start safety timer
+        // [WATCHDOG] Start safety timer
         const playbackWatchdog = setTimeout(() => {
             if (this.audio.src === url && this.audio.paused && !this.audio.ended && this.activeIntentId === intentId) {
-                console.error(`[NeuralStrategy] 🚨 PLAYBACK HUNG: Playback watchdog triggered after 2000ms. Force-resetting...`);
-                WebviewStore.getInstance().patchState({ playbackStalled: true });
-                // We don't call stop() here to avoid recursive loops, but we signal the UI.
+                console.error(`[NeuralStrategy] 🚨 PLAYBACK HUNG: Watchdog triggered.`);
+                this.onEvent?.({ type: AudioEngineEventType.STALLED, intentId: this.activeIntentId });
             }
         }, 2000);
 
@@ -291,8 +273,7 @@ export class NeuralAudioStrategy implements AudioStrategy {
             if (e.name === 'AbortError') {
                 console.log('[NeuralStrategy] ⚠️ Play aborted by system (intentional)');
             } else if (e.name === 'NotAllowedError') {
-                console.error('[NeuralStrategy] ⛔ BROWSER BLOCKED AUDIO: User interaction required.', e);
-                ToastManager.show('Audio blocked by browser. Click anywhere to re-enable.', 'warning');
+                this.onEvent?.({ type: AudioEngineEventType.ERROR, intentId: this.activeIntentId, message: 'Audio blocked by browser.' });
             } else {
                 console.warn('[NeuralStrategy] ⛔ Play failed', {
                     name: e.name,
@@ -304,12 +285,11 @@ export class NeuralAudioStrategy implements AudioStrategy {
         }
     }
 
-
     public async getVoices(): Promise<AudioVoice[]> {
         return []; 
     }
 
-    public base64ToBlob(base64: string): Blob {
+    private base64ToBlob(base64: string): Blob {
         let cleaned = base64.trim();
         const match = cleaned.match(/^data:audio\/[^;]+;base64,(.+)$/i);
         if (match) {cleaned = match[1];}

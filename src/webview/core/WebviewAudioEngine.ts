@@ -1,8 +1,9 @@
 import { WebviewStore } from './WebviewStore';
 import { PlaybackController } from '../playbackController';
-import { AudioStrategy, AudioVoice, OutgoingAction, IncomingCommand } from '../../common/types';
+import { AudioStrategy, AudioVoice, OutgoingAction, IncomingCommand, AudioEngineEvent, AudioEngineEventType } from '../../common/types';
 import { LocalAudioStrategy } from '../strategies/LocalAudioStrategy';
 import { NeuralAudioStrategy } from '../strategies/NeuralAudioStrategy';
+// [SOVEREIGNTY] MessageClient dependency removed from Engine layer.
 
 /**
  * WebviewAudioEngine: High-Integrity Audio Lifecycle Manager
@@ -14,8 +15,7 @@ export class WebviewAudioEngine {
   private activeStrategy: AudioStrategy;
   private localStrategy: LocalAudioStrategy;
   private neuralStrategy: NeuralAudioStrategy;
-  private activeIntentId: number = 0;
-  public intent: 'PLAYING' | 'PAUSED' | 'STOPPED' = 'PAUSED';
+  public onEvent?: (event: AudioEngineEvent) => void;
   private _isPrimed: boolean = false;
   private playbackLock: Promise<void> = Promise.resolve();
 
@@ -24,31 +24,32 @@ export class WebviewAudioEngine {
     this.neuralStrategy = new NeuralAudioStrategy();
     this.activeStrategy = this.localStrategy; 
     
+    // [PASSIVE BINDING] Bubble strategy events up to the sovereign layer
+    this.localStrategy.onEvent = (e) => this.onEvent?.(e);
+    this.neuralStrategy.onEvent = (e) => this.onEvent?.(e);
+
     this.setupListeners();
   }
 
   public static getInstance(): WebviewAudioEngine {
-    if (typeof window !== 'undefined') {
-      if (!(window as any).__AUDIO_ENGINE__) {
-        (window as any).__AUDIO_ENGINE__ = new WebviewAudioEngine();
-      }
-      return (window as any).__AUDIO_ENGINE__;
-    }
     if (!this.instance) {
       this.instance = new WebviewAudioEngine();
+      if (typeof window !== 'undefined') {
+        (window as any).__AUDIO_ENGINE__ = this.instance;
+      }
     }
     return this.instance;
   }
 
   public static resetInstance(): void {
+    if (this.instance) {
+      this.instance.dispose();
+    }
     if (typeof window !== 'undefined' && (window as any).__AUDIO_ENGINE__) {
         (window as any).__AUDIO_ENGINE__.dispose();
         (window as any).__AUDIO_ENGINE__ = undefined;
     }
-    if (this.instance) {
-      this.instance.dispose();
-      this.instance = undefined as any;
-    }
+    this.instance = undefined as any;
   }
 
   public dispose(): void {
@@ -74,10 +75,10 @@ export class WebviewAudioEngine {
         this.updateStrategy(voiceId);
     });
 
-    // 3. [INTENT SYNC] Local playback intent (for logic gating)
-    store.subscribeUI((ui) => ui.playbackIntent, (intent) => {
-        this.intent = intent as any;
-    });
+    // 3. [INTENT SYNC] Removed legacy intent property.
+    // Use PlaybackController state if internal logic gating is needed.
+
+    // [SOVEREIGNTY] SYNTHESIS_READY logic moved to PlaybackController.
 
     // 4. Initial sync
     const state = store.getState();
@@ -98,10 +99,10 @@ export class WebviewAudioEngine {
       }
   }
 
-  public async play(): Promise<void> {
+  public async play(intentId?: number): Promise<void> {
     const unlock = await this.acquirePlaybackLock();
     try {
-        await this.activeStrategy.play();
+        await this.activeStrategy.play(intentId);
     } finally {
         unlock();
     }
@@ -154,14 +155,17 @@ export class WebviewAudioEngine {
     }
   }
 
-  public prepareForPlayback(): number {
-    this.activeIntentId++;
-    console.log('[AudioEngine] 🚀 prepareForPlayback', { intentId: this.activeIntentId });
-    this.resetLoadingStates();
-    return this.activeIntentId;
+  public prepareForPlayback(): void {
+    // [SOVEREIGNTY] Reset logic moved to PlaybackController.
   }
 
   public async playBlob(blob: Blob, cacheKey: string, intentId?: number): Promise<void> {
+    const { playbackIntent } = WebviewStore.getInstance().getUIState();
+    if (playbackIntent === 'STOPPED') {
+        console.log('[AudioEngine] 🛑 Sovereignty Guard: Rejecting playBlob because intent is STOPPED');
+        return;
+    }
+
     const unlock = await this.acquirePlaybackLock();
     try {
         await this.neuralStrategy.playBlob(blob, cacheKey, intentId);
@@ -171,7 +175,6 @@ export class WebviewAudioEngine {
   }
 
   public startAdaptiveWait(cacheKey: string, intentId: number): Promise<void> {
-    this.activeIntentId = intentId;
     return this.neuralStrategy.startAdaptiveWait(cacheKey, intentId);
   }
 
@@ -186,6 +189,10 @@ export class WebviewAudioEngine {
       } finally {
           unlock();
       }
+  }
+
+  public handleSynthesisReady(cacheKey: string, intentId: number): void {
+      this.neuralStrategy.handleSynthesisReady(cacheKey, intentId);
   }
 
   public async playFromBase64(base64: string, cacheKey?: string, intentId?: number): Promise<void> {
@@ -205,32 +212,26 @@ export class WebviewAudioEngine {
   }
 
   public async synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void> {
-      this.activeIntentId = intentId || this.activeIntentId;
-      const unlock = await this.acquirePlaybackLock();
-      try {
-          await this.activeStrategy.synthesize(text, voice, intentId);
-      } finally {
-          unlock();
-      }
+    const unlock = await this.acquirePlaybackLock();
+    try {
+        await this.activeStrategy.synthesize(text, voice, intentId);
+    } finally {
+        unlock();
+    }
   }
 
   public pause(): void {
     this.localStrategy.pause();
     this.neuralStrategy.pause();
-    this.intent = 'PAUSED';
-    this.resetLoadingStates();
   }
 
   public resume(): void {
     this.activeStrategy.resume();
-    this.intent = 'PLAYING';
   }
 
   public stop(): void {
     this.localStrategy.stop();
     this.neuralStrategy.stop();
-    this.intent = 'STOPPED';
-    this.resetLoadingStates();
   }
 
   // --- TEST COMPATIBILITY LAYER ---
@@ -264,19 +265,12 @@ export class WebviewAudioEngine {
    * Used by legacy tests to spy on playback events.
    */
   public getAudioElement(): HTMLAudioElement {
-    return this.neuralStrategy.audio;
+    // [TEST COMPAT] Strategies now expose their players for legacy test spying.
+    return (this.neuralStrategy as any).audio;
   }
 
   /**
-   * [TEST PARITY] Comprehensive reset for all loading and sync indicators.
+   * [SOVEREIGNTY] resetLoadingStates moved to Controllers.
    */
-  public resetLoadingStates(): void {
-      const store = WebviewStore.getInstance();
-      store.patchState({
-          playbackStalled: false
-      });
-      store.updateUIState({
-          isAwaitingSync: false
-      });
-  }
+  public resetLoadingStates(): void {}
 }

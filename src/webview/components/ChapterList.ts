@@ -1,9 +1,7 @@
 import { BaseComponent } from '../core/BaseComponent';
-import { WebviewStore, LocalUIState } from '../core/WebviewStore';
-import { MessageClient } from '../core/MessageClient';
-import { OutgoingAction, UISyncPacket } from '../../common/types';
+import { WebviewStore } from '../core/WebviewStore';
 import { escapeHtml, renderWithLinks } from '../utils';
-import { WebviewAudioEngine } from '../core/WebviewAudioEngine';
+import { PlaybackController } from '../playbackController';
 
 export interface ChapterListElements extends Record<string, HTMLElement | null | (HTMLElement | null)[] | undefined> {
     container: HTMLElement | null;
@@ -58,25 +56,8 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
     /**
      * Triggers a jump to a chapter.
      */
-    private jumpToChapter(index: number, count: number): void {
-        const store = WebviewStore.getInstance();
-        const client = MessageClient.getInstance();
-        const currentState = store.getState();
-
-        // 1. [SYNC] Universal Unlocker
-        WebviewAudioEngine.getInstance().ensureAudioContext();
-
-        // 2. [SYNC] Optimistic UI: Update highlight immediately
-        if (currentState) {
-            store.optimisticPatch({
-                state: { ...currentState.state, currentChapterIndex: index, currentSentenceIndex: 0 },
-                isPlaying: true,
-                isPaused: false
-            }, { isAwaitingSync: true });
-        }
-
-        WebviewAudioEngine.getInstance().prepareForPlayback();
-        client.postAction(OutgoingAction.JUMP_TO_CHAPTER, { index });
+    private jumpToChapter(index: number): void {
+        PlaybackController.getInstance().jumpToChapter(index);
     }
 
     /**
@@ -182,7 +163,7 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
                     }
                     return;
                 }
-                this.jumpToChapter(i, ch.count);
+                this.jumpToChapter(i);
             };
 
             container.appendChild(item);

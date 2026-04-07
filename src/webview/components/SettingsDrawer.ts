@@ -1,10 +1,6 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { ToastManager } from './ToastManager';
-import { CacheManager } from '../cacheManager';
-import { MessageClient } from '../core/MessageClient';
-import { OutgoingAction } from '../../common/types';
-import { debounce } from '../utils';
-import { WebviewAudioEngine } from '../core/WebviewAudioEngine';
+import { PlaybackController } from '../playbackController';
 
 export interface SettingsDrawerElements extends Record<string, HTMLElement | HTMLInputElement | HTMLButtonElement | HTMLMediaElement | null | undefined> {
     drawer: HTMLElement;
@@ -27,10 +23,6 @@ export interface SettingsDrawerElements extends Record<string, HTMLElement | HTM
  * Reactive and encapsulated.
  */
 export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
-    private cache = new CacheManager();
-    private messenger = MessageClient.getInstance();
-    private audioEngine = WebviewAudioEngine.getInstance();
-
     public mount(): void {
         super.mount();
         this.setupListeners();
@@ -84,6 +76,8 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
     }
 
     private setupListeners(): void {
+        const controller = PlaybackController.getInstance();
+
         if (this.els.btnOpen) {
             this.els.btnOpen.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -101,15 +95,7 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             });
         }
 
-        // Sliders — set isDraggingSlider=true on drag start, false on release (#4)
-        const debouncedVolume = debounce((val: number) => {
-            this.messenger.postAction(OutgoingAction.VOLUME_CHANGED, { volume: val });
-        }, 40);
-
-        const debouncedRate = debounce((val: number) => {
-            this.messenger.postAction(OutgoingAction.RATE_CHANGED, { rate: val });
-        }, 40);
-
+        // Sliders — delegate to Sovereign Head
         if (this.els.volumeSlider) {
             this.els.volumeSlider.oninput = (e) => {
                 this.store.updateUIState({ isDraggingSlider: true });
@@ -118,14 +104,13 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
                     this.els.volumeVal.textContent = `${val}%`;
                 }
                 
-                // Real-time audio engine update
-                this.audioEngine.setVolume(val);
-                debouncedVolume(val);
+                // [DELEGATION] Let the controller handle audio engine and IPC
+                controller.setVolume(val);
             };
             this.els.volumeSlider.onchange = (e) => {
                 this.store.updateUIState({ isDraggingSlider: false });
                 const val = parseFloat((e.target as HTMLInputElement).value);
-                this.messenger.postAction(OutgoingAction.VOLUME_CHANGED, { volume: val });
+                controller.setVolume(val);
             };
         }
 
@@ -138,37 +123,34 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
                     this.els.rateVal.textContent = `${displayRate}x`;
                 }
                 
-                // Real-time audio engine update
-                this.audioEngine.setRate(val);
-                debouncedRate(val);
+                controller.setRate(val);
             };
             this.els.rateSlider.onchange = (e) => {
                 this.store.updateUIState({ isDraggingSlider: false });
                 const val = parseFloat((e.target as HTMLInputElement).value);
-                this.messenger.postAction(OutgoingAction.RATE_CHANGED, { rate: val });
+                controller.setRate(val);
             };
         }
 
         // Engine Toggle
         if (this.els.btnCloudEngine) {
             this.els.btnCloudEngine.onclick = () => {
-                this.messenger.postAction(OutgoingAction.ENGINE_MODE_CHANGED, { mode: 'neural' });
+                controller.setEngineMode('neural');
             };
         }
 
         if (this.els.btnLocalEngine) {
             this.els.btnLocalEngine.onclick = () => {
-                this.messenger.postAction(OutgoingAction.ENGINE_MODE_CHANGED, { mode: 'local' });
+                controller.setEngineMode('local');
             };
         }
 
-        // Cache Clear (v1.5.3: Double Click to prevent accidental resets)
+        // Cache Clear
         if (this.els.cacheDebugTag) {
             this.els.cacheDebugTag.ondblclick = async () => {
                 const confirmed = confirm('Clear all cached neural audio?');
                 if (confirmed) {
-                    await this.audioEngine.wipeCache();
-                    MessageClient.getInstance().postAction(OutgoingAction.CLEAR_CACHE);
+                    controller.clearCache();
                     ToastManager.show('Audio cache cleared', 'info');
                     this.els.cacheDebugTag.classList.add('pulse');
                     setTimeout(() => this.els.cacheDebugTag.classList.remove('pulse'), 500);

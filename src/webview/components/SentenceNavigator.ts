@@ -1,9 +1,6 @@
 import { BaseComponent } from '../core/BaseComponent';
-import { MessageClient } from '../core/MessageClient';
-import { WebviewStore } from '../core/WebviewStore';
-import { OutgoingAction } from '../../common/types';
 import { renderWithLinks } from '../utils';
-import { WebviewAudioEngine } from '../core/WebviewAudioEngine';
+import { PlaybackController } from '../playbackController';
 
 export interface SentenceNavigatorElements extends Record<string, HTMLElement | null> {
     navigator: HTMLElement | null;
@@ -21,7 +18,7 @@ export interface SentenceNavigatorState {
 
 /**
  * SentenceNavigator Component: Handles the 3-line sentence preview and jump logic.
- * Reactive to WebviewStore and emits commands via MessageClient.
+ * Reactive to WebviewStore and delegates intents to PlaybackController.
  */
 export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> {
     private state: SentenceNavigatorState = {
@@ -57,31 +54,15 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
     }
 
     /**
-     * Triggers a jump to a specific sentence index.
+     * Triggers a jump to a specific sentence index via the Sovereign Head.
      */
     public jump(index: number): void {
         if (index < 0 || index >= this.state.sentences.length) {
             return;
         }
 
-        const store = WebviewStore.getInstance();
-        const currentState = store.getState();
-        
-        // 1. [SYNC] Universal Unlocker
-        WebviewAudioEngine.getInstance().ensureAudioContext();
-        
-        // 2. [SYNC] Optimistic UI: Update highlight and play state immediately
-        if (currentState) {
-            store.optimisticPatch({
-                state: { ...currentState.state, currentSentenceIndex: index },
-                isPlaying: true,
-                isPaused: false
-            }, { isAwaitingSync: true });
-        }
-
-        const client = MessageClient.getInstance();
-        WebviewAudioEngine.getInstance().prepareForPlayback();
-        client.postAction(OutgoingAction.JUMP_TO_SENTENCE, { index });
+        // [DELEGATION] All authority moved to PlaybackController
+        PlaybackController.getInstance().jumpToSentence(index);
     }
 
     /**
