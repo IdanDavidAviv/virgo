@@ -5,25 +5,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FileContext } from '@webview/components/FileContext';
 import { WebviewStore } from '@webview/core/WebviewStore';
 import { MessageClient } from '@webview/core/MessageClient';
-import { OutgoingAction } from '@common/types';
+import { SessionController } from '@webview/sessionController';
+import { resetAllSingletons, wireDispatcher, FULL_DOM_TEMPLATE } from '../testUtils';
 
 describe('FileContext (Optimistic UI)', () => {
     let elements: any;
     let ctrl: FileContext;
 
     beforeEach(() => {
-        document.body.innerHTML = `
-            <div class="context-slot selection active">
-                <span id="active-filename">test.md</span>
-                <span id="active-dir">/docs</span>
-                <button id="btn-load-file">Load</button>
-            </div>
-            <div class="context-slot reader">
-                <span id="reader-filename"></span>
-                <span id="reader-dir"></span>
-                <button id="btn-clear-reader">Clear</button>
-            </div>
-        `;
+        document.body.innerHTML = FULL_DOM_TEMPLATE;
+        
+        // 1. Reset everything FIRST
+        resetAllSingletons();
+        
+        // 2. Mock Globals specifically for this test
+        const mockVscode = { postMessage: vi.fn() };
+        (window as any).acquireVsCodeApi = vi.fn(() => mockVscode);
+        (window as any).vscode = mockVscode;
+
         elements = {
             activeSlot: document.querySelector('.context-slot.selection'),
             readerSlot: document.querySelector('.context-slot.reader'),
@@ -32,10 +31,15 @@ describe('FileContext (Optimistic UI)', () => {
             readerFilename: document.getElementById('reader-filename'),
             readerDir: document.getElementById('reader-dir'),
             btnLoadFile: document.getElementById('btn-load-file'),
-            btnClearReader: document.getElementById('btn-clear-reader')
+            btnResetContext: document.getElementById('btn-clear-reader'),
+            btnModeFile: document.getElementById('btn-mode-file'),
+            btnModeSnippet: document.getElementById('btn-mode-snippet'),
+            fileModeContainer: document.getElementById('file-mode-container'),
+            snippetLookupContainer: document.getElementById('snippet-lookup-container'),
+            transferLayer: document.getElementById('transfer-layer')
         };
-        WebviewStore.resetInstance();
-        MessageClient.resetInstance();
+        
+        wireDispatcher();
     });
 
     afterEach(() => {
@@ -43,49 +47,70 @@ describe('FileContext (Optimistic UI)', () => {
         vi.clearAllMocks();
     });
 
-    it('should implement optimistic "Loading..." feedback on Load File click', () => {
+    it('should implement optimistic "Loading..." feedback on Load File click', async () => {
         ctrl = new FileContext(elements);
         ctrl.mount();
+
+        // [STABILITY] Must set a supported focused file so btnLoadFile is enabled for clicking
+        WebviewStore.getInstance().updateState({
+            state: { 
+                focusedDocumentUri: 'file:///test.md', 
+                focusedIsSupported: true,
+                activeDocumentUri: null
+            } as any
+        });
+
+        const btn = elements.btnLoadFile;
+        expect(btn.disabled).toBe(false);
+
+        btn.click();
+
+        // Assertion 1: Optimistic UI should show 'Loading Document...'
+        expect(elements.readerFilename.textContent).toBe('Loading Document...');
+        expect(elements.btnLoadFile.disabled).toBe(true);
+        expect(elements.btnLoadFile.classList.contains('is-loading')).toBe(true);
+    });
+
+    it('should implement optimistic clearing of reader slot on Clear click', async () => {
+        ctrl = new FileContext(elements);
+        ctrl.mount();
+
+        // Initial state active
+        WebviewStore.getInstance().updateState({
+            state: { activeDocumentUri: 'file:///test.md', activeFileName: 'test.md' } as any
+        });
+
+        const btn = elements.btnResetContext;
+        btn.click();
+
+        // Assertion 1: Optimistic UI should show 'Clearing...'
+        expect(elements.readerFilename.textContent).toBe('Clearing...');
+        expect(btn.disabled).toBe(true);
+    });
+
+    it('should revert from optimistic state when sync completes', async () => {
+        ctrl = new FileContext(elements);
+        ctrl.mount();
+
+        // Enable button
+        WebviewStore.getInstance().updateState({
+            state: { focusedDocumentUri: 'file:///done.md', focusedIsSupported: true } as any
+        });
 
         const btn = elements.btnLoadFile;
         btn.click();
-
-        // Immediate visual feedback
         expect(elements.readerFilename.textContent).toBe('Loading Document...');
-        expect(btn.classList.contains('pulse')).toBe(true);
-        expect(btn.classList.contains('is-loading')).toBe(true);
-    });
 
-    it('should implement optimistic clearing of reader slot on Clear click', () => {
-        // Hydrate reader slot first
-        elements.readerFilename.textContent = 'current.md';
-        elements.readerDir.textContent = '/docs';
-        elements.readerSlot.classList.add('active');
+        // Simulate extension response (UI_SYNC clears isAwaitingSync)
+        WebviewStore.getInstance().updateUIState({ isAwaitingSync: false });
+        WebviewStore.getInstance().updateState({
+            state: { activeDocumentUri: 'file:///done.md', activeFileName: 'done.md' } as any
+        });
 
-        ctrl = new FileContext(elements);
-        ctrl.mount();
-
-        const store = WebviewStore.getInstance();
-        const patchSpy = vi.spyOn(store, 'optimisticPatch');
-
-        elements.btnClearReader.click();
-
-        // Immediate store patch
-        expect(patchSpy).toHaveBeenCalledWith(
-            expect.objectContaining({
-                state: expect.objectContaining({
-                    activeDocumentUri: null,
-                    activeFileName: null
-                })
-            }),
-            { isAwaitingSync: true }
-        );
-
-        // Immediate visual clear (since component is subscribed to state)
-        // Note: BaseComponent.mount() handles subscription automatically.
-        // We expect the reader Slot to be cleared immediately by the synchronous store notification.
-        expect(elements.readerFilename.textContent).toBe('No File Loaded');
-        expect(elements.readerDir.textContent).toBe('');
-        expect(elements.readerSlot.classList.contains('active')).toBe(false);
+        // Use vi.waitFor for the final sync since it might involve state propagation
+        await vi.waitFor(() => {
+            expect(elements.readerFilename.textContent).toContain('done.md');
+        });
+        expect(elements.btnLoadFile.disabled).toBe(false);
     });
 });

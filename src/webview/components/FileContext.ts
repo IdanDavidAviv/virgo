@@ -1,7 +1,6 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { escapeHtml } from '../utils';
-import { OutgoingAction } from '../../common/types';
-import { LayoutManager } from '../core/LayoutManager';
+import { SessionController } from '../sessionController';
 import { WebviewStore } from '../core/WebviewStore';
 
 export interface FileContextElements extends Record<string, HTMLElement | HTMLButtonElement | null | undefined> {
@@ -12,7 +11,7 @@ export interface FileContextElements extends Record<string, HTMLElement | HTMLBu
     readerFilename: HTMLElement;
     readerDir: HTMLElement;
     btnLoadFile: HTMLButtonElement;
-    btnClearReader?: HTMLButtonElement;
+    btnResetContext: HTMLButtonElement; 
     btnModeFile: HTMLButtonElement;
     btnModeSnippet: HTMLButtonElement;
     fileModeContainer: HTMLElement;
@@ -25,68 +24,52 @@ export interface FileContextElements extends Record<string, HTMLElement | HTMLBu
  * Replaces legacy updateContextSlot logic with reactive subscriptions.
  */
 export class FileContext extends BaseComponent<FileContextElements> {
+    private loadType: 'loading' | 'clearing' = 'loading';
+
+    private getFallbackText(forcedAwaiting?: boolean): string {
+        const isAwaiting = forcedAwaiting !== undefined ? forcedAwaiting : this.store.getUIState().isAwaitingSync;
+        if (isAwaiting) {
+            return (this.loadType === 'clearing') ? 'Clearing...' : 'Loading Document...';
+        }
+        return 'No File Loaded';
+    }
 
     public mount(): void {
         super.mount();
 
         // 0. Interaction Listeners
         if (this.els.btnLoadFile) {
-            this.els.btnLoadFile.onclick = (e) => {
-                const btn = e.currentTarget as HTMLButtonElement;
-                btn.classList.add('pulse');
-                setTimeout(() => btn.classList.remove('pulse'), 400);
-
-                // [HARDENING] Use optimistic state to show "Loading..." in the Reader slot (active file)
-                // This ensures the Focused slot remains stable as per user requirement.
-                const store = WebviewStore.getInstance();
-                const currentState = store.getState();
-
-                store.optimisticPatch({
-                    state: {
-                        ...(currentState?.state || {}),
-                        activeFileName: 'Loading Document...',
-                        activeDocumentUri: 'loading' as any // placeholder to light up the reader slot
-                    } as any
-                }, {
-                    isAwaitingSync: true,
-                    intentTimeout: 2000 // File loads can be heavy
-                });
-
-                this.postAction(OutgoingAction.LOAD_DOCUMENT);
-                LayoutManager.getInstance().closeOverlays();
-            };
+            this.els.btnLoadFile.addEventListener('click', () => {
+                this.loadType = 'loading';
+                // Bulletproof optimistic update
+                if (this.els.readerFilename) { this.els.readerFilename.textContent = 'Loading Document...'; }
+                SessionController.getInstance().loadDocument();
+            });
         }
 
-        if (this.els.btnClearReader) {
-            this.els.btnClearReader.onclick = (e) => {
-                const btn = e.currentTarget as HTMLButtonElement;
-                btn.classList.add('pulse');
-                setTimeout(() => btn.classList.remove('pulse'), 400);
-
-                // Dashboard Parity: Snappy UI clearing before host roundtrip
-                const store = WebviewStore.getInstance();
-                store.optimisticPatch({
-                    state: {
-                        ...store.getState()?.state,
-                        activeDocumentUri: null as any,
-                        activeFileName: null as any
-                    }
-                } as any, { isAwaitingSync: true });
-
-                this.postAction(OutgoingAction.RESET_CONTEXT);
-            };
+        if (this.els.btnResetContext) {
+            this.els.btnResetContext.addEventListener('click', () => {
+                this.loadType = 'clearing';
+                this.els.btnResetContext!.disabled = true; 
+                // Bulletproof optimistic update
+                if (this.els.readerFilename) { this.els.readerFilename.textContent = 'Clearing...'; }
+                
+                // [SYNC] Let the store know we are waiting for a clear response
+                this.store.updateUIState({ isAwaitingSync: true });
+                SessionController.getInstance().resetContext();
+            });
         }
 
         // Mode Toggles
         if (this.els.btnModeFile) {
             this.els.btnModeFile.onclick = () => {
-                WebviewStore.getInstance().updateUIState({ activeMode: 'FILE' });
+                SessionController.getInstance().setMode('FILE');
             };
         }
 
         if (this.els.btnModeSnippet) {
             this.els.btnModeSnippet.onclick = () => {
-                WebviewStore.getInstance().updateUIState({ activeMode: 'SNIPPET' });
+                SessionController.getInstance().setMode('SNIPPET');
             };
         }
 
@@ -98,23 +81,26 @@ export class FileContext extends BaseComponent<FileContextElements> {
             version: state.state.focusedVersionSalt,
             isSupported: state.state.focusedIsSupported
         }), (info) => {
-            this.updateSlot(
-                info.uri || undefined,
-                this.els.activeFilename,
-                this.els.activeDir,
-                info.version || undefined,
-                info.name || undefined,
-                info.dir || undefined,
-                'No Selection'
-            );
-
             if (this.els.activeSlot) {
                 this.els.activeSlot.classList.toggle('active', !!info.uri);
                 this.els.activeSlot.classList.toggle('unsupported', !info.isSupported);
             }
 
+            // [NEW] Update the focused file info
+            if (this.els.activeFilename) {
+                this.els.activeFilename.textContent = info.uri ? info.name : 'No Active File';
+            }
+            if (this.els.activeDir) {
+                this.els.activeDir.textContent = info.dir ? `${info.dir} /` : '';
+            }
+
+            // [STABILITY] Button stays disabled during sync regardless of support
+            const ui = this.store.getUIState();
             if (this.els.btnLoadFile) {
-                this.els.btnLoadFile.disabled = !info.isSupported;
+                this.els.btnLoadFile.disabled = !info.isSupported || ui.isAwaitingSync;
+            }
+            if (this.els.btnResetContext) {
+                this.els.btnResetContext.disabled = ui.isAwaitingSync;
             }
         });
 
@@ -124,32 +110,24 @@ export class FileContext extends BaseComponent<FileContextElements> {
             name: state.state.activeFileName,
             dir: state.state.activeRelativeDir,
             version: state.state.versionSalt
-        }), (info) => {
-            this.updateSlot(
-                info.uri || undefined,
-                this.els.readerFilename,
-                this.els.readerDir,
-                info.version || undefined,
-                info.name || undefined,
-                info.dir || undefined,
-                'No File Loaded'
-            );
-
-            if (this.els.readerSlot) {
-                this.els.readerSlot.classList.toggle('active', !!info.uri);
-            }
+        }), () => {
+            this.syncSlot();
         });
 
-        // 3. Load Button Mismatch & Syncing state
-        this.subscribeUI((state) => state.isSyncing, (isSyncing) => {
+        // 3. Load Button Sync State
+        this.subscribeUI((state) => state.isAwaitingSync, (isAwaiting) => {
             if (this.els.btnLoadFile) {
-                this.els.btnLoadFile.disabled = isSyncing;
-                this.els.btnLoadFile.classList.toggle('is-loading', !!isSyncing);
+                this.els.btnLoadFile.disabled = isAwaiting;
+                this.els.btnLoadFile.classList.toggle('is-loading', isAwaiting);
             }
+            if (!isAwaiting && this.els.btnResetContext) {
+                this.els.btnResetContext.disabled = false;
+            }
+            this.syncSlot(isAwaiting);
         });
 
         this.subscribe((state) => {
-            return (state.state.activeDocumentUri !== state.state.focusedDocumentUri) && state.state.focusedIsSupported;
+            return (state.state.activeDocumentUri !== state.state.focusedDocumentUri) && (state.state.focusedIsSupported ?? false);
         }, (isMismatch) => {
             if (this.els.btnLoadFile) {
                 this.els.btnLoadFile.classList.toggle('mismatch', !!isMismatch);
@@ -179,12 +157,22 @@ export class FileContext extends BaseComponent<FileContextElements> {
     }
 
     public render(): void {
-        // Initial sync handled by subscriptions
+        this.syncSlot();
     }
 
-    /**
-     * Internal slot update logic (derived from legacy updateContextSlot)
-     */
+    private syncSlot(forcedAwaiting?: boolean): void {
+        const state = this.store.getState();
+        this.updateSlot(
+            state.state.activeDocumentUri || undefined,
+            this.els.readerFilename,
+            this.els.readerDir,
+            state.state.versionSalt || undefined,
+            state.state.activeFileName || undefined,
+            state.state.activeRelativeDir || undefined,
+            this.getFallbackText(forcedAwaiting)
+        );
+    }
+
     private updateSlot(
         uri: string | undefined,
         filenameEl: HTMLElement,
@@ -197,6 +185,9 @@ export class FileContext extends BaseComponent<FileContextElements> {
         if (!uri) {
             filenameEl.textContent = fallbackText;
             dirEl.textContent = '';
+            if (this.els.readerSlot && filenameEl === this.els.readerFilename) {
+                 this.els.readerSlot.classList.remove('active');
+            }
             return;
         }
 
@@ -208,5 +199,9 @@ export class FileContext extends BaseComponent<FileContextElements> {
         const versionHtml = version ? `<span class="version-badge">${version}</span>` : '';
         filenameEl.innerHTML = `${escapeHtml(filename)}${versionHtml}`;
         dirEl.textContent = dir ? `${dir} /` : '';
+
+        if (this.els.readerSlot && filenameEl === this.els.readerFilename) {
+            this.els.readerSlot.classList.add('active');
+        }
     }
 }
