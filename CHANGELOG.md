@@ -7,6 +7,13 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.2.2] - 2026-04-07
+
+### Stabilized
+- **Webview State Management**: Hardened `WebviewStore` to automatically hydrate on the first remote sync, resolving initialization test failures.
+- **Race Condition Resolution**: Optimized `isAwaitingSync` reset timing to eliminate UI flicker and ensure engine handshake completion before dismissing loading states.
+- **Testing Integrity**: Integrated `WebviewStore.resetInstance()` across all suites to prevent cross-test state pollution, achieving 100% (191/191) pass rate.
+
 ## [2.2.1] - 2026-04-07
 
 ### Stabilized MCP Infrastructure & Audio Mutex
