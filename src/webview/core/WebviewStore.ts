@@ -211,14 +211,16 @@ export class WebviewStore {
    */
   private refreshSyncingState(): void {
     const isAwaitingSync = this.uiState.isAwaitingSync;
-    // [SURGICAL] isStalled depends on engine-level playbackStalled signal, 
-    // which is now suppressed if audio is playing.
     const isStalled = !!(this.state?.playbackStalled && this.state?.isPlaying);
-    // [ROBUST] If intent has expired, treat as background sync (fixes flicker in PlaybackStateAgnostic.test.ts)
-    const isAutoStall = this.uiState.lastStallSource === 'AUTO' || Date.now() >= this.intentExpiry;
+    const isSovereign = this.uiState.lastStallSource === 'USER' && Date.now() < this.intentExpiry;
+    
+    // [DIAGNOSTIC] Log sovereignty state for stability verification
+    if (isAwaitingSync) {
+        console.log(`[WebviewStore] 🔄 Sync Check: AwaitingSync=true, Sovereign=${isSovereign}, Source=${this.uiState.lastStallSource}, Expiry=${this.intentExpiry - Date.now()}ms`);
+    }
 
-    // 1. User Intent (High Priority, Instant)
-    if (isAwaitingSync && !isAutoStall) {
+    // 1. User Intent (High Priority, Instant 0ms grace)
+    if (isAwaitingSync && isSovereign) {
         this.clearSyncTimer();
         if (!this.uiState.isSyncing) {
             this.updateUIState({ isSyncing: true });
@@ -227,6 +229,8 @@ export class WebviewStore {
     }
 
     // 2. Background Stall or Auto-Transition (Low Priority, 400ms Grace Period)
+    // [REFINED] Treat as auto-stall if not sovereign or if source is AUTO
+    const isAutoStall = this.uiState.lastStallSource === 'AUTO' || Date.now() >= this.intentExpiry;
     if (isStalled || (isAwaitingSync && isAutoStall)) {
         if (this.uiState.isSyncing || this.syncTimer) {
             return;
@@ -356,16 +360,10 @@ export class WebviewStore {
   /**
    * Internal method to update the state and notify relevant listeners.
    */
-  public updateState(newState: Partial<UISyncPacket>, source: 'remote' | 'local' = 'local'): void {
+  public updateState(newState: Partial<UISyncPacket>, source: 'remote' | 'local' = 'remote'): void {
+    // [SOVEREIGNTY] Authoritatively hydrate if it's the first remote packet
     if (source === 'remote' && !this._isHydrated) {
-      console.warn('[WebviewStore] Ignored remote update - store not hydrated');
-      return;
-    }
-
-    if (source === 'remote') {
-      this.updateUIState({ 
-        isAwaitingSync: false
-      });
+      this._isHydrated = true;
     }
 
     // 1. REINFORCEMENT: Suppress incoming syncs while user is dragging slider
@@ -390,15 +388,43 @@ export class WebviewStore {
         newState.activeSessionId = oldState.activeSessionId;
     }
 
-    const updatedState = { ...this.state, ...newState } as UISyncPacket;
+    // [STABILITY] Surgically merge to avoid 'undefined' overwrites for critical fields
+    const updatedState = { ...this.state } as UISyncPacket;
+    Object.entries(newState).forEach(([key, value]) => {
+        if (value !== undefined) {
+            (updatedState as any)[key] = value;
+        }
+    });
 
+    let isBlocked = false;
     // Apply Sovereignty Guard if needed
     if (hasActiveIntent && oldState && source === 'remote') {
-        // Protect the optimistic desire from being overwritten by delayed sync packets
-        updatedState.isPlaying = oldState.isPlaying;
-        updatedState.isPaused = oldState.isPaused;
-        updatedState.playbackStalled = oldState.playbackStalled;
+        const intent = this.uiState.playbackIntent;
+        
+        // [INTENT AWARE] Only protect against REVERSIONS. 
+        // If the remote sync matches our intent (e.g. confirms we are playing), allow it.
+        const isRevertingToStop = intent === 'PLAYING' && newState.isPlaying === false;
+        const isRevertingToPlay = intent === 'STOPPED' && newState.isPlaying === true;
+        
+        if (isRevertingToStop || isRevertingToPlay) {
+            console.log(`[WebviewStore] 🛡️ Sovereignty Guard: Blocking stale ${isRevertingToStop ? 'Stop' : 'Play'} update while intent is ${intent}`);
+            isBlocked = true;
+            updatedState.isPlaying = oldState.isPlaying;
+            updatedState.isPaused = oldState.isPaused;
+
+            // [SOVEREIGNTY] Protect against flicker for playbackStalled status
+            // EXCEPTION: Always allow if we are currently in sync-handshake (waiting for first extension packet)
+            if (!this.uiState.isAwaitingSync) {
+                updatedState.playbackStalled = oldState.playbackStalled;
+            }
+        }
+        
         updatedState.autoPlayMode = oldState.autoPlayMode;
+        
+        // [REFINED] Authoritatively allow settings updates even during user intent window 
+        // unless intent specifically includes them (which it doesn't currently)
+        if (newState.rate !== undefined) { updatedState.rate = newState.rate; }
+        if (newState.volume !== undefined) { updatedState.volume = newState.volume; }
         
         // Protect document context unless a new real document is arriving
         if (oldState.state && updatedState.state) {
@@ -423,10 +449,29 @@ export class WebviewStore {
         }
     }
 
-    if (updatedState.rate === undefined) { updatedState.rate = 0; } // [PARITY] Fixed regression from 1.0
+    // [PARITY] Final fallback to defaults only if absolutely missing
+    if (updatedState.rate === undefined) { updatedState.rate = 0; } 
     if (updatedState.volume === undefined) { updatedState.volume = 50; }
+    if (updatedState.isPlaying === undefined) { updatedState.isPlaying = false; }
+    if (updatedState.isPaused === undefined) { updatedState.isPaused = true; }
     
     this.state = updatedState;
+
+    if (!isBlocked && source === 'remote') {
+        const remoteIntent = this.derivePlaybackIntent(this.state);
+        // [STABILITY] Only update if different to avoid redundant UI renders
+        if (remoteIntent !== this.uiState.playbackIntent) {
+            this.updateUIState({ playbackIntent: remoteIntent }, true);
+        }
+    }
+
+    // [STABILITY] Clear sync lock AFTER merge to avoid race conditions in refreshSyncingState
+    if (source === 'remote' && this.uiState.isAwaitingSync) {
+      this.updateUIState({ isAwaitingSync: false });
+    } else {
+      // Ensure UI feedback is consistent with newly merged state
+      this.refreshSyncingState();
+    }
 
     let notifiedCount = 0;
     let idx = 0;
@@ -539,6 +584,14 @@ export class WebviewStore {
 
     return false;
   }
+
+  private derivePlaybackIntent(state: UISyncPacket | null): 'PLAYING' | 'PAUSED' | 'STOPPED' {
+    if (!state) {return 'STOPPED';}
+    if (state.isPlaying === false) {return 'STOPPED';}
+    if (state.isPaused === true) {return 'PAUSED';}
+    return 'PLAYING';
+  }
+
 
   /**
    * [PHASE 4] Requests the full snippet history from the extension.

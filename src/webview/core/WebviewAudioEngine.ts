@@ -17,6 +17,7 @@ export class WebviewAudioEngine {
   private activeIntentId: number = 0;
   public intent: 'PLAYING' | 'PAUSED' | 'STOPPED' = 'PAUSED';
   private _isPrimed: boolean = false;
+  private playbackLock: Promise<void> = Promise.resolve();
 
   private constructor() {
     this.localStrategy = new LocalAudioStrategy();
@@ -98,7 +99,33 @@ export class WebviewAudioEngine {
   }
 
   public async play(): Promise<void> {
-    await this.activeStrategy.play();
+    const unlock = await this.acquirePlaybackLock();
+    try {
+        await this.activeStrategy.play();
+    } finally {
+        unlock();
+    }
+  }
+
+  public async acquirePlaybackLock(): Promise<() => void> {
+    let resolveUnlock: () => void;
+    const newLock = new Promise<void>(resolve => {
+        resolveUnlock = resolve;
+    });
+
+    const previousLock = this.playbackLock;
+    // [HARDENED] Ensure the next lock is chained even if the previous one catches/rejects.
+    this.playbackLock = previousLock.then(() => newLock, () => newLock);
+
+    // [HARDENED] If the previous lock rejected, we still want to acquire the current one.
+    return previousLock.then(
+        () => resolveUnlock,
+        () => resolveUnlock
+    );
+  }
+
+  public isStrategyActive(strategyId: string): boolean {
+    return this.activeStrategy.id === strategyId;
   }
 
   /**
@@ -135,7 +162,12 @@ export class WebviewAudioEngine {
   }
 
   public async playBlob(blob: Blob, cacheKey: string, intentId?: number): Promise<void> {
-    await this.neuralStrategy.playBlob(blob, cacheKey, intentId);
+    const unlock = await this.acquirePlaybackLock();
+    try {
+        await this.neuralStrategy.playBlob(blob, cacheKey, intentId);
+    } finally {
+        unlock();
+    }
   }
 
   public startAdaptiveWait(cacheKey: string, intentId: number): Promise<void> {
@@ -148,7 +180,12 @@ export class WebviewAudioEngine {
   }
 
   public async ingestData(cacheKey: string, base64Data: string, intentId: number): Promise<void> {
-      await this.neuralStrategy.ingestData(cacheKey, base64Data, intentId);
+      const unlock = await this.acquirePlaybackLock();
+      try {
+          await this.neuralStrategy.ingestData(cacheKey, base64Data, intentId);
+      } finally {
+          unlock();
+      }
   }
 
   public async playFromBase64(base64: string, cacheKey?: string, intentId?: number): Promise<void> {
@@ -156,19 +193,30 @@ export class WebviewAudioEngine {
   }
 
   public async playFromCache(cacheKey: string, intentId?: number): Promise<boolean> {
-      if (this.activeStrategy.playFromCache) {
-          return await this.activeStrategy.playFromCache(cacheKey, intentId);
+      const unlock = await this.acquirePlaybackLock();
+      try {
+          if (this.activeStrategy.playFromCache) {
+              return await this.activeStrategy.playFromCache(cacheKey, intentId);
+          }
+          return false;
+      } finally {
+          unlock();
       }
-      return false;
   }
 
   public async synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void> {
       this.activeIntentId = intentId || this.activeIntentId;
-      await this.activeStrategy.synthesize(text, voice, intentId);
+      const unlock = await this.acquirePlaybackLock();
+      try {
+          await this.activeStrategy.synthesize(text, voice, intentId);
+      } finally {
+          unlock();
+      }
   }
 
   public pause(): void {
-    this.activeStrategy.pause();
+    this.localStrategy.pause();
+    this.neuralStrategy.pause();
     this.intent = 'PAUSED';
     this.resetLoadingStates();
   }
@@ -179,7 +227,8 @@ export class WebviewAudioEngine {
   }
 
   public stop(): void {
-    this.activeStrategy.stop();
+    this.localStrategy.stop();
+    this.neuralStrategy.stop();
     this.intent = 'STOPPED';
     this.resetLoadingStates();
   }

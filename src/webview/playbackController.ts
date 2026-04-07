@@ -26,6 +26,8 @@ export class PlaybackController {
   private intent: PlaybackIntent = PlaybackIntent.STOPPED;
   private isAwaitingSync: boolean = false;
   private watchdog: NodeJS.Timeout | null = null;
+  private intentExpiry: number = 0;
+  private readonly INTENT_TIMEOUT_MS = 1000; // [STABILITY] Grant 1s of sovereignty to user intent
   private constructor() {
     this.setupListeners();
   }
@@ -61,6 +63,8 @@ export class PlaybackController {
     console.log('[PlaybackController] play() requested', { currentUri, isAwaitingSync: this.isAwaitingSync });
     
     this.intent = PlaybackIntent.PLAYING;
+    this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
+
     if (this.isAwaitingSync) {
       return;
     }
@@ -77,6 +81,7 @@ export class PlaybackController {
 
   public pause(): void {
     this.intent = PlaybackIntent.PAUSED;
+    this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
     // [RESPONSIVE] Atomic transition
     WebviewStore.getInstance().optimisticPatch({ isPaused: true }, { isAwaitingSync: true });
     
@@ -95,6 +100,7 @@ export class PlaybackController {
 
   public stop(): void {
     this.intent = PlaybackIntent.STOPPED;
+    this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
     // [RESPONSIVE] Atomic transition
     WebviewStore.getInstance().optimisticPatch({ isPlaying: false, isPaused: true }, { isAwaitingSync: true });
     
@@ -122,6 +128,14 @@ export class PlaybackController {
    * handleSync() - Core reconciliation logic from dashboard.js
    */
   public handleSync(packet: { isPlaying: boolean, isPaused?: boolean }): void {
+    // [SOVEREIGNTY] Respect active user intent over incoming sync packets
+    const now = Date.now();
+    if (now < this.intentExpiry) {
+        console.log('[PlaybackController] 🛡️ Protecting active intent from stale sync');
+        this.releaseLock();
+        return;
+    }
+
     if (packet.isPlaying && !packet.isPaused) {
       this.mode = PlaybackMode.ACTIVE;
     } else if (packet.isPlaying && packet.isPaused) {

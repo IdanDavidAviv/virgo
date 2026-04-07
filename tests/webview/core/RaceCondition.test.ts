@@ -20,8 +20,13 @@ describe('Resilience: RaceCondition (v2.0.0 Hardening)', () => {
         WebviewAudioEngine.resetInstance();
         PlaybackController.resetInstance();
 
-        // 2. Setup Store
+        // 2. Setup Store (Simulate User Intent to activate Sovereignty Guard)
         const store = WebviewStore.getInstance();
+        store.optimisticPatch({ 
+            selectedVoice: 'Neural:test',
+            isPlaying: false,
+            isPaused: false
+        }, { intentTimeout: 5000 }); // Long timeout for tests
         store.updateUIState({ playbackIntent: 'PLAYING' });
 
         // 3. Initialize Engine

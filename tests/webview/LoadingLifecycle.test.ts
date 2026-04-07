@@ -75,7 +75,7 @@ describe('Loading Lifecycle Audit & Stabilization', () => {
     it('OPTIMISTIC GESTURE: optimisticPatch should kill ALL loading states', () => {
         // 1. High-tension state: Stalled and Awaiting Sync
         store.updateUIState({ isAwaitingSync: true });
-        store.patchState({ playbackStalled: true });
+        store.updateState({ playbackStalled: true }, 'local');
         expect(store.getUIState().isAwaitingSync).toBe(true);
         expect(store.getState()?.playbackStalled).toBe(true);
 

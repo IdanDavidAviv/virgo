@@ -27,7 +27,7 @@ describe('PlaybackRaceCondition (TDD)', () => {
         };
 
         // Mock store functions needed
-        store.updateUIState = vi.fn((patch) => store.patchState(patch));
+        vi.spyOn(store, 'updateUIState');
         store.updateState({ 
             isPlaying: false, 
             isPaused: true, 

@@ -51,9 +51,10 @@ export class CommandDispatcher {
         // Zombie Guard: Prune late-arriving packets from previous context.
         const isControllerStopped = playback.getState().intent === 'STOPPED';
         const isEngineActive = audioEngine.intent === 'PLAYING';
+        const isDataPayload = !!data?.data;
         
-        if (isControllerStopped && !isEngineActive) {
-            console.log('[Dispatcher] ✋ Ignoring Zombie Audio (Controller Intent is STOPPED)');
+        if (isControllerStopped && !isEngineActive && isDataPayload) {
+            console.log('[Dispatcher] ✋ Ignoring Zombie Audio Payload (Controller Intent is STOPPED)');
             playback.releaseLock();
             return;
         }
