@@ -9,15 +9,15 @@ describe('WebviewStore Debug', () => {
         WebviewStore.resetInstance();
     });
 
-    it('should hydrate with updateState', () => {
+    it('should track hydration via updateState', () => {
         const store = WebviewStore.getInstance();
-        expect(store.getState()).toBeNull();
+        expect(store.isHydrated()).toBe(false);
 
         store.updateState({ 
             state: { currentSentenceIndex: 10 } 
         } as any);
 
-        expect(store.getState()).not.toBeNull();
+        expect(store.isHydrated()).toBe(true);
         expect(store.getState()?.state.currentSentenceIndex).toBe(10);
     });
 });

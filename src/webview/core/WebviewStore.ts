@@ -1,5 +1,52 @@
 import { MessageClient } from './MessageClient';
-import { IncomingCommand, UISyncPacket, OutgoingAction } from '../../common/types';
+import { IncomingCommand, UISyncPacket, OutgoingAction, LogLevel } from '../../common/types';
+
+/**
+ * DEFAULT_SYNC_PACKET: The authoritative starting point for the synchronized extension state.
+ * Ensures that all reactive properties have valid defaults before the first UI_SYNC arrives.
+ */
+export const DEFAULT_SYNC_PACKET: UISyncPacket = {
+  state: {
+    focusedFileName: '',
+    focusedRelativeDir: '',
+    focusedDocumentUri: null,
+    focusedIsSupported: false,
+    activeFileName: '',
+    activeRelativeDir: '',
+    activeDocumentUri: null,
+    currentChapterIndex: 0,
+    currentSentenceIndex: 0,
+    isRefreshing: false,
+    isPreviewing: false,
+    activeMode: 'FILE'
+  },
+  isPlaying: false,
+  isPaused: false,
+  playbackStalled: false,
+  currentSentences: [],
+  allChapters: [],
+  currentChapterIndex: 0,
+  totalChapters: 0,
+  isLooping: false,
+  currentText: '',
+  canPrevChapter: false,
+  canNextChapter: false,
+  canPrevSentence: false,
+  canNextSentence: false,
+  autoPlayMode: 'auto',
+  engineMode: 'local',
+  cacheCount: 0,
+  cacheSizeBytes: 0,
+  rate: 0,
+  volume: 50,
+  activeMode: 'FILE',
+  logLevel: LogLevel.STANDARD,
+  availableVoices: {
+    local: [],
+    neural: []
+  },
+  selectedVoice: undefined
+};
 
 export type Selector<T, S = UISyncPacket> = (state: S) => T;
 export type Listener<T> = (value: T) => void;
@@ -17,9 +64,12 @@ export interface LocalUIState {
   lastStallAt: number;
   lastStallSource: 'USER' | 'AUTO';
   isSyncing: boolean;
+  isBuffering: boolean;
   pendingChapterIndex: number;
   neuralBuffer: { count: number, sizeMb: number };
   activeMode: 'FILE' | 'SNIPPET';
+  snippetHistory: any[];
+  playbackIntentId: number;
 }
 
 /**
@@ -38,11 +88,6 @@ export class WebviewStore {
     lastValue: any 
   }> = new Set();
 
-  // [REINFORCEMENT] Intent Sovereignty (Sequence Guard)
-  private lastIntentId: number = 0;
-  private intentExpiry: number = 0;
-  private modeIntentExpiry: number = 0;
-  private readonly INTENT_TIMEOUT_MS = 500;
   private _isHydrated: boolean = false;
 
   // [REINFORCEMENT] Payload Cache
@@ -61,9 +106,12 @@ export class WebviewStore {
     lastStallAt: 0,
     lastStallSource: 'AUTO',
     isSyncing: false,
+    isBuffering: false,
     pendingChapterIndex: -1,
     neuralBuffer: { count: 0, sizeMb: 0 },
-    activeMode: 'FILE'
+    activeMode: 'FILE',
+    snippetHistory: [],
+    playbackIntentId: 0
   };
 
   private uiListeners: Set<{
@@ -73,73 +121,7 @@ export class WebviewStore {
   }> = new Set();
 
   private constructor() {
-    const client = MessageClient.getInstance();
-    client.onCommand<UISyncPacket>(IncomingCommand.UI_SYNC, (packet: UISyncPacket) => {
-      const now = Date.now();
-      const hasActiveModeIntent = now < this.modeIntentExpiry;
-
-      if (packet.activeMode && !hasActiveModeIntent) {
-        this.updateUIState({ activeMode: packet.activeMode }, true);
-      }
-      this._isHydrated = true;
-      this.updateState(packet, 'remote');
-    });
-
-    client.onCommand<any>(IncomingCommand.VOICES, (data: any) => {
-      if (!this._isHydrated) {
-        console.warn('[WebviewStore] Ignored VOICES update - store not hydrated');
-        return;
-      }
-      this.updateState({ 
-        availableVoices: { 
-          local: data.localVoices || [], 
-          neural: data.neuralVoices || [] 
-        } 
-      });
-    });
-
-    client.onCommand<{ cacheKey: string, data: string, intentId: number }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data, intentId }) => {
-      this.saveNeuralCache(cacheKey, data, intentId);
-    });
-
-
-    // Unified Cache Stats handler (Legacy & Modern parity)
-    const handleCacheStats = (data: { count: number, sizeBytes?: number, size?: number }) => {
-      if (!this._isHydrated) {
-        console.warn('[WebviewStore] Ignored CACHE_STATS update - store not hydrated');
-        return;
-      }
-      const bytes = Number(data.sizeBytes ?? data.size ?? 0);
-      const safeBytes = Number.isFinite(bytes) ? bytes : 0;
-      
-      this.updateState({
-        cacheCount: data.count,
-        cacheSizeBytes: safeBytes,
-        cacheStats: { count: data.count, size: safeBytes } // [PARITY] Restore composite object for #35 audit tests
-      });
-
-      const sizeMb = Number((safeBytes / (1024 * 1024)).toFixed(2));
-      this.updateUIState({ 
-        neuralBuffer: { count: data.count, sizeMb: Number.isFinite(sizeMb) ? sizeMb : 0 }
-      });
-      console.log('[WebviewStore DEBUG] handleCacheStats updated neuralBuffer to=', this.uiState.neuralBuffer);
-    };
-
-    client.onCommand<any>(IncomingCommand.CACHE_STATS, handleCacheStats);
-    client.onCommand<any>(IncomingCommand.CACHE_STATS_UPDATE, handleCacheStats);
-
-    client.onCommand(IncomingCommand.CLEAR_CACHE_WIPE, () => {
-      this.clearLocalCache();
-    });
-
-    client.onCommand(IncomingCommand.PURGE_MEMORY, () => {
-        const { WebviewAudioEngine } = require('./WebviewAudioEngine');
-        WebviewAudioEngine.getInstance().purgeMemory();
-    });
-
-    client.onCommand(IncomingCommand.SNIPPET_SAVED, () => {
-      this.requestSnippetHistory();
-    });
+    // [PASSIVE BUCKET] All IPC command listeners moved to PlaybackController.
   }
 
   /**
@@ -178,8 +160,6 @@ export class WebviewStore {
     this.uiListeners.clear();
     this.state = null;
     this._isHydrated = false;
-    this.lastIntentId = 0;
-    this.intentExpiry = 0;
     this.uiState = {
       isAwaitingSync: false,
       isLoadingVoices: false,
@@ -189,10 +169,20 @@ export class WebviewStore {
       lastStallAt: 0,
       lastStallSource: 'AUTO',
       isSyncing: false,
+      isBuffering: false,
       pendingChapterIndex: -1,
       neuralBuffer: { count: 0, sizeMb: 0 },
-      activeMode: 'FILE'
+      activeMode: 'FILE',
+      snippetHistory: [],
+      playbackIntentId: 0
     };
+  }
+
+  /**
+   * Returns whether the store has received at least one sync update from the extension.
+   */
+  public isHydrated(): boolean {
+    return this._isHydrated;
   }
 
   private clearSyncTimer(): void {
@@ -203,95 +193,51 @@ export class WebviewStore {
   }
 
   /**
-   * [CORE] Centralized sync state logic.
-   * Rules:
-   * 1. If isAwaitingSync (User Action) -> isSyncing = true IMMEDIATELY (0ms).
-   * 2. If stalled/synth (Engine)       -> isSyncing = true after 400ms.
-   * 3. If healthy                     -> isSyncing = false IMMEDIATELY.
-   */
-  private refreshSyncingState(): void {
-    const isAwaitingSync = this.uiState.isAwaitingSync;
-    const isStalled = !!(this.state?.playbackStalled && this.state?.isPlaying);
-    const isSovereign = this.uiState.lastStallSource === 'USER' && Date.now() < this.intentExpiry;
-    
-    // [DIAGNOSTIC] Log sovereignty state for stability verification
-    if (isAwaitingSync) {
-        console.log(`[WebviewStore] 🔄 Sync Check: AwaitingSync=true, Sovereign=${isSovereign}, Source=${this.uiState.lastStallSource}, Expiry=${this.intentExpiry - Date.now()}ms`);
-    }
-
-    // 1. User Intent (High Priority, Instant 0ms grace)
-    if (isAwaitingSync && isSovereign) {
-        this.clearSyncTimer();
-        if (!this.uiState.isSyncing) {
-            this.updateUIState({ isSyncing: true });
-        }
-        return;
-    }
-
-    // 2. Background Stall or Auto-Transition (Low Priority, 400ms Grace Period)
-    // [REFINED] Treat as auto-stall if not sovereign or if source is AUTO
-    const isAutoStall = this.uiState.lastStallSource === 'AUTO' || Date.now() >= this.intentExpiry;
-    if (isStalled || (isAwaitingSync && isAutoStall)) {
-        if (this.uiState.isSyncing || this.syncTimer) {
-            return;
-        }
-        
-        this.syncTimer = setTimeout(() => {
-            this.syncTimer = null;
-            this.updateUIState({ isSyncing: true });
-        }, 400);
-        return;
-    }
-
-    // 3. Status Healthy (Clear instantly)
-    this.clearSyncTimer();
-    if (this.uiState.isSyncing) {
-        this.updateUIState({ isSyncing: false });
-    }
-  }
-
-  /**
    * Returns the current state.
    */
-  public getState(): UISyncPacket | null {
-    return this.state;
+  public getState(): UISyncPacket {
+    return this.state || DEFAULT_SYNC_PACKET;
   }
 
   /**
-   * Generates a unique key for the current sentence audio segment.
-   * Format: voice-docId-salt-chapter-sentence
+   * Returns a unique key for the current sentence (used for caching/playback).
    */
-  public getSentenceKey(): string | null {
-    const s = this.state;
-    if (!s) { return null; }
-    const voice = s.selectedVoice || 'default';
-    const uri = s.state.activeDocumentUri || 'unknown';
-    const salt = s.state.versionSalt || '0';
-    return `${voice}-${uri}-${salt}-${s.state.currentChapterIndex}-${s.state.currentSentenceIndex}`;
+  public getSentenceKey(): string {
+    if (!this.state) { return 'default'; }
+    return `${this.state.currentChapterIndex}_${this.state.state.currentSentenceIndex}`;
   }
 
-
   /**
-   * Returns the current local UI state.
+   * Returns the current local UI state with calculated reactive fields.
    */
   public getUIState(): LocalUIState {
-    return this.uiState;
+    const now = Date.now();
+    const stallDuration = this.uiState.lastStallAt ? now - this.uiState.lastStallAt : 0;
+    
+    // [GRACE PERIOD] 0ms for USER intent, 400ms for AUTO transitions
+    const threshold = this.uiState.lastStallSource === 'USER' ? 0 : 400;
+    
+    // Stall logic: 
+    // - User-initiated (isAwaitingSync) -> Instant (0ms threshold)
+    // - Background engine stall (state.playbackStalled) -> 400ms grace period
+    const isActuallyStalled = (this.uiState.isAwaitingSync && stallDuration >= threshold) ||
+                              (this.state?.playbackStalled && stallDuration >= 400);
+
+    return {
+      ...this.uiState,
+      // [SOVEREIGNTY] Only show sync-spinner if we ARE trying to play (or if it's an engine-reported stall)
+      isSyncing: (isActuallyStalled && this.uiState.playbackIntent === 'PLAYING') || this.uiState.isBuffering
+    };
   }
 
   /**
    * Subscribes to a specific slice of the synchronized extension state.
-   * The listener is only called if the selected value changes.
    */
   public subscribe<T>(selector: Selector<T, UISyncPacket>, listener: Listener<T>): () => void {
     const initialValue = this.state ? selector(this.state) : undefined;
     const entry = { selector, listener, lastValue: initialValue };
     this.listeners.add(entry);
-    
-    // Immediate notification of current value if state is already hydrated
-    if (this.state !== null) {
-      listener(initialValue as T);
-    }
-
+    if (this.state !== null) { listener(initialValue as T); }
     return () => this.listeners.delete(entry);
   }
 
@@ -302,19 +248,56 @@ export class WebviewStore {
     const initialValue = selector(this.uiState);
     const entry = { selector, listener, lastValue: initialValue };
     this.uiListeners.add(entry);
-    
-    // Always notify immediately for local state
     listener(initialValue);
-
     return () => this.uiListeners.delete(entry);
+  }
+
+  /**
+   * [PULL MODEL] Signals that the webview is currently pulling binary data from the extension.
+   */
+  public setBuffering(isBuffering: boolean): void {
+    if (this.uiState.isBuffering === isBuffering) { return; }
+    this.updateUIState({ isBuffering });
+  }
+
+  /**
+   * [ANTIGRAVITY] Requests the full snippet history from the extension.
+   * Results will be returned via UI_SYNC or a dedicated snippet command.
+   */
+  public requestSnippetHistory(): void {
+    MessageClient.getInstance().postAction(OutgoingAction.GET_ALL_SNIPPET_HISTORY);
+  }
+
+  /**
+   * [ANTIGRAVITY] Requests to load a specific snippet from disk.
+   */
+  public loadSnippet(fsPath: string): void {
+    MessageClient.getInstance().postAction(OutgoingAction.LOAD_SNIPPET, { fsPath });
+  }
+
+  /**
+   * [SOVEREIGNTY] Explicitly sets the active storage mode (FILE vs SNIPPET).
+   */
+  public setActiveMode(mode: 'FILE' | 'SNIPPET'): void {
+    MessageClient.getInstance().postAction(OutgoingAction.SET_ACTIVE_MODE, { mode });
   }
 
   /**
    * Updates the local UI state and notifies subscribers.
    */
-  public updateUIState(patch: Partial<LocalUIState>, isRemote: boolean = false): void {
+  public updateUIState(patch: Partial<LocalUIState>): void {
     const oldState = { ...this.uiState };
+    
+    // [STABILITY] Timestamp the stall if we just started awaiting sync
+    if (patch.isAwaitingSync && !oldState.isAwaitingSync) {
+        patch.lastStallAt = Date.now();
+    }
+
     this.uiState = { ...this.uiState, ...patch };
+
+    // Update the flat isSyncing for direct property access (if used)
+    const computed = this.getUIState();
+    this.uiState.isSyncing = computed.isSyncing;
 
     this.uiListeners.forEach((entry) => {
       const newValue = entry.selector(this.uiState);
@@ -323,21 +306,6 @@ export class WebviewStore {
         entry.listener(newValue);
       }
     });
-
-    this.refreshUIStateSideEffects(patch, isRemote);
-  }
-
-  private refreshUIStateSideEffects(patch: Partial<LocalUIState>, isRemote: boolean): void {
-    // Reactively refresh syncing state if underlying triggers changed
-    if (patch.isAwaitingSync !== undefined) {
-        this.refreshSyncingState();
-    }
-
-    // [SOVEREIGNTY] Notify extension of mode changes if not from remote sync
-    if (patch.activeMode !== undefined && !isRemote) {
-        this.modeIntentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
-        MessageClient.getInstance().postAction(OutgoingAction.SET_ACTIVE_MODE, { mode: patch.activeMode });
-    }
   }
 
   /**
@@ -358,192 +326,79 @@ export class WebviewStore {
   }
 
   /**
-   * Internal method to update the state and notify relevant listeners.
+   * [INTENT] Generates a new intent ID to track the current user command.
+   * Returns the new ID for immediate use in postAction calls.
+   */
+  public resetPlaybackIntent(): number {
+    const newId = Date.now();
+    this.updateUIState({ playbackIntentId: newId });
+    return newId;
+  }
+
+  public getPlaybackIntentId(): number {
+    return this.uiState.playbackIntentId;
+  }
+
+  /**
+   * [CLEANUP] Resets all cache-related metrics in both synced and local state.
+   */
+  public resetCacheStats(): void {
+    this.patchState({ 
+        cacheCount: 0, 
+        cacheSizeBytes: 0,
+        cacheStats: { count: 0, size: 0 } // [PHASE 4.5] Unified Reset
+    });
+    this.updateUIState({ neuralBuffer: { count: 0, sizeMb: 0 } });
+  }
+
+  /**
+   * updateState() - Passive data merge.
+   * Logic is now handled by PlaybackController.
    */
   public updateState(newState: Partial<UISyncPacket>, source: 'remote' | 'local' = 'remote'): void {
-    // [SOVEREIGNTY] Authoritatively hydrate if it's the first remote packet
     if (source === 'remote' && !this._isHydrated) {
       this._isHydrated = true;
     }
 
-    // 1. REINFORCEMENT: Suppress incoming syncs while user is dragging slider
     if (this.uiState.isDraggingSlider && source === 'remote') {
       return;
     }
 
-    // 2. [REINFORCEMENT] Intent Sovereignty Guard
-    const now = Date.now();
-    const hasActiveIntent = this.lastIntentId > 0 && now < this.intentExpiry;
-
-    const start = performance.now();
-    
-    // 3. Merge state
     const oldState = this.state;
+    // [HYDRATION] Merge with defaults if this is the first update
+    const updatedState = { ...(this.state || DEFAULT_SYNC_PACKET) } as UISyncPacket;
     
-    // [DELTA SYNC] Preserve existing meta-state if missing from incoming packet
-    if (newState.snippetHistory === undefined && oldState?.snippetHistory) {
-        newState.snippetHistory = oldState.snippetHistory;
-    }
-    if (newState.activeSessionId === undefined && oldState?.activeSessionId) {
-        newState.activeSessionId = oldState.activeSessionId;
-    }
-
-    // [STABILITY] Surgically merge to avoid 'undefined' overwrites for critical fields
-    const updatedState = { ...this.state } as UISyncPacket;
     Object.entries(newState).forEach(([key, value]) => {
-        if (value !== undefined) {
-            (updatedState as any)[key] = value;
+      if (value !== undefined) {
+        if (key === 'state' && typeof value === 'object' && value !== null) {
+          updatedState.state = { ...updatedState.state, ...value };
+        } else {
+          (updatedState as any)[key] = value;
         }
+
+        // [STABILITY] Timestamp background stalls if they just arrived and weren't already tracked
+        if (key === 'playbackStalled' && value === true && !oldState?.playbackStalled) {
+            this.updateUIState({ 
+                lastStallAt: Date.now(), 
+                lastStallSource: 'AUTO' // Background stalls are auto
+            });
+        }
+      }
     });
 
-    let isBlocked = false;
-    // Apply Sovereignty Guard if needed
-    if (hasActiveIntent && oldState && source === 'remote') {
-        const intent = this.uiState.playbackIntent;
-        
-        // [INTENT AWARE] Only protect against REVERSIONS. 
-        // If the remote sync matches our intent (e.g. confirms we are playing), allow it.
-        const isRevertingToStop = intent === 'PLAYING' && newState.isPlaying === false;
-        const isRevertingToPlay = intent === 'STOPPED' && newState.isPlaying === true;
-        
-        if (isRevertingToStop || isRevertingToPlay) {
-            console.log(`[WebviewStore] 🛡️ Sovereignty Guard: Blocking stale ${isRevertingToStop ? 'Stop' : 'Play'} update while intent is ${intent}`);
-            isBlocked = true;
-            updatedState.isPlaying = oldState.isPlaying;
-            updatedState.isPaused = oldState.isPaused;
-
-            // [SOVEREIGNTY] Protect against flicker for playbackStalled status
-            // EXCEPTION: Always allow if we are currently in sync-handshake (waiting for first extension packet)
-            if (!this.uiState.isAwaitingSync) {
-                updatedState.playbackStalled = oldState.playbackStalled;
-            }
-        }
-        
-        updatedState.autoPlayMode = oldState.autoPlayMode;
-        
-        // [REFINED] Authoritatively allow settings updates even during user intent window 
-        // unless intent specifically includes them (which it doesn't currently)
-        if (newState.rate !== undefined) { updatedState.rate = newState.rate; }
-        if (newState.volume !== undefined) { updatedState.volume = newState.volume; }
-        
-        // Protect document context unless a new real document is arriving
-        if (oldState.state && updatedState.state) {
-            const isOptimisticLoading = oldState.state.activeDocumentUri === 'loading';
-            const isRemoteLoading = newState.state?.activeDocumentUri === 'loading';
-            
-            // Only protect if we are still in sync-handshake and haven't received a real URI yet
-            if (!isRemoteLoading && (updatedState.state.activeDocumentUri === null || isOptimisticLoading)) {
-                // If remote says null but we are optimistic, keep the optimistic value
-            } else {
-                // Allow the update
-            }
-            
-            // [REFINED] Selective protection
-            if (isOptimisticLoading && (newState.state?.activeDocumentUri === null || !newState.state?.activeDocumentUri)) {
-                updatedState.state = { 
-                    ...updatedState.state, 
-                    activeDocumentUri: oldState.state.activeDocumentUri,
-                    activeFileName: oldState.state.activeFileName
-                };
-            }
-        }
-    }
-
-    // [PARITY] Final fallback to defaults only if absolutely missing
-    if (updatedState.rate === undefined) { updatedState.rate = 0; } 
-    if (updatedState.volume === undefined) { updatedState.volume = 50; }
-    if (updatedState.isPlaying === undefined) { updatedState.isPlaying = false; }
-    if (updatedState.isPaused === undefined) { updatedState.isPaused = true; }
-    
     this.state = updatedState;
 
-    if (!isBlocked && source === 'remote') {
-        const remoteIntent = this.derivePlaybackIntent(this.state);
-        // [STABILITY] Only update if different to avoid redundant UI renders
-        if (remoteIntent !== this.uiState.playbackIntent) {
-            this.updateUIState({ playbackIntent: remoteIntent }, true);
-        }
-    }
-
-    // [STABILITY] Clear sync lock AFTER merge to avoid race conditions in refreshSyncingState
-    if (source === 'remote' && this.uiState.isAwaitingSync) {
-      this.updateUIState({ isAwaitingSync: false });
-    } else {
-      // Ensure UI feedback is consistent with newly merged state
-      this.refreshSyncingState();
-    }
-
-    let notifiedCount = 0;
-    let idx = 0;
+    // Notify listeners
     this.listeners.forEach((entry) => {
-      const newValue = entry.selector(this.state!);
-      if (oldState === null || !this.isEqual(newValue, entry.lastValue)) {
+      const stateToSelect = this.state!;
+      const newValue = entry.selector(stateToSelect);
+      const oldValue = oldState ? entry.selector(oldState) : entry.selector(DEFAULT_SYNC_PACKET);
+      
+      if (oldState === null || !this.isEqual(newValue, oldValue)) {
         entry.lastValue = newValue;
         entry.listener(newValue);
-        notifiedCount++;
       }
-      idx++;
     });
-
-    if (oldState === null || oldState.isPlaying !== this.state.isPlaying || oldState.isPaused !== this.state.isPaused) {
-        // Log state changes internally
-    }
-
-    const duration = (performance.now() - start).toFixed(2);
-    if (Number(duration) > 5) {
-        console.warn(`[STORE] Slow Update (${duration}ms) | Notified: ${notifiedCount}/${this.listeners.size}`);
-    }
-
-    // Reactively refresh syncing state if underlying triggers changed
-    if (newState.playbackStalled !== undefined || newState.isPlaying !== undefined) {
-        this.refreshSyncingState();
-    }
-  }
-
-  /**
-   * [NEW] Optimistically patches the store state and protects it from sync overwrites
-   * for a short duration (INTENT_TIMEOUT_MS).
-   */
-  public optimisticPatch(patch: Partial<UISyncPacket>, options: { isAwaitingSync?: boolean, action?: string, intentTimeout?: number } = {}): void {
-    if (!this.state) { 
-        // Hydrate with empty state if missing to support testing/initial actions
-        this.state = ({ 
-            isPlaying: false, 
-            isPaused: true, 
-            playbackStalled: false,
-            currentSentenceIndex: 0,
-            currentChapterIndex: 0,
-            totalSentences: 0,
-            totalChapters: 0,
-            availableVoices: { local: [], neural: [] },
-            cacheStats: { count: 0, size: 0 }, // [PARITY] Initialize for tests
-            state: {} as any
-        } as unknown) as UISyncPacket;
-    }
-    
-    this.lastIntentId++;
-    const timeout = options.intentTimeout || this.INTENT_TIMEOUT_MS;
-    this.intentExpiry = Date.now() + timeout;
-    
-    // [REINFORCEMENT] Reset all loading and stall states before initiating a new user intent.
-    // This prevents "Zombie Stalls" from a previous engine release.
-    this.resetLoadingStates();
-
-    // [REINFORCEMENT] Derive and track user intent
-    let intent: 'PLAYING' | 'PAUSED' | 'STOPPED' = this.uiState.playbackIntent;
-    if (patch.isPlaying === false) { intent = 'STOPPED'; } // STOP has highest priority
-    else if (patch.isPaused === false) { intent = 'PLAYING'; }
-    else if (patch.isPaused === true) { intent = 'PAUSED'; }
-    
-    this.updateUIState({ 
-        playbackIntent: intent,
-        isAwaitingSync: options.isAwaitingSync || false,
-        lastStallSource: 'USER',
-        lastStallAt: Date.now() // Reset timer for immediate user feedback
-    });
-
-    // Apply patch immediately and notify listeners synchronously
-    this.updateState(patch as any, 'local');
   }
 
   /**
@@ -551,15 +406,9 @@ export class WebviewStore {
    * Used for lightweight IPC commands (e.g. `voices`) that don't emit a full UI_SYNC.
    */
   public patchState(patch: Partial<UISyncPacket>): void {
-    if (!this.state) {
-        return;
-    }
-    this.updateState(patch);
+    this.updateState(patch, 'local');
   }
 
-  /**
-   * Simple equality check (shallow for objects/arrays, strict for primitives).
-   */
   private isEqual(a: any, b: any): boolean {
     if (a === b) {return true;}
     if (typeof a !== typeof b) {return false;}
@@ -583,73 +432,5 @@ export class WebviewStore {
     }
 
     return false;
-  }
-
-  private derivePlaybackIntent(state: UISyncPacket | null): 'PLAYING' | 'PAUSED' | 'STOPPED' {
-    if (!state) {return 'STOPPED';}
-    if (state.isPlaying === false) {return 'STOPPED';}
-    if (state.isPaused === true) {return 'PAUSED';}
-    return 'PLAYING';
-  }
-
-
-  /**
-   * [PHASE 4] Requests the full snippet history from the extension.
-   */
-  public requestSnippetHistory(): void {
-    MessageClient.getInstance().postAction(OutgoingAction.GET_ALL_SNIPPET_HISTORY);
-  }
-
-  /**
-   * [PHASE 4] Loads a specific snippet into the reader.
-   */
-  public loadSnippet(path: string): void {
-    this.optimisticPatch({ 
-        state: { 
-            activeDocumentUri: 'loading',
-            activeFileName: 'Loading Snippet...',
-            activeRelativeDir: 'Antigravity Root'
-        } as any 
-    }, { isAwaitingSync: true, action: 'LOAD_SNIPPET' });
-    
-    MessageClient.getInstance().postAction(OutgoingAction.LOAD_SNIPPET, { path });
-  }
-
-  /**
-   * [v2.0.6] Atomic State Reset: Resets cache metrics to zero immediately.
-   * Call after clearAll (handled by Dispatcher) to ensure reactive UI parity.
-   */
-  public resetCacheStats(): void {
-    // 1. Extension-synchronized state reset
-    this.patchState({
-        cacheCount: 0,
-        cacheSizeBytes: 0,
-        cacheStats: { count: 0, size: 0 }
-    });
-
-    // 2. Local-only UI state reset (for SnippetLookup display)
-    this.updateUIState({
-        neuralBuffer: { count: 0, sizeMb: 0 }
-    });
-
-    console.log('[Store] 🧼 Cache state metrics reset to zero.');
-  }
-
-  /**
-   * [v2.0.0] JIT Data Ingestion: Forwards pushed audio data to the Audio Engine.
-   * @param cacheKey The key to associate with the audio data.
-   * @param data The base64 encoded audio data.
-   */
-  private async saveNeuralCache(cacheKey: string, data: string, intentId: number): Promise<void> {
-    const { WebviewAudioEngine } = await import('./WebviewAudioEngine');
-    await WebviewAudioEngine.getInstance().ingestData(cacheKey, data, intentId);
-  }
-
-  /**
-   * [v2.0.6] Legacy Cleanup: Resets local cache state and wipes the Audio Engine.
-   */
-  private async clearLocalCache(): Promise<void> {
-    const { WebviewAudioEngine } = await import('./WebviewAudioEngine');
-    await WebviewAudioEngine.getInstance().wipeCache();
   }
 }
