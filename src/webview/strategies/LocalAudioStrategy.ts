@@ -20,39 +20,62 @@ export class LocalAudioStrategy implements AudioStrategy {
     return 'Local (Browser)';
   }
 
-  public async synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void> {
-    this.stop();
+    public async synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void> {
+        this.stop();
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    
-    // Voice Selection logic
-    if (voice) {
-        const voices = this.synth.getVoices();
-        const foundVoice = voices.find(v => v.name === voice.id || v.voiceURI === voice.id);
-        if (foundVoice) {
-            utterance.voice = foundVoice;
+        const utterance = new SpeechSynthesisUtterance(text);
+        
+        // Voice Selection logic
+        if (voice) {
+            const voices = this.synth.getVoices();
+            const foundVoice = voices.find(v => v.name === voice.id || v.voiceURI === voice.id);
+            if (foundVoice) {
+                utterance.voice = foundVoice;
+            }
         }
+
+        // Param Mapping: Sliders use -10..10, SpeechSynthesis uses 0.1..10
+        this.applySettingsToUtterance(utterance);
+        
+        return new Promise((resolve) => {
+            let isResolved = false;
+            const safeResolve = () => {
+                if (!isResolved) {
+                    isResolved = true;
+                    resolve();
+                }
+            };
+
+            // [SAFETY] Chrome/Safari sometimes hang on onstart if tab is backgrounded.
+            // 500ms is enough for the local engine to "grab" the audio focus.
+            const timeout = setTimeout(() => {
+                console.warn(`[LocalStrategy] ⏳ onstart timeout (intentId: ${intentId})`);
+                safeResolve();
+            }, 500);
+
+            utterance.onstart = () => {
+                console.log(`[LocalStrategy] ▶️ Playback started (intentId: ${intentId})`);
+                clearTimeout(timeout);
+                safeResolve();
+            };
+
+            utterance.onend = () => {
+                console.log(`[LocalStrategy] ✅ Playback ended (intentId: ${intentId})`);
+                clearTimeout(timeout);
+                safeResolve();
+                MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED);
+            };
+
+            utterance.onerror = (e) => {
+                console.error(`[LocalStrategy] ⛔ Synthesis error:`, e);
+                clearTimeout(timeout);
+                safeResolve(); 
+            };
+
+            this.currentUtterance = utterance;
+            this.synth.speak(utterance);
+        });
     }
-
-    // Param Mapping: Sliders use -10..10, SpeechSynthesis uses 0.1..10
-    this.applySettingsToUtterance(utterance);
-    
-    utterance.onstart = () => {
-        console.log(`[LocalStrategy] ▶️ Playback started (intentId: ${intentId})`);
-    };
-
-    utterance.onend = () => {
-        console.log(`[LocalStrategy] ✅ Playback ended (intentId: ${intentId})`);
-        MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED);
-    };
-
-    utterance.onerror = (e) => {
-        console.error(`[LocalStrategy] ⛔ Synthesis error:`, e);
-    };
-
-    this.currentUtterance = utterance;
-    this.synth.speak(utterance);
-  }
 
   private applySettingsToUtterance(utterance: SpeechSynthesisUtterance): void {
       utterance.rate = this.rate >= 0 ? 1 + (this.rate / 5) : 1 + (this.rate / 10);

@@ -19,7 +19,6 @@ export class NeuralAudioStrategy implements AudioStrategy {
     private waitTimers: Map<string, any> = new Map();
     private waitResolvers: Map<string, () => void> = new Map();
     public sovereignUrl: string | null = null;
-    private playbackLock: Promise<void> = Promise.resolve();
 
     constructor() {
         this.audio = new Audio();
@@ -62,6 +61,22 @@ export class NeuralAudioStrategy implements AudioStrategy {
                 console.log(`[NeuralStrategy] ⏳ onwaiting fired (Stall detected) | Intent: ${this.activeIntentId} | Source: ${this.audio.src}`);
                 WebviewStore.getInstance().patchState({ playbackStalled: true });
             }
+        };
+
+        this.audio.onplaying = () => {
+            if (this.audio.src !== this.sovereignUrl) {return;}
+            console.log(`[NeuralStrategy] 🔊 onplaying fired | Intent: ${this.activeIntentId}`);
+            WebviewStore.getInstance().patchState({ playbackStalled: false });
+        };
+
+        this.audio.onstalled = () => {
+            if (this.audio.src !== this.sovereignUrl) {return;}
+            console.warn(`[NeuralStrategy] ⚠️ onstalled fired (Network/Buffer Issue)`);
+        };
+
+        this.audio.onsuspend = () => {
+            if (this.audio.src !== this.sovereignUrl) {return;}
+            console.log(`[NeuralStrategy] 💤 onsuspend fired (Element suspended)`);
         };
     }
 
@@ -184,7 +199,12 @@ export class NeuralAudioStrategy implements AudioStrategy {
     public async playFromCache(cacheKey: string, intentId?: number): Promise<boolean> {
         const blob = await this.cache.get(cacheKey);
         if (blob) {
-            if (intentId !== undefined && intentId < this.activeIntentId) {return false;}
+            // [INTENT GUARD]
+            if (intentId !== undefined && intentId < this.activeIntentId) {
+                console.log(`[NeuralStrategy] 🧟 Zombie Guard: Pruning late cache play for intent ${intentId} (current: ${this.activeIntentId})`);
+                return false;
+            }
+            
             this.clearAdaptiveWait();
             await this.playBlob(blob, cacheKey, intentId);
             return true;
@@ -199,71 +219,91 @@ export class NeuralAudioStrategy implements AudioStrategy {
     }
 
     public async playBlob(blob: Blob, cacheKey: string, intentId?: number): Promise<void> {
-        // [LOCK] Serialize playback attempts to prevent overlapping 'pause/play' race conditions
-        const unlock = await this.acquirePlaybackLock();
-        
-        try {
-            console.log('[NeuralStrategy] 🔊 playBlob START', { cacheKey, intentId, active: this.activeIntentId });
-            
-            // 1. [INTENT GUARD] Atomic intent tracking
-            if (intentId !== undefined) {
-                if (intentId < this.activeIntentId) {
-                    console.log('[NeuralStrategy] 🛑 playBlob rejected: old intentId');
-                    return;
-                }
-                this.activeIntentId = intentId;
-            }
-
-            const store = WebviewStore.getInstance();
-            const intent = store.getUIState().playbackIntent;
-            console.log(`[NeuralStrategy] 🔍 playBlob internal check: intentId=${intentId}, active=${this.activeIntentId}, playbackIntent=${intent}`);
-
-            if (intent === 'STOPPED') {
-                console.log('[NeuralStrategy] 🛑 playBlob rejected: STOP intent active');
+        // 1. [INTENT GUARD] Atomic intent tracking
+        if (intentId !== undefined) {
+            if (intentId < this.activeIntentId) {
                 return;
             }
-            
-            // Teardown previous state
-            this.audio.pause();
-            const oldUrl = this.audio.src;
-            this.audio.src = '';
-            this.audio.load();
+            this.activeIntentId = intentId;
+        }
 
-            if (oldUrl && oldUrl.startsWith('blob:') && this.activeObjectURLs.has(oldUrl)) {
-                URL.revokeObjectURL(oldUrl);
-                this.activeObjectURLs.delete(oldUrl);
+        const store = WebviewStore.getInstance();
+        const intent = store.getUIState().playbackIntent;
+        const isIntentMatched = intentId !== undefined && intentId === this.activeIntentId;
+        const lastStallSource = store.getUIState().lastStallSource;
+
+        // [USER-SOVEREIGN GUARD] 
+        // 1. If the user explicitly stopped/paused, honor it immediately regardless of intent matching.
+        // 2. If it was an automatic/background sync (AUTO), allow audio through if it matches the current atomic intent sequence.
+        const isUserHalt = (intent === 'STOPPED' || intent === 'PAUSED') && lastStallSource === 'USER';
+        const isAutoHalt = (intent === 'STOPPED' || intent === 'PAUSED') && lastStallSource === 'AUTO';
+
+        // [DIAGNOSTIC] Log zombie guard logic
+        if (intent === 'STOPPED' || intent === 'PAUSED') {
+            console.log(`[NeuralStrategy] 🧟 Zombie Check: Intent=${intent}, Source=${lastStallSource}, Matched=${isIntentMatched}, IntentID=${intentId}, Active=${this.activeIntentId}`);
+        }
+
+        if (isUserHalt || (isAutoHalt && !isIntentMatched)) {
+            console.log(`[NeuralStrategy] 🧟 Zombie Guard: Pruning blob due to ${intent} state (Source: ${lastStallSource}, Match: ${isIntentMatched}).`);
+            return;
+        }
+        
+        // Teardown previous state
+        this.audio.pause();
+        const oldUrl = this.audio.src;
+        this.audio.src = '';
+        this.audio.load();
+
+        if (oldUrl && oldUrl.startsWith('blob:') && this.activeObjectURLs.has(oldUrl)) {
+            URL.revokeObjectURL(oldUrl);
+            this.activeObjectURLs.delete(oldUrl);
+        }
+
+        // Ingest new blob
+        const url = URL.createObjectURL(blob);
+        this.activeObjectURLs.add(url);
+        this.sovereignUrl = url;
+        
+        console.log(`[NeuralStrategy] 🚀 playBlob PREPARE: ${url} | Size: ${blob.size} bytes | Type: ${blob.type} | Intent: ${this.activeIntentId}`);
+        
+        // 2. [SANITY CHECK]
+        if (this.audio.networkState === HTMLMediaElement.NETWORK_IDLE || this.audio.networkState === HTMLMediaElement.NETWORK_LOADING) {
+             console.log(`[NeuralStrategy] Network state looks healthy: ${this.audio.networkState}`);
+        }
+
+        this.audio.src = url;
+
+        // 3. [WATCHDOG] Start safety timer
+        const playbackWatchdog = setTimeout(() => {
+            if (this.audio.src === url && this.audio.paused && !this.audio.ended && this.activeIntentId === intentId) {
+                console.error(`[NeuralStrategy] 🚨 PLAYBACK HUNG: Playback watchdog triggered after 2000ms. Force-resetting...`);
+                WebviewStore.getInstance().patchState({ playbackStalled: true });
+                // We don't call stop() here to avoid recursive loops, but we signal the UI.
             }
+        }, 2000);
 
-            // Ingest new blob
-            const url = URL.createObjectURL(blob);
-            this.activeObjectURLs.add(url);
-            this.sovereignUrl = url;
-            this.audio.src = url;
-            
-            console.log(`[NeuralStrategy] 🚀 playBlob EXECUTE: ${url}`);
-            await this.audio.play().catch(e => {
-                if (e.name === 'AbortError') {
-                    console.log('[NeuralStrategy] ⚠️ Play aborted by system (intentional)');
-                } else {
-                    console.warn('[NeuralStrategy] ⛔ Play failed', e);
-                }
-            });
-        } finally {
-            unlock();
+        try {
+            await this.audio.play();
+            clearTimeout(playbackWatchdog);
+            console.log(`[NeuralStrategy] ✅ play() promise resolved for ${url}`);
+        } catch (e: any) {
+            clearTimeout(playbackWatchdog);
+            if (e.name === 'AbortError') {
+                console.log('[NeuralStrategy] ⚠️ Play aborted by system (intentional)');
+            } else if (e.name === 'NotAllowedError') {
+                console.error('[NeuralStrategy] ⛔ BROWSER BLOCKED AUDIO: User interaction required.', e);
+                ToastManager.show('Audio blocked by browser. Click anywhere to re-enable.', 'warning');
+            } else {
+                console.warn('[NeuralStrategy] ⛔ Play failed', {
+                    name: e.name,
+                    message: e.message,
+                    code: e.code,
+                    cacheKey
+                });
+            }
         }
     }
 
-    private acquirePlaybackLock(): Promise<() => void> {
-        let resolveUnlock: () => void;
-        const newLock = new Promise<void>(resolve => {
-            resolveUnlock = resolve;
-        });
-
-        const previousLock = this.playbackLock;
-        this.playbackLock = previousLock.then(() => newLock);
-
-        return previousLock.then(() => resolveUnlock);
-    }
 
     public async getVoices(): Promise<AudioVoice[]> {
         return []; 
