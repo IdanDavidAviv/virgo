@@ -8,7 +8,7 @@ import { findChapterAtLine, findSentenceAtLine, parseChapters } from '@core/docu
 import { McpBridge } from '../mcp/mcpBridge';
 
 let mainStatusBarItem: vscode.StatusBarItem;
-let outputChannel: vscode.OutputChannel;
+let outputChannel: any; // Using any to support LogOutputChannel on systems with older types
 let logFilePath: string;
 let speechProvider: SpeechProvider;
 
@@ -43,7 +43,13 @@ export async function activate(context: vscode.ExtensionContext) {
     // [Self-Healing Protocol] 100% Zero-Friction DNA Sync
     hydrateProtocols((msg) => log(msg));
 
-    outputChannel = vscode.window.createOutputChannel('Read Aloud Diagnostics');
+    // Standardized log channel with dynamic version detection (Senior Protocol)
+    if ('createLogOutputChannel' in (vscode.window as any)) {
+        outputChannel = (vscode.window as any).createLogOutputChannel('Read Aloud Diagnostics');
+    } else {
+        outputChannel = vscode.window.createOutputChannel('Read Aloud Diagnostics');
+        log('[SYSTEM] LogOutputChannel API not found. Falling back to standard OutputChannel.');
+    }
     outputChannel.show(true); 
     
     logFilePath = path.join(context.extensionPath, 'diagnostics.log');
@@ -97,7 +103,8 @@ export async function activate(context: vscode.ExtensionContext) {
     
 
     // --- MCP BRIDGE (Agentic Integration) ---
-    const mcpBridge = new McpBridge(antigravityRoot, log);
+    const sessionPersistencePath = path.join(brainRoot, sessionId);
+    const mcpBridge = new McpBridge(sessionPersistencePath, log, (outputChannel as any).logUri, logFilePath, context.extensionMode);
     context.subscriptions.push(mcpBridge);
     mcpBridge.start().catch((err: any) => {
         log(`[MCP_ERROR] Bridge failed to start: ${err.message}`);
@@ -215,6 +222,22 @@ export async function activate(context: vscode.ExtensionContext) {
             } else {
                 speechProvider.play(text, 0, editor.document.fileName);
             }
+        }),
+
+        vscode.commands.registerCommand('readme-preview-read-aloud.restart-mcp', async () => {
+            log('[MCP] Manual bridge reconstruction requested.');
+            try {
+                await mcpBridge.reinitialize();
+                vscode.window.showInformationMessage('Read Aloud: MCP Bridge Restarted Successfully.');
+            } catch (err: any) {
+                log(`[MCP_ERROR] Restart failed: ${err.message}`);
+                vscode.window.showErrorMessage(`Read Aloud: MCP Bridge Restart Failed: ${err.message}`);
+            }
+        }),
+        
+        vscode.commands.registerCommand('readme-preview-read-aloud.restart-extension', async () => {
+            log('[EXTENSION] Full extension restart requested (Reloading Window).');
+            await vscode.commands.executeCommand('workbench.action.reloadWindow');
         })
     );
 
