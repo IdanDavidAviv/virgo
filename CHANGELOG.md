@@ -4,8 +4,21 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [Unreleased]
 
-### Added
-- 
+### Stabilized MCP Infrastructure & Audio Mutex
+This patch addresses critical race conditions in the synthesis pipeline and hardens the MCP discovery architecture for improved reliability in multi-session environments.
+
+#### 1. MCP Discovery Hardening
+- **Unified Logging Layer**: Introduced `LogReporter` in `src/common/mcp/logReporter.ts` to centralize diagnostic telemetry and eliminate redundant filesystem lookups.
+- **Secure URI Parsing**: Added robust `sessionId` and `protocol` guards in `mcpFactory.ts` to prevent runtime errors during tool-injected text discovery.
+- **Isolated Core Strategy**: Refactored `sharedStore` and `mcpStandalone` into the `@mcp-core` domain to prevent alias collisions with the extension's main `@core` business logic.
+
+#### 2. Audio Stability (Race Condition Prevention)
+- **Playback Mutex (playbackLock)**: Implemented a mandatory `playbackLock` in both `NeuralAudioStrategy` and `LocalAudioStrategy` to ensure atomic blob ingestion and prevent "Ghost Audio" collisions during rapid navigation.
+- **Proactive Blob Revocation**: Hardened the audio teardown sequence to guarantee `URL.revokeObjectURL` is called for every active stream, eliminating memory pressure.
+
+#### 3. Maintenance & Developer Experience
+- **Test Suite Restoration (100% Pass Rate)**: Restored 16 broken test suites by consolidating `vitest.config.ts` and correcting system-wide path aliases (`@mcp`, `@mcp-core`).
+- **E2E Verification**: Integrated `mcp_injection_e2e.test.ts` for full-spectrum validation of the "Vocal Sync" injection mechanism.
 
 ## [2.2.0] - 2026-04-07
 

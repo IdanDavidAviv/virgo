@@ -96,8 +96,10 @@ export class LocalAudioStrategy implements AudioStrategy {
   public setRate(value: number): void {
       this.rate = value;
       if (this.currentUtterance) {
-          this.currentUtterance.rate = value >= 0 ? 1 + (value / 5) : 1 + (value / 10);
+          // Standardized formula: -10 to 10 maps to 0.5x to 2x (linear approximation)
+          this.currentUtterance.rate = value >= 0 ? 1 + (value / 10) : 1 + (value / 20);
       }
+      console.log(`[LocalStrategy] 🎚️ Rate set to: ${value} (mapped to ${value >= 0 ? 1 + (value / 10) : 1 + (value / 20)})`);
   }
 
   public async getVoices(): Promise<AudioVoice[]> {

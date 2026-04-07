@@ -19,6 +19,7 @@ export class NeuralAudioStrategy implements AudioStrategy {
     private waitTimers: Map<string, any> = new Map();
     private waitResolvers: Map<string, () => void> = new Map();
     public sovereignUrl: string | null = null;
+    private playbackLock: Promise<void> = Promise.resolve();
 
     constructor() {
         this.audio = new Audio();
@@ -58,7 +59,7 @@ export class NeuralAudioStrategy implements AudioStrategy {
 
         this.audio.onwaiting = () => {
             if (this.audio.src === this.sovereignUrl) {
-                console.log('[NeuralStrategy] ⏳ onwaiting fired (Stall detected)');
+                console.log(`[NeuralStrategy] ⏳ onwaiting fired (Stall detected) | Intent: ${this.activeIntentId} | Source: ${this.audio.src}`);
                 WebviewStore.getInstance().patchState({ playbackStalled: true });
             }
         };
@@ -116,7 +117,10 @@ export class NeuralAudioStrategy implements AudioStrategy {
     }
 
     public setRate(value: number): void {
+        // Standardized formula: -10 to 10 maps to 0.5x to 2x (linear approximation)
+        // Normal (0) = 1.0x
         this.audio.playbackRate = value >= 0 ? 1 + (value / 10) : 1 + (value / 20);
+        console.log(`[NeuralStrategy] 🎚️ Rate set to: ${this.audio.playbackRate} (mapped from ${value})`);
     }
 
     public setTarget(cacheKey: string | null): void {
@@ -195,42 +199,70 @@ export class NeuralAudioStrategy implements AudioStrategy {
     }
 
     public async playBlob(blob: Blob, cacheKey: string, intentId?: number): Promise<void> {
-        console.log('[NeuralStrategy] 🔊 playBlob', { cacheKey, intentId, active: this.activeIntentId });
+        // [LOCK] Serialize playback attempts to prevent overlapping 'pause/play' race conditions
+        const unlock = await this.acquirePlaybackLock();
         
-        // 1. [INTENT GUARD] Atomic intent tracking
-        if (intentId !== undefined) {
-            if (intentId < this.activeIntentId) {
-                console.log('[NeuralStrategy] 🛑 playBlob rejected: old intentId');
+        try {
+            console.log('[NeuralStrategy] 🔊 playBlob START', { cacheKey, intentId, active: this.activeIntentId });
+            
+            // 1. [INTENT GUARD] Atomic intent tracking
+            if (intentId !== undefined) {
+                if (intentId < this.activeIntentId) {
+                    console.log('[NeuralStrategy] 🛑 playBlob rejected: old intentId');
+                    return;
+                }
+                this.activeIntentId = intentId;
+            }
+
+            const store = WebviewStore.getInstance();
+            const intent = store.getUIState().playbackIntent;
+            console.log(`[NeuralStrategy] 🔍 playBlob internal check: intentId=${intentId}, active=${this.activeIntentId}, playbackIntent=${intent}`);
+
+            if (intent === 'STOPPED') {
+                console.log('[NeuralStrategy] 🛑 playBlob rejected: STOP intent active');
                 return;
             }
-            this.activeIntentId = intentId;
+            
+            // Teardown previous state
+            this.audio.pause();
+            const oldUrl = this.audio.src;
+            this.audio.src = '';
+            this.audio.load();
+
+            if (oldUrl && oldUrl.startsWith('blob:') && this.activeObjectURLs.has(oldUrl)) {
+                URL.revokeObjectURL(oldUrl);
+                this.activeObjectURLs.delete(oldUrl);
+            }
+
+            // Ingest new blob
+            const url = URL.createObjectURL(blob);
+            this.activeObjectURLs.add(url);
+            this.sovereignUrl = url;
+            this.audio.src = url;
+            
+            console.log(`[NeuralStrategy] 🚀 playBlob EXECUTE: ${url}`);
+            await this.audio.play().catch(e => {
+                if (e.name === 'AbortError') {
+                    console.log('[NeuralStrategy] ⚠️ Play aborted by system (intentional)');
+                } else {
+                    console.warn('[NeuralStrategy] ⛔ Play failed', e);
+                }
+            });
+        } finally {
+            unlock();
         }
+    }
 
-        const store = WebviewStore.getInstance();
-        const intent = store.getUIState().playbackIntent;
-        console.log(`[NeuralStrategy] 🔍 playBlob internal check: intentId=${intentId}, active=${this.activeIntentId}, playbackIntent=${intent}`);
+    private acquirePlaybackLock(): Promise<() => void> {
+        let resolveUnlock: () => void;
+        const newLock = new Promise<void>(resolve => {
+            resolveUnlock = resolve;
+        });
 
-        if (intent === 'STOPPED') {
-            console.log('[NeuralStrategy] 🛑 playBlob rejected: STOP intent active');
-            return;
-        }
-        
-        this.audio.pause();
-        const oldUrl = this.audio.src;
-        this.audio.src = '';
-        this.audio.load();
+        const previousLock = this.playbackLock;
+        this.playbackLock = previousLock.then(() => newLock);
 
-        if (oldUrl.startsWith('blob:') && this.activeObjectURLs.has(oldUrl)) {
-            URL.revokeObjectURL(oldUrl);
-            this.activeObjectURLs.delete(oldUrl);
-        }
-
-        const url = URL.createObjectURL(blob);
-        this.activeObjectURLs.add(url);
-        this.sovereignUrl = url;
-        this.audio.src = url;
-        
-        await this.audio.play().catch(e => console.warn('[NeuralStrategy] Play failed', e));
+        return previousLock.then(() => resolveUnlock);
     }
 
     public async getVoices(): Promise<AudioVoice[]> {

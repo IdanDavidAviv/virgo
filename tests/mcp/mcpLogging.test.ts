@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { McpBridge } from '../../src/extension/mcp/mcpBridge';
+import { LogReporter } from '../../src/common/mcp/logReporter';
  
 // Mock vscode
 vi.mock('vscode', () => ({
@@ -35,8 +35,7 @@ describe('McpBridge Logging Unit Tests', () => {
     });
 
     it('should correctly build native log content with PID header', async () => {
-        const bridge = new McpBridge(testDir, logger, { fsPath: nativeLogPath } as any, debugLogPath);
-        const content = await bridge.getLogContent('native');
+        const content = LogReporter.build('native', { nativeLogUri: { fsPath: nativeLogPath } });
         
         expect(content).toContain('PID:');
         expect(content).toContain('Unit Test Native Log');
@@ -44,8 +43,7 @@ describe('McpBridge Logging Unit Tests', () => {
     });
 
     it('should correctly build debug log content with PID header and path', async () => {
-        const bridge = new McpBridge(testDir, logger, { fsPath: nativeLogPath } as any, debugLogPath);
-        const content = await bridge.getLogContent('debug');
+        const content = LogReporter.build('debug', { debugLogPath });
         
         expect(content).toContain('PID:');
         expect(content).toContain('Unit Test Debug Log');
@@ -54,25 +52,22 @@ describe('McpBridge Logging Unit Tests', () => {
     });
 
     it('should handle missing native logUri gracefully', async () => {
-        const bridge = new McpBridge(testDir, logger, undefined, debugLogPath);
-        const content = await bridge.getLogContent('native');
+        const content = LogReporter.build('native', { nativeLogUri: undefined });
         
         expect(content).toContain('Native log URI not initialized');
     });
 
     it('should handle missing debug log file gracefully', async () => {
         const nonExistentPath = path.join(testDir, 'ghost.log');
-        const bridge = new McpBridge(testDir, logger, { fsPath: nativeLogPath } as any, nonExistentPath);
-        const content = await bridge.getLogContent('debug');
+        const content = LogReporter.build('debug', { debugLogPath: nonExistentPath });
         
         expect(content).toContain('Debug log file not found at project root');
     });
 
     it('should handle native log file missing from disk gracefully', async () => {
         const nonExistentNativePath = path.join(testDir, 'ghost_native.log');
-        const bridge = new McpBridge(testDir, logger, { fsPath: nonExistentNativePath } as any, debugLogPath);
-        const content = await bridge.getLogContent('native');
+        const content = LogReporter.build('native', { nativeLogUri: { fsPath: nonExistentNativePath } });
         
-        expect(content).toContain(`Native log file not found at ${nonExistentNativePath}`);
+        expect(content).toContain('Native log URI not initialized or inaccessible.');
     });
 });

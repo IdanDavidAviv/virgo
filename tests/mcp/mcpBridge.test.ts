@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import * as fs from 'fs';
 
-import { McpBridge, PendingInjectionStore } from '../../src/extension/mcp/mcpBridge';
+import { McpBridge } from '../../src/extension/mcp/mcpBridge';
+import { PendingInjectionStore } from '../../src/extension/mcp/core/sharedStore';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 

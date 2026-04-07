@@ -7,7 +7,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, ReadResourceRequestSchema, ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import os from 'os';
 import crypto from 'crypto';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 
 /**
  * MCP Stdio Proxy for Read Aloud (Indestructible Gateway v3.1 - RAW RELAY)
@@ -55,31 +55,8 @@ async function main() {
     const currentDirHash = crypto.createHash('md5').update(currentDir).digest('hex').substring(0, 8);
     const lockFile = path.join(os.tmpdir(), `read-aloud-proxy-${currentDirHash}.lock`);
 
-    // [Stealing Protocol] Ensure THE LATEST proxy instance always wins.
-    // This allows the Antigravity Host to reclaim control from background/stale processes.
-    if (fs.existsSync(lockFile)) {
-        try {
-            const oldPid = parseInt(fs.readFileSync(lockFile, 'utf8'), 10);
-            if (oldPid && oldPid !== process.pid) {
-                try {
-                    process.kill(oldPid, 0); // Check if alive
-                    logTraffic(`[PROXY] Stale instance detected (PID: ${oldPid}). RECLAIMING...`);
-                    
-                    // Attempt clean exit, then force
-                    try { process.kill(oldPid, 'SIGTERM'); } catch (e) {}
-                    await sleep(500);
-                    try { process.kill(oldPid, 'SIGKILL'); } catch (e) {}
-                    
-                    logTraffic(`[PROXY] Lock reclaimed from PID ${oldPid}`);
-                    await sleep(200); // Wait for file system handles to release
-                } catch (e) {
-                    logTraffic(`[PROXY] Stale lock found (PID: ${oldPid}) but process is dead. Reclaiming...`);
-                }
-            }
-        } catch (e) {
-            logTraffic(`[PROXY] Singleton error: ${e.message}`);
-        }
-    }
+    // [REMOVED] Destructive stealing protocol.
+    // We now rely on Port Roaming in the bridge and multiple proxies can coexist if needed.
     fs.writeFileSync(lockFile, process.pid.toString());
     process.on('exit', () => { try { fs.unlinkSync(lockFile); } catch (e) {} });
 
@@ -116,8 +93,28 @@ async function main() {
     }
 
     if (!instance) {
-        logTraffic("[PROXY] Fatal: No active Read Aloud bridge found in registry.");
-        process.exit(1);
+        logTraffic("[PROXY] No active Read Aloud bridge found. Falling back to STANDALONE mode...");
+        
+        // Resolve path to mcp-standalone.js in the dist folder
+        const scriptDir = path.dirname(new URL(import.meta.url).pathname);
+        const projectRoot = path.join(scriptDir, '..');
+        const standalonePath = path.join(projectRoot, 'dist', 'mcp-standalone.js');
+        // Fix Windows path (remove leading slash if present from URL pathname)
+        const normalizedPath = standalonePath.replace(/^\/([A-Z]:)/, '$1');
+
+        if (!fs.existsSync(normalizedPath)) {
+            logTraffic(`[PROXY] FATAL: Standalone fallback not found at ${normalizedPath}`);
+            process.exit(1);
+        }
+
+        logTraffic(`[PROXY] Spawning standalone server: node ${normalizedPath}`);
+        const child = spawn('node', [normalizedPath], {
+            stdio: 'inherit',
+            env: { ...process.env, READ_ALOUD_STANDALONE: 'true' }
+        });
+        
+        child.on('exit', (code) => process.exit(code || 0));
+        return; // Exit main, let the child handle stdio
     }
 
     logTraffic(`[PROXY] Bridging Stdio to SSE: ${instance.url}`);
@@ -143,9 +140,7 @@ async function main() {
     let clientTransport = null;
 
     const connectToBridge = async (url) => {
-        const jitter = Math.floor(Math.random() * 800); // 0-800ms jitter
-        logTraffic(`[PROXY] Connecting to bridge at ${url} (Jitter: ${jitter}ms)...`);
-        await new Promise(r => setTimeout(r, jitter));
+        logTraffic(`[PROXY] Connecting to bridge at ${url}...`);
 
         try {
             clientTransport = new SSEClientTransport(new URL(url));

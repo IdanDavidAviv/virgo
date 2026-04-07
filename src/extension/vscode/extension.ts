@@ -97,7 +97,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const sessionId = resolveLatestSessionId(antigravityRoot, brainRoot); 
     const persistencePath = path.join(antigravityRoot, sessionId);
 
-    speechProvider = new SpeechProvider(context, log, mainStatusBarItem, antigravityRoot, sessionId, () => syncSelection());
+    speechProvider = new SpeechProvider(context, log, mainStatusBarItem, brainRoot, sessionId, () => syncSelection());
     log('--- PORTLESS SYNC ACTIVE (Filesystem Watcher) ---');
     log(`[ANTIGRAVITY] Session: ${sessionId}`);
     
@@ -125,6 +125,7 @@ export async function activate(context: vscode.ExtensionContext) {
             // Wait 500ms to ensure the agent has finished directory setup
             setTimeout(() => {
                 speechProvider.pivotSession(newSessionId);
+                mcpBridge.pivotSession(newSessionId);
             }, 500);
         }
     });

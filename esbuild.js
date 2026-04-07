@@ -83,11 +83,14 @@ async function build() {
         entryPoints: ['./src/extension/mcp/mcpStandalone.ts'],
         bundle: true,
         alias: commonAlias,
-        outfile: './dist/mcp-standalone.js',
+        outfile: './dist/mcp.mjs',
         platform: 'node',
-        format: 'cjs',
+        format: 'esm',
         minify: mode === 'production',
         sourcemap: true,
+        banner: {
+            js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+        },
     };
 
     if (watch) {
