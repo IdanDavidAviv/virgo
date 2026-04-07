@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { McpBridge } from '../../src/extension/mcp/mcpBridge';
+ 
+// Mock vscode
+vi.mock('vscode', () => ({
+    ExtensionMode: {
+        Production: 1,
+        Development: 2,
+        Test: 3
+    }
+}));
 
 describe('McpBridge Logging Unit Tests', () => {
     const logger = (msg: string) => console.log(`[UNIT_TEST_LOG] ${msg}`);

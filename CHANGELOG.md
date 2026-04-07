@@ -5,14 +5,20 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [Unreleased]
 
 ### Added
-- **Dual-Stream Log Resources**: Exposed `read_aloud://logs` (Native) and `read_aloud://logs/debug` (@diagnostics.log) as MCP resources for real-time agentic observability.
-- **PID-Injected Headers**: Injected Process ID (PID) into log streams to ensure absolute instance isolation and traceability in multi-window environments.
-- **Logging Unit Tests**: Introduced a high-integrity verification suite in `tests/mcp/mcpLogging.test.ts` to validate log extraction logic without SSE/Network dependencies.
+- 
+
+## [2.2.0] - 2026-04-07
+
+### Added
+- **Dual-Environment Isolation**: Implemented `extensionMode` tagging in the MCP registry, allowing concurrent Development and Production instances to operate without resource collisions.
+- **"Stealing" Singleton Protocol**: Re-engineered the MCP proxy to allow latest-spawned instances (Antigravity Host) to reclaim the lock from stale background processes, ensuring 100% startup reliability.
+- **Resource Pruning (Performance)**: Capped dynamic MCP resources (Sessions/Snippets) to the 10 most recent items to prevent discovery timeouts in large project histories.
+- **Atomic Registry Pattern**: Migrated to a Rename-based atomic write protocol for the MCP registry, preventing file corruption during high-frequency concurrent teardowns.
+- **PID-Hardenend Diagnostics**: Injected Process IDs (PIDs) into log streams and handshake diagnostics for absolute instance traceability.
 
 ### Changed
-- **Zero-File Discovery Protocol**: Replaced filesystem-based `metadata.json` discovery with in-memory constructor injection for log paths, eliminating instance collisions.
-- **LogOutputChannel Hardening**: Implemented a type-safe detection pattern for `createLogOutputChannel` with a graceful fallback to standard `OutputChannel` for older VS Code versions.
-- **Refactored McpBridge**: Decoupled log content extraction from resource handling, improving testability and maintainability.
+- **Dev-First Prioritization**: The MCP Stdiod Proxy now automatically prioritizes Development hosts over Production ones, with seamless failover logic.
+- **Consolidated Resource Discovery**: Refactored the internal `McpBridge` to use in-memory constructor injection for log paths, eliminating redundant filesystem lookups.
 
 ## [2.1.3] - 2026-04-06
 

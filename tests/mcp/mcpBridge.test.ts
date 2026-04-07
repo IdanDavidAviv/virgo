@@ -5,6 +5,15 @@ import { McpBridge, PendingInjectionStore } from '../../src/extension/mcp/mcpBri
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 
+// Mock vscode
+vi.mock('vscode', () => ({
+    ExtensionMode: {
+        Production: 1,
+        Development: 2,
+        Test: 3
+    }
+}));
+
 // Use a distinct port for testing to avoid collisions with the dev environment
 const TEST_PORT = 7414;
 
