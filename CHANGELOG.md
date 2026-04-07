@@ -4,6 +4,11 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [Unreleased]
 
+### Added
+- 
+
+## [2.2.1] - 2026-04-07
+
 ### Stabilized MCP Infrastructure & Audio Mutex
 This patch addresses critical race conditions in the synthesis pipeline and hardens the MCP discovery architecture for improved reliability in multi-session environments.
 
