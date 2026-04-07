@@ -69,31 +69,48 @@ describe('AudioBridge', () => {
         expect(playbackEngine.speakNeural).not.toHaveBeenCalled();
     });
 
-    it('should emit playAudio with data on extension cache hit', async () => {
+    it('should emit playAudio with empty data on extension cache hit (Pull Architecture)', async () => {
         const playAudioSpy = vi.fn();
+        const readySpy = vi.fn();
         audioBridge.on('playAudio', playAudioSpy);
+        audioBridge.on('synthesisReady', readySpy);
         vi.spyOn(playbackEngine, 'getCached').mockReturnValue('cached-blob');
+        vi.spyOn(playbackEngine, 'playbackIntentId', 'get').mockReturnValue(123);
 
         await audioBridge.start(0, 0, options);
 
         expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
             cacheKey: expect.stringContaining('NeuralVoice'),
-            data: 'cached-blob',
+            data: '', // Decommissioned Push
             sentenceIndex: 0
         }));
+        expect(readySpy).toHaveBeenCalled();
     });
 
-    it('should call speakNeural and emit playAudio when synthesize() is called', async () => {
+    it('should call speakNeural and emit playAudio with empty data when synthesize() is called', async () => {
         const playAudioSpy = vi.fn();
+        const readySpy = vi.fn();
         audioBridge.on('playAudio', playAudioSpy);
+        audioBridge.on('synthesisReady', readySpy);
         vi.spyOn(playbackEngine, 'speakNeural').mockResolvedValue('fresh-blob');
+        vi.spyOn(playbackEngine, 'playbackIntentId', 'get').mockReturnValue(456);
 
-        await audioBridge.synthesize('some-key', options);
+        // Act
+        const synthPromise = audioBridge.synthesize('some-key', options);
+        
+        // Manual trigger of the event that would normally be emitted by playbackEngine.speakNeural
+        playbackEngine.emit('synthesis-complete', { cacheKey: 'some-key', data: 'fresh-blob', intentId: 456 });
+        
+        await synthPromise;
 
         expect(playbackEngine.speakNeural).toHaveBeenCalled();
         expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
             cacheKey: 'some-key',
-            data: 'fresh-blob'
+            data: '' // Decommissioned Push
+        }));
+        expect(readySpy).toHaveBeenCalledWith(expect.objectContaining({
+            cacheKey: 'some-key',
+            intentId: 456
         }));
     });
 
