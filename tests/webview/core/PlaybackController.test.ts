@@ -18,17 +18,19 @@ describe('PlaybackController: Optimistic Transitions (TDD)', () => {
         resetAllSingletons();
         wireDispatcher();
 
-        // Mock WebviewAudioEngine.getInstance
+        // Mock WebviewAudioEngine.getInstance (v2.3.1 Dumb Player)
         vi.spyOn(WebviewAudioEngine, 'getInstance').mockReturnValue({
             pause: vi.fn(),
             stop: vi.fn(),
             ensureAudioContext: vi.fn(),
-            prepareForPlayback: vi.fn(),
-            synthesize: vi.fn(),
+            speakLocal: vi.fn(),
             playBlob: vi.fn(),
             playFromBase64: vi.fn(),
             playFromCache: vi.fn().mockResolvedValue(false),
-            getAudioElement: vi.fn(() => ({ pause: vi.fn(), onerror: null }))
+            scanVoices: vi.fn(),
+            ingestData: vi.fn(),
+            wipeCache: vi.fn(),
+            purgeMemory: vi.fn()
         } as any);
 
         store = WebviewStore.getInstance();
@@ -42,11 +44,13 @@ describe('PlaybackController: Optimistic Transitions (TDD)', () => {
             rate: 0,
             selectedVoice: 'en-US-SteffanNeural',
             currentChapterIndex: 0,
+            isHandshakeComplete: true,
             state: {
                 currentSentenceIndex: 0
             },
             playbackStalled: false 
         };
+        (store as any)._isHydrated = true;
         store.updateUIState({ isAwaitingSync: false });
     });
 

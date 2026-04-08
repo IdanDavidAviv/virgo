@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PlaybackController } from '@webview/playbackController';
-import { WebviewStore } from '@webview/core/WebviewStore';
+import { WebviewStore, DEFAULT_SYNC_PACKET } from '@webview/core/WebviewStore';
 import { MessageClient } from '@webview/core/MessageClient';
 import { OutgoingAction } from '@common/types';
 import { resetAllSingletons, wireDispatcher } from '../testUtils';
@@ -16,12 +16,19 @@ describe('PlaybackController: Watchdog & Stall Suppression', () => {
 
     beforeEach(() => {
         vi.useFakeTimers();
+        vi.setSystemTime(1000000000); // Stable starting time
         resetAllSingletons();
         wireDispatcher();
         
         controller = PlaybackController.getInstance();
         store = WebviewStore.getInstance();
         client = MessageClient.getInstance();
+
+        // Satisfy Handshake Gate by providing 'state' to trigger hydration
+        store.updateUIState({ 
+            isHandshakeComplete: true,
+            state: { ...DEFAULT_SYNC_PACKET.state } 
+        });
     });
 
     it('SHOULD trigger watchdog and set isAwaitingSync=true on navigation', () => {
@@ -54,14 +61,17 @@ describe('PlaybackController: Watchdog & Stall Suppression', () => {
     });
 
     it('SHOULD increment intentId on every navigation to prevent race conditions', () => {
-        const firstId = (controller as any).activeIntentId;
+        // Capture initial ID (often 0 if not set)
+        const firstId = store.getUIState().playbackIntentId;
         
+        vi.setSystemTime(1000000001); 
         controller.nextChapter();
-        const secondId = (controller as any).activeIntentId;
+        const secondId = store.getUIState().playbackIntentId;
         expect(secondId).toBeGreaterThan(firstId);
 
+        vi.setSystemTime(1000000002);
         controller.prevChapter();
-        const thirdId = (controller as any).activeIntentId;
+        const thirdId = store.getUIState().playbackIntentId;
         expect(thirdId).toBeGreaterThan(secondId);
     });
 });

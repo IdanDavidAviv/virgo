@@ -37,23 +37,42 @@ describe('PlaybackControls', () => {
         };
         
         wireDispatcher();
+        // [SOVEREIGNTY] Hard-hydrate the store for testing BEFORE Controller init
+        const store = WebviewStore.getInstance();
+        store.updateState({ 
+            state: { 
+                isHandshakeComplete: true,
+                playbackIntentId: 100,
+                autoPlayMode: 'auto',
+                volume: 50,
+                rate: 0
+            } as any
+        });
+
         // Initialize instance to trigger listeners
         PlaybackController.getInstance();
     });
+
+    const sendSync = (patch: any) => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                command: IncomingCommand.UI_SYNC,
+                playbackIntentId: 100, // Matches baseline
+                ...patch
+            }
+        }));
+    };
 
     describe('status-dot indicator (#1 regression guard)', () => {
         it('should add "online" class when actively playing', () => {
             const ctrl = new PlaybackControls(elements);
             ctrl.mount();
 
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    command: IncomingCommand.UI_SYNC,
-                    isPlaying: true,
-                    isPaused: false,
-                    state: { currentSentenceIndex: 0 }
-                }
-            }));
+            sendSync({
+                isPlaying: true,
+                isPaused: false,
+                state: { currentSentenceIndex: 0 }
+            });
 
             expect(elements.statusDot.classList.contains('online')).toBe(true);
             expect(elements.statusDot.classList.contains('stalled')).toBe(false);
@@ -63,14 +82,11 @@ describe('PlaybackControls', () => {
             const ctrl = new PlaybackControls(elements);
             ctrl.mount();
 
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    command: IncomingCommand.UI_SYNC,
-                    isPlaying: true,
-                    isPaused: true,
-                    state: { currentSentenceIndex: 0 }
-                }
-            }));
+            sendSync({
+                isPlaying: true,
+                isPaused: true,
+                state: { currentSentenceIndex: 0 }
+            });
 
             expect(elements.statusDot.classList.contains('online')).toBe(false);
         });
@@ -79,15 +95,12 @@ describe('PlaybackControls', () => {
             const ctrl = new PlaybackControls(elements);
             ctrl.mount();
 
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    command: IncomingCommand.UI_SYNC,
-                    isPlaying: true,
-                    isPaused: false,
-                    playbackStalled: true,
-                    state: { currentSentenceIndex: 0 }
-                }
-            }));
+            sendSync({
+                isPlaying: true,
+                isPaused: false,
+                playbackStalled: true,
+                state: { currentSentenceIndex: 0 }
+            });
 
             expect(elements.statusDot.classList.contains('stalled')).toBe(true);
         });
@@ -97,23 +110,17 @@ describe('PlaybackControls', () => {
             ctrl.mount();
 
             // First play...
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    command: IncomingCommand.UI_SYNC,
-                    isPlaying: true,
-                    isPaused: false,
-                    state: { currentSentenceIndex: 0 }
-                }
-            }));
+            sendSync({
+                isPlaying: true,
+                isPaused: false,
+                state: { currentSentenceIndex: 0 }
+            });
             // ...then stop
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    command: IncomingCommand.UI_SYNC,
-                    isPlaying: false,
-                    isPaused: false,
-                    state: { currentSentenceIndex: 0 }
-                }
-            }));
+            sendSync({
+                isPlaying: false,
+                isPaused: false,
+                state: { currentSentenceIndex: 0 }
+            });
 
             expect(elements.statusDot.classList.contains('online')).toBe(false);
             expect(elements.statusDot.classList.contains('stalled')).toBe(false);
@@ -124,14 +131,11 @@ describe('PlaybackControls', () => {
             ctrlNoEl.mount();
 
             expect(() => {
-                window.dispatchEvent(new MessageEvent('message', {
-                    data: {
-                        command: IncomingCommand.UI_SYNC,
-                        isPlaying: true,
-                        isPaused: false,
-                        state: { currentSentenceIndex: 0 }
-                    }
-                }));
+                sendSync({
+                    isPlaying: true,
+                    isPaused: false,
+                    state: { currentSentenceIndex: 0 }
+                });
             }).not.toThrow();
         });
     });

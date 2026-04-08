@@ -53,6 +53,18 @@ describe('SettingsDrawer', () => {
         (window as any).acquireVsCodeApi = vi.fn(() => ({ postMessage: vi.fn() }));
         resetAllSingletons();
         wireDispatcher();
+
+        // [SOVEREIGNTY] Hard-hydrate the store for testing
+        WebviewStore.getInstance().updateState({ 
+            state: { 
+                isHandshakeComplete: true, 
+                playbackIntentId: 100,
+                volume: 50,
+                rate: 0,
+                engineMode: 'neural'
+            } as any
+        });
+
         vi.useFakeTimers();
     });
 

@@ -93,8 +93,35 @@ export function resetAllSingletons() {
     CommandDispatcher.resetInstance();
     CacheManager.resetInstance();
     
+    // [SOVEREIGNTY] Polyfill SpeechSynthesisUtterance for jsdom
+    if (typeof window !== 'undefined') {
+        (window as any).SpeechSynthesisUtterance = class {
+            text: string;
+            volume = 1;
+            rate = 1;
+            onstart: (() => void) | null = null;
+            onend: (() => void) | null = null;
+            onerror: ((e: any) => void) | null = null;
+            constructor(text: string) { this.text = text; }
+        };
+        (window as any).speechSynthesis = {
+            speak: vi.fn((utterance: any) => {
+                if (utterance.onstart) { utterance.onstart(); }
+                if (utterance.onend) { utterance.onend(); }
+            }),
+            cancel: vi.fn(),
+            pause: vi.fn(),
+            resume: vi.fn(),
+            getVoices: vi.fn(() => []),
+            pending: false,
+            speaking: false,
+            paused: false
+        };
+    }
+
     // Reset vitest mocks
     vi.clearAllMocks();
+    vi.restoreAllMocks();
 }
 
 import { IncomingCommand } from '@common/types';

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PlaybackEngine } from '../../src/extension/core/playbackEngine';
 
 /**
@@ -11,35 +11,43 @@ describe('Sovereign Intent Alignment (Extension Side)', () => {
     const logger = vi.fn();
 
     beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
         engine = new PlaybackEngine(logger);
         vi.clearAllMocks();
     });
 
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     it('should reject Intent 0 if a high-intent session is already established', () => {
-        // 1. Establish a high intent (e.g. 5) representing a running session
-        engine.adoptIntent(5);
-        expect((engine as any)._playbackIntentId).toBe(5);
+        // 1. Establish a high intent (e.g. timestamp) representing a running session
+        const highIntent = Date.now() + 1000;
+        engine.adoptIntent(highIntent);
+        expect((engine as any)._playbackIntentId).toBe(highIntent);
 
         // 2. Simulate a stale handshake (Intent 0) from a newly created webview
-        // This simulates the "Bridge Storm" where a reloaded webview defaults to 0
-        // and tries to sync its state back to the extension.
         engine.adoptIntent(0);
 
-        // 3. Verification: Intent should remain at 5, and rejection should be logged
-        expect((engine as any)._playbackIntentId).toBe(5);
+        // 3. Verification: Intent should remain at high value
+        expect((engine as any)._playbackIntentId).toBe(highIntent);
         expect(logger).toHaveBeenCalledWith(expect.stringContaining('Ignored Intent 0'));
     });
 
     it('should accept higher intent IDs normally', () => {
-        engine.adoptIntent(5);
-        engine.adoptIntent(6);
-        expect((engine as any)._playbackIntentId).toBe(6);
+        const intent1 = Date.now() + 1000;
+        const intent2 = Date.now() + 2000;
+        engine.adoptIntent(intent1);
+        engine.adoptIntent(intent2);
+        expect((engine as any)._playbackIntentId).toBe(intent2);
     });
 
-    it('should correctly Adopt Intent when the engine is fresh (0 -> 1)', () => {
-        // Initial state _playbackIntentId is 0
-        engine.adoptIntent(1); 
-        expect((engine as any)._playbackIntentId).toBe(1);
+    it('should correctly Adopt Intent when the engine is fresh (Initial -> New)', () => {
+        // Initial state _playbackIntentId is Date.now() (system time)
+        const newIntent = Date.now() + 5000;
+        engine.adoptIntent(newIntent); 
+        expect((engine as any)._playbackIntentId).toBe(newIntent);
     });
 
     it('should serialize synthesis requests using the lock (Mutex Logic)', async () => {
@@ -55,7 +63,7 @@ describe('Sovereign Intent Alignment (Extension Side)', () => {
         });
 
         // Lock 2 should be stuck waiting for Release 1
-        await new Promise(res => setTimeout(res, 50));
+        await vi.advanceTimersByTimeAsync(50);
         expect(lock2Acquired).toBe(false);
 
         // Release 1 should unblock Lock 2

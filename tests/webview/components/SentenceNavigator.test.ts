@@ -32,6 +32,12 @@ describe('SentenceNavigator', () => {
         }));
         resetAllSingletons();
         wireDispatcher();
+
+        // [SOVEREIGNTY] Hard-hydrate the store for testing
+        WebviewStore.getInstance().patchState({ 
+            isHandshakeComplete: true,
+            playbackIntentId: 100
+        });
     });
 
     it('should render sentences from store', () => {

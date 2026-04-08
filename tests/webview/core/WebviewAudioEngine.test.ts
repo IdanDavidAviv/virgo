@@ -1,103 +1,119 @@
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { WebviewAudioEngine } from '../../../src/webview/core/WebviewAudioEngine';
+import { WebviewStore } from '../../../src/webview/core/WebviewStore';
+import { resetAllSingletons } from '../testUtils';
+
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { WebviewAudioEngine } from '../../../src/webview/core/WebviewAudioEngine';
-import { MessageClient } from '../../../src/webview/core/MessageClient';
-import { WebviewStore } from '../../../src/webview/core/WebviewStore';
-import { PlaybackController } from '../../../src/webview/playbackController';
 
-import { resetAllSingletons, getCoreSystems } from '../testUtils';
-
-describe('WebviewAudioEngine (Strategy Architecture)', () => {
+describe('WebviewAudioEngine (v2.3.1 - Dumb Player)', () => {
     let engine: WebviewAudioEngine;
-    let controller: PlaybackController;
+    let store: WebviewStore;
 
     beforeEach(() => {
         resetAllSingletons();
-
-        // 1. Mock MessageClient.getInstance
-        vi.spyOn(MessageClient, 'getInstance').mockReturnValue({
-            postAction: vi.fn(),
-            onCommand: vi.fn(),
-            resetInstance: vi.fn(),
-            dispose: vi.fn()
-        } as any);
-
-        // 2. Mock WebviewStore.getInstance
-        const mockStore = {
-            getState: vi.fn(() => ({ volume: 50, rate: 0, selectedVoice: 'en-US-SteffanNeural' })),
-            getUIState: vi.fn(() => ({ isAwaitingSync: false, playbackIntent: 'PAUSED' })),
-            updateUIState: vi.fn(),
-            patchState: vi.fn(),
-            updateState: vi.fn(),
-            resetLoadingStates: vi.fn(),
-            getSentenceKey: vi.fn(),
-            subscribe: vi.fn((selector, handler) => { 
-                // Immediate trigger for initial strategy
-                if (selector.toString().includes('selectedVoice')) {
-                    handler('en-US-SteffanNeural');
-                }
-            }),
-            subscribeUI: vi.fn((selector, handler) => {
-                // Initial trigger
-                handler(selector({ playbackIntent: 'PAUSED' } as any));
-            }),
-            resetInstance: vi.fn()
-        };
-        vi.spyOn(WebviewStore, 'getInstance').mockReturnValue(mockStore as any);
-
-        // 3. Mock window.speechSynthesis for Local Strategy
-        (window as any).speechSynthesis = {
-            speak: vi.fn(),
-            cancel: vi.fn(),
-            pause: vi.fn(),
-            resume: vi.fn(),
-            getVoices: vi.fn(() => []),
-            pending: false,
-            speaking: false,
-            paused: false
-        };
-
-        // 4. Mock window.Audio for Neural Strategy
-        (window as any).Audio = class {
-            volume = 1;
-            playbackRate = 1;
-            play = vi.fn().mockResolvedValue(undefined);
-            pause = vi.fn();
-            muted = false;
-        };
-
         engine = WebviewAudioEngine.getInstance();
-        controller = PlaybackController.getInstance();
-    });
-
-    it('should initialize with LocalAudioStrategy by default', () => {
-        // @ts-ignore - accessing private for verification
-        expect(engine.activeStrategy.id).toBe('local');
-    });
-
-    it('should switch to NeuralAudioStrategy for neural voices', () => {
-        const store = WebviewStore.getInstance();
-        // Trigger the subscription handler
-        // @ts-ignore - access private method for testing
-        engine.updateStrategy('Neural:en-US-SteffanNeural');
+        engine.stop(true); // [HARDENING] Reset intentId to 0 for each test
+        store = WebviewStore.getInstance();
         
-        // @ts-ignore
-        expect(engine.activeStrategy.id).toBe('neural');
+        // Hydrate store for engine listeners
+        store.updateState({ isHandshakeComplete: true }, 'local');
+
+        // Spy on Audio elements
+        vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
+        vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+        vi.spyOn(HTMLMediaElement.prototype, 'addEventListener');
+
+        // [v2.3.1] Synchronous synthesis mock: prevents event loop delays and race conditions
+        vi.spyOn(window.speechSynthesis, 'speak').mockImplementation((utterance: any) => {
+            if (utterance.onstart) { utterance.onstart(); }
+            if (utterance.onend) { utterance.onend(); }
+        });
+        vi.spyOn(window.speechSynthesis, 'cancel').mockImplementation(() => {});
     });
 
-    it('pause() should call the active strategy pause', () => {
-        // @ts-ignore
-        const pauseSpy = vi.spyOn(engine.activeStrategy, 'pause');
-        engine.pause();
-        expect(pauseSpy).toHaveBeenCalled();
+    afterEach(() => {
+        vi.clearAllMocks();
     });
 
-    it('stop() should call the active strategy stop', () => {
-        // @ts-ignore
-        const stopSpy = vi.spyOn(engine.activeStrategy, 'stop');
+    it('should acquire lock for speakLocal and release it on completion', async () => {
+        const intentId = 12345;
+        await engine.speakLocal('Hello', undefined, intentId);
+
+        expect(window.speechSynthesis.speak).toHaveBeenCalled();
+        expect(engine.isBusy()).toBe(false);
+    });
+
+    it('should acquire lock for playBlob and release it on completion', async () => {
+        const intentId = 67890;
+        const blob = new Blob(['audio'], { type: 'audio/mp3' });
+
+        const playPromise = engine.playBlob(blob, 'test-key', intentId);
+        
+        // Give it a microtick to set up listeners
+        await new Promise(r => setTimeout(r, 0));
+        
+        const audio = engine.audioElement;
+        
+        // Find the 'ended' listener and trigger it
+        const endedCall = vi.mocked(audio.addEventListener).mock.calls.find(call => call[0] === 'ended');
+        
+        expect(endedCall).toBeDefined();
+        const listener = endedCall![1] as Function;
+        
+        // Trigger fulfillment
+        listener();
+
+        await playPromise;
+        expect(engine.isBusy()).toBe(false);
+    });
+
+    it('stop() should kill all active playback and release locks', async () => {
+        // Start a speak action but don't finish it
+        engine.speakLocal('Long text', undefined, 999);
+        
+        // Wait for it to become busy (needs a microtask tick for acquireLock)
+        await vi.waitFor(() => expect(engine.isBusy()).toBe(true));
+
         engine.stop();
-        expect(stopSpy).toHaveBeenCalled();
+
+        // [ASSERT]: Stop must clear resolvers
+        expect(engine.isBusy()).toBe(false);
+        expect(window.speechSynthesis.cancel).toHaveBeenCalled();
+        expect(engine.audioElement.pause).toHaveBeenCalled();
+    });
+
+    it('should allow newer intents to bust older ones', async () => {
+        // 1. Current intent is 1000
+        const p1 = engine.speakLocal('First', undefined, 1000);
+        
+        // Wait for it to acquire lock and start
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // 2. Newer intent arrives (1001)
+        const p2 = engine.speakLocal('Second', undefined, 1001);
+
+        // [ASSERT]: P1 should resolve (being busted) and P2 should take over
+        await p1;
+        await p2;
+    });
+
+    it('should reject requests with old intent IDs', async () => {
+        // 1. Start a long-running playback with intent 2000
+        const playback = engine.speakLocal('First', undefined, 2000); 
+        
+        // Wait for it to become active
+        await vi.waitFor(() => expect(engine.isBusy()).toBe(true));
+
+        // 2. Try to speak with an older intent (1999) - should be rejected immediately
+        await engine.speakLocal('Old', undefined, 1999);
+        
+        // [ASSERT]: Overall we should only have called speak once
+        expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1);
+        
+        engine.stop('infinity');
+        await playback;
     });
 });

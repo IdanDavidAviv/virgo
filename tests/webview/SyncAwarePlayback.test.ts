@@ -65,8 +65,9 @@ describe('Simplified Sync Playback UI', () => {
                 versionSalt: '1',
                 focusedVersionSalt: '1',
                 totalChapters: 1
-            } as any
-        }, 'remote');
+            } as any,
+            isHandshakeComplete: true
+        }, 'local');
     });
 
     afterEach(() => {
@@ -91,7 +92,8 @@ describe('Simplified Sync Playback UI', () => {
             currentSentenceIndex: 0,
             currentSentences: ['Test'],
             totalChapters: 1,
-            availableVoices: { local: [], neural: [] }
+            availableVoices: { local: [], neural: [] },
+            isHandshakeComplete: true
         });
 
         expect(store.isSyncing).toBe(false);
@@ -129,9 +131,10 @@ describe('Simplified Sync Playback UI', () => {
             availableVoices: { local: [], neural: [] }
         });
         
-        // Wait for 400ms grace period to expire for background stall
-        vi.advanceTimersByTime(400);
-
+        // Wait for 401ms to ensure we are strictly past the 400ms grace period
+        vi.advanceTimersByTime(401);
+        
+        // Explicitly render to catch the state change
         controls.render();
         expect(mockEls.btnPlay.classList.contains('is-loading')).toBe(true);
     });

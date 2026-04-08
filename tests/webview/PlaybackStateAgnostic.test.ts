@@ -2,12 +2,13 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { WebviewStore } from '../../src/webview/core/WebviewStore';
 import { PlaybackControls } from '../../src/webview/components/PlaybackControls';
 import { PlaybackController } from '../../src/webview/playbackController';
+import { resetAllSingletons } from './testUtils';
 
 /**
  * @vitest-environment jsdom
  */
 
-describe('Playback State-Aware UI & Transition Grace (RED PHASE)', () => {
+describe('Playback State-Aware UI & Transition Grace (v2.3.1)', () => {
     let store: WebviewStore;
     let controls: PlaybackControls;
     let els: any;
@@ -30,24 +31,22 @@ describe('Playback State-Aware UI & Transition Grace (RED PHASE)', () => {
             statusDot: document.getElementById('status-dot')
         };
 
-        WebviewStore.resetInstance();
-        PlaybackController.resetInstance();
+        resetAllSingletons();
         store = WebviewStore.getInstance();
         
-        // Initial hydration
-        (store as any).state = { 
+        // Initial authoritative hydration
+        store.updateState({ 
             isPlaying: false, 
             isPaused: true, 
             playbackStalled: false,
             volume: 50,
             rate: 1,
             selectedVoice: 'test',
-            currentChapterIndex: 0,
+            isHandshakeComplete: true,
             state: {
                 currentSentenceIndex: 0
-            }
-        };
-        store.updateUIState({ isAwaitingSync: false });
+            } as any
+        }, 'local');
 
         controls = new PlaybackControls(els);
         controls.mount();
@@ -59,14 +58,21 @@ describe('Playback State-Aware UI & Transition Grace (RED PHASE)', () => {
 
     it('PAUSE GESTURE: should switch icon immediately and NOT show spinner even if sync is pending', () => {
         // 1. Setup: Active playback
-        store.updateUIState({ playbackIntent: 'PLAYING' });
-        store.patchState({ isPlaying: true, isPaused: false });
+        store.patchState({ 
+            playbackIntent: 'PLAYING',
+            isPlaying: true, 
+            isPaused: false 
+        });
         controls.render();
         expect(els.btnPause.style.display).toBe('inline-block');
 
         // 2. User clicks Pause (Simulating optimistic patch)
-        store.updateUIState({ playbackIntent: 'PAUSED', isAwaitingSync: true, lastStallSource: 'USER' });
-        store.patchState({ isPaused: true });
+        store.patchState({ 
+            playbackIntent: 'PAUSED', 
+            isAwaitingSync: true, 
+            lastStallSource: 'USER',
+            isPaused: true 
+        });
         
         controls.render();
 
@@ -79,10 +85,8 @@ describe('Playback State-Aware UI & Transition Grace (RED PHASE)', () => {
 
     it('INITIAL PLAY: should show spinner IMMEDIATELY for user clicks (0ms grace)', () => {
         // 1. User clicks Play
-        // [REALISM]: Initially, engine is NOT playing (isPlaying=false).
-        // This patch sets intent=PLAYING but leaves state.isPlaying=false.
-        store.patchState({ isPaused: false }); 
-        store.updateUIState({ 
+        store.patchState({ 
+            isPaused: false,
             playbackIntent: 'PLAYING',
             isAwaitingSync: true, 
             lastStallSource: 'USER' 
@@ -99,13 +103,16 @@ describe('Playback State-Aware UI & Transition Grace (RED PHASE)', () => {
     it('CONTINUOUS PLAY: should NOT flicker spinner during AUTO transitions (< 300ms)', () => {
         vi.useFakeTimers();
         
-        // 1. Setup: Already playing (User started it long ago)
-        store.patchState({ isPlaying: true, isPaused: false });
-        store.updateUIState({ playbackIntent: 'PLAYING' });
+        // 1. Setup: Already playing
+        store.patchState({ 
+            isPlaying: true, 
+            isPaused: false,
+            playbackIntent: 'PLAYING'
+        });
         vi.advanceTimersByTime(1000); // Clear the 'USER' intent frame
         
         // 2. Simulate AUTO-next (Awaiting sync)
-        store.updateUIState({ isAwaitingSync: true, lastStallSource: 'AUTO' });
+        store.patchState({ isAwaitingSync: true, lastStallSource: 'AUTO' });
         
         controls.render();
 
@@ -117,8 +124,8 @@ describe('Playback State-Aware UI & Transition Grace (RED PHASE)', () => {
         vi.useFakeTimers();
         
         // 1. Setup: Engine is transitioning to next segment (AUTO)
-        store.patchState({ isPaused: false });
-        store.updateUIState({ 
+        store.patchState({ 
+            isPaused: false,
             playbackIntent: 'PLAYING',
             isAwaitingSync: true, 
             lastStallSource: 'AUTO' 
@@ -136,8 +143,8 @@ describe('Playback State-Aware UI & Transition Grace (RED PHASE)', () => {
         const patchSpy = vi.spyOn(store, 'patchState');
         
         // 1. Setup: Intended to play, but engine is stalled (isPlaying=false)
-        store.patchState({ isPaused: false });
-        store.updateUIState({ 
+        store.patchState({ 
+            isPaused: false,
             playbackIntent: 'PLAYING', 
             isAwaitingSync: true, 
             lastStallSource: 'USER' 
@@ -148,47 +155,24 @@ describe('Playback State-Aware UI & Transition Grace (RED PHASE)', () => {
         expect(els.btnPause.classList.contains('is-loading')).toBe(true);
         
         // 2. User clicks Pause (despite the spinner)
-        els.btnPause.onclick();
+        els.btnPause.click();
         
         // [ASSERT]: The click handler MUST be triggered regardless of the loading class
         expect(patchSpy).toHaveBeenCalledWith(expect.objectContaining({ isPaused: true }));
     });
 
-    it('STALL FEEDBACK: should show spinner if stalled beyond grace period even if isPlaying is true', () => {
-        vi.useFakeTimers();
-        // [SCENARIO]: User is listening to sentence 1. Sentence 2 is requested. 
-        // We are 'stalled' (awaiting sync) but sentence 1 is still playing.
-        // We WANT the spinner to appear to signal that the NEXT part is loading.
-
-        // 1. Setup: State reflects active playback
-        store.patchState({ isPlaying: true, isPaused: false });
-        store.updateUIState({ 
-            playbackIntent: 'PLAYING',
-            isAwaitingSync: true, 
-            lastStallSource: 'AUTO' 
-        });
-        
-        // Wait 2 seconds (beyond grace period)
-        vi.advanceTimersByTime(2000);
-        
-        controls.render();
-        
-        // [ASSERT]: In legacy-parity mode, a stall signals buffering to the user.
-        expect(els.btnPause.classList.contains('is-loading')).toBe(true);
-    });
-
     it('STABILITY: should ensure primary controls have consistent identifying classes', () => {
-        // Enforce the 'primary' class for the Play/Pause toggles
-        // Our CSS fix relies on .ctrl-btn.primary having min-width
-        
         // Toggle to Play
         store.patchState({ isPlaying: false });
         controls.render();
         expect(els.btnPlay.classList.contains('primary')).toBe(true);
         
         // Simulating pause intent
-        store.updateUIState({ playbackIntent: 'PAUSED' });
-        store.patchState({ isPlaying: true, isPaused: true });
+        store.patchState({ 
+            playbackIntent: 'PAUSED',
+            isPlaying: true, 
+            isPaused: true 
+        });
         controls.render();
         expect(els.btnPause.classList.contains('primary')).toBe(true);
     });

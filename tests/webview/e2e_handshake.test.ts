@@ -7,6 +7,7 @@ import { LayoutManager } from '../../src/webview/core/LayoutManager';
 import { WebviewAudioEngine } from '../../src/webview/core/WebviewAudioEngine';
 import { PlaybackController } from '../../src/webview/playbackController';
 import { IncomingCommand, OutgoingAction } from '../../src/common/types';
+import { resetAllSingletons, wireDispatcher } from './testUtils';
 
 // Components
 import { SettingsDrawer } from '../../src/webview/components/SettingsDrawer';
@@ -77,28 +78,17 @@ describe('E2E Handshake & UI Integrity', () => {
     beforeEach(() => {
         document.body.innerHTML = FULL_DOM;
         
-        // 1. HARD RESET
-        delete (window as any).vscode;
-        delete (window as any).acquireVsCodeApi;
-        delete (window as any).__MESSAGE_CLIENT__;
-        delete (window as any).__WEBVIEW_STORE__;
-        delete (window as any).__PLAYBACK_CONTROLLER__;
+        resetAllSingletons();
 
-        // 2. Mock VS Code API
+        // 2. Mock VS Code API AFTER reset so it sticks
         mockVscode = { postMessage: vi.fn() };
         (window as any).acquireVsCodeApi = () => mockVscode;
+        (window as any).vscode = mockVscode;
 
-        // 3. Reset Singletons
-        WebviewStore.resetInstance();
-        MessageClient.resetInstance();
-        CommandDispatcher.resetInstance();
-        InteractionManager.resetInstance();
-        LayoutManager.resetInstance();
-        WebviewAudioEngine.resetInstance();
-        PlaybackController.resetInstance();
+        wireDispatcher();
 
         store = WebviewStore.getInstance();
-        (store as any)._isHydrated = true;
+        store.patchState({ isHandshakeComplete: true });
 
         // 4. Activate Controller (Triggers listeners)
         PlaybackController.getInstance();
@@ -160,23 +150,14 @@ describe('E2E Handshake & UI Integrity', () => {
         Object.values(components).forEach(c => c.mount());
 
         vi.useFakeTimers();
-        vi.spyOn(WebviewAudioEngine.getInstance(), 'play');
-        vi.spyOn(WebviewAudioEngine.getInstance(), 'pause');
+        vi.spyOn(WebviewAudioEngine.getInstance(), 'playBlob');
+        vi.spyOn(WebviewAudioEngine.getInstance(), 'speakLocal');
         vi.spyOn(WebviewAudioEngine.getInstance(), 'stop');
     });
 
     afterEach(() => {
         Object.values(components).forEach((c: any) => c.unmount());
-        InteractionManager.resetInstance();
-        WebviewAudioEngine.resetInstance();
-        MessageClient.resetInstance();
-        WebviewStore.resetInstance();
-        LayoutManager.resetInstance();
-        CommandDispatcher.resetInstance();
-        PlaybackController.resetInstance();
-        vi.clearAllMocks();
-        vi.resetAllMocks();
-        vi.useFakeTimers();
+        resetAllSingletons();
     });
 
     // --- 📂 FILE CONTEXT TESTS ---

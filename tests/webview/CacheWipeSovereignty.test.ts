@@ -7,6 +7,7 @@ import { WebviewStore } from '@webview/core/WebviewStore';
 import { WebviewAudioEngine } from '@webview/core/WebviewAudioEngine';
 import { IncomingCommand } from '@common/types';
 import { CommandDispatcher } from '@webview/core/CommandDispatcher';
+import { CacheManager } from '@webview/cacheManager';
 
 describe('Cache Wipe Sovereignty (TDD: #45)', () => {
     let store: WebviewStore;
@@ -24,12 +25,10 @@ describe('Cache Wipe Sovereignty (TDD: #45)', () => {
 
     it('SHOULD revoke all blob URLs before clearing IndexedDB (Ghost Audio Guard)', async () => {
         const revokeSpy = vi.spyOn(URL, 'revokeObjectURL');
-        // Accessing private cache for spy
-        const strategy = (engine as any).neuralStrategy;
-        const cacheClearSpy = vi.spyOn(strategy.cache, 'clearAll');
-
-        // Add a fake blob to registry so revocation actually happens
-        strategy.activeObjectURLs.add('blob:fake-url');
+        const cacheClearSpy = vi.spyOn(CacheManager.getInstance(), 'clearAll');
+        
+        // [v2.3.1] Add a fake blob to authoritative set so revocation is triggered
+        (engine as any)._activeObjectURLs.add('blob:fake-url');
 
         await engine.wipeCache();
         

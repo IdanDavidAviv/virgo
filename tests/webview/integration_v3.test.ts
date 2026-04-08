@@ -5,7 +5,7 @@ import { CommandDispatcher } from '../../src/webview/core/CommandDispatcher';
 import { InteractionManager } from '../../src/webview/core/InteractionManager';
 import { LayoutManager } from '../../src/webview/core/LayoutManager';
 import { WebviewAudioEngine } from '../../src/webview/core/WebviewAudioEngine';
-import { SessionController } from '../../src/webview/sessionController';
+import { PlaybackController } from '../../src/webview/playbackController';
 import { IncomingCommand, OutgoingAction } from '../../src/common/types';
 
 // Components
@@ -87,7 +87,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
         // 1. Reset all singletons
         WebviewStore.resetInstance();
         MessageClient.resetInstance();
-        SessionController.resetInstance();
+        PlaybackController.resetInstance();
         CommandDispatcher.resetInstance();
         LayoutManager.resetInstance();
         InteractionManager.resetInstance();

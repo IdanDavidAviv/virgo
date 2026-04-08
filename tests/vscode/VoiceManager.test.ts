@@ -20,10 +20,9 @@ describe('VoiceManager', () => {
 
     beforeEach(() => {
         mockPlaybackEngine = {
-            getVoices: vi.fn().mockResolvedValue({
-                local: [{ name: 'Local Voice 1' }],
-                neural: [{ name: 'Neural Voice 1' }]
-            })
+            getVoices: vi.fn().mockResolvedValue([
+                { name: 'Neural Voice 1' }
+            ])
         };
         mockStateStore = {
             state: { engineMode: 'local' },
@@ -47,7 +46,7 @@ describe('VoiceManager', () => {
 
         expect(mockPlaybackEngine.getVoices).toHaveBeenCalled();
         expect(mockStateStore.setVoices).toHaveBeenCalledWith(
-            [{ name: 'Local Voice 1' }],
+            [],
             [{ name: 'Neural Voice 1' }]
         );
     });
@@ -56,7 +55,7 @@ describe('VoiceManager', () => {
         await voiceManager.scanAndSync();
 
         expect(mockDashboardRelay.broadcastVoices).toHaveBeenCalledWith(
-            [{ name: 'Local Voice 1' }],
+            [],
             [{ name: 'Neural Voice 1' }],
             'local'
         );

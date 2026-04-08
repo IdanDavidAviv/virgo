@@ -101,7 +101,7 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
         // Simulate the actual command 'ready' which dashboard.js sends on boot
         // [RESOLVE] ready command MUST trigger _syncUI(true)
         const engine = (provider as any)._playbackEngine;
-        vi.spyOn(engine, 'getVoices').mockResolvedValue({ local: [], neural: [{ id: 'nv1', name: 'Neural 1', lang: 'en' }] });
+        vi.spyOn(engine, 'getVoices').mockResolvedValue([{ id: 'nv1', name: 'Neural 1', lang: 'en' }]);
 
         const handler = (mockWebviewView.webview.onDidReceiveMessage as any).mock.calls[0][0];
         await handler({ command: 'ready' });
@@ -130,16 +130,15 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
 
         // Mock the internal playbackEngine to return specific voices
         const engine = (provider as any)._playbackEngine;
-        vi.spyOn(engine, 'getVoices').mockResolvedValue({
-            local: ['Local1'],
-            neural: [{ name: 'Neural1', id: 'n1', lang: 'en', gender: 'Female' } as any]
-        });
+        vi.spyOn(engine, 'getVoices').mockResolvedValue([
+            { name: 'Neural1', id: 'n1', lang: 'en', gender: 'Female' } as any
+        ]);
 
         // Trigger the asynchronous load
         await (provider as any)._voiceManager.scanAndSync();
         vi.advanceTimersByTime(100); 
 
-        expect(setVoicesSpy).toHaveBeenCalledWith(['Local1'], expect.arrayContaining([expect.objectContaining({ name: 'Neural1' })]));
+        expect(setVoicesSpy).toHaveBeenCalledWith([], expect.arrayContaining([expect.objectContaining({ name: 'Neural1' })]));
         expect(stateStore.state.availableVoices.neural.length).toBe(1);
     });
 
@@ -149,7 +148,7 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
         
         // Mock success
         const engine = (provider as any)._playbackEngine;
-        vi.spyOn(engine, 'getVoices').mockResolvedValue({ local: [], neural: [] });
+        vi.spyOn(engine, 'getVoices').mockResolvedValue([]);
 
         await (provider as any)._voiceManager.scanAndSync();
         vi.advanceTimersByTime(100); 

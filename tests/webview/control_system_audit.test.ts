@@ -8,6 +8,7 @@ import { MessageClient } from '../../src/webview/core/MessageClient';
 import { CommandDispatcher } from '../../src/webview/core/CommandDispatcher';
 import { IncomingCommand, OutgoingAction } from '../../src/common/types';
 import { WebviewAudioEngine } from '../../src/webview/core/WebviewAudioEngine';
+import { CacheManager } from '../../src/webview/cacheManager';
 
 
 describe('Control System Audit (Reproduction)', () => {
@@ -116,11 +117,10 @@ describe('Control System Audit (Reproduction)', () => {
         
         // 1. Mock cache to return a dummy blob
         const dummyBlob = new Blob(['abc'], { type: 'audio/mpeg' });
-        const strategy = (engine as any).getStrategy('neural');
-        vi.spyOn(strategy.cache, 'get').mockResolvedValue(dummyBlob);
+        vi.spyOn(CacheManager.getInstance(), 'get').mockResolvedValue(dummyBlob);
         
         // 2. Mock audio.play to avoid JSDOM errors
-        const audioElement = engine.getAudioElement();
+        const audioElement = engine.audioElement;
         vi.spyOn(audioElement, 'play').mockResolvedValue(undefined);
 
         // ACT: Trigger playback from cache
@@ -196,8 +196,7 @@ describe('Control System Audit (Reproduction)', () => {
         const postActionSpy = vi.spyOn(MessageClient.getInstance(), 'postAction');
         
         // Mock cache to return null (MISS)
-        const strategy = (engine as any).getStrategy('neural');
-        vi.spyOn(strategy.cache, 'get').mockResolvedValue(null);
+        vi.spyOn(CacheManager.getInstance(), 'get').mockResolvedValue(null);
         
         // 1. MUST set intent to PLAYING otherwise Zombie Guard blocks it
         engine.ensureAudioContext();

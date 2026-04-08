@@ -11,21 +11,13 @@ import { OutgoingAction } from '../../src/common/types';
  * 
  * @vitest-environment jsdom
  */
+import { resetAllSingletons } from './testUtils';
+
 describe('Handshake Gate (Webview Side)', () => {
     let mockVscode: any;
 
     beforeEach(() => {
-        // Clear window state
-        delete (window as any).vscode;
-        delete (window as any).acquireVsCodeApi;
-        delete (window as any).__MESSAGE_CLIENT__;
-        delete (window as any).__WEBVIEW_STORE__;
-        delete (window as any).__PLAYBACK_CONTROLLER__;
-
-        // Reset all singletons
-        WebviewStore.resetInstance();
-        MessageClient.resetInstance();
-        PlaybackController.resetInstance();
+        resetAllSingletons();
 
         // Mock VS Code API
         mockVscode = { postMessage: vi.fn() };
@@ -64,7 +56,7 @@ describe('Handshake Gate (Webview Side)', () => {
             state: {}
         } as any);
         
-        expect((controller as any).isHandshakeComplete).toBe(true);
+        expect(store.getState().isHandshakeComplete).toBe(true);
         expect(store.isHydrated()).toBe(true);
 
         // 2. Attempt to play
