@@ -408,13 +408,13 @@ export class PlaybackController {
         const currentPlaybackId = store.getState().playbackIntentId;
 
         // [INTENT LATCH] Sovereign guard against stale reports
-        if (event.intentId < currentPlaybackId) {
+        if (event.intentId !== undefined && event.intentId < currentPlaybackId) {
             console.log(`[PlaybackController] 🛡️ Pruned stale engine event: ${event.type} (Intent: ${event.intentId} < current: ${currentPlaybackId})`);
             return;
         }
 
         // [CHRONOLOGICAL SOVEREIGNTY]
-        if (event.intentId > currentPlaybackId) {
+        if (event.intentId !== undefined && event.intentId > currentPlaybackId) {
             console.log(`[PlaybackController] 📈 Adopting newer intent from engine event: ${event.intentId}`);
             store.setIntentIds(event.intentId);
         }

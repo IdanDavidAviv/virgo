@@ -19,7 +19,11 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
     currentSentenceIndex: 0,
     isRefreshing: false,
     isPreviewing: false,
-    activeMode: 'FILE'
+    activeMode: 'FILE',
+    volume: 50,
+    rate: 0,
+    engineMode: 'local',
+    autoPlayMode: 'auto'
   },
   isPlaying: false,
   isPaused: true,
@@ -252,7 +256,7 @@ export class WebviewStore {
       }
     }
 
-    // [HARDENING] Deep merge nested state to prevent partial syncs from overwriting metadata
+    // [SOVEREIGNTY] Deep merge nested state to prevent partial syncs from overwriting metadata
     const finalPatch = { ...patch };
     if (patch.state && this.state.state) {
       finalPatch.state = { ...this.state.state, ...patch.state };
@@ -262,69 +266,33 @@ export class WebviewStore {
       delete finalPatch.state;
     }
 
-    // [SOVEREIGNTY] Reflective Patching: Synchronize Twin Properties
-    // Ensures flat properties and nested 'state' properties never drift.
+    // [SOVEREIGNTY] Reflective Patching (v2.3.1 - Robust)
+    // Bidirectional synchronization between flat properties and the nested state object.
+    const syncKeys = ['volume', 'rate', 'engineMode', 'autoPlayMode', 'activeMode', 'currentChapterIndex'] as const;
+
+    // 1. Sync from Flat Patch to Nested State (Local UI updates)
+    // Prioritize flat properties provided in the patch by reflecting them into the nested state.
+    const nest = finalPatch.state || (this.state.state ? { ...this.state.state } : null);
+    if (nest) {
+        let nestChanged = false;
+        syncKeys.forEach(key => {
+            if ((patch as any)[key] !== undefined) {
+                (nest as any)[key] = (patch as any)[key];
+                nestChanged = true;
+            }
+        });
+        if (nestChanged) finalPatch.state = nest;
+    }
+
+    // 2. Sync from Nested State to Flat Props (Extension Authoritarian sync)
+    // If 'state' was in original patch (or updated above), propagate its values to flat properties.
+    // [HARDENING] If patch.state existed, it wins over any flat props in the SAME patch.
     if (finalPatch.state) {
-      if (finalPatch.currentChapterIndex !== undefined) {
-        finalPatch.state.currentChapterIndex = finalPatch.currentChapterIndex;
-      } else if (finalPatch.state.currentChapterIndex !== undefined) {
-        (finalPatch as any).currentChapterIndex = finalPatch.state.currentChapterIndex;
-      }
-
-      if (finalPatch.activeMode !== undefined) {
-        finalPatch.state.activeMode = finalPatch.activeMode;
-      } else if (finalPatch.state.activeMode !== undefined) {
-        (finalPatch as any).activeMode = finalPatch.state.activeMode;
-      }
-
-      // [AUTHORITATIVE TWINS]
-      if (finalPatch.autoPlayMode !== undefined) {
-        finalPatch.state.autoPlayMode = finalPatch.autoPlayMode;
-      } else if (finalPatch.state.autoPlayMode !== undefined) {
-        (finalPatch as any).autoPlayMode = finalPatch.state.autoPlayMode;
-      }
-
-      if (finalPatch.volume !== undefined) {
-        finalPatch.state.volume = finalPatch.volume;
-      } else if (finalPatch.state.volume !== undefined) {
-        (finalPatch as any).volume = finalPatch.state.volume;
-      }
-
-      if (finalPatch.rate !== undefined) {
-        finalPatch.state.rate = finalPatch.rate;
-      } else if (finalPatch.state.rate !== undefined) {
-        (finalPatch as any).rate = finalPatch.state.rate;
-      }
-
-      if (finalPatch.engineMode !== undefined) {
-        finalPatch.state.engineMode = finalPatch.engineMode;
-      } else if (finalPatch.state.engineMode !== undefined) {
-        (finalPatch as any).engineMode = finalPatch.state.engineMode;
-      }
-    } else {
-      // If patching flat properties without a 'state' object in the patch,
-      // we must reach into the existing nested state to maintain parity.
-      const currentNested = this.state.state;
-      if (currentNested) {
-          if (finalPatch.currentChapterIndex !== undefined) {
-            finalPatch.state = { ...currentNested, currentChapterIndex: finalPatch.currentChapterIndex };
-          }
-          if (finalPatch.activeMode !== undefined) {
-            finalPatch.state = { ...(finalPatch.state || currentNested), activeMode: finalPatch.activeMode };
-          }
-           if (finalPatch.autoPlayMode !== undefined) {
-            finalPatch.state = { ...(finalPatch.state || currentNested), autoPlayMode: finalPatch.autoPlayMode };
-          }
-          if (finalPatch.volume !== undefined) {
-            finalPatch.state = { ...(finalPatch.state || currentNested), volume: finalPatch.volume };
-          }
-          if (finalPatch.rate !== undefined) {
-            finalPatch.state = { ...(finalPatch.state || currentNested), rate: finalPatch.rate };
-          }
-          if (finalPatch.engineMode !== undefined) {
-            finalPatch.state = { ...(finalPatch.state || currentNested), engineMode: finalPatch.engineMode };
-          }
-      }
+        syncKeys.forEach(key => {
+            if ((finalPatch.state as any)[key] !== undefined) {
+                (finalPatch as any)[key] = (finalPatch.state as any)[key];
+            }
+        });
     }
 
     if (patch.availableVoices && this.state.availableVoices) {
