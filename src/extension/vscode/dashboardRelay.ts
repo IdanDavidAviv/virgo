@@ -57,7 +57,13 @@ export class DashboardRelay {
             currentSentenceIndex: s.currentSentenceIndex,
             isRefreshing: s.isRefreshing,
             isPreviewing: s.isPreviewing,
-            activeMode: s.activeMode
+            activeMode: s.activeMode,
+
+            // [SOVEREIGNTY] Active Playback Configuration
+            volume: s.volume,
+            rate: s.rate,
+            engineMode: s.engineMode,
+            autoPlayMode: s.autoPlayMode
         };
 
         const chapters = this._docController.chapters;

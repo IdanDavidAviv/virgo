@@ -37,6 +37,12 @@ export interface StateStoreState {
     isRefreshing: boolean;
     isPreviewing: boolean;
     activeMode: 'FILE' | 'SNIPPET';
+
+    // [SOVEREIGNTY] Active Playback Configuration
+    volume: number;
+    rate: number;
+    engineMode: 'local' | 'neural';
+    autoPlayMode: 'auto' | 'chapter' | 'row';
 }
 
 export enum LogLevel {
