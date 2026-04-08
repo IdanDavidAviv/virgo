@@ -288,6 +288,10 @@ export class WebviewStore {
    * Updates the local UI state and notifies subscribers.
    */
   public updateUIState(patch: Partial<LocalUIState>): void {
+    // [HARDENING] Skip update if the patch contains no changes
+    const hasChanges = Object.entries(patch).some(([key, value]) => !this.isEqual(value, (this.uiState as any)[key]));
+    if (!hasChanges) { return; }
+
     const oldState = { ...this.uiState };
     
     // [STABILITY] Timestamp the stall if we just started awaiting sync
@@ -366,11 +370,18 @@ export class WebviewStore {
       return;
     }
 
+    const changedEntries = Object.entries(newState).filter(([key, value]) => {
+      const current = (this.state as any)?.[key] ?? (DEFAULT_SYNC_PACKET as any)[key];
+      return value !== undefined && !this.isEqual(value, current);
+    });
+
+    if (changedEntries.length === 0) { return; }
+
     const oldState = this.state;
     // [HYDRATION] Merge with defaults if this is the first update
     const updatedState = { ...(this.state || DEFAULT_SYNC_PACKET) } as UISyncPacket;
     
-    Object.entries(newState).forEach(([key, value]) => {
+    changedEntries.forEach(([key, value]) => {
       if (value !== undefined) {
         if (key === 'state' && typeof value === 'object' && value !== null) {
           updatedState.state = { ...updatedState.state, ...value };
@@ -428,14 +439,16 @@ export class WebviewStore {
 
     if (Array.isArray(a) && Array.isArray(b)) {
       if (a.length !== b.length) {return false;}
-      return a.every((val, index) => val === b[index]);
+      return a.every((val, index) => this.isEqual(val, b[index]));
     }
     
     if (typeof a === 'object' && a !== null && b !== null) {
       const keysA = Object.keys(a);
       const keysB = Object.keys(b);
       if (keysA.length !== keysB.length) {return false;}
-      return keysA.every(key => a[key] === b[key]);
+      // Shallow compare for state chunks is usually enough, 
+      // but let's be safe for nested chapter/sentence data.
+      return keysA.every(key => this.isEqual(a[key], b[key]));
     }
 
     return false;

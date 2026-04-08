@@ -123,14 +123,13 @@ export class NeuralAudioStrategy implements AudioStrategy {
     }
 
     public setVolume(value: number): void {
-        this.audio.volume = Math.max(0, Math.min(1, value / 100));
+        this.audio.volume = value;
     }
 
     public setRate(value: number): void {
-        // Standardized formula: -10 to 10 maps to 0.5x to 2x (linear approximation)
-        // Normal (0) = 1.0x
-        this.audio.playbackRate = value >= 0 ? 1 + (value / 10) : 1 + (value / 20);
-        console.log(`[NeuralStrategy] 🎚️ Rate set to: ${this.audio.playbackRate} (mapped from ${value})`);
+        this.audio.playbackRate = value;
+        this.audio.defaultPlaybackRate = value;
+        console.log(`[NeuralStrategy] 🎚️ Applied: Rate=${value?.toFixed?.(2)}x Vol=${this.audio?.volume?.toFixed?.(2)}`);
     }
 
     public setTarget(cacheKey: string | null): void {

@@ -12,23 +12,44 @@ import { NeuralAudioStrategy } from '../strategies/NeuralAudioStrategy';
 export class WebviewAudioEngine {
   private static instance: WebviewAudioEngine;
   public instanceId: number = Math.random();
-  private activeStrategy: AudioStrategy;
-  private localStrategy: LocalAudioStrategy;
-  private neuralStrategy: NeuralAudioStrategy;
+  private activeMode: 'local' | 'neural' = 'local';
+  private strategies: Map<string, AudioStrategy> = new Map();
   public onEvent?: (event: AudioEngineEvent) => void;
   private _isPrimed: boolean = false;
   private playbackLock: Promise<void> = Promise.resolve();
 
   private constructor() {
-    this.localStrategy = new LocalAudioStrategy();
-    this.neuralStrategy = new NeuralAudioStrategy();
-    this.activeStrategy = this.localStrategy; 
-    
-    // [PASSIVE BINDING] Bubble strategy events up to the sovereign layer
-    this.localStrategy.onEvent = (e) => this.onEvent?.(e);
-    this.neuralStrategy.onEvent = (e) => this.onEvent?.(e);
-
     this.setupListeners();
+  }
+
+  private get activeStrategy(): AudioStrategy {
+      return this.getStrategy(this.activeMode);
+  }
+
+  private getStrategy(mode: 'local' | 'neural'): AudioStrategy {
+      let strategy = this.strategies.get(mode);
+      if (!strategy) {
+          console.log(`[AudioEngine] 🏗️ Lazily creating strategy: ${mode.toUpperCase()}`);
+          strategy = mode === 'neural' ? new NeuralAudioStrategy() : new LocalAudioStrategy();
+          strategy.onEvent = (e) => this.onEvent?.(e);
+          
+          // HYDRATION GATE: Ensure new strategy starts with current sovereign settings
+          const state = WebviewStore.getInstance().getState();
+          const { rate, volume } = this.calculateSettings(state.rate, state.volume);
+          strategy.setRate(rate);
+          strategy.setVolume(volume);
+          
+          this.strategies.set(mode, strategy);
+      }
+      return strategy;
+  }
+
+  private calculateSettings(rawRate: number, rawVolume: number) {
+      // Sovereign Rate Mapping: -10..10 maps to 0.5x to 2x (linear approximation)
+      const mappedRate = rawRate >= 0 ? 1 + (rawRate / 10) : 1 + (rawRate / 20);
+      // Sovereign Volume Mapping: 0..100 maps to 0..1.0
+      const mappedVol = Math.max(0, Math.min(1, rawVolume / 100));
+      return { rate: mappedRate, volume: mappedVol };
   }
 
   public static getInstance(): WebviewAudioEngine {
@@ -54,8 +75,8 @@ export class WebviewAudioEngine {
 
   public dispose(): void {
     this.stop();
-    this.localStrategy.dispose();
-    this.neuralStrategy.dispose();
+    this.strategies.forEach(s => s.dispose());
+    this.strategies.clear();
   }
 
 
@@ -80,7 +101,16 @@ export class WebviewAudioEngine {
 
     // [SOVEREIGNTY] SYNTHESIS_READY logic moved to PlaybackController.
 
-    // 4. Initial sync
+    // 4. [PLAYBACK SYNC] Reactive halt/pause
+    store.subscribe((s) => s.isPaused, (isPaused) => {
+        if (isPaused) { this.pause(); }
+    });
+    store.subscribe((s) => s.isPlaying, (isPlaying) => {
+        // Only stop if we are not playing. Stop is more aggressive than pause.
+        if (!isPlaying) { this.stop(); }
+    });
+
+    // 5. Initial sync
     const state = store.getState();
     if (state?.selectedVoice) {
         this.updateStrategy(state.selectedVoice);
@@ -89,14 +119,22 @@ export class WebviewAudioEngine {
 
   private updateStrategy(voice: AudioVoice | string | undefined): void {
       const voiceId = typeof voice === 'object' ? voice.id : voice;
-      const isNeural = voiceId?.startsWith('Neural:');
-      const newStrategy = isNeural ? this.neuralStrategy : this.localStrategy;
+      const isNeural = !!voiceId?.startsWith('Neural:');
+      const newMode = isNeural ? 'neural' : 'local';
       
-      if (this.activeStrategy !== newStrategy) {
-          console.log(`[AudioEngine] 🔄 Switching strategy to: ${isNeural ? 'NEURAL' : 'LOCAL'}`);
-          this.activeStrategy.stop();
-          this.activeStrategy = newStrategy;
+      if (this.activeMode !== newMode) {
+          console.log(`[AudioEngine] 🔄 Switching mode to: ${newMode.toUpperCase()}`);
+          this.strategies.get(this.activeMode)?.stop();
+          this.activeMode = newMode;
       }
+  }
+
+  public fallbackToLocal(): void {
+      console.warn('[AudioEngine] ⚠️ Neural failure detected. Falling back to Local audio.');
+      this.strategies.get('neural')?.stop();
+      this.activeMode = 'local';
+      // Trigger a state update in the store to inform UI
+      WebviewStore.getInstance().updateState({ engineMode: 'local' });
   }
 
   public async play(intentId?: number): Promise<void> {
@@ -126,7 +164,7 @@ export class WebviewAudioEngine {
   }
 
   public isStrategyActive(strategyId: string): boolean {
-    return this.activeStrategy.id === strategyId;
+    return this.activeMode === strategyId;
   }
 
   /**
@@ -168,35 +206,36 @@ export class WebviewAudioEngine {
 
     const unlock = await this.acquirePlaybackLock();
     try {
-        await this.neuralStrategy.playBlob(blob, cacheKey, intentId);
+        const strategy = this.getStrategy('neural') as NeuralAudioStrategy;
+        await strategy.playBlob(blob, cacheKey, intentId);
     } finally {
         unlock();
     }
   }
 
   public startAdaptiveWait(cacheKey: string, intentId: number): Promise<void> {
-    return this.neuralStrategy.startAdaptiveWait(cacheKey, intentId);
+    return (this.getStrategy('neural') as NeuralAudioStrategy).startAdaptiveWait(cacheKey, intentId);
   }
 
   public setTarget(cacheKey: string | null): void {
-      this.neuralStrategy.setTarget(cacheKey);
+      (this.getStrategy('neural') as NeuralAudioStrategy).setTarget(cacheKey);
   }
 
   public async ingestData(cacheKey: string, base64Data: string, intentId: number): Promise<void> {
       const unlock = await this.acquirePlaybackLock();
       try {
-          await this.neuralStrategy.ingestData(cacheKey, base64Data, intentId);
+          await (this.getStrategy('neural') as NeuralAudioStrategy).ingestData(cacheKey, base64Data, intentId);
       } finally {
           unlock();
       }
   }
 
   public handleSynthesisReady(cacheKey: string, intentId: number): void {
-      this.neuralStrategy.handleSynthesisReady(cacheKey, intentId);
+      (this.getStrategy('neural') as NeuralAudioStrategy).handleSynthesisReady(cacheKey, intentId);
   }
 
   public async playFromBase64(base64: string, cacheKey?: string, intentId?: number): Promise<void> {
-      await this.neuralStrategy.playFromBase64(base64, cacheKey, intentId);
+      await (this.getStrategy('neural') as NeuralAudioStrategy).playFromBase64(base64, cacheKey, intentId);
   }
 
   public async playFromCache(cacheKey: string, intentId?: number): Promise<boolean> {
@@ -221,8 +260,7 @@ export class WebviewAudioEngine {
   }
 
   public pause(): void {
-    this.localStrategy.pause();
-    this.neuralStrategy.pause();
+    this.strategies.forEach(s => s.pause());
   }
 
   public resume(): void {
@@ -230,25 +268,28 @@ export class WebviewAudioEngine {
   }
 
   public stop(): void {
-    this.localStrategy.stop();
-    this.neuralStrategy.stop();
+    this.strategies.forEach(s => s.stop());
   }
 
   // --- TEST COMPATIBILITY LAYER ---
-  // (Removed legacy sovereignUrl and base64ToBlob bindings; tests now access neuralStrategy directly)
+  
+  /** @internal Used by legacy tests to spy on strategy behavior. */
+  public get localStrategy(): AudioStrategy { return this.getStrategy('local'); }
+  /** @internal Used by legacy tests to spy on strategy behavior. */
+  public get neuralStrategy(): AudioStrategy { return this.getStrategy('neural'); }
 
   public setVolume(value: number): void {
-    this.localStrategy.setVolume(value);
-    this.neuralStrategy.setVolume(value);
+    const { volume } = this.calculateSettings(0, value);
+    this.strategies.get(this.activeMode)?.setVolume(volume);
   }
 
   public setRate(value: number): void {
-    this.localStrategy.setRate(value);
-    this.neuralStrategy.setRate(value);
+    const { rate } = this.calculateSettings(value, 0);
+    this.strategies.get(this.activeMode)?.setRate(rate);
   }
 
   public async wipeCache(): Promise<void> {
-    await this.neuralStrategy.wipeCache();
+    await (this.getStrategy('neural') as NeuralAudioStrategy).wipeCache();
   }
 
   /**
@@ -257,7 +298,7 @@ export class WebviewAudioEngine {
   public async purgeMemory(): Promise<void> {
       console.log('[AudioEngine] 🧹 Purging memory and cache...');
       await this.wipeCache();
-      this.localStrategy.stop(); // Ensure local is also quiet
+      this.strategies.get('local')?.stop(); // Ensure local is also quiet without lazy-loading
   }
 
   /**
@@ -265,8 +306,7 @@ export class WebviewAudioEngine {
    * Used by legacy tests to spy on playback events.
    */
   public getAudioElement(): HTMLAudioElement {
-    // [TEST COMPAT] Strategies now expose their players for legacy test spying.
-    return (this.neuralStrategy as any).audio;
+    return (this.getStrategy('neural') as NeuralAudioStrategy).audio;
   }
 
   /**

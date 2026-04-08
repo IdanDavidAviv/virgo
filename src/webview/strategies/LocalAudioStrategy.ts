@@ -12,8 +12,8 @@ export class LocalAudioStrategy implements AudioStrategy {
   
   private activeIntentId: number = 0;
   private currentUtterance: SpeechSynthesisUtterance | null = null;
-  private volume: number = 50;
-  private rate: number = 0;
+  private volume: number = 0.5; // Final multiplier 0..1.0
+  private rate: number = 1.0;   // Final multiplier 0.5..2.0
 
   constructor() {
     this.synth = window.speechSynthesis;
@@ -90,8 +90,8 @@ export class LocalAudioStrategy implements AudioStrategy {
   }
 
   private applySettingsToUtterance(utterance: SpeechSynthesisUtterance): void {
-      utterance.rate = this.rate >= 0 ? 1 + (this.rate / 5) : 1 + (this.rate / 10);
-      utterance.volume = Math.max(0, Math.min(1, this.volume / 100));
+      utterance.rate = this.rate;
+      utterance.volume = this.volume;
   }
 
   public async play(intentId?: number): Promise<void> {
@@ -123,17 +123,16 @@ export class LocalAudioStrategy implements AudioStrategy {
   public setVolume(value: number): void {
       this.volume = value;
       if (this.currentUtterance) {
-          this.currentUtterance.volume = Math.max(0, Math.min(1, value / 100));
+          this.currentUtterance.volume = value;
       }
   }
 
   public setRate(value: number): void {
       this.rate = value;
       if (this.currentUtterance) {
-          // Standardized formula: -10 to 10 maps to 0.5x to 2x (linear approximation)
-          this.currentUtterance.rate = value >= 0 ? 1 + (value / 10) : 1 + (value / 20);
+          this.currentUtterance.rate = value;
       }
-      console.log(`[LocalStrategy] 🎚️ Rate set to: ${value} (mapped to ${value >= 0 ? 1 + (value / 10) : 1 + (value / 20)})`);
+      console.log(`[LocalStrategy] 🎚️ Applied: Rate=${value?.toFixed?.(2)}x Vol=${this.volume?.toFixed?.(2)}`);
   }
 
   public async getVoices(): Promise<AudioVoice[]> {

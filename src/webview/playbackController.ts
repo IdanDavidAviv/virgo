@@ -220,8 +220,8 @@ export class PlaybackController {
   public setVolume(volume: number): void {
       const store = WebviewStore.getInstance();
       
-      // Immediate local effect for audio engine and UI feedback
-      WebviewAudioEngine.getInstance().setVolume(volume);
+      // [SOVEREIGNTY] Update store only. 
+      // The AudioEngine's reactive subscription will handle applying it to the active strategy.
       store.patchState({ volume });
 
       // [SOVEREIGNTY] Throttled IPC emission
@@ -238,8 +238,7 @@ export class PlaybackController {
   public setRate(rate: number): void {
       const store = WebviewStore.getInstance();
       
-      // Immediate local effect
-      WebviewAudioEngine.getInstance().setRate(rate);
+      // [SOVEREIGNTY] Update store only.
       store.patchState({ rate });
 
       this.debouncedRateEmit(rate);
@@ -333,6 +332,13 @@ export class PlaybackController {
 
         case AudioEngineEventType.ERROR:
             console.error(`[PlaybackController] 🔴 Engine error: ${event.message}`);
+            
+            // [RECOVERY] If neural synthesis fails, fallback to local
+            const { engineMode } = store.getState();
+            if (engineMode === 'neural') {
+                WebviewAudioEngine.getInstance().fallbackToLocal();
+            }
+
             this.mode = PlaybackMode.STOPPED;
             this.intent = PlaybackIntent.STOPPED;
             store.updateUIState({ 
@@ -403,7 +409,7 @@ export class PlaybackController {
     store.resetLoadingStates();
     
     // [SYNC] Authoritative update replacing "optimisticPatch"
-    store.patchState({ isPaused: true });
+    store.patchState({ isPlaying: false, isPaused: true });
 
     store.updateUIState({ 
         playbackIntent: 'PAUSED',
@@ -439,6 +445,7 @@ export class PlaybackController {
     WebviewStore.getInstance().resetLoadingStates();
 
     // [SOVEREIGNTY] Update Store explicitly
+    WebviewStore.getInstance().patchState({ isPlaying: false, isPaused: false });
     WebviewStore.getInstance().updateUIState({ 
         playbackIntent: 'STOPPED',
         isAwaitingSync: true, // Keep TRUE as tests expect a sync lock wait
