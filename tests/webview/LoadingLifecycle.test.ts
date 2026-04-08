@@ -70,6 +70,7 @@ describe('Loading Lifecycle Audit & Stabilization', () => {
         
         // Mock the strategy's internal state to pass sovereignty check
         (engine as any).neuralStrategy.sovereignUrl = mockUrl;
+        (engine as any).neuralStrategy.activeIntentId = controller.getActiveIntentId();
         mockAudioInstance.src = mockUrl;
         
         // Verify stall logic

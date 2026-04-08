@@ -138,7 +138,8 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         const { btnPlay, btnPause, waveContainer, statusDot } = this.els;
         const mainStore = WebviewStore.getInstance();
         const state = mainStore.getState();
-        const { isSyncing, lastStallSource, lastStallAt, playbackIntent, isAwaitingSync } = mainStore.getUIState();
+        const { lastStallSource, lastStallAt, playbackIntent, isAwaitingSync } = mainStore.getUIState();
+        const isSyncing = mainStore.isSyncing;
         
         if (!state) { 
             return; 

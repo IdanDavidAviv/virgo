@@ -1,5 +1,6 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { WebviewStore } from '../core/WebviewStore';
+import { PlaybackController } from '../playbackController';
 import { escapeHtml } from '../utils';
 
 export interface SnippetLookupElements extends Record<string, HTMLElement | null | undefined> {
@@ -29,7 +30,7 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
         const store = WebviewStore.getInstance();
         const state = store.getState();
         if (state && !state.snippetHistory) {
-            store.requestSnippetHistory();
+            PlaybackController.getInstance().requestSnippetHistory();
         }
     }
 
@@ -138,7 +139,7 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
             (el as HTMLElement).onclick = () => {
                 const path = el.getAttribute('data-path');
                 if (path) {
-                    WebviewStore.getInstance().loadSnippet(path);
+                    PlaybackController.getInstance().loadSnippet(path);
                 }
             };
         });

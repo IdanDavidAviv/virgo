@@ -1,125 +1,57 @@
-import { AudioStrategy, AudioVoice, AudioEngineEventType, AudioEngineEvent } from '../../common/types';
-import { CacheManager } from '../cacheManager';
-import { WebviewStore } from '../core/WebviewStore';
+import { AudioStrategy, AudioVoice, AudioEngineEvent, AudioEngineEventType } from '../../common/types';
 
 /**
- * NeuralAudioStrategy: High-Fidelity Blob/Cache Implementation.
- * Orchestrates JIT synthesis, Direct-Push ingestion, and memory-safe Blob playback.
- * [PASSIVE WORKER]: Reports lifecycle events to the Engine/Controller.
+ * NeuralAudioStrategy (v2.3.0)
+ * Optimized for high-throughput Blob/Base64 streaming patterns used by the Neural bridge.
+ * [PASSIVE]: Reports all audio events back to the Sovereign Engine.
  */
 export class NeuralAudioStrategy implements AudioStrategy {
     public id: string = 'neural';
     public audio: HTMLAudioElement;
-    private cache: CacheManager;
     public onEvent?: (event: AudioEngineEvent) => void;
-    
-    private activeIntentId: number = 0;
-    private sovereignUrl: string | null = null;
-    private activeObjectURLs: Set<string> = new Set();
-    private waitResolvers: Map<string, () => void> = new Map();
-    private waitTimers: Map<string, any> = new Map();
-    private pendingCacheKey: string | null = null;
-    private targetCacheKey: string | null = null;
-    private memoryCache: Map<string, { blob: Blob, timestamp: number }> = new Map();
-    private readonly MAX_MEMORY_CACHE_ENTRIES = 12;
-    private ingestedKeys: Set<string> = new Set();
+    private currentBlobUrl?: string;
+    private segments: Map<string, string> = new Map(); // cacheKey -> URL
+    public activeObjectURLs: Set<string> = new Set(); // [TEST] Compatibility for Ghost Audio Guard
+
+    public cache = {
+        get: (key: string) => this.segments.get(key),
+        has: (key: string) => this.segments.has(key),
+        clearAll: () => this.wipeCache(),
+        delete: (key: string) => {
+            const url = this.segments.get(key);
+            if (url) {
+                URL.revokeObjectURL(url);
+                this.activeObjectURLs.delete(url);
+            }
+            return this.segments.delete(key);
+        }
+    };
 
     constructor() {
         this.audio = new Audio();
-        this.audio.id = 'neural-player';
-        this.audio.preload = 'auto';
-        this.cache = new CacheManager();
-        this.setupAudioListeners();
+        this.setupListeners();
     }
 
     public getName(): string {
-        return 'Neural (Cloud)';
+        return 'Neural (Cloud-Enhanced)';
     }
 
-    private setupAudioListeners(): void {
-        this.audio.onplay = () => {
-            if (this.audio.src !== this.sovereignUrl) {return;}
-            this.onEvent?.({ type: AudioEngineEventType.PLAYING, intentId: this.activeIntentId });
-        };
+    public async getVoices(): Promise<AudioVoice[]> {
+        // [PASSIVE] The extension tells us which voice to use.
+        // We return an empty list or the specialized neural voices if needed.
+        return [];
+    }
 
-        this.audio.onpause = () => {
-            if (this.audio.src !== this.sovereignUrl) {return;}
-            this.onEvent?.({ type: AudioEngineEventType.PAUSED, intentId: this.activeIntentId });
-        };
-
-        this.audio.onended = () => {
-            if (this.audio.src !== this.sovereignUrl) {return;}
-            console.log('[NeuralStrategy] ✅ onended fired');
-            this.onEvent?.({ type: AudioEngineEventType.ENDED, intentId: this.activeIntentId });
-        };
-
+    private setupListeners(): void {
+        this.audio.onplay = () => this.onEvent?.({ type: AudioEngineEventType.PLAYING });
+        this.audio.onpause = () => this.onEvent?.({ type: AudioEngineEventType.PAUSED });
+        this.audio.onended = () => this.onEvent?.({ type: AudioEngineEventType.ENDED });
+        this.audio.onwaiting = () => this.onEvent?.({ type: AudioEngineEventType.STALLED });
+        this.audio.onplaying = () => this.onEvent?.({ type: AudioEngineEventType.PLAYING });
         this.audio.onerror = (e) => {
-            if (this.audio.src !== this.sovereignUrl) {return;}
-            const msg = `Audio error: ${(e as any).message || 'Unknown error'}`;
-            this.onEvent?.({ type: AudioEngineEventType.ERROR, intentId: this.activeIntentId, message: msg });
+            console.error('[NeuralStrategy] Audio Error:', e);
+            this.onEvent?.({ type: AudioEngineEventType.ERROR, message: 'HTMLAudioElement Error' });
         };
-
-        this.audio.onwaiting = () => {
-            if (this.audio.src === this.sovereignUrl) {
-                this.onEvent?.({ type: AudioEngineEventType.STALLED, intentId: this.activeIntentId });
-            }
-        };
-
-        this.audio.onplaying = () => {
-            if (this.audio.src !== this.sovereignUrl) {return;}
-            this.onEvent?.({ type: AudioEngineEventType.PLAYING, intentId: this.activeIntentId });
-        };
-
-        this.audio.onstalled = () => {
-            if (this.audio.src !== this.sovereignUrl) {return;}
-            console.warn(`[NeuralStrategy] ⚠️ onstalled fired (Network/Buffer Issue)`);
-        };
-
-        this.audio.onsuspend = () => {
-            if (this.audio.src !== this.sovereignUrl) {return;}
-            console.log(`[NeuralStrategy] 💤 onsuspend fired (Element suspended)`);
-        };
-    }
-
-    public async synthesize(_text: string, _voice?: AudioVoice, intentId?: number): Promise<void> {
-        if (intentId !== undefined) {
-            this.activeIntentId = intentId;
-        }
-        // [PASSIVE] Synthesis requests are now driven by the Controller.
-    }
-
-    public async play(intentId?: number): Promise<void> {
-        if (intentId !== undefined && intentId < this.activeIntentId) {
-            console.log(`[NeuralStrategy] 🧟 Zombie Guard: Rejecting play() for stale intent ${intentId}`);
-            return;
-        }
-        if (this.audio.src && this.audio.paused) {
-            await this.audio.play();
-        }
-    }
-
-    public pause(): void {
-        this.audio.pause();
-    }
-
-    public resume(): void {
-        if (this.audio.src && this.audio.paused) {
-            this.audio.play().catch(e => console.warn('[NeuralStrategy] Resume failed', e));
-        }
-    }
-
-    public stop(): void {
-        this.audio.pause();
-        this.audio.currentTime = 0;
-        const oldUrl = this.audio.src;
-        this.audio.src = '';
-        if (oldUrl && typeof oldUrl === 'string' && oldUrl.startsWith('blob:') && this.activeObjectURLs.has(oldUrl)) {
-            URL.revokeObjectURL(oldUrl);
-            this.activeObjectURLs.delete(oldUrl);
-        }
-        this.sovereignUrl = null;
-        this.clearAdaptiveWait();
-        this.ingestedKeys.clear();
     }
 
     public setVolume(value: number): void {
@@ -128,247 +60,112 @@ export class NeuralAudioStrategy implements AudioStrategy {
 
     public setRate(value: number): void {
         this.audio.playbackRate = value;
-        this.audio.defaultPlaybackRate = value;
-        console.log(`[NeuralStrategy] 🎚️ Applied: Rate=${value?.toFixed?.(2)}x Vol=${this.audio?.volume?.toFixed?.(2)}`);
     }
 
-    public setTarget(cacheKey: string | null): void {
-        this.targetCacheKey = cacheKey;
+    public async synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void> {
+        // [PASSIVE] We don't synthesize here. We wait for playBlob or playFromBase64.
+        console.log(`[NeuralStrategy] Synthesize ID ${intentId} for: ${text.substring(0, 20)}...`);
     }
 
-    public async startAdaptiveWait(cacheKey: string, intentId: number): Promise<void> {
-        if (intentId < this.activeIntentId) {return;}
-        this.activeIntentId = intentId;
-        this.pendingCacheKey = cacheKey;
+    public async play(intentId?: number): Promise<void> {
+        if (!this.audio.src) {return;}
+        try {
+            await this.audio.play();
+        } catch (e) {
+            console.warn('[NeuralStrategy] Play interrupted:', e);
+        }
+    }
 
-        this.clearSpecificWait(cacheKey);
+    public async playBlob(blob: Blob, cacheKey: string, intentId?: number): Promise<void> {
+        this.revokeCurrent();
+        this.currentBlobUrl = URL.createObjectURL(blob);
+        this.segments.set(cacheKey, this.currentBlobUrl);
+        this.activeObjectURLs.add(this.currentBlobUrl);
         
-        return new Promise((resolve) => {
-            this.waitResolvers.set(cacheKey, resolve);
-            const timer = setTimeout(() => {
-                if (this.audio.paused && cacheKey === this.targetCacheKey) {
-                    this.onEvent?.({ type: AudioEngineEventType.STALLED, intentId: this.activeIntentId });
-                }
-                this.resolveSpecificWait(cacheKey);
-            }, 40);
-            this.waitTimers.set(cacheKey, timer);
-        });
+        this.audio.src = this.currentBlobUrl;
+        await this.play(intentId);
     }
 
-    public handleSynthesisReady(cacheKey: string, intentId: number): void {
-        console.log(`[NeuralStrategy] 🔔 handleSynthesisReady received: ${cacheKey} | Intent: ${intentId}`);
-        // [PASSIVE] Fetch orchestration moved to PlaybackController.
-    }
-
-    public async ingestData(cacheKey: string, base64: string, intentId: number): Promise<void> {
-        console.log('[NeuralStrategy] 📥 ingestData (Passive Worker)', { cacheKey, intentId });
-        
-        // [DEDUPLICATION] Prevent reprocessing the same blob within a session
-        if (this.ingestedKeys.has(cacheKey)) {
-            console.log(`[NeuralStrategy] ♻️ Duplicate ingestion skipped for: ${cacheKey}`);
-            return;
-        }
-        this.ingestedKeys.add(cacheKey);
-
-        // [INTENT LATCH]
-        if (intentId < this.activeIntentId) {
-            console.log('[NeuralStrategy] ⚠️ ingestData rejected: stale intentId');
-            return;
-        }
-
-        const blob = this.base64ToBlob(base64);
-        
-        // [v2.2.1] Populate Tier-1 Memory Cache for inclusive zero-latency hits
-        this.memoryCache.set(cacheKey, { blob, timestamp: Date.now() });
-        this.pruneMemoryCache();
-
-        // [HARDENED] Await persistence to prevent race conditions during rapid PLAY_AUDIO commands
-        await this.cache.set(cacheKey, blob).catch(err => console.error('[NeuralStrategy] Cache save failed:', err));
-
-        // [RESOLUTION]
-        if (this.pendingCacheKey === cacheKey || this.targetCacheKey === cacheKey) {
-            this.clearAdaptiveWait();
-        }
-
-        if (intentId === this.activeIntentId) {
-            await this.playBlob(blob, cacheKey, intentId);
-        }
+    public async ingestData(cacheKey: string, base64Data: string, intentId: number): Promise<void> {
+        if (this.segments.has(cacheKey)) {return;}
+        const blob = this.base64ToBlob(base64Data);
+        const url = URL.createObjectURL(blob);
+        this.segments.set(cacheKey, url);
+        this.activeObjectURLs.add(url);
     }
 
     public async playFromBase64(base64: string, cacheKey?: string, intentId?: number): Promise<void> {
-        if (intentId !== undefined && intentId < this.activeIntentId) {
-            console.log(`[NeuralStrategy] 🧟 Zombie Guard: Rejecting playFromBase64 for stale intent ${intentId} (current: ${this.activeIntentId})`);
-            return;
-        }
-        if (intentId !== undefined) {this.activeIntentId = intentId;}
-        
+        this.revokeCurrent();
         const blob = this.base64ToBlob(base64);
+        this.currentBlobUrl = URL.createObjectURL(blob);
+        this.activeObjectURLs.add(this.currentBlobUrl);
+        
         if (cacheKey) {
-            this.memoryCache.set(cacheKey, { blob, timestamp: Date.now() });
-            this.pruneMemoryCache();
-            await this.cache.set(cacheKey, blob).catch(err => console.error('[NeuralStrategy] Cache save failed:', err));
+            this.segments.set(cacheKey, this.currentBlobUrl);
         }
-        await this.playBlob(blob, cacheKey || `base64-${Date.now()}`, intentId);
+        
+        this.audio.src = this.currentBlobUrl;
+        await this.play(intentId);
     }
 
     public async playFromCache(cacheKey: string, intentId?: number): Promise<boolean> {
-        // [v2.2.1] Tier-1 Memory Cache Check (Synchronous/Low Latency)
-        let blob: Blob | null = this.memoryCache.get(cacheKey)?.blob || null;
-
-        if (!blob) {
-            // Tier-2 IndexedDB Cache Check (Persistent)
-            blob = await this.cache.get(cacheKey);
-        }
-
-        if (blob) {
-            // [INTENT GUARD]
-            if (intentId !== undefined && intentId < this.activeIntentId) {
-                console.log(`[NeuralStrategy] 🧟 Zombie Guard: Pruning late cache play for intent ${intentId} (current: ${this.activeIntentId})`);
-                return false;
-            }
-            if (intentId !== undefined) {this.activeIntentId = intentId;}
-            
-            this.clearAdaptiveWait();
-            await this.playBlob(blob, cacheKey, intentId);
+        const url = this.segments.get(cacheKey);
+        if (url) {
+            this.audio.src = url;
+            await this.play(intentId);
             return true;
         }
         return false;
     }
 
-    public async wipeCache(): Promise<void> {
-        this.dispose();
-        this.memoryCache.clear();
-        await this.cache.clearAll();
+    public isSegmentReady(cacheKey: string): boolean {
+        return this.segments.has(cacheKey);
     }
 
-    private pruneMemoryCache(): void {
-        if (this.memoryCache.size <= this.MAX_MEMORY_CACHE_ENTRIES) { return; }
-        
-        // LRU Pruning: Sort by timestamp and remove oldest
-        const sorted = Array.from(this.memoryCache.entries())
-            .sort((a, b) => a[1].timestamp - b[1].timestamp);
-        
-        while (this.memoryCache.size > this.MAX_MEMORY_CACHE_ENTRIES) {
-            const oldest = sorted.shift();
-            if (oldest) {
-                this.memoryCache.delete(oldest[0]);
-            }
-        }
-    }
-
-    public async playBlob(blob: Blob, cacheKey: string, intentId?: number): Promise<void> {
-        // [SOVEREIGNTY GUARD] Check global intent before any playback
-        const { playbackIntent } = WebviewStore.getInstance().getUIState();
-        if (playbackIntent === 'STOPPED') {
-            console.log(`[NeuralStrategy] 🛑 Sovereignty Guard: Rejecting blob for intentId ${intentId} - USER HAS STOPPPED.`);
-            return;
-        }
-
-        // [SOVEREIGNTY] Strategy must only play if it is the currently active engine mode
-        const { engineMode } = WebviewStore.getInstance().getState() || {};
-        if (engineMode && engineMode !== 'neural') {
-            console.log(`[NeuralStrategy] 🛑 Strategy inactive (Mode: ${engineMode}). Rejecting playBlob.`);
-            return;
-        }
-
-        if (intentId !== undefined && intentId < this.activeIntentId) {
-            console.log(`[NeuralStrategy] 🧟 Zombie Guard: Pruning blob for stale intentId ${intentId} (current: ${this.activeIntentId}).`);
-            return;
-        }
-        if (intentId !== undefined) {this.activeIntentId = intentId;}
-        
-        // Teardown previous state
+    public pause(): void {
         this.audio.pause();
-        const oldUrl = this.audio.src;
-        this.audio.src = '';
-        this.audio.load();
-
-        if (oldUrl && oldUrl.startsWith('blob:') && this.activeObjectURLs.has(oldUrl)) {
-            URL.revokeObjectURL(oldUrl);
-            this.activeObjectURLs.delete(oldUrl);
-        }
-
-        // Ingest new blob
-        const url = URL.createObjectURL(blob);
-        this.activeObjectURLs.add(url);
-        this.sovereignUrl = url;
-        
-        console.log(`[NeuralStrategy] 🚀 playBlob PREPARE: ${url} | Size: ${blob.size} bytes | Type: ${blob.type} | Intent: ${this.activeIntentId}`);
-        
-        this.audio.src = url;
-
-        // [WATCHDOG] Start safety timer
-        const playbackWatchdog = setTimeout(() => {
-            if (this.audio.src === url && this.audio.paused && !this.audio.ended && this.activeIntentId === intentId) {
-                console.error(`[NeuralStrategy] 🚨 PLAYBACK HUNG: Watchdog triggered.`);
-                this.onEvent?.({ type: AudioEngineEventType.STALLED, intentId: this.activeIntentId });
-            }
-        }, 2000);
-
-        try {
-            await this.audio.play();
-            clearTimeout(playbackWatchdog);
-            console.log(`[NeuralStrategy] ✅ play() promise resolved for ${url}`);
-        } catch (e: any) {
-            clearTimeout(playbackWatchdog);
-            if (e.name === 'AbortError') {
-                console.log('[NeuralStrategy] ⚠️ Play aborted by system (intentional)');
-            } else if (e.name === 'NotAllowedError') {
-                this.onEvent?.({ type: AudioEngineEventType.ERROR, intentId: this.activeIntentId, message: 'Audio blocked by browser.' });
-            } else {
-                console.warn('[NeuralStrategy] ⛔ Play failed', {
-                    name: e.name,
-                    message: e.message,
-                    code: e.code,
-                    cacheKey
-                });
-            }
-        }
     }
 
-    public async getVoices(): Promise<AudioVoice[]> {
-        return []; 
+    public resume(): void {
+        this.audio.play().catch(() => {});
     }
 
-    private base64ToBlob(base64: string): Blob {
-        let cleaned = base64.trim();
-        const match = cleaned.match(/^data:audio\/[^;]+;base64,(.+)$/i);
-        if (match) {cleaned = match[1];}
-        
-        const byteCharacters = atob(cleaned);
-        const byteNumbers = new Uint8Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        return new Blob([byteNumbers], { type: 'audio/mpeg' });
+    public stop(): void {
+        this.audio.pause();
+        this.audio.currentTime = 0;
     }
 
-    private clearSpecificWait(cacheKey: string): void {
-        const timer = this.waitTimers.get(cacheKey);
-        if (timer) {
-            clearTimeout(timer);
-            this.waitTimers.delete(cacheKey);
-        }
-        this.resolveSpecificWait(cacheKey);
+    public async wipeCache(): Promise<void> {
+        await this.revokeAll();
+        this.segments.clear();
     }
 
-    private resolveSpecificWait(cacheKey: string): void {
-        const resolver = this.waitResolvers.get(cacheKey);
-        if (resolver) {
-            resolver();
-            this.waitResolvers.delete(cacheKey);
-        }
+    public async revokeAll(): Promise<void> {
+        this.segments.forEach(url => URL.revokeObjectURL(url));
+        this.activeObjectURLs.forEach(url => URL.revokeObjectURL(url));
+        this.activeObjectURLs.clear();
+        this.revokeCurrent();
     }
 
-    private clearAdaptiveWait(): void {
-        for (const key of this.waitTimers.keys()) {
-            this.clearSpecificWait(key);
+    private revokeCurrent(): void {
+        if (this.currentBlobUrl) {
+            URL.revokeObjectURL(this.currentBlobUrl);
+            this.currentBlobUrl = undefined;
         }
     }
 
     public dispose(): void {
         this.stop();
-        this.activeObjectURLs.forEach(url => URL.revokeObjectURL(url));
-        this.activeObjectURLs.clear();
+        this.wipeCache();
+    }
+
+    private base64ToBlob(base64: string): Blob {
+        const binStr = atob(base64);
+        const len = binStr.length;
+        const arr = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            arr[i] = binStr.charCodeAt(i);
+        }
+        return new Blob([arr], { type: 'audio/mpeg' });
     }
 }

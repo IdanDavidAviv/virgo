@@ -5,6 +5,7 @@ import { WebviewAudioEngine } from '../../src/webview/core/WebviewAudioEngine';
 import { vi } from 'vitest';
 
 import { CommandDispatcher } from '../../src/webview/core/CommandDispatcher';
+import { CacheManager } from '../../src/webview/cacheManager';
 
 /**
  * Consolidated Authority for Webview DOM structure.
@@ -90,6 +91,7 @@ export function resetAllSingletons() {
     PlaybackController.resetInstance();
     WebviewAudioEngine.resetInstance();
     CommandDispatcher.resetInstance();
+    CacheManager.resetInstance();
     
     // Reset vitest mocks
     vi.clearAllMocks();

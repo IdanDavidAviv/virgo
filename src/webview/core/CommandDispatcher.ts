@@ -34,12 +34,24 @@ export class CommandDispatcher {
   }
 
   /**
+   * Mounts the dispatcher to a MessageClient for automatic command routing.
+   */
+  public mount(client: MessageClient): void {
+    console.log('[Dispatcher] 🛰️ Mounting IPC Bridge...');
+    Object.values(IncomingCommand).forEach(command => {
+       client.onCommand(command, (data) => this.dispatch(command, data));
+    });
+  }
+
+  /**
    * Dispatches an incoming message to the appropriate handler.
    */
   public async dispatch(command: string, data: any): Promise<void> {
     const store = WebviewStore.getInstance();
     const audioEngine = WebviewAudioEngine.getInstance();
     const playback = PlaybackController.getInstance();
+
+    this.logSafeMessage(command, data);
 
     switch (command) {
       case IncomingCommand.UI_SYNC:
@@ -58,11 +70,7 @@ export class CommandDispatcher {
             return;
         }
 
-        // [SOVEREIGNTY] Set the active playback target
-        if (data?.cacheKey) {
-          audioEngine.setTarget(data.cacheKey);
-        }
-
+        // [SOVEREIGNTY] Playback intent handled by PlaybackController
         const intentId = data?.intentId ?? data?.sequenceId;
 
         if (data?.data) {
@@ -84,7 +92,7 @@ export class CommandDispatcher {
 
       case IncomingCommand.SYNTHESIS_STARTING:
         console.log('[Dispatcher] ⚡ SYNTHESIS_STARTING Received', data);
-        audioEngine.startAdaptiveWait(data.cacheKey, data.intentId);
+        // [PASSIVE] Engine no longer manages adaptive wait; handled by PlaybackController watchdog.
         break;
 
       case IncomingCommand.SYNTHESIS_READY:
@@ -223,20 +231,8 @@ export class CommandDispatcher {
 
     // 1. Update the reactive store (init/hydrate)
     store.updateState({
-      state: packet.state,
-      isPlaying: packet.isPlaying,
-      isPaused: packet.isPaused,
-      playbackStalled: packet.playbackStalled,
-      currentSentences: packet.currentSentences,
-      allChapters: packet.allChapters,
-      autoPlayMode: packet.autoPlayMode,
-      engineMode: packet.engineMode,
-      cacheCount: packet.cacheCount,
-      cacheSizeBytes: packet.cacheSizeBytes,
-      rate: packet.rate,
-      volume: packet.volume,
-      availableVoices: packet.availableVoices,
-      selectedVoice: packet.selectedVoice
+      ...packet,
+      state: packet.state
     } as any);
 
     // 2. Synchronize Physical Audio Engine with State (Volume/Rate)

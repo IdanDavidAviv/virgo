@@ -1,5 +1,6 @@
 import { MessageClient } from './MessageClient';
-import { IncomingCommand, UISyncPacket, OutgoingAction, LogLevel } from '../../common/types';
+import { IncomingCommand, UISyncPacket, OutgoingAction, LogLevel, WindowSentence } from '../../common/types';
+import { generateCacheKey } from '../../common/cachePolicy';
 
 /**
  * DEFAULT_SYNC_PACKET: The authoritative starting point for the synchronized extension state.
@@ -38,7 +39,8 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
   cacheCount: 0,
   cacheSizeBytes: 0,
   cacheStats: { count: 0, size: 0 },
-  playbackIntentId: 0,
+  playbackIntentId: Date.now(),
+  batchIntentId: Date.now(),
   rate: 0,
   volume: 50,
   activeMode: 'FILE',
@@ -47,17 +49,12 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
     local: [],
     neural: []
   },
+  windowSentences: [],
   selectedVoice: undefined
 };
 
-export type Selector<T, S = UISyncPacket> = (state: S) => T;
-export type Listener<T> = (value: T) => void;
-
-/**
- * Local UI state that is not synchronized with the extension.
- * Used for transient UI states like intermediate selections or temporary highlights.
- */
-export interface LocalUIState {
+export type StoreState = UISyncPacket & {
+  // Transient Local Fields (Not synced from Extension)
   collapsedIndices: Set<number>;
   isAwaitingSync: boolean;
   isLoadingVoices: boolean;
@@ -65,70 +62,52 @@ export interface LocalUIState {
   playbackIntent: 'PLAYING' | 'PAUSED' | 'STOPPED';
   lastStallAt: number;
   lastStallSource: 'USER' | 'AUTO';
-  isSyncing: boolean;
   isBuffering: boolean;
+  activeQueue: WindowSentence[]; // [FIFO] Authoritative sequence of sentences
   pendingChapterIndex: number;
   neuralBuffer: { count: number, sizeMb: number };
-  activeMode: 'FILE' | 'SNIPPET';
-  snippetHistory: any[];
-  playbackIntentId: number;
-}
+  isSyncing: boolean;
+  isHandshakeComplete: boolean;
+};
+
+export type Selector<T, S = StoreState> = (state: S) => T;
+export type Listener<T> = (value: T) => void;
 
 /**
- * WebviewStore: A reactive View-Model that mirrors the Extension's StateStore.
- * Designed for high-performance UI updates via selector-based subscriptions.
- * Also manages local, transient UI state.
+ * WebviewStore: Simplified & Unified Reactive Store (v2.3.1)
+ * Mirrors the Extension's StateStore while managing transient UI properties.
  */
 export class WebviewStore {
   private static instance: WebviewStore | null = null;
-  
-  // Extension-synchronized state
-  private state: UISyncPacket | null = null;
-  private listeners: Set<{ 
-    selector: Selector<any, UISyncPacket>, 
-    listener: Listener<any>, 
-    lastValue: any 
-  }> = new Set();
 
-  private _isHydrated: boolean = false;
-
-  // [REINFORCEMENT] Payload Cache
-  private previousVoicesHash: string = '';
-
-  // [REINFORCEMENT] Centralized Sync Timer
-  private syncTimer: any = null;
-
-  // Local-only transient UI state
-  private uiState: LocalUIState = {
-    collapsedIndices: new Set(),
-    isAwaitingSync: false,
-    isLoadingVoices: false,
-    isDraggingSlider: false,
-    playbackIntent: 'STOPPED',
-    lastStallAt: 0,
-    lastStallSource: 'AUTO',
-    isSyncing: false,
-    isBuffering: false,
-    pendingChapterIndex: -1,
-    neuralBuffer: { count: 0, sizeMb: 0 },
-    activeMode: 'FILE',
-    snippetHistory: [],
-    playbackIntentId: 0
-  };
-
-  private uiListeners: Set<{
-    selector: Selector<any, LocalUIState>,
+  private state: StoreState;
+  private listeners: Set<{
+    selector: Selector<any>,
     listener: Listener<any>,
     lastValue: any
   }> = new Set();
 
+  private _isHydrated: boolean = false;
+
   private constructor() {
-    // [PASSIVE BUCKET] All IPC command listeners moved to PlaybackController.
+    this.state = {
+      ...DEFAULT_SYNC_PACKET,
+      collapsedIndices: new Set(),
+      isAwaitingSync: false,
+      isLoadingVoices: false,
+      isDraggingSlider: false,
+      playbackIntent: 'STOPPED',
+      lastStallAt: 0,
+      lastStallSource: 'AUTO',
+      isBuffering: false,
+      activeQueue: [],
+      pendingChapterIndex: -1,
+      neuralBuffer: { count: 0, sizeMb: 0 },
+      isSyncing: false,
+      isHandshakeComplete: false
+    };
   }
 
-  /**
-   * Returns the singleton instance of WebviewStore.
-   */
   public static getInstance(): WebviewStore {
     if (!WebviewStore.instance) {
       WebviewStore.instance = new WebviewStore();
@@ -139,9 +118,6 @@ export class WebviewStore {
     return WebviewStore.instance;
   }
 
-  /**
-   * Resets the singleton instance and disposes of current listeners.
-   */
   public static resetInstance(): void {
     if (typeof window !== 'undefined') {
       (window as any).__WEBVIEW_STORE__ = null;
@@ -153,304 +129,231 @@ export class WebviewStore {
     WebviewStore.instance = null;
   }
 
-  /**
-   * Disposes of the instance by clearing all listeners and state.
-   */
   public dispose(): void {
-    this.clearSyncTimer();
     this.listeners.clear();
-    this.uiListeners.clear();
-    this.state = null;
     this._isHydrated = false;
-    this.uiState = {
+    // Reset to defaults
+    this.state = {
+      ...DEFAULT_SYNC_PACKET,
+      collapsedIndices: new Set(),
       isAwaitingSync: false,
       isLoadingVoices: false,
       isDraggingSlider: false,
-      collapsedIndices: new Set(),
       playbackIntent: 'STOPPED',
       lastStallAt: 0,
       lastStallSource: 'AUTO',
-      isSyncing: false,
       isBuffering: false,
+      activeQueue: [],
       pendingChapterIndex: -1,
       neuralBuffer: { count: 0, sizeMb: 0 },
-      activeMode: 'FILE',
-      snippetHistory: [],
-      playbackIntentId: 0
+      isSyncing: false,
+      isHandshakeComplete: false
     };
   }
 
-  /**
-   * Returns whether the store has received at least one sync update from the extension.
-   */
   public isHydrated(): boolean {
     return this._isHydrated;
   }
 
-  private clearSyncTimer(): void {
-    if (this.syncTimer) {
-      clearTimeout(this.syncTimer);
-      this.syncTimer = null;
-    }
+  public get isSyncing(): boolean {
+    return this.calculateSyncingState();
+  }
+
+  public getState(): StoreState {
+    return this.state;
   }
 
   /**
-   * Returns the current state.
+   * getUIState() - Proxy for backward compatibility. 
+   * In v2.3.1, all state is unified.
    */
-  public getState(): UISyncPacket {
-    return this.state || DEFAULT_SYNC_PACKET;
+  public getUIState(): StoreState {
+    return this.state;
   }
 
-  /**
-   * Returns a unique key for the current sentence (used for caching/playback).
-   */
   public getSentenceKey(): string {
-    if (!this.state) { return 'default'; }
-    return `${this.state.currentChapterIndex}_${this.state.state.currentSentenceIndex}`;
+    const text = this.state.currentText;
+    if (!text) {
+      return `${this.state.currentChapterIndex}_${this.state.state.currentSentenceIndex}`;
+    }
+
+    return generateCacheKey(
+      text,
+      this.state.selectedVoice || 'default',
+      this.state.rate,
+      this.state.state.activeDocumentUri
+    );
   }
 
   /**
-   * Returns the current local UI state with calculated reactive fields.
+   * Unified subscribe method.
    */
-  public getUIState(): LocalUIState {
-    const now = Date.now();
-    const stallDuration = this.uiState.lastStallAt ? now - this.uiState.lastStallAt : 0;
-    
-    // [GRACE PERIOD] 0ms for USER intent, 400ms for AUTO transitions
-    const threshold = this.uiState.lastStallSource === 'USER' ? 0 : 400;
-    
-    // Stall logic: 
-    // - User-initiated (isAwaitingSync) -> Instant (0ms threshold)
-    // - Background engine stall (state.playbackStalled) -> 400ms grace period
-    const isActuallyStalled = (this.uiState.isAwaitingSync && stallDuration >= threshold) ||
-                              (this.state?.playbackStalled && stallDuration >= 400);
-
-    return {
-      ...this.uiState,
-      // [SOVEREIGNTY] Only show sync-spinner if we ARE trying to play (or if it's an engine-reported stall)
-      isSyncing: (isActuallyStalled && this.uiState.playbackIntent === 'PLAYING') || this.uiState.isBuffering
-    };
-  }
-
-  /**
-   * Subscribes to a specific slice of the synchronized extension state.
-   */
-  public subscribe<T>(selector: Selector<T, UISyncPacket>, listener: Listener<T>): () => void {
-    const initialValue = this.state ? selector(this.state) : undefined;
-    const entry = { selector, listener, lastValue: initialValue };
+  public subscribe<T>(selector: Selector<T>, listener: Listener<T>): () => void {
+    const entry = { selector, listener, lastValue: selector(this.state) };
     this.listeners.add(entry);
-    if (this.state !== null) { listener(initialValue as T); }
     return () => this.listeners.delete(entry);
   }
 
   /**
-   * Subscribes to a specific slice of the local UI state.
+   * Legacy proxy for subscribeUI.
    */
-  public subscribeUI<T>(selector: Selector<T, LocalUIState>, listener: Listener<T>): () => void {
-    const initialValue = selector(this.uiState);
-    const entry = { selector, listener, lastValue: initialValue };
-    this.uiListeners.add(entry);
-    listener(initialValue);
-    return () => this.uiListeners.delete(entry);
+  public subscribeUI<T>(selector: Selector<T>, listener: Listener<T>): () => void {
+    return this.subscribe(selector, listener);
   }
 
-  /**
-   * [PULL MODEL] Signals that the webview is currently pulling binary data from the extension.
-   */
-  public setBuffering(isBuffering: boolean): void {
-    if (this.uiState.isBuffering === isBuffering) { return; }
-    this.updateUIState({ isBuffering });
-  }
+  public patchState(patch: Partial<StoreState>): void {
+    const wasHydrated = this._isHydrated;
 
-  /**
-   * [ANTIGRAVITY] Requests the full snippet history from the extension.
-   * Results will be returned via UI_SYNC or a dedicated snippet command.
-   */
-  public requestSnippetHistory(): void {
-    MessageClient.getInstance().postAction(OutgoingAction.GET_ALL_SNIPPET_HISTORY);
-  }
-
-  /**
-   * [ANTIGRAVITY] Requests to load a specific snippet from disk.
-   */
-  public loadSnippet(fsPath: string): void {
-    MessageClient.getInstance().postAction(OutgoingAction.LOAD_SNIPPET, { fsPath });
-  }
-
-  /**
-   * [SOVEREIGNTY] Explicitly sets the active storage mode (FILE vs SNIPPET).
-   */
-  public setActiveMode(mode: 'FILE' | 'SNIPPET'): void {
-    MessageClient.getInstance().postAction(OutgoingAction.SET_ACTIVE_MODE, { mode });
-  }
-
-  /**
-   * Updates the local UI state and notifies subscribers.
-   */
-  public updateUIState(patch: Partial<LocalUIState>): void {
-    // [HARDENING] Skip update if the patch contains no changes
-    const hasChanges = Object.entries(patch).some(([key, value]) => !this.isEqual(value, (this.uiState as any)[key]));
-    if (!hasChanges) { return; }
-
-    const oldState = { ...this.uiState };
-    
-    // [STABILITY] Timestamp the stall if we just started awaiting sync
-    if (patch.isAwaitingSync && !oldState.isAwaitingSync) {
-        patch.lastStallAt = Date.now();
-    }
-
-    this.uiState = { ...this.uiState, ...patch };
-
-    // Update the flat isSyncing for direct property access (if used)
-    const computed = this.getUIState();
-    this.uiState.isSyncing = computed.isSyncing;
-
-    this.uiListeners.forEach((entry) => {
-      const newValue = entry.selector(this.uiState);
-      const oldValue = entry.selector(oldState);
-      if (!this.isEqual(newValue, oldValue)) {
-        entry.listener(newValue);
-      }
-    });
-  }
-
-  /**
-   * [NEW] Atomically resets all loading and sync-lock indicators.
-   * Ensures that the UI feels responsive after a user gesture or engine release.
-   */
-  public resetLoadingStates(): void {
-    const patch: Partial<LocalUIState> = { 
-        lastStallAt: 0,
-        lastStallSource: 'AUTO' // [STABILITY] Clear user intent once sync is resolved or aborted
-    };
-    if (this.uiState.isAwaitingSync) { patch.isAwaitingSync = false; }
-    this.updateUIState(patch);
-    
-    if (this.state?.playbackStalled) {
-        this.patchState({ playbackStalled: false });
-    }
-  }
-
-  /**
-   * [INTENT] Generates a new intent ID to track the current user command.
-   * Returns the new ID for immediate use in postAction calls.
-   */
-  public resetPlaybackIntent(): number {
-    const newId = Date.now();
-    this.updateUIState({ playbackIntentId: newId });
-    return newId;
-  }
-
-  public getPlaybackIntentId(): number {
-    return this.uiState.playbackIntentId;
-  }
-
-  /**
-   * [CLEANUP] Resets all cache-related metrics in both synced and local state.
-   */
-  public resetCacheStats(): void {
-    this.patchState({ 
-        cacheCount: 0,
-        cacheSizeBytes: 0,
-        cacheStats: { count: 0, size: 0 } 
-    });
-    this.updateUIState({ neuralBuffer: { count: 0, sizeMb: 0 } });
-  }
-
-  /**
-   * updateState() - Passive data merge.
-   * Logic is now handled by PlaybackController.
-   */
-  public updateState(newState: Partial<UISyncPacket>, source: 'remote' | 'local' = 'remote'): void {
-    if (source === 'remote' && !this._isHydrated) {
+    if (patch.state && !this._isHydrated) {
       this._isHydrated = true;
+      patch.isHandshakeComplete = true;
     }
 
-    if (this.uiState.isDraggingSlider && source === 'remote') {
+    // [PERFORMANCE] Prevent redundant updates if state is identical,
+    // BUT always allow the first hydration to propagate to ensure UI parity.
+    const hasChanges = Object.entries(patch).some(([key, value]) => !this.isEqual(value, (this.state as any)[key]));
+    if (wasHydrated && !hasChanges) {
       return;
     }
 
-    const changedEntries = Object.entries(newState).filter(([key, value]) => {
-      const current = (this.state as any)?.[key] ?? (DEFAULT_SYNC_PACKET as any)[key];
-      return value !== undefined && !this.isEqual(value, current);
-    });
+    const oldState = { ...this.state };
 
-    if (changedEntries.length === 0) { return; }
+    // [SOVEREIGNTY] Timestamp local stalls
+    // We update lastStallAt if we are starting a stall, OR if the source is explicitly being changed.
+    const isStartingStall = (patch.isAwaitingSync && !oldState.isAwaitingSync) || (patch.playbackStalled && !oldState.playbackStalled);
+    const isChangingSource = patch.lastStallSource && patch.lastStallSource !== oldState.lastStallSource;
 
-    const oldState = this.state;
-    // [HYDRATION] Merge with defaults if this is the first update
-    const updatedState = { ...(this.state || DEFAULT_SYNC_PACKET) } as UISyncPacket;
-    
-    changedEntries.forEach(([key, value]) => {
-      if (value !== undefined) {
-        if (key === 'state' && typeof value === 'object' && value !== null) {
-          updatedState.state = { ...updatedState.state, ...value };
-        } else {
-          (updatedState as any)[key] = value;
-        }
-
-        // [STABILITY] Timestamp background stalls if they just arrived and weren't already tracked
-        if (key === 'playbackStalled' && value === true && !oldState?.playbackStalled) {
-            this.updateUIState({ 
-                lastStallAt: Date.now(), 
-                lastStallSource: 'AUTO' // Background stalls are auto
-            });
-        }
-
-        // [INTENT] Capture authoritative intent from extension
-        if (key === 'playbackIntentId' && value !== undefined) {
-            this.updateUIState({ playbackIntentId: value as number });
-        }
+    if (isStartingStall || isChangingSource) {
+      patch.lastStallAt = Date.now();
+      // If source not provided in patch, default to AUTO if starting playbackStalled, else USER
+      if (!patch.lastStallSource) {
+        patch.lastStallSource = patch.playbackStalled ? 'AUTO' : 'USER';
       }
-    });
+    }
 
-    this.state = updatedState;
+    // [HARDENING] Deep merge nested state to prevent partial syncs from overwriting metadata
+    const finalPatch = { ...patch };
+    if (patch.state && this.state.state) {
+      finalPatch.state = { ...this.state.state, ...patch.state };
+    }
+    if (patch.availableVoices && this.state.availableVoices) {
+      finalPatch.availableVoices = { ...this.state.availableVoices, ...patch.availableVoices };
+    }
+    if (patch.cacheStats && this.state.cacheStats) {
+      finalPatch.cacheStats = { ...this.state.cacheStats, ...patch.cacheStats };
+    }
 
-    // Notify listeners
+    this.state = { ...this.state, ...finalPatch };
+
+    // [DNA] Recalculate static isSyncing for subscribers
+    this.state.isSyncing = this.calculateSyncingState();
+
+    // [HARDENING] Notify listeners
     this.listeners.forEach((entry) => {
-      const stateToSelect = this.state!;
-      const newValue = entry.selector(stateToSelect);
-      const oldValue = oldState ? entry.selector(oldState) : entry.selector(DEFAULT_SYNC_PACKET);
-      
-      if (oldState === null || !this.isEqual(newValue, oldValue)) {
+      const newValue = entry.selector(this.state);
+
+      // [SOVEREIGNTY] Force notification on first hydration (transition to _isHydrated = true)
+      // or if the slice actually changed.
+      const shouldNotify = (!wasHydrated && this._isHydrated) || !this.isEqual(newValue, entry.lastValue);
+
+      if (shouldNotify) {
         entry.lastValue = newValue;
         entry.listener(newValue);
       }
     });
+
+    console.log(`[STORE] 💎 State Updated. isSyncing=${this.state.isSyncing}, isSupported=${this.state.state?.focusedIsSupported}, awaitingSync=${this.state.isAwaitingSync}`);
+  }
+
+  public resetCacheStats(): void {
+    this.patchState({
+      cacheCount: 0,
+      cacheSizeBytes: 0,
+      cacheStats: { count: 0, size: 0 }
+    });
+  }
+
+  /** Proxy methods for backward compatibility */
+  public updateState(patch: Partial<StoreState>, source: 'remote' | 'local' = 'remote'): void {
+    if (source === 'remote' && this.state.isDraggingSlider) { return; }
+    this.patchState(patch);
+  }
+  public updateUIState(patch: Partial<StoreState>): void { this.patchState(patch); }
+
+  public resetLoadingStates(): void {
+    this.patchState({
+      lastStallAt: 0,
+      lastStallSource: 'AUTO',
+      isBuffering: false,
+      isAwaitingSync: false,
+      playbackStalled: false
+    });
+  }
+
+  public resetPlaybackIntent(): number {
+    const newId = Date.now();
+    this.patchState({ playbackIntentId: newId });
+    return newId;
+  }
+
+  public resetBatchIntent(): number {
+    const newId = Date.now();
+    this.patchState({ batchIntentId: newId });
+    return newId;
+  }
+
+  public setQueue(window: WindowSentence[]): void {
+    this.patchState({ activeQueue: window });
+  }
+
+  private calculateSyncingState(): boolean {
+    const {
+      isAwaitingSync = false,
+      playbackStalled = false,
+      lastStallAt = 0,
+      lastStallSource = 'AUTO',
+      playbackIntent = 'PAUSED'
+    } = this.state;
+
+    if (playbackIntent !== 'PLAYING') {
+      return false;
+    }
+
+    const isUserIntent = lastStallSource === 'USER';
+    const stallGracePeriod = isUserIntent ? 0 : 300; // ms
+    const stallDuration = Date.now() - lastStallAt;
+
+    return (playbackStalled || isAwaitingSync) && (stallDuration >= stallGracePeriod);
   }
 
   /**
-   * Surgically patches a slice of the current state and notifies affected listeners.
-   * Used for lightweight IPC commands (e.g. `voices`) that don't emit a full UI_SYNC.
+   * sets the active intent ID globally and notifies all listeners.
    */
-  public patchState(patch: Partial<UISyncPacket>): void {
-    this.updateState(patch, 'local');
+  public setIntentIds(playbackId?: number, batchId?: number): void {
+    const patch: any = {};
+    if (playbackId !== undefined) { patch.playbackIntentId = playbackId; }
+    if (batchId !== undefined) { patch.batchIntentId = batchId; }
+    this.patchState(patch);
   }
 
   private isEqual(a: any, b: any): boolean {
-    if (a === b) {return true;}
-    if (typeof a !== typeof b) {return false;}
-    
+    if (a === b) { return true; }
+    if (typeof a !== typeof b) { return false; }
     if (a instanceof Set && b instanceof Set) {
-      if (a.size !== b.size) {return false;}
-      for (const item of a) {if (!b.has(item)) {return false;}}
+      if (a.size !== b.size) { return false; }
+      for (const item of a) { if (!b.has(item)) { return false; } }
       return true;
     }
-
     if (Array.isArray(a) && Array.isArray(b)) {
-      if (a.length !== b.length) {return false;}
+      if (a.length !== b.length) { return false; }
       return a.every((val, index) => this.isEqual(val, b[index]));
     }
-    
     if (typeof a === 'object' && a !== null && b !== null) {
       const keysA = Object.keys(a);
       const keysB = Object.keys(b);
-      if (keysA.length !== keysB.length) {return false;}
-      // Shallow compare for state chunks is usually enough, 
-      // but let's be safe for nested chapter/sentence data.
+      if (keysA.length !== keysB.length) { return false; }
       return keysA.every(key => this.isEqual(a[key], b[key]));
     }
-
     return false;
   }
 }

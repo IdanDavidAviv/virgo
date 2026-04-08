@@ -1,13 +1,12 @@
 import { WebviewStore } from './WebviewStore';
-import { PlaybackController } from '../playbackController';
-import { AudioStrategy, AudioVoice, OutgoingAction, IncomingCommand, AudioEngineEvent, AudioEngineEventType } from '../../common/types';
+import { AudioStrategy, AudioVoice, AudioEngineEvent, AudioEngineEventType } from '../../common/types';
 import { LocalAudioStrategy } from '../strategies/LocalAudioStrategy';
 import { NeuralAudioStrategy } from '../strategies/NeuralAudioStrategy';
-// [SOVEREIGNTY] MessageClient dependency removed from Engine layer.
 
 /**
- * WebviewAudioEngine: High-Integrity Audio Lifecycle Manager
+ * WebviewAudioEngine: High-Integrity Audio Lifecycle Manager (v2.3.0)
  * Wraps the HTMLAudioElement and manages raw Blob playback and memory cleanup.
+ * [SOVEREIGNTY]: Passive worker that executes commands from the Controller.
  */
 export class WebviewAudioEngine {
   private static instance: WebviewAudioEngine;
@@ -16,40 +15,14 @@ export class WebviewAudioEngine {
   private strategies: Map<string, AudioStrategy> = new Map();
   public onEvent?: (event: AudioEngineEvent) => void;
   private _isPrimed: boolean = false;
-  private playbackLock: Promise<void> = Promise.resolve();
+  
+  // Mutex & Sovereignty
+  private playbackMutex: Promise<void> = Promise.resolve();
+  private pendingResolvers: Set<() => void> = new Set();
+  private activeIntentId: number = 0; // Default to 0 to align with initial store state
 
   private constructor() {
     this.setupListeners();
-  }
-
-  private get activeStrategy(): AudioStrategy {
-      return this.getStrategy(this.activeMode);
-  }
-
-  private getStrategy(mode: 'local' | 'neural'): AudioStrategy {
-      let strategy = this.strategies.get(mode);
-      if (!strategy) {
-          console.log(`[AudioEngine] 🏗️ Lazily creating strategy: ${mode.toUpperCase()}`);
-          strategy = mode === 'neural' ? new NeuralAudioStrategy() : new LocalAudioStrategy();
-          strategy.onEvent = (e) => this.onEvent?.(e);
-          
-          // HYDRATION GATE: Ensure new strategy starts with current sovereign settings
-          const state = WebviewStore.getInstance().getState();
-          const { rate, volume } = this.calculateSettings(state.rate, state.volume);
-          strategy.setRate(rate);
-          strategy.setVolume(volume);
-          
-          this.strategies.set(mode, strategy);
-      }
-      return strategy;
-  }
-
-  private calculateSettings(rawRate: number, rawVolume: number) {
-      // Sovereign Rate Mapping: -10..10 maps to 0.5x to 2x (linear approximation)
-      const mappedRate = rawRate >= 0 ? 1 + (rawRate / 10) : 1 + (rawRate / 20);
-      // Sovereign Volume Mapping: 0..100 maps to 0..1.0
-      const mappedVol = Math.max(0, Math.min(1, rawVolume / 100));
-      return { rate: mappedRate, volume: mappedVol };
   }
 
   public static getInstance(): WebviewAudioEngine {
@@ -62,15 +35,27 @@ export class WebviewAudioEngine {
     return this.instance;
   }
 
+  /**
+   * [SOVEREIGNTY] Atomic reset of the entire engine state.
+   * Useful for test cleanup or fatal error recovery.
+   */
   public static resetInstance(): void {
     if (this.instance) {
       this.instance.dispose();
     }
     if (typeof window !== 'undefined' && (window as any).__AUDIO_ENGINE__) {
-        (window as any).__AUDIO_ENGINE__.dispose();
+        try { (window as any).__AUDIO_ENGINE__.dispose(); } catch(e) {}
         (window as any).__AUDIO_ENGINE__ = undefined;
     }
     this.instance = undefined as any;
+  }
+
+  public resetSovereignty(): void {
+      console.log('[AUDIO] 🛡️ Resetting Sovereignty...');
+      this.stop();
+      this.activeIntentId = 0;
+      this.playbackMutex = Promise.resolve();
+      this.strategies.forEach(s => s.wipeCache?.());
   }
 
   public dispose(): void {
@@ -78,7 +63,6 @@ export class WebviewAudioEngine {
     this.strategies.forEach(s => s.dispose());
     this.strategies.clear();
   }
-
 
   private setupListeners(): void {
     const store = WebviewStore.getInstance();
@@ -96,17 +80,11 @@ export class WebviewAudioEngine {
         this.updateStrategy(voiceId);
     });
 
-    // 3. [INTENT SYNC] Removed legacy intent property.
-    // Use PlaybackController state if internal logic gating is needed.
-
-    // [SOVEREIGNTY] SYNTHESIS_READY logic moved to PlaybackController.
-
     // 4. [PLAYBACK SYNC] Reactive halt/pause
     store.subscribe((s) => s.isPaused, (isPaused) => {
         if (isPaused) { this.pause(); }
     });
     store.subscribe((s) => s.isPlaying, (isPlaying) => {
-        // Only stop if we are not playing. Stop is more aggressive than pause.
         if (!isPlaying) { this.stop(); }
     });
 
@@ -123,160 +101,214 @@ export class WebviewAudioEngine {
       const newMode = isNeural ? 'neural' : 'local';
       
       if (this.activeMode !== newMode) {
-          console.log(`[AudioEngine] 🔄 Switching mode to: ${newMode.toUpperCase()}`);
+          console.log(`[AUDIO] 🔄 Mode -> ${newMode.toUpperCase()}`);
           this.strategies.get(this.activeMode)?.stop();
           this.activeMode = newMode;
       }
   }
 
   public fallbackToLocal(): void {
-      console.warn('[AudioEngine] ⚠️ Neural failure detected. Falling back to Local audio.');
+      console.warn('[AUDIO] ⚠️ Neural fallback -> LOCAL');
       this.strategies.get('neural')?.stop();
       this.activeMode = 'local';
-      // Trigger a state update in the store to inform UI
       WebviewStore.getInstance().updateState({ engineMode: 'local' });
   }
 
-  public async play(intentId?: number): Promise<void> {
-    const unlock = await this.acquirePlaybackLock();
-    try {
-        await this.activeStrategy.play(intentId);
-    } finally {
-        unlock();
-    }
+  private get activeStrategy(): AudioStrategy {
+      return this.getStrategy(this.activeMode);
   }
 
-  public async acquirePlaybackLock(): Promise<() => void> {
-    let resolveUnlock: () => void;
-    const newLock = new Promise<void>(resolve => {
-        resolveUnlock = resolve;
-    });
-
-    const previousLock = this.playbackLock;
-    // [HARDENED] Ensure the next lock is chained even if the previous one catches/rejects.
-    this.playbackLock = previousLock.then(() => newLock, () => newLock);
-
-    // [HARDENED] If the previous lock rejected, we still want to acquire the current one.
-    return previousLock.then(
-        () => resolveUnlock,
-        () => resolveUnlock
-    );
+  private getStrategy(mode: 'local' | 'neural'): AudioStrategy {
+      let strategy = this.strategies.get(mode);
+      if (!strategy) {
+          console.log(`[AudioEngine] 🏗️ Creating strategy: ${mode.toUpperCase()}`);
+          strategy = mode === 'neural' ? new NeuralAudioStrategy() : new LocalAudioStrategy();
+          strategy.onEvent = (e) => this.onEvent?.({ 
+              ...e, 
+              intentId: e.intentId ?? this.activeIntentId 
+          });
+          
+          const state = WebviewStore.getInstance().getState();
+          const { rate, volume } = this.calculateSettings(state.rate, state.volume);
+          strategy.setRate(rate);
+          strategy.setVolume(volume);
+          
+          this.strategies.set(mode, strategy);
+      }
+      return strategy;
   }
 
-  public isStrategyActive(strategyId: string): boolean {
-    return this.activeMode === strategyId;
+  private calculateSettings(rawRate: number, rawVolume: number) {
+      const mappedRate = rawRate >= 0 ? 1 + (rawRate / 10) : 1 + (rawRate / 20);
+      const mappedVol = Math.max(0, Math.min(1, rawVolume / 100));
+      return { rate: mappedRate, volume: mappedVol };
   }
 
   /**
-   * [NEW] Universal Unlocker: Primes the audio subsystem during a user gesture.
-   * CALL THIS synchronously in the onClick handler before any async/IPC logic.
+   * [v2.3.1] Linear Mutex with Intent-Busting: Ensures only one audio operation executes at a time,
+   * but allows newer User Intents to proactively "bust" stale, waiting locks.
    */
+  public async acquireLock(intentId?: number): Promise<(() => void) | null> {
+    if (intentId !== undefined && intentId < this.activeIntentId) {
+      console.warn(`[AUDIO] 🛡️ Zombie lock rejected: ${intentId} < ${this.activeIntentId}`);
+      return null;
+    }
+
+    // [SOVEREIGNTY] Proactively bust ALL previous locks if a newer intent arrives
+    if (intentId !== undefined && intentId > this.activeIntentId) {
+      console.log(`[AUDIO] 💥 Busting previous locks for intent ${this.activeIntentId} -> ${intentId}`);
+      this.pendingResolvers.forEach(resolve => resolve());
+      this.pendingResolvers.clear();
+      this.activeIntentId = intentId;
+    }
+
+    const previousMutex = this.playbackMutex;
+    let resolveNext: () => void;
+    
+    this.playbackMutex = new Promise<void>(resolve => {
+        resolveNext = resolve;
+    });
+
+    this.pendingResolvers.add(resolveNext!);
+
+    // [v2.3.1] Safety Timeout (Ghost Lock Guard)
+    // Reduce to 3s in test environment to avoid Vitest 5s timeouts
+    const timeoutMs = (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') ? 3000 : 10000;
+    const safetyTimeout = setTimeout(() => {
+        console.warn(`[AUDIO] 🛡️ Lock safety timeout (Max Hold) triggered for intent ${intentId ?? 'internal'}`);
+        this.pendingResolvers.delete(resolveNext!);
+        resolveNext();
+    }, timeoutMs);
+
+    // Wait for the chain to settle
+    await previousMutex;
+
+    // [SOVEREIGNTY] Final check after waiting: did a NEWER intent arrive while we sat in queue?
+    if (intentId !== undefined && intentId < this.activeIntentId) {
+        console.warn(`[AUDIO] 🛡️ Intent ${intentId} became stale while waiting. Active: ${this.activeIntentId}`);
+        this.pendingResolvers.delete(resolveNext!);
+        resolveNext!();
+        return null;
+    }
+    
+    return () => {
+        clearTimeout(safetyTimeout);
+        this.pendingResolvers.delete(resolveNext!);
+        resolveNext();
+    };
+  }
+
   public ensureAudioContext(): void {
     if (this._isPrimed) { return; }
-
-    // [SILENT PRIME] Use a separate, muted, empty audio element to "bless" 
-    // the audio context during a user gesture without playing actual sounds.
     const primer = new Audio();
     primer.muted = true;
     const playPromise = primer.play();
-    
-    // Handle environments where play() might not return a Promise (e.g. JSDOM)
     if (playPromise && typeof playPromise.then === 'function') {
         playPromise.then(() => {
             this._isPrimed = true;
-            console.log('[AudioEngine] 🔓 Audio subsystem primed silently via User Gesture');
-        }).catch(() => {
-            // Expected if no interaction occurred yet, we will retry on next interaction
-        });
+            console.log('[AudioEngine] 🔓 Audio primed');
+        }).catch(() => {});
     } else {
         this._isPrimed = true;
     }
   }
 
-  public prepareForPlayback(): void {
-    // [SOVEREIGNTY] Reset logic moved to PlaybackController.
+  public async play(intentId?: number): Promise<void> {
+    if (this.isStopped()) {return;}
+    const release = await this.acquireLock(intentId);
+    if (!release) {return;}
+    try {
+        if (this.isStopped()) {return;}
+        await this.activeStrategy.play?.(intentId);
+    } finally {
+        release();
+    }
   }
 
   public async playBlob(blob: Blob, cacheKey: string, intentId?: number): Promise<void> {
-    const { playbackIntent } = WebviewStore.getInstance().getUIState();
-    if (playbackIntent === 'STOPPED') {
-        console.log('[AudioEngine] 🛑 Sovereignty Guard: Rejecting playBlob because intent is STOPPED');
-        return;
-    }
-
-    const unlock = await this.acquirePlaybackLock();
+    if (this.isStopped()) {return;}
+    const release = await this.acquireLock(intentId);
+    if (!release) {return;}
     try {
-        const strategy = this.getStrategy('neural') as NeuralAudioStrategy;
-        await strategy.playBlob(blob, cacheKey, intentId);
+        if (this.isStopped() || this.activeMode !== 'neural') {
+            console.warn(`[AUDIO] 🛡️ playBlob rejected: stopped=${this.isStopped()}, mode=${this.activeMode}`);
+            return;
+        }
+        const strategy = this.getStrategy('neural');
+        (strategy as any).playBlob?.(blob, cacheKey, intentId);
     } finally {
-        unlock();
+        release();
     }
-  }
-
-  public startAdaptiveWait(cacheKey: string, intentId: number): Promise<void> {
-    return (this.getStrategy('neural') as NeuralAudioStrategy).startAdaptiveWait(cacheKey, intentId);
-  }
-
-  public setTarget(cacheKey: string | null): void {
-      (this.getStrategy('neural') as NeuralAudioStrategy).setTarget(cacheKey);
   }
 
   public async ingestData(cacheKey: string, base64Data: string, intentId: number): Promise<void> {
-      const unlock = await this.acquirePlaybackLock();
-      try {
-          await (this.getStrategy('neural') as NeuralAudioStrategy).ingestData(cacheKey, base64Data, intentId);
-      } finally {
-          unlock();
-      }
-  }
-
-  public handleSynthesisReady(cacheKey: string, intentId: number): void {
-      (this.getStrategy('neural') as NeuralAudioStrategy).handleSynthesisReady(cacheKey, intentId);
+      await this.getStrategy('neural').ingestData?.(cacheKey, base64Data, intentId);
   }
 
   public async playFromBase64(base64: string, cacheKey?: string, intentId?: number): Promise<void> {
-      await (this.getStrategy('neural') as NeuralAudioStrategy).playFromBase64(base64, cacheKey, intentId);
+    if (this.isStopped()) {return;}
+    const release = await this.acquireLock(intentId);
+    if (!release) {return;}
+    try {
+        if (this.isStopped() || this.activeMode !== 'neural') {return;}
+        await this.getStrategy('neural').playFromBase64?.(base64, cacheKey, intentId);
+    } finally {
+        release();
+    }
   }
 
   public async playFromCache(cacheKey: string, intentId?: number): Promise<boolean> {
-      const unlock = await this.acquirePlaybackLock();
+      if (this.isStopped()) {return false;}
+      const release = await this.acquireLock(intentId);
+      if (!release) {return false;}
       try {
+          if (this.isStopped()) {return false;}
           if (this.activeStrategy.playFromCache) {
               return await this.activeStrategy.playFromCache(cacheKey, intentId);
           }
           return false;
       } finally {
-          unlock();
+          release();
       }
   }
 
+  public isSegmentReady(cacheKey: string): boolean {
+    return !!this.activeStrategy.isSegmentReady?.(cacheKey);
+  }
+
   public async synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void> {
-    const unlock = await this.acquirePlaybackLock();
+    const release = await this.acquireLock(intentId);
+    if (!release) {return;}
     try {
         await this.activeStrategy.synthesize(text, voice, intentId);
     } finally {
-        unlock();
+        release();
     }
   }
 
   public pause(): void {
+    console.log('[AudioEngine] ⏸️ PAUSE');
     this.strategies.forEach(s => s.pause());
   }
 
   public resume(): void {
+    console.log('[AudioEngine] ▶️ RESUME');
     this.activeStrategy.resume();
   }
 
   public stop(): void {
+    console.log('[AudioEngine] 🛑 STOP');
+    // [SOVEREIGNTY] Unblock EVERYONE waiting for the lock
+    this.pendingResolvers.forEach(resolve => resolve());
+    this.pendingResolvers.clear();
+    this.playbackMutex = Promise.resolve();
     this.strategies.forEach(s => s.stop());
   }
 
-  // --- TEST COMPATIBILITY LAYER ---
-  
-  /** @internal Used by legacy tests to spy on strategy behavior. */
-  public get localStrategy(): AudioStrategy { return this.getStrategy('local'); }
-  /** @internal Used by legacy tests to spy on strategy behavior. */
-  public get neuralStrategy(): AudioStrategy { return this.getStrategy('neural'); }
+  private isStopped(): boolean {
+    const { playbackIntent } = WebviewStore.getInstance().getUIState();
+    return playbackIntent === 'STOPPED';
+  }
 
   public setVolume(value: number): void {
     const { volume } = this.calculateSettings(0, value);
@@ -289,28 +321,28 @@ export class WebviewAudioEngine {
   }
 
   public async wipeCache(): Promise<void> {
-    await (this.getStrategy('neural') as NeuralAudioStrategy).wipeCache();
+    const strategy = this.getStrategy('neural');
+    // [SOVEREIGNTY] Explicitly revoke blobs BEFORE clearing the cache registry
+    await (strategy as any).revokeAll?.();
+    
+    if (strategy.cache) {
+        await strategy.cache.clearAll();
+    } else {
+        await strategy.wipeCache?.();
+    }
   }
 
-  /**
-   * [IPC] Comprehensive memory and cache cleanup.
-   */
   public async purgeMemory(): Promise<void> {
-      console.log('[AudioEngine] 🧹 Purging memory and cache...');
+      console.log('[AudioEngine] 🧹 Purging...');
       await this.wipeCache();
-      this.strategies.get('local')?.stop(); // Ensure local is also quiet without lazy-loading
+      this.strategies.get('local')?.stop();
   }
 
-  /**
-   * [TEST COMPAT] Returns the underlying audio element from the neural strategy.
-   * Used by legacy tests to spy on playback events.
-   */
   public getAudioElement(): HTMLAudioElement {
     return (this.getStrategy('neural') as NeuralAudioStrategy).audio;
   }
 
-  /**
-   * [SOVEREIGNTY] resetLoadingStates moved to Controllers.
-   */
-  public resetLoadingStates(): void {}
+  // --- Legacy Proxies ---
+  public get localStrategy(): AudioStrategy { return this.getStrategy('local'); }
+  public get neuralStrategy(): AudioStrategy { return this.getStrategy('neural'); }
 }

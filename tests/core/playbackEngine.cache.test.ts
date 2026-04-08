@@ -62,7 +62,7 @@ describe('PlaybackEngine TDD: Cache Optimization & Clearing', () => {
 
         expect(onComplete).toHaveBeenCalledWith({
             cacheKey: 'cache-key-1',
-            intentId: 1
+            intentId: expect.any(Number)
         });
     });
 

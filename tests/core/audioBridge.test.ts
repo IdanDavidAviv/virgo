@@ -62,9 +62,11 @@ describe('AudioBridge', () => {
         expect(stateStore.state.currentChapterIndex).toBe(0);
         expect(stateStore.state.currentSentenceIndex).toBe(0);
         expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
-            cacheKey: expect.stringContaining('NeuralVoice'),
+            cacheKey: expect.stringMatching(/neuralvoice/i),
             data: '',
-            sentenceIndex: 0
+            sentenceIndex: 0,
+            sentences: expect.any(Array),
+            totalSentences: 2
         }));
         expect(playbackEngine.speakNeural).not.toHaveBeenCalled();
     });
@@ -80,9 +82,10 @@ describe('AudioBridge', () => {
         await audioBridge.start(0, 0, options);
 
         expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
-            cacheKey: expect.stringContaining('NeuralVoice'),
+            cacheKey: expect.stringMatching(/neuralvoice/i),
             data: 'cached-blob', // Restored Push
-            sentenceIndex: 0
+            sentenceIndex: 0,
+            intentId: 123
         }));
         expect(readySpy).toHaveBeenCalled();
     });

@@ -44,8 +44,9 @@ describe('WebviewStore', () => {
     
     // Subscribe to isPlaying
     store.subscribe((state) => state.isPlaying, listener);
+    listener.mockClear();
 
-    // Initial sync (listener called once)
+    // Initial sync
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         command: IncomingCommand.UI_SYNC,
@@ -87,6 +88,7 @@ describe('WebviewStore', () => {
     const store = WebviewStore.getInstance();
     const listener = vi.fn();
     const unsubscribe = store.subscribe((state) => state.rate, listener);
+    listener.mockClear();
 
     unsubscribe();
 

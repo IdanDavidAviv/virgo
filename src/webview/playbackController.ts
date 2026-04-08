@@ -1,7 +1,8 @@
 import { WebviewStore } from './core/WebviewStore';
 import { MessageClient } from './core/MessageClient';
 import { WebviewAudioEngine } from './core/WebviewAudioEngine';
-import { OutgoingAction, IncomingCommand, AudioEngineEvent, AudioEngineEventType, UISyncPacket } from '../common/types';
+import { OutgoingAction, IncomingCommand, AudioEngineEvent, AudioEngineEventType, UISyncPacket, WindowSentence } from '../common/types';
+import { generateCacheKey } from '../common/cachePolicy';
 import { debounce } from './utils';
 
 /**
@@ -25,11 +26,17 @@ export class PlaybackController {
   private static instance: PlaybackController;
   private mode: PlaybackMode = PlaybackMode.STOPPED;
   private intent: PlaybackIntent = PlaybackIntent.STOPPED;
-  private activeIntentId: number = 0;
-  private isAwaitingSync: boolean = false;
+  private awaitingSync: boolean = false;
+  private isHandshakeComplete: boolean = false;
+  private activeIntentId: number = Date.now();
+  private activeBatchId: number = Date.now();
   private watchdog: NodeJS.Timeout | null = null;
   private intentExpiry: number = 0;
-  private readonly INTENT_TIMEOUT_MS = 3500; // [STABILITY] Grant 3.5s of sovereignty to user intent
+  private readonly INTENT_TIMEOUT_MS = 5000; // [STABILITY] Grant 5s of sovereignty to user intent
+  private transitionExpiry: number = 0;
+  private readonly TRANSITION_WINDOW_MS = 500; // [UI] 500ms window to ignore index syncs after a jump
+  private synthesizingKeys: Set<string> = new Set();
+  private readonly MAX_CONCURRENT_SYNTHESIS = 3;
   private constructor() {
     this.setupListeners();
     // [PASSIVE BINDING] Controllers bind to the Engine's event stream
@@ -67,9 +74,11 @@ export class PlaybackController {
   public clearIntent(): void {
     this.intent = PlaybackIntent.STOPPED;
     this.mode = PlaybackMode.STOPPED;
-    this.activeIntentId = 0;
+    const store = WebviewStore.getInstance();
+    store.setIntentIds(Date.now(), Date.now());
     this.intentExpiry = 0;
-    this.isAwaitingSync = false;
+    this.transitionExpiry = 0;
+    this.awaitingSync = false;
     this.clearWatchdog();
   }
 
@@ -94,8 +103,24 @@ export class PlaybackController {
     // --- IPC & LOGIC HELPERS ---
 
     client.onCommand<{ cacheKey: string, data: string, intentId: number }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data, intentId }) => {
-        console.log(`[PlaybackController] 📥 Data push for ${cacheKey} (Intent: ${intentId})`);
-        WebviewAudioEngine.getInstance().ingestData(cacheKey, data, intentId);
+        const engine = WebviewAudioEngine.getInstance();
+        const store = WebviewStore.getInstance();
+        
+        // 1. [FIFO] Atomic Ingestion
+        engine.ingestData(cacheKey, data, intentId);
+
+        // 2. [INTENT GUARD] Prune stale or background data from triggering play
+        const { playbackIntent } = store.getUIState();
+        const headKey = store.getSentenceKey();
+
+        // [AUTHORITATIVE PLAYBACK]
+        const currentPlaybackId = store.getState().playbackIntentId;
+        if (playbackIntent === 'PLAYING' && cacheKey === headKey && intentId === currentPlaybackId) {
+            console.log(`[PlaybackController] 🚀 AUTHORITATIVE PLAY: ${cacheKey} matches head for intent ${intentId}.`);
+            engine.playFromCache(cacheKey, intentId);
+        } else {
+            console.log(`[PlaybackController] 📥 Ingested ${cacheKey} (Background/Stale). Play inhibited.`);
+        }
     });
 
     // Unified Cache Stats handler
@@ -146,6 +171,7 @@ export class PlaybackController {
    * Centralizes Context Blessing -> Store Patch -> IPC dispatch.
    */
   public jumpToSentence(index: number): void {
+      if (!this.ensureHandshake()) {return;}
       console.log(`[PlaybackController] jumpToSentence(${index}) requested`);
       const store = WebviewStore.getInstance();
       const currentState = store.getState();
@@ -161,18 +187,80 @@ export class PlaybackController {
               isPaused: false
           }, 'local');
           store.updateUIState({ isAwaitingSync: true });
+          this.transitionExpiry = Date.now() + this.TRANSITION_WINDOW_MS;
       }
 
-      // 3. [IPC] Sovereign Emission
-      WebviewAudioEngine.getInstance().prepareForPlayback();
+      // 3. [FIFO] Atomic Flush
+      this.flushQueue();
+
+      // 4. [IPC] Sovereign Emission
+      WebviewAudioEngine.getInstance().ensureAudioContext();
       const intentId = store.resetPlaybackIntent();
-      MessageClient.getInstance().postAction(OutgoingAction.JUMP_TO_SENTENCE, { index, intentId });
+      MessageClient.getInstance().postAction(OutgoingAction.JUMP_TO_SENTENCE, { 
+          index, 
+          intentId,
+          batchId: store.getState().batchIntentId 
+      });
+  }
+
+  /**
+   * loadDocument(): Triggers authoritative document loading.
+   */
+  public loadDocument(): void {
+    if (!this.ensureHandshake()) { return; }
+    console.log('[PlaybackController] 📄 USER LOAD_DOCUMENT requested');
+    const store = WebviewStore.getInstance();
+    const intentId = store.resetPlaybackIntent();
+    this.activeIntentId = intentId;
+    
+    store.updateUIState({ 
+        isAwaitingSync: true,
+        activeMode: 'FILE'
+    });
+    
+    MessageClient.getInstance().postAction(OutgoingAction.LOAD_DOCUMENT, { intentId });
+    this.startWatchdog();
+  }
+
+  /**
+   * resetContext(): Snappy UI clearing.
+   */
+  public resetContext(): void {
+    if (!this.ensureHandshake()) { return; }
+    console.log('[PlaybackController] 🧹 USER RESET_CONTEXT requested');
+    const store = WebviewStore.getInstance();
+    const intentId = store.resetPlaybackIntent();
+    this.activeIntentId = intentId;
+    
+    store.updateState({
+        activeMode: 'FILE',
+        state: {
+            ...store.getState()?.state,
+            activeDocumentUri: null as any,
+            activeFileName: null as any
+        } as any
+    });
+    
+    store.updateUIState({ isAwaitingSync: true });
+
+    MessageClient.getInstance().postAction(OutgoingAction.RESET_CONTEXT, { intentId });
+    this.startWatchdog();
+  }
+
+  /**
+   * setMode() - Atomic transition between FILE and SNIPPET modes.
+   */
+  public setMode(mode: 'FILE' | 'SNIPPET'): void {
+    if (!this.ensureHandshake()) { return; }
+    console.log(`[PlaybackController] 🔄 Switching mode to: ${mode}`);
+    WebviewStore.getInstance().updateUIState({ activeMode: mode });
   }
 
   /**
    * jumpToChapter(): Full chapter navigation logic.
    */
   public jumpToChapter(index: number): void {
+      if (!this.ensureHandshake()) {return;}
       console.log(`[PlaybackController] jumpToChapter(${index}) requested`);
       const store = WebviewStore.getInstance();
       const currentState = store.getState();
@@ -189,12 +277,13 @@ export class PlaybackController {
           });
       }
       
-      // 3. Optimistic UI flash
-      store.updateUIState({ isAwaitingSync: true });
-      
-      WebviewAudioEngine.getInstance().prepareForPlayback();
+      // 3. [FIFO] Atomic Flush
+      this.flushQueue();
+
+      WebviewAudioEngine.getInstance().ensureAudioContext();
+      const batchId = store.resetBatchIntent();
       const intentId = store.resetPlaybackIntent();
-      MessageClient.getInstance().postAction(OutgoingAction.JUMP_TO_CHAPTER, { index, intentId });
+      MessageClient.getInstance().postAction(OutgoingAction.JUMP_TO_CHAPTER, { index, intentId, batchId });
   }
 
   /**
@@ -204,17 +293,23 @@ export class PlaybackController {
       console.log(`[PlaybackController] selectVoice(${voiceId}) requested`);
       const store = WebviewStore.getInstance();
       
-      // Authoritative update
+      // [SOVEREIGNTY] Authoritative update
       store.patchState({ selectedVoice: voiceId });
       
-      MessageClient.getInstance().postAction(OutgoingAction.VOICE_CHANGED, { voice: voiceId });
+      MessageClient.getInstance().postAction(OutgoingAction.VOICE_CHANGED, { 
+          voice: voiceId,
+          intentId: store.getState().playbackIntentId
+      });
   }
 
   /**
    * setVolume(): Throttled volume orchestration.
    */
   private debouncedVolumeEmit = debounce((volume: number) => {
-      MessageClient.getInstance().postAction(OutgoingAction.VOLUME_CHANGED, { volume });
+      MessageClient.getInstance().postAction(OutgoingAction.VOLUME_CHANGED, { 
+          volume,
+          intentId: WebviewStore.getInstance().getState().playbackIntentId
+      });
   }, 150);
 
   public setVolume(volume: number): void {
@@ -232,7 +327,10 @@ export class PlaybackController {
    * setRate(): Throttled rate orchestration.
    */
   private debouncedRateEmit = debounce((rate: number) => {
-      MessageClient.getInstance().postAction(OutgoingAction.RATE_CHANGED, { rate });
+      MessageClient.getInstance().postAction(OutgoingAction.RATE_CHANGED, { 
+          rate,
+          intentId: WebviewStore.getInstance().getState().playbackIntentId
+      });
   }, 150);
 
   public setRate(rate: number): void {
@@ -252,7 +350,10 @@ export class PlaybackController {
       const store = WebviewStore.getInstance();
       
       store.patchState({ engineMode: mode });
-      MessageClient.getInstance().postAction(OutgoingAction.ENGINE_MODE_CHANGED, { mode });
+      MessageClient.getInstance().postAction(OutgoingAction.ENGINE_MODE_CHANGED, { 
+          mode,
+          intentId: this.activeIntentId
+      });
   }
 
   /**
@@ -261,21 +362,30 @@ export class PlaybackController {
   public clearCache(): void {
       console.log('[PlaybackController] clearCache() requested');
       WebviewAudioEngine.getInstance().wipeCache();
-      MessageClient.getInstance().postAction(OutgoingAction.CLEAR_CACHE);
+      MessageClient.getInstance().postAction(OutgoingAction.CLEAR_CACHE, { intentId: this.activeIntentId });
   }
 
   /**
    * handleSynthesisReady() - Sovereign fetch orchestration.
    */
   private handleSynthesisReady(cacheKey: string, intentId: number): void {
-      if (intentId < this.activeIntentId) {
-          console.warn(`[PlaybackController] 🛡️ Ignoring stale SYNTHESIS_READY for intent ${intentId} (current: ${this.activeIntentId})`);
+      const currentPlaybackId = WebviewStore.getInstance().getState().playbackIntentId;
+      if (intentId < currentPlaybackId) {
+          console.warn(`[PlaybackController] 🛡️ Ignoring stale SYNTHESIS_READY for intent ${intentId} (current: ${currentPlaybackId})`);
           return;
       }
       
       console.log(`[PlaybackController] 🟢 Synthesis ready for intent ${intentId}. Requesting audio fetch...`);
+      this.synthesizingKeys.delete(cacheKey);
       this.setBuffering(true);
-      MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey, intentId });
+      MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { 
+          cacheKey, 
+          intentId,
+          batchId: this.activeBatchId 
+      });
+      
+      // [FIFO] Trigger next pre-fetch
+      this._processQueue();
   }
 
   /**
@@ -283,30 +393,38 @@ export class PlaybackController {
    */
   private handleEngineEvent(event: AudioEngineEvent): void {
     const store = WebviewStore.getInstance();
-    const eventIntentId = event.intentId ?? 0;
+    const currentPlaybackId = store.getState().playbackIntentId;
 
     // [INTENT LATCH] Sovereign guard against stale reports
-    if (eventIntentId < this.activeIntentId) {
-        console.log(`[PlaybackController] 🛡️ Pruned stale engine event: ${event.type} (Intent: ${eventIntentId} < current: ${this.activeIntentId})`);
+    if (event.intentId < currentPlaybackId) {
+        console.log(`[PlaybackController] 🛡️ Pruned stale engine event: ${event.type} (Intent: ${event.intentId} < current: ${currentPlaybackId})`);
         return;
     }
 
-    console.log(`[PlaybackController] 🛰️ Sovereign Event: ${event.type} | Intent: ${eventIntentId}`);
+    // [CHRONOLOGICAL SOVEREIGNTY]
+    if (event.intentId > currentPlaybackId) {
+        console.log(`[PlaybackController] 📈 Adopting newer intent from engine event: ${event.intentId}`);
+        store.setIntentIds(event.intentId);
+    }
+
+    console.log(`[PlaybackController] 🛰️ Sovereign Event: ${event.type} | Intent: ${event.intentId}`);
 
     switch (event.type) {
         case AudioEngineEventType.PLAYING:
             this.mode = PlaybackMode.ACTIVE;
             this.intent = PlaybackIntent.PLAYING;
+            store.patchState({ playbackStalled: false });
             store.updateUIState({ 
                 playbackIntent: 'PLAYING', 
                 isBuffering: false, 
-                isAwaitingSync: false 
+                isAwaitingSync: false
             });
             break;
 
         case AudioEngineEventType.PAUSED:
             this.mode = PlaybackMode.PAUSED;
             this.intent = PlaybackIntent.PAUSED;
+            store.patchState({ playbackStalled: false });
             store.updateUIState({ 
                 playbackIntent: 'PAUSED',
                 isAwaitingSync: false
@@ -316,31 +434,31 @@ export class PlaybackController {
         case AudioEngineEventType.ENDED:
             this.mode = PlaybackMode.STOPPED;
             this.intent = PlaybackIntent.STOPPED;
+            store.patchState({ playbackStalled: false });
             store.updateUIState({ 
                 playbackIntent: 'STOPPED',
                 isAwaitingSync: false
             });
-            // Auto-advance logic usually handled by extension, 
-            // but we signal the completion of local playback.
-            MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: eventIntentId });
+            MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: event.intentId });
             break;
 
         case AudioEngineEventType.STALLED:
-            store.updateUIState({ isBuffering: true });
             store.patchState({ playbackStalled: true });
+            store.updateUIState({ isBuffering: true });
             break;
 
         case AudioEngineEventType.ERROR:
             console.error(`[PlaybackController] 🔴 Engine error: ${event.message}`);
             
-            // [RECOVERY] If neural synthesis fails, fallback to local
             const { engineMode } = store.getState();
             if (engineMode === 'neural') {
                 WebviewAudioEngine.getInstance().fallbackToLocal();
             }
 
+            this.synthesizingKeys.clear();
             this.mode = PlaybackMode.STOPPED;
             this.intent = PlaybackIntent.STOPPED;
+            store.patchState({ playbackStalled: false });
             store.updateUIState({ 
                 playbackIntent: 'STOPPED',
                 isBuffering: false,
@@ -354,16 +472,16 @@ export class PlaybackController {
    * play() - Sovereign orchestration for playback.
    */
   public play(currentUri?: string): void {
+    if (!this.ensureHandshake()) {return;}
     console.log('[PlaybackController] 🟢 USER PLAY requested');
-    this.activeIntentId++;
+    const store = WebviewStore.getInstance();
+    const intentId = store.resetPlaybackIntent();
     this.intent = PlaybackIntent.PLAYING;
     this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
     
     // [SYNC] Universal Unlocker: Priming on Play
     WebviewAudioEngine.getInstance().ensureAudioContext();
 
-    const store = WebviewStore.getInstance();
-    
     // [SOVEREIGNTY] Optimistic State Flip for immediate reactive feedback
     store.patchState({ isPlaying: true, isPaused: false });
     
@@ -379,32 +497,35 @@ export class PlaybackController {
     const resolvedUri = currentUri || store.getSentenceKey();
     
     // [SOVEREIGNTY] Check cache before synthesis request
-    WebviewAudioEngine.getInstance().playFromCache(resolvedUri, this.activeIntentId).then(hit => {
+    WebviewAudioEngine.getInstance().playFromCache(resolvedUri, intentId).then(hit => {
         if (!hit) {
             console.log(`[PlaybackController] Cache miss for ${resolvedUri}. Requesting synthesis...`);
             MessageClient.getInstance().postAction(OutgoingAction.REQUEST_SYNTHESIS, { 
                 cacheKey: resolvedUri, 
-                intentId: this.activeIntentId 
+                intentId,
+                batchId: store.getState().batchIntentId
             });
         }
     });
 
     MessageClient.getInstance().postAction(OutgoingAction.PLAY, { 
         cacheKey: resolvedUri, 
-        intentId: this.activeIntentId 
+        intentId,
+        batchId: store.getState().batchIntentId
     });
   }
 
   public pause(): void {
+    if (!this.ensureHandshake()) {return;}
     console.log('[PlaybackController] ⏸️ USER PAUSE requested');
-    this.activeIntentId++;
+    const store = WebviewStore.getInstance();
+    const intentId = store.resetPlaybackIntent();
     this.intent = PlaybackIntent.PAUSED;
     this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
 
     // [SYNC] Universal Unlocker: Priming on Pause
     WebviewAudioEngine.getInstance().ensureAudioContext();
 
-    const store = WebviewStore.getInstance();
     // [RECOVERY] Clear any previous persistent stall logic
     store.resetLoadingStates();
     
@@ -421,7 +542,7 @@ export class PlaybackController {
     this.startWatchdog();
 
     WebviewAudioEngine.getInstance().pause();
-    MessageClient.getInstance().postAction(OutgoingAction.PAUSE, { intentId: this.activeIntentId });
+    MessageClient.getInstance().postAction(OutgoingAction.PAUSE, { intentId });
   }
 
   public togglePlayPause(): void {
@@ -433,8 +554,10 @@ export class PlaybackController {
   }
 
   public stop(): void {
+    if (!this.ensureHandshake()) return;
     console.log('[PlaybackController] ⏹️ USER STOP requested');
-    this.activeIntentId++;
+    const store = WebviewStore.getInstance();
+    const intentId = store.resetPlaybackIntent();
     this.intent = PlaybackIntent.STOPPED;
     this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
 
@@ -442,11 +565,11 @@ export class PlaybackController {
     WebviewAudioEngine.getInstance().ensureAudioContext();
 
     // [RECOVERY] Clear any previous persistent stall logic
-    WebviewStore.getInstance().resetLoadingStates();
+    store.resetLoadingStates();
 
     // [SOVEREIGNTY] Update Store explicitly
-    WebviewStore.getInstance().patchState({ isPlaying: false, isPaused: false });
-    WebviewStore.getInstance().updateUIState({ 
+    store.patchState({ isPlaying: false, isPaused: false });
+    store.updateUIState({ 
         playbackIntent: 'STOPPED',
         isAwaitingSync: true, // Keep TRUE as tests expect a sync lock wait
         lastStallSource: 'USER'
@@ -456,58 +579,66 @@ export class PlaybackController {
     this.startWatchdog();
 
     WebviewAudioEngine.getInstance().stop();
-    MessageClient.getInstance().postAction(OutgoingAction.STOP, { intentId: this.activeIntentId });
+    MessageClient.getInstance().postAction(OutgoingAction.STOP, { intentId });
   }
 
   /**
    * [SOVEREIGNTY] Navigation intents: Always increment intentId to prune async race conditions.
    */
   public prevChapter(): void {
-      this.activeIntentId++;
+      if (!this.ensureHandshake()) return;
+      const store = WebviewStore.getInstance();
+      const intentId = store.resetPlaybackIntent();
       this.isAwaitingSync = true;
       this.startWatchdog();
 
       // [SYNC] Universal Unlocker: Priming on Prev Chapter
       WebviewAudioEngine.getInstance().ensureAudioContext();
 
-      WebviewStore.getInstance().updateUIState({ isAwaitingSync: true });
-      MessageClient.getInstance().postAction(OutgoingAction.PREV_CHAPTER, { intentId: this.activeIntentId });
+      store.updateUIState({ isAwaitingSync: true });
+      MessageClient.getInstance().postAction(OutgoingAction.PREV_CHAPTER, { intentId });
   }
 
-  public nextChapter(): void {
-      this.activeIntentId++;
-      this.isAwaitingSync = true;
+      const store = WebviewStore.getInstance();
+      const intentId = store.resetPlaybackIntent();
+      this.activeIntentId = intentId;
+      this.awaitingSync = true;
       this.startWatchdog();
 
       // [SYNC] Universal Unlocker: Priming on Next Chapter
       WebviewAudioEngine.getInstance().ensureAudioContext();
 
-      WebviewStore.getInstance().updateUIState({ isAwaitingSync: true });
-      MessageClient.getInstance().postAction(OutgoingAction.NEXT_CHAPTER, { intentId: this.activeIntentId });
+      store.updateUIState({ isAwaitingSync: true });
+      MessageClient.getInstance().postAction(OutgoingAction.NEXT_CHAPTER, { intentId });
   }
 
   public prevSentence(): void {
-      this.activeIntentId++;
-      this.isAwaitingSync = true;
+      const store = WebviewStore.getInstance();
+      const intentId = store.resetPlaybackIntent();
+      this.activeIntentId = intentId;
+      this.awaitingSync = true;
       this.startWatchdog();
 
       // [SYNC] Universal Unlocker: Priming on Prev Sentence
       WebviewAudioEngine.getInstance().ensureAudioContext();
 
-      WebviewStore.getInstance().updateUIState({ isAwaitingSync: true });
-      MessageClient.getInstance().postAction(OutgoingAction.PREV_SENTENCE, { intentId: this.activeIntentId });
+      store.updateUIState({ isAwaitingSync: true });
+      MessageClient.getInstance().postAction(OutgoingAction.PREV_SENTENCE, { intentId });
   }
 
   public nextSentence(): void {
-      this.activeIntentId++;
-      this.isAwaitingSync = true;
+      if (!this.ensureHandshake()) return;
+      const store = WebviewStore.getInstance();
+      const intentId = store.resetPlaybackIntent();
+      this.activeIntentId = intentId;
+      this.awaitingSync = true;
       this.startWatchdog();
 
       // [SYNC] Universal Unlocker: Priming on Next Sentence
       WebviewAudioEngine.getInstance().ensureAudioContext();
 
-      WebviewStore.getInstance().updateUIState({ isAwaitingSync: true });
-      MessageClient.getInstance().postAction(OutgoingAction.NEXT_SENTENCE, { intentId: this.activeIntentId });
+      store.updateUIState({ isAwaitingSync: true });
+      MessageClient.getInstance().postAction(OutgoingAction.NEXT_SENTENCE, { intentId });
   }
 
   /**
@@ -521,7 +652,10 @@ export class PlaybackController {
       store.patchState({ autoPlayMode: mode });
       store.updateUIState({ isAwaitingSync: false }); // Instant feedback for toggle
 
-      MessageClient.getInstance().postAction(OutgoingAction.SET_AUTO_PLAY_MODE, { mode });
+      MessageClient.getInstance().postAction(OutgoingAction.SET_AUTO_PLAY_MODE, { 
+          mode,
+          intentId: this.activeIntentId
+      });
   }
 
   public setBuffering(value: boolean): void {
@@ -529,7 +663,7 @@ export class PlaybackController {
   }
 
   public getActiveIntentId(): number {
-    return this.activeIntentId;
+    return WebviewStore.getInstance().getState().playbackIntentId;
   }
 
   public acquireLock(): void {
@@ -538,11 +672,23 @@ export class PlaybackController {
   }
 
   public loadSnippet(path: string): void {
+      if (!this.ensureHandshake()) return;
+      const store = WebviewStore.getInstance();
+      const intentId = store.resetPlaybackIntent();
       console.log(`[PlaybackController] loadSnippet(${path}) requested`);
-      this.activeIntentId++;
-      this.setAwaitingSync(true);
+      this.awaitingSync = true;
       this.startWatchdog();
-      MessageClient.getInstance().postAction(OutgoingAction.LOAD_SNIPPET, { path });
+      MessageClient.getInstance().postAction(OutgoingAction.LOAD_SNIPPET, { 
+          path,
+          intentId
+      });
+  }
+
+  public requestSnippetHistory(): void {
+      console.log('[PlaybackController] requestSnippetHistory() requested');
+      MessageClient.getInstance().postAction(OutgoingAction.GET_ALL_SNIPPET_HISTORY, {
+          intentId: WebviewStore.getInstance().getState().playbackIntentId
+      });
   }
 
   public releaseLock(): void {
@@ -551,18 +697,82 @@ export class PlaybackController {
   }
 
   private setAwaitingSync(value: boolean): void {
-    this.isAwaitingSync = value;
+    this.awaitingSync = value;
     WebviewStore.getInstance().updateUIState({ isAwaitingSync: value });
   }
 
   /**
    * handleSync() - Core reconciliation logic from dashboard.js
    */
-  public handleSync(packet: { isPlaying: boolean, isPaused?: boolean }): void {
+  public handleSync(packet: UISyncPacket): void {
+    // [HANDSHAKE GATE] Once we receive any sync, we consider the extension ready
+    if (!this.isHandshakeComplete) {
+        console.log('[PlaybackController] 🤝 Handshake Complete');
+        this.isHandshakeComplete = true;
+    }
+
     // [SOVEREIGNTY] Respect active user intent over incoming sync packets
     const now = Date.now();
-    if (now < this.intentExpiry) {
-        console.log('[PlaybackController] 🛡️ Protecting active intent from stale sync');
+    const store = WebviewStore.getInstance();
+
+    // 1. [INTENT GUARD] Check if we are in a sovereign intent window (3.5s)
+    // [REFINED] We ONLY block if the incoming packet is STALE (lower intentId). 
+    // If the packet has a current or newer intent, it means the extension has acknowledged the latest action.
+    const packetIntentId = packet.playbackIntentId ?? 0;
+    
+    if (now < this.intentExpiry && packetIntentId < this.activeIntentId) {
+        console.log(`[PlaybackController] 🛡️ Protecting active intent (${this.activeIntentId}) from stale sync (${packetIntentId})`);
+        this.releaseLock();
+        return;
+    }
+
+    // [INTENT ADOPTION] Track authoritative batchIntentId from extension
+    if (packet.batchIntentId !== undefined && packet.batchIntentId > this.activeBatchId) {
+        console.log(`[PlaybackController] 📈 Adopting newer batchIntentId: ${packet.batchIntentId}`);
+        this.activeBatchId = packet.batchIntentId;
+    }
+
+    // [FIFO] Update Authoritative Queue
+    if (packet.windowSentences) {
+        store.setQueue(packet.windowSentences);
+        this._processQueue();
+    }
+
+    // 2. [CHRONOLOGICAL SOVEREIGNTY] Adopt newer intent from authoritative extension
+    if (packetIntentId > this.activeIntentId) {
+        console.log(`[PlaybackController] 📈 Adopting newer intent from authoritative sync: ${packetIntentId}`);
+        this.activeIntentId = packetIntentId;
+    }
+
+    // 2. [TRANSITION GUARD] Check if we just jumped (500ms).
+    // During this window, we ignore index updates to prevent UI jumping.
+    const isTransitioning = now < this.transitionExpiry;
+    
+    // 3. [ID GUARD] If the packet has an intent ID, it must match or be newer than ours
+    const currentPlaybackId = store.getState().playbackIntentId;
+    if (packetIntentId < currentPlaybackId) {
+        console.log(`[PlaybackController] 🛡️ Rejecting stale sync (Packet ID: ${packetIntentId} < Local ID: ${currentPlaybackId})`);
+        this.releaseLock();
+        return;
+    }
+
+    // [STABILITY] If we are transitioning, we ONLY sync playback state (isPlaying/isPaused), 
+    // we do NOT sync indices (currentSentenceIndex, etc.) because the UI is authoritative.
+    if (isTransitioning) {
+        console.log('[PlaybackController] 🧱 Syncing playback state ONLY (Transition Lock Active)');
+        
+        // Update basic playback flags but preserve indices in the store
+        const currentState = store.getState();
+        store.patchState({
+            isPlaying: packet.isPlaying,
+            isPaused: packet.isPaused ?? false,
+            // Explicitly preserve current indices during transition
+            state: {
+                ...packet.state,
+                currentSentenceIndex: currentState.state.currentSentenceIndex,
+                currentChapterIndex: currentState.state.currentChapterIndex
+            }
+        });
         this.releaseLock();
         return;
     }
@@ -594,11 +804,11 @@ export class PlaybackController {
   private startWatchdog(): void {
     this.clearWatchdog();
     this.watchdog = setTimeout(() => {
-      if (this.isAwaitingSync) {
+      if (this.awaitingSync) {
         console.warn('[PlaybackController] ⏳ Sync Watchdog Fired: Lock released.');
         this.setAwaitingSync(false);
       }
-    }, 3500);
+    }, 5000);
   }
 
   private clearWatchdog(): void {
@@ -606,5 +816,73 @@ export class PlaybackController {
       clearTimeout(this.watchdog);
       this.watchdog = null;
     }
+  }
+
+  /**
+   * [FIFO] Atomically flushes the playback queue and resets engine state.
+   */
+  public flushQueue(): void {
+      console.log('[PlaybackController] 🚽 Flushing FIFO Queue');
+      this.synthesizingKeys.clear();
+      WebviewStore.getInstance().setQueue([]);
+      WebviewAudioEngine.getInstance().purgeMemory();
+  }
+
+  /**
+   * [FIFO] Throttled predictive synthesis scheduler.
+   * Walks the activeQueue and requests synthesis for next candidates.
+   */
+  private _processQueue(): void {
+      if (!this.ensureHandshake()) { return; }
+      const store = WebviewStore.getInstance();
+      const queue = store.getUIState().activeQueue;
+      const { engineMode, selectedVoice, rate, state } = store.getState();
+      
+      if (engineMode !== 'neural' || queue.length === 0) { return; }
+
+      // Find current index in window
+      const currIdx = queue.findIndex(s => s.cIdx === state.currentChapterIndex && s.sIdx === state.currentSentenceIndex);
+      if (currIdx === -1) { return; }
+
+      // Candidates: current + next 10
+      const candidates = queue.slice(currIdx, currIdx + 11);
+      
+      const engine = WebviewAudioEngine.getInstance();
+      const client = MessageClient.getInstance();
+
+      for (const s of candidates) {
+          if (this.synthesizingKeys.size >= this.MAX_CONCURRENT_SYNTHESIS) { break; }
+
+          const key = generateCacheKey(
+              s.text,
+              selectedVoice || 'default',
+              rate,
+              state.activeDocumentUri
+          );
+
+          if (!engine.isSegmentReady(key) && !this.synthesizingKeys.has(key)) {
+              console.log(`[PlaybackController] 🔮 Pre-fetching: ${key.substring(0, 15)}...`);
+              this.synthesizingKeys.add(key);
+              client.postAction(OutgoingAction.REQUEST_SYNTHESIS, {
+                  cacheKey: key,
+                  intentId: store.getState().playbackIntentId,
+                  batchId: store.getState().batchIntentId
+              });
+          }
+      }
+  }
+
+  /**
+   * [HANDSHAKE GATE] Ensures that the extension is ready and state is hydrated 
+   * before allowing user-driven playback actions.
+   */
+  private ensureHandshake(): boolean {
+      const store = WebviewStore.getInstance();
+      if (!this.isHandshakeComplete || !store.isHydrated()) {
+          console.warn('[PlaybackController] 🛡️ Action rejected: Handshake not complete.');
+          // Optional: Trigger a refresh if we've been waiting too long
+          return false;
+      }
+      return true;
   }
 }

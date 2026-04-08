@@ -101,10 +101,11 @@ describe('PlaybackEngine', () => {
 
             stream.emit('data', Buffer.from('chunk'));
             stream.emit('end');
+            await vi.advanceTimersByTimeAsync(0);
 
             const result = await speakPromise;
             expect(result).toBe(Buffer.from('chunk').toString('base64'));
-            expect(logger).toHaveBeenCalledWith(expect.stringContaining('[NEURAL] success: c1'));
+            expect(logger).toHaveBeenCalledWith(expect.stringContaining('[TTS STREAM] COMPLETE'));
         });
 
         it('should reuse pending tasks', async () => {
@@ -138,6 +139,7 @@ describe('PlaybackEngine', () => {
             await vi.advanceTimersByTimeAsync(100);
 
             engine.stop();
+            await vi.advanceTimersByTimeAsync(10); // Flush abort cycle
             const result = await p;
             expect(result).toBe(null);
             expect(stream.destroy).toHaveBeenCalled();

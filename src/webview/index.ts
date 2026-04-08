@@ -5,6 +5,7 @@ import { WebviewAudioEngine } from './core/WebviewAudioEngine';
 import { InteractionManager } from './core/InteractionManager';
 import { LayoutManager } from './core/LayoutManager';
 import { IncomingCommand, OutgoingAction } from '../common/types';
+import { CacheManager } from './cacheManager';
 
 // Global Stylesheet — essential for bundling
 import './style.css';
@@ -50,6 +51,13 @@ export function bootstrap() {
     const audioEngine = WebviewAudioEngine.getInstance();
     const dispatcher = CommandDispatcher.getInstance();
     const interaction = InteractionManager.getInstance();
+    const cache = CacheManager.getInstance();
+
+    // 1.1 Link Infrastructure (Decoupled IPC wiring)
+    client.attachCacheManager(cache);
+    cache.ready().then(() => {
+        console.log('[BOOT] 🗄️ Cache system ready.');
+    }).catch(e => console.error('[BOOT] Cache initialization failed:', e));
 
     // Initialize Toasts early
     const toastContainer = document.getElementById('toast-container');
@@ -162,25 +170,11 @@ export function bootstrap() {
     // Mount all components to attach event listeners
     Object.values(components).forEach((c: any) => c.mount());
     interaction.mount();
+    dispatcher.mount(client);
 
     // 2a. Register with Layout Manager (Issue #15)
     const layout = LayoutManager.getInstance();
     layout.registerSettings(components.settings);
-
-    // 3. Global Event Loop (Command Routing)
-    client.onCommand(IncomingCommand.UI_SYNC, (data) => dispatcher.dispatch(IncomingCommand.UI_SYNC, data));
-    client.onCommand(IncomingCommand.VOICES, (data) => dispatcher.dispatch(IncomingCommand.VOICES, data));
-    client.onCommand(IncomingCommand.PLAY_AUDIO, (data) => dispatcher.dispatch(IncomingCommand.PLAY_AUDIO, data));
-    client.onCommand(IncomingCommand.STOP, () => dispatcher.dispatch(IncomingCommand.STOP, null));
-    client.onCommand(IncomingCommand.PURGE_MEMORY, () => dispatcher.dispatch(IncomingCommand.PURGE_MEMORY, null));
-    client.onCommand(IncomingCommand.PLAYBACK_STATE_CHANGED, (data) => dispatcher.dispatch(IncomingCommand.PLAYBACK_STATE_CHANGED, data));
-    client.onCommand(IncomingCommand.SYNTHESIS_ERROR, (data) => dispatcher.dispatch(IncomingCommand.SYNTHESIS_ERROR, data));
-    client.onCommand(IncomingCommand.CACHE_STATS, (data) => dispatcher.dispatch(IncomingCommand.CACHE_STATS, data));
-    client.onCommand(IncomingCommand.CACHE_STATS_UPDATE, (data) => dispatcher.dispatch(IncomingCommand.CACHE_STATS_UPDATE, data));
-    client.onCommand(IncomingCommand.DATA_PUSH, (data) => dispatcher.dispatch(IncomingCommand.DATA_PUSH, data));
-    client.onCommand(IncomingCommand.SYNTHESIS_STARTING, (data) => dispatcher.dispatch(IncomingCommand.SYNTHESIS_STARTING, data));
-    client.onCommand(IncomingCommand.CLEAR_CACHE_WIPE, () => dispatcher.dispatch(IncomingCommand.CLEAR_CACHE_WIPE, null));
-    client.onCommand(IncomingCommand.SENTENCE_CHANGED, (data) => dispatcher.dispatch(IncomingCommand.SENTENCE_CHANGED, data));
 
     // 4. Cleanup Hook
     window.onbeforeunload = () => audioEngine.purgeMemory();

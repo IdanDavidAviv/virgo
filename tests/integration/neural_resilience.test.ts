@@ -1,0 +1,137 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'events';
+
+// --- STUBS ---
+vi.mock('vscode', () => ({
+    Uri: {
+        file: (p: string) => ({ fsPath: p, path: p, scheme: 'file' }),
+        parse: (p: string) => ({ fsPath: p, path: p, scheme: 'file' }),
+        joinPath: vi.fn((uri, ...parts) => ({ fsPath: parts.join('/') }))
+    },
+    workspace: {
+        getWorkspaceFolder: vi.fn(),
+        getConfiguration: vi.fn().mockReturnValue({
+            get: vi.fn((key: string) => (key === 'readAloud.playback.rate' ? 0 : 50))
+        })
+    },
+    window: {
+        activeTextEditor: undefined,
+        tabGroups: { activeTabGroup: { activeTab: undefined } }
+    }
+}));
+
+vi.mock('msedge-tts', () => ({
+    MsEdgeTTS: class {
+        toStream = vi.fn().mockImplementation(() => {
+            const stream = new EventEmitter() as any;
+            // Immediate end to prevent test hangs
+            process.nextTick(() => stream.emit('end'));
+            return { audioStream: stream };
+        });
+        setMetadata = vi.fn().mockResolvedValue(undefined);
+        close = vi.fn();
+    },
+    OUTPUT_FORMAT: { AUDIO_24KHZ_48KBITRATE_MONO_MP3: 'mp3' }
+}));
+
+import { PlaybackEngine } from '@core/playbackEngine';
+import { AudioBridge } from '@core/audioBridge';
+import { StateStore } from '@core/stateStore';
+import { DocumentLoadController } from '@core/documentLoadController';
+import { SequenceManager } from '@core/sequenceManager';
+import { parseChapters } from '@core/documentParser';
+
+// --- HELPER ---
+function generateMarathonDocument(numChapters: number) {
+    let md = "";
+    for (let i = 1; i <= numChapters; i++) {
+        md += `# Chapter ${i}\n`;
+        const rows = Math.floor(Math.random() * 5) + 1;
+        for (let r = 1; r <= rows; r++) {
+            md += `Row ${r} of Chap ${i}. Neural resilience stress test.\n`;
+        }
+        md += "\n";
+    }
+    return md;
+}
+
+describe('Neural Resilience Integration - Extension Layer', () => {
+    let engine: PlaybackEngine;
+    let bridge: AudioBridge;
+    let docController: DocumentLoadController;
+    let stateStore: StateStore;
+    let sequenceManager: SequenceManager;
+    let logger: any;
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        logger = vi.fn();
+        stateStore = new StateStore(logger);
+        engine = new PlaybackEngine(logger);
+        docController = new DocumentLoadController(logger);
+        sequenceManager = new SequenceManager();
+        bridge = new AudioBridge(stateStore, docController, engine, sequenceManager, logger);
+
+        const chapters = parseChapters(generateMarathonDocument(5));
+        (docController as any)._chapters = chapters;
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('should DETECT MsEdgeTTS "readyState" crash and trigger self-healing re-init', async () => {
+        const reinitSpy = vi.spyOn(engine as any, '_reinitTTS');
+        
+        // Ensure readyState is defined initially
+        (engine as any)._tts.readyState = 1;
+
+        // Mock a library crash: property becomes undefined or throws
+        // @ts-ignore - access to internal tts
+        vi.spyOn(engine._tts, 'toStream').mockImplementation(() => {
+            throw new TypeError("Cannot read property 'readyState' of undefined");
+        });
+
+        // Trigger crash by clearing readyState manually to simulate corruption
+        (engine as any)._tts.readyState = undefined;
+
+        console.log('[TEST] Triggering synthesis with simulated library corruption...');
+        
+        const text = "Test text";
+        const voiceId = "en-US-AvaNeural";
+        const abortController = new AbortController();
+        
+        try {
+            await engine.speakNeural(text, voiceId, { voice: voiceId, mode: 'neural', rate: 1.0, volume: 1.0 }, true, 999, 1);
+        } catch (e) {
+            // Expected failure
+        }
+
+        // Verify re-init was called (Self-healing logic)
+        expect(reinitSpy).toHaveBeenCalled();
+        console.log('[TEST] ✅ Extension detected crash and signaled failure.');
+    });
+
+    it('should marathon-run 5 chapters with explicit synthesis requests', async () => {
+        // Mock speakNeural to succeed for the marathon
+        const speakSpy = vi.spyOn(engine, 'speakNeural').mockResolvedValue('mock-audio-64');
+        
+        console.log('[TEST] Starting 5-chapter Marathon with Webview feedback simulation...');
+        
+        const options = { mode: 'neural', voice: 'V', rate: 1, volume: 50 } as any;
+        await bridge.start(0, 0, options);
+        
+        // Simulate progression loop
+        for (let i = 0; i < 5; i++) {
+            // 1. Simulate Webview requesting synthesis for current sentence
+            await bridge.synthesize("mock-cache-key-" + i, options);
+            
+            // 2. Simulate Webview finishing playback and moving to next
+            await bridge.next(options);
+            await vi.advanceTimersByTimeAsync(100);
+        }
+
+        expect(speakSpy).toHaveBeenCalled();
+        console.log('[TEST] ✅ Marathon logic confirmed.');
+    });
+});

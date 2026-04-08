@@ -156,7 +156,10 @@ describe('VoiceSelector', () => {
         const item = elements.voiceList.querySelector('.voice-item');
         item.click();
 
-        expect(postActionSpy).toHaveBeenCalledWith(OutgoingAction.VOICE_CHANGED, { voice: 'v1' });
+        expect(postActionSpy).toHaveBeenCalledWith(
+            OutgoingAction.VOICE_CHANGED,
+            expect.objectContaining({ voice: 'v1', intentId: expect.any(Number) })
+        );
         // Re-query: the original item is detached due to optimistic re-render
         const selected = elements.voiceList.querySelector('.voice-item.selected');
         expect(selected).not.toBeNull();

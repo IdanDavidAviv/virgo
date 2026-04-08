@@ -1,7 +1,6 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { escapeHtml } from '../utils';
-import { SessionController } from '../sessionController';
-import { WebviewStore } from '../core/WebviewStore';
+import { PlaybackController } from '../playbackController';
 
 export interface FileContextElements extends Record<string, HTMLElement | HTMLButtonElement | null | undefined> {
     activeSlot: HTMLElement;
@@ -43,7 +42,7 @@ export class FileContext extends BaseComponent<FileContextElements> {
                 this.loadType = 'loading';
                 // Bulletproof optimistic update
                 if (this.els.readerFilename) { this.els.readerFilename.textContent = 'Loading Document...'; }
-                SessionController.getInstance().loadDocument();
+                PlaybackController.getInstance().loadDocument();
             });
         }
 
@@ -56,20 +55,20 @@ export class FileContext extends BaseComponent<FileContextElements> {
                 
                 // [SYNC] Let the store know we are waiting for a clear response
                 this.store.updateUIState({ isAwaitingSync: true });
-                SessionController.getInstance().resetContext();
+                PlaybackController.getInstance().resetContext();
             });
         }
 
         // Mode Toggles
         if (this.els.btnModeFile) {
             this.els.btnModeFile.onclick = () => {
-                SessionController.getInstance().setMode('FILE');
+                PlaybackController.getInstance().setMode('FILE');
             };
         }
 
         if (this.els.btnModeSnippet) {
             this.els.btnModeSnippet.onclick = () => {
-                SessionController.getInstance().setMode('SNIPPET');
+                PlaybackController.getInstance().setMode('SNIPPET');
             };
         }
 

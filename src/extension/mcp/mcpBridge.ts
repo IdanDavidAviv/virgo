@@ -124,10 +124,16 @@ export class McpBridge extends EventEmitter {
             
             // SELF-HEALING: If an active session exists, check if it's "zombie" (stale) or explicitly evict if it's from the same source
             if (this._activeServers.size > 0) {
-                this._logger(`[MCP_BRIDGE] Conflict: Active session already exists. Evicting old session to allow re-handshake.`);
-                for (const oldServer of this._activeServers) {
-                    this._logger(`[MCP_BRIDGE] Force-purging stale session ID: ${(oldServer as any)._readAloudInstanceId}`);
-                    this._activeServers.delete(oldServer);
+                // [BRIDGE STORM] Grant a small 200ms window for the previous session to close naturally
+                // before force-evicting to prevent rapid SSE flapping.
+                await new Promise(resolve => setTimeout(resolve, 200));
+                
+                if (this._activeServers.size > 0) {
+                    this._logger(`[MCP_BRIDGE] Conflict: Active session already exists. Evicting old session to allow re-handshake.`);
+                    for (const oldServer of this._activeServers) {
+                        this._logger(`[MCP_BRIDGE] Force-purging stale session ID: ${(oldServer as any)._readAloudInstanceId}`);
+                        this._activeServers.delete(oldServer);
+                    }
                 }
             }
 
@@ -137,6 +143,14 @@ export class McpBridge extends EventEmitter {
             
             const transport = new SSEServerTransport("/messages", res);
             
+            // [INSTANCE GUARD] Prevent rapid flapping
+            const lastConn = (server as any)._lastConnectionTime || 0;
+            if (Date.now() - lastConn < 1000) {
+                this._logger(`[MCP_BRIDGE] Storm Guard: Rejecting rapid reconnect (Instance ${instanceId})`);
+                return;
+            }
+            (server as any)._lastConnectionTime = Date.now();
+
             this._logger(`[MCP_BRIDGE] Connecting Instance ${instanceId} to Transport (Pending Handshake)...`);
             
             server.connect(transport).then(() => {

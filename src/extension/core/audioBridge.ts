@@ -4,6 +4,7 @@ import { DocumentLoadController } from '@core/documentLoadController';
 import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
 import { SequenceManager } from '@core/sequenceManager';
 import { EventEmitter } from 'events';
+import { generateCacheKey } from '../../common/cachePolicy';
 
 export interface AudioBridgeEvents {
     'playAudio': (payload: { cacheKey: string, data: string, text: string, chapterIndex: number, sentenceIndex: number, totalSentences: number, sentences: string[], intentId: number }) => void;
@@ -17,6 +18,7 @@ export interface AudioBridgeEvents {
 
 export class AudioBridge extends EventEmitter {
     private _pushDelayMs: number = 200;
+    private _webviewCacheManifest: Set<string> = new Set();
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -35,7 +37,11 @@ export class AudioBridge extends EventEmitter {
         });
 
         this._playbackEngine.on('synthesis-starting', (payload) => {
-            this.emit('synthesisStarting', payload);
+            this._emitWithIntent('synthesisStarting', payload);
+        });
+
+        this._playbackEngine.on('intent-change', (id: number) => {
+            this._stateStore.setPlaybackIntentId(id);
         });
 
         // [v2.0.0] Throttled Pushing: Ensure bridge priority for user IPC 
@@ -44,12 +50,12 @@ export class AudioBridge extends EventEmitter {
 
         this._playbackEngine.on('synthesis-complete', (payload: { cacheKey: string, data: string, intentId: number }) => {
             const currentIntent = this._playbackEngine.playbackIntentId;
-            
+
             // Optimization: If the payload's intentId matches the current active intent, push immediately
             // to bypass the throttle for the user's immediate hearing experience.
             if (payload.intentId === currentIntent) {
                 this._logger(`[BRIDGE] NOTIFY_READY (Priority): ${payload.cacheKey} | Intent: ${payload.intentId}`);
-                this.emit('synthesisReady', { cacheKey: payload.cacheKey, intentId: payload.intentId });
+                this._emitWithIntent('synthesisReady', { cacheKey: payload.cacheKey });
                 return;
             }
 
@@ -65,9 +71,21 @@ export class AudioBridge extends EventEmitter {
                 pushTimeout = null;
                 if (results.length > 0) {
                     this._logger(`[BRIDGE] Batch NOTIFYing ${results.length} valid segments.`);
-                    results.forEach(p => this.emit('synthesisReady', { cacheKey: p.cacheKey, intentId: p.intentId }));
+                    results.forEach(p => this._emitWithIntent('synthesisReady', { cacheKey: p.cacheKey }));
                 }
             }, this._pushDelayMs);
+        });
+        
+        this._playbackEngine.on('synthesis-failed', (payload: { cacheKey: string, error: string, intentId: number }) => {
+            const state = this._stateStore.state;
+            this._logger(`[BRIDGE] synthesis_failed | cacheKey: ${payload.cacheKey} | Error: ${payload.error}`);
+            this._emitWithIntent('synthesisError', {
+                error: payload.error,
+                isFallingBack: false,
+                cacheKey: payload.cacheKey,
+                chapterIndex: state.currentChapterIndex,
+                sentenceIndex: state.currentSentenceIndex
+            });
         });
     }
 
@@ -87,21 +105,31 @@ export class AudioBridge extends EventEmitter {
     /**
      * Start playing a specific chapter and sentence.
      */
-    public async start(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions, previewOnly: boolean = false) {
+    public async start(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions, previewOnly: boolean = false, intentId?: number, batchId?: number) {
+        // [SOVEREIGNTY] Adopt the intent provided from the gesture authority (Webview)
+        if (intentId !== undefined) {
+            this._playbackEngine.adoptIntent(intentId);
+            this._stateStore.setPlaybackIntentId(intentId);
+        }
+        
+        if (batchId !== undefined) {
+            this._playbackEngine.adoptBatchIntent(batchId);
+        }
+
         // CRITICAL: Stop any in-flight synthesis or sequences before starting a new one.
         // This ensures that jumps immediately abort previous tasks and clear the lock.
-        this._playbackEngine.stop();
-        
+        this._playbackEngine.stop(intentId);
+
         // Use the Engine as the source of truth for playing status
-        this._playbackEngine.setPlaying(!previewOnly);
-        
+        this._playbackEngine.setPlaying(!previewOnly, intentId);
+
         this._stateStore.setOptions({
             engineMode: options.mode,
             selectedVoice: options.voice,
             rate: options.rate,
             volume: options.volume
         });
-        
+
         const chapters = this._docController.chapters;
         if (chapters.length === 0) {
             this._logger(`[BRIDGE] No chapters found in the current document. Playback cannot start.`);
@@ -129,44 +157,50 @@ export class AudioBridge extends EventEmitter {
         this._stateStore.setPreviewing(previewOnly);
 
         const sentence = chapter.sentences[sentenceIndex];
-        const cacheKey = this._getCacheKey(chapterIndex, sentenceIndex, options.voice);
+        const cacheKey = generateCacheKey(
+            sentence,
+            options.voice,
+            options.rate,
+            this._docController.metadata.uri?.toString() || this._docController.metadata.fileName
+        );
 
         if (options.mode === 'neural') {
-            // [ISSUE 18] Zero-IPC Design: Check extension volatile cache first
-            const cachedData = this._playbackEngine.getCached(cacheKey);
-            
-            if (cachedData) {
-                this._logger(`[BRIDGE] Extension Cache HUB Hit: ${cacheKey}. Pushing binary data.`);
+            // [SOVEREIGNTY] Tiered Cache Lookup
+            const extensionCached = this._playbackEngine.getCached(cacheKey);
+            const webviewCached = this._webviewCacheManifest.has(cacheKey);
+
+            if (extensionCached || webviewCached) {
+                this._logger(`[BRIDGE] Sovereign Cache Hit: ${cacheKey} (${extensionCached ? 'Extension' : 'Webview'}).`);
                 this._stateStore.setLoadType('cache');
-                this.emit('playAudio', {
+
+                this._emitWithIntent('playAudio', {
                     cacheKey,
-                    data: cachedData, // Restore Push Mode for performance
+                    data: extensionCached || '', // If only in webview, it will pull via FETCH_AUDIO
                     text: sentence,
                     chapterIndex,
                     sentenceIndex,
                     totalSentences: chapter.sentences.length,
-                    sentences: chapter.sentences,
-                    intentId: this._playbackEngine.playbackIntentId
+                    sentences: chapter.sentences
                 });
-                // Still trigger the Ready signal for telemetry/sync
-                this.emit('synthesisReady', { cacheKey, intentId: this._playbackEngine.playbackIntentId });
+
+                // If it's in Extension cache, we already pushed data.
+                // If only in Webview, emitting 'synthesisReady' will trigger the Pull handshake in the webview.
+                this._emitWithIntent('synthesisReady', { cacheKey });
             } else {
-                this._logger(`[BRIDGE] Zero-IPC: Triggering Webview Cache Check for ${cacheKey}`);
-                this._stateStore.setLoadType('cache'); // Assume cache check first, synthesize() will override if MISS
-                this.emit('playAudio', {
+                this._logger(`[BRIDGE] Sovereign Cache MISS: ${cacheKey}. Triggering fresh synth/fetch flow.`);
+                this._stateStore.setLoadType('synth');
+                this._emitWithIntent('playAudio', {
                     cacheKey,
-                    data: '', // Decommissioned Push: Data is now pulled via FETCH_AUDIO
+                    data: '',
                     text: sentence,
                     chapterIndex,
                     sentenceIndex,
                     totalSentences: chapter.sentences.length,
-                    sentences: chapter.sentences,
-                    intentId: this._playbackEngine.playbackIntentId
+                    sentences: chapter.sentences
                 });
-                // Trigger the Pull handshake
-                this.emit('synthesisReady', { cacheKey, intentId: this._playbackEngine.playbackIntentId });
+                this._emitWithIntent('synthesisReady', { cacheKey });
             }
-            
+
             if (!this._stateStore.state.isPreviewing) {
                 this._triggerPreFetch(chapterIndex, sentenceIndex + 1, options);
             }
@@ -178,10 +212,17 @@ export class AudioBridge extends EventEmitter {
     /**
      * Called when the webview reports a cache miss and needs a fresh synthesis.
      */
-    public async synthesize(cacheKey: string, options: PlaybackOptions, intentId?: number) {
+    public async synthesize(cacheKey: string, options: PlaybackOptions, intentId?: number, batchId?: number) {
+        // [PROTOCOL_REPAIR] If the intentId is 0, it means the Webview is likely in an uninitialized state.
+        // We adopt the extension's current intent to bridge the gap.
+        if (intentId === 0) {
+            this._logger(`[BRIDGE] [PROTOCOL_REPAIR] Synthesis request with Intent 0. Adopted: ${this._playbackEngine.playbackIntentId}`);
+            intentId = this._playbackEngine.playbackIntentId;
+        }
+
         const state = this._stateStore.state;
         const chapters = this._docController.chapters;
-        
+
         // [HARDENING] Defensive check against stale indices during document reloads
         if (state.currentChapterIndex < 0 || state.currentChapterIndex >= chapters.length) {
             this._logger(`[BRIDGE] synthesis_blocked | Stale chapter index: ${state.currentChapterIndex}`);
@@ -190,7 +231,7 @@ export class AudioBridge extends EventEmitter {
 
         const chapter = chapters[state.currentChapterIndex];
         if (!chapter || !chapter.sentences) { return; }
-        
+
         if (state.currentSentenceIndex < 0 || state.currentSentenceIndex >= chapter.sentences.length) {
             this._logger(`[BRIDGE] synthesis_blocked | Stale sentence index: ${state.currentSentenceIndex}`);
             return;
@@ -200,22 +241,41 @@ export class AudioBridge extends EventEmitter {
         if (!sentence) { return; }
 
         const currentIntent = intentId ?? this._playbackEngine.playbackIntentId;
-        this._logger(`[BRIDGE] Webview Cache MISS for ${cacheKey} (Intent: ${currentIntent}). Starting synthesis...`);
+        const currentBatch = batchId ?? this._playbackEngine.batchIntentId;
+
+        this._logger(`[BRIDGE] Webview Cache MISS for ${cacheKey} (Intent: ${currentIntent}, Batch: ${currentBatch}). Starting synthesis...`);
         this._stateStore.setLoadType('synth');
-        await this._speakNeural(sentence, cacheKey, options, state.currentChapterIndex, state.currentSentenceIndex, currentIntent);
+        await this._speakNeural(sentence, cacheKey, options, state.currentChapterIndex, state.currentSentenceIndex, currentIntent, currentBatch);
     }
 
-    public stop() {
-        this._playbackEngine.stop();
-        this._logger('[BRIDGE] Playback stopped.');
+    public stop(intentId?: number, batchId?: number) {
+        this._playbackEngine.stop(intentId, !!batchId);
+        this._logger(`[BRIDGE] Playback stopped (Intent: ${intentId ?? 'current'}, BatchReset: ${!!batchId}).`);
     }
 
-    public pause() {
-        this._playbackEngine.setPaused(true);
-        this._logger('[BRIDGE] Playback paused.');
+    public pause(intentId?: number) {
+        this._playbackEngine.setPaused(true, intentId);
+        this._logger(`[BRIDGE] Playback paused (Intent: ${intentId ?? 'current'}).`);
     }
 
-    public next(options: PlaybackOptions, manual: boolean = false, autoPlayMode: 'auto' | 'chapter' | 'row' = 'auto') {
+    /**
+     * [v2.3.0] Universal Intent Injection Wrapper
+     * Ensures all events sent to the webview carry the authoritative intentId.
+     */
+    private _emitWithIntent<K extends keyof AudioBridgeEvents>(event: K, payload: any) {
+        const intentId = this._playbackEngine.playbackIntentId;
+        this._logger(`[BRIDGE] >> EMIT ${event} | Intent: ${intentId}`);
+        (this as any).emit(event, { ...payload, intentId });
+    }
+
+    public next(options: PlaybackOptions, manual: boolean = false, autoPlayMode: 'auto' | 'chapter' | 'row' = 'auto', intentId?: number, batchId?: number) {
+        if (intentId !== undefined) {
+            this._playbackEngine.adoptIntent(intentId);
+            this._stateStore.setPlaybackIntentId(intentId);
+        }
+        if (batchId !== undefined) {
+            this._playbackEngine.adoptBatchIntent(batchId);
+        }
         if (this._stateStore.state.isPreviewing) {
             this._stateStore.setPreviewing(false);
             this._logger(`[BRIDGE] Preview finished. Waiting for user Play.`);
@@ -254,12 +314,19 @@ export class AudioBridge extends EventEmitter {
         this.start(nextPos.chapterIndex, nextPos.sentenceIndex, options);
     }
 
-    public previous(options: PlaybackOptions) {
+    public previous(options: PlaybackOptions, intentId?: number, batchId?: number) {
+        if (intentId !== undefined) {
+            this._playbackEngine.adoptIntent(intentId);
+            this._stateStore.setPlaybackIntentId(intentId);
+        }
+        if (batchId !== undefined) {
+            this._playbackEngine.adoptBatchIntent(batchId);
+        }
         const state = this._stateStore.state;
         const chapters = this._docController.chapters;
-        
+
         const prevPos = this._sequenceManager.getPrevious(state.currentChapterIndex, state.currentSentenceIndex, chapters);
-        
+
         if (prevPos) {
             this.start(prevPos.chapterIndex, prevPos.sentenceIndex, options);
         } else {
@@ -267,10 +334,10 @@ export class AudioBridge extends EventEmitter {
         }
     }
 
-    private async _speakNeural(sentence: string, cacheKey: string, options: PlaybackOptions, cIdx: number, sIdx: number, intentId: number) {
+    private async _speakNeural(sentence: string, cacheKey: string, options: PlaybackOptions, cIdx: number, sIdx: number, intentId: number, batchId?: number) {
         try {
-            const data = await this._playbackEngine.speakNeural(sentence, cacheKey, options, true); // true = priority
-            
+            const data = await this._playbackEngine.speakNeural(sentence, cacheKey, options, true, intentId, batchId); // true = priority
+
             // GUARD: Transactional Nonce check - Unify with Engine Intent
             if (this._playbackEngine.playbackIntentId !== intentId) {
                 this._logger(`[BRIDGE] Transaction Mismatch: Request Intent ${intentId} is stale. Current: ${this._playbackEngine.playbackIntentId}`);
@@ -284,15 +351,14 @@ export class AudioBridge extends EventEmitter {
             }
 
             if (data && (this._playbackEngine.isPlaying || state.isPreviewing)) {
-                this.emit('playAudio', {
+                this._emitWithIntent('playAudio', {
                     cacheKey,
                     data, // Restore Push Mode for performance
                     text: sentence,
                     chapterIndex: cIdx,
                     sentenceIndex: sIdx,
                     totalSentences: this._docController.chapters[cIdx].sentences.length,
-                    sentences: this._docController.chapters[cIdx].sentences,
-                    intentId: intentId
+                    sentences: this._docController.chapters[cIdx].sentences
                 });
             }
         } catch (err: any) {
@@ -310,16 +376,15 @@ export class AudioBridge extends EventEmitter {
             // [RESILIENCE] No more SAPI fallback for neural hangs.
             // We tell the UI we are 'buffering' and trust the Engine's internal retry loop.
             this._logger(`[BRIDGE] Neural synthesis stalled: ${errorMessage}. Retrying...`);
-            this.emit('engineStatus', { status: 'buffering' });
-            
+            this._emitWithIntent('engineStatus', { status: 'buffering' });
+
             // If the error persists after all internal retries, we finally give up.
-            this.emit('synthesisError', { 
-                error: errorMessage, 
+            this._emitWithIntent('synthesisError', {
+                error: errorMessage,
                 isFallingBack: false, // Explicitly false to prevent UI from expecting SAPI
-                cacheKey, 
-                chapterIndex: cIdx, 
-                sentenceIndex: sIdx,
-                intentId: intentId
+                cacheKey,
+                chapterIndex: cIdx,
+                sentenceIndex: sIdx
             });
         }
     }
@@ -340,44 +405,68 @@ export class AudioBridge extends EventEmitter {
 
         // DEBOUNCE & LIMIT PREFETCH (Prevents queue bloat during rapid clicking)
         setTimeout(() => {
-            // Re-check if still playing, not stalled, and still on the same path
-            // This kills "stale" prefetch triggers if the user jumped elsewhere
+            // [GHOST_PREFETCH_GUARD] Re-check if still playing and on the same path
             const currentState = this._stateStore.state;
-            if (!this._playbackEngine.isPlaying || 
+            if (!this._playbackEngine.isPlaying ||
                 currentState.playbackStalled ||
-                currentState.currentChapterIndex !== chapterIndex || 
-                (currentState.currentSentenceIndex + 1) !== sentenceIndex) {
+                currentState.currentChapterIndex !== (sentenceIndex === 0 ? chapterIndex - 1 : chapterIndex) ||
+                currentState.currentSentenceIndex !== (sentenceIndex === 0 ? this._docController.chapters[chapterIndex - 1]?.sentences.length - 1 : sentenceIndex - 1)) {
                 return;
             }
 
+            const chapters = this._docController.chapters;
+            const targets: { cIdx: number, sIdx: number }[] = [];
+
+            // 1. Target Window: [Current-1, Current+1, Current+2]
+            // Note: Current is already handled by the PlaybackEngine start/next logic.
+            
+            const curC = currentState.currentChapterIndex;
+            const curS = currentState.currentSentenceIndex;
+
+            // - Previous
+            const prev = this._sequenceManager.getPrevious(curC, curS, chapters);
+            if (prev) {targets.push({ cIdx: prev.chapterIndex, sIdx: prev.sentenceIndex });}
+
+            // - Next +1
+            const next1 = this._sequenceManager.getNext(curC, curS, chapters);
+            if (next1) {
+                targets.push({ cIdx: next1.chapterIndex, sIdx: next1.sentenceIndex });
+                // - Next +2
+                const next2 = this._sequenceManager.getNext(next1.chapterIndex, next1.sentenceIndex, chapters);
+                if (next2) {targets.push({ cIdx: next2.chapterIndex, sIdx: next2.sentenceIndex });}
+            }
+
+            // 2. Trigger Deduplicated Synthesis
             let count = 0;
-            let cIdx = chapterIndex;
-            let sIdx = sentenceIndex;
+            for (const target of targets) {
+                const text = chapters[target.cIdx].sentences[target.sIdx];
+                const key = generateCacheKey(
+                    text,
+                    options.voice,
+                    options.rate,
+                    this._docController.metadata.uri?.toString() || this._docController.metadata.fileName
+                );
 
-            // Mission 3: Increase prefetch depth to 5 sentences for smoother continuous flow
-            while (count < 5) {
-                const chapter = this._docController.chapters[cIdx];
-                if (!chapter) { break; }
-
-                if (sIdx < chapter.sentences.length) {
-                    const text = chapter.sentences[sIdx];
-                    const cacheKey = this._getCacheKey(cIdx, sIdx, options.voice);
-                    this._playbackEngine.triggerPrefetch(text, cacheKey, options);
-                    sIdx++;
+                // Skip prefetch if already in either cache
+                if (!this._playbackEngine.getCached(key) && !this._webviewCacheManifest.has(key)) {
+                    this._playbackEngine.triggerPrefetch(text, key, options, this._playbackEngine.batchIntentId);
                     count++;
-                } else {
-                    cIdx++;
-                    sIdx = 0;
                 }
             }
-            this._logger(`[BRIDGE] Prefetching ${count} sentences ahead...`);
+            this._logger(`[BRIDGE] Symmetrical Window Sync: ${count} segments warmed (-1/+2 window).`);
         }, 200); // Reduced delay from 300ms to 200ms for more aggressive warming
     }
-
-    private _getCacheKey(chapterIndex: number, sentenceIndex: number, voice: string): string {
-        const metadata = this._docController.metadata;
-        const docId = metadata.uri?.toString() || metadata.fileName;
-        const saltStr = metadata.versionSalt ? `-${metadata.versionSalt}` : '';
-        return `${voice}-${docId}${saltStr}-${chapterIndex}-${sentenceIndex}`;
+    /**
+     * [SOVEREIGNTY] Updates the extension's view of the webview's persistent cache.
+     */
+    public updateManifest(delta: { added: string[], removed: string[], isFullSync: boolean }) {
+        if (delta.isFullSync) {
+            this._webviewCacheManifest = new Set(delta.added);
+            this._logger(`[BRIDGE] Sovereign Manifest Grounded: ${this._webviewCacheManifest.size} keys.`);
+        } else {
+            delta.added.forEach(k => this._webviewCacheManifest.add(k));
+            delta.removed.forEach(k => this._webviewCacheManifest.delete(k));
+            this._logger(`[BRIDGE] Sovereign Manifest Delta: +${delta.added.length}, -${delta.removed.length}. Total: ${this._webviewCacheManifest.size}`);
+        }
     }
 }

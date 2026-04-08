@@ -334,6 +334,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.onDidReceiveMessage(async data => {
             if (data.command === 'ready') {
+                const now = Date.now();
+                if ((this as any)._lastHandshakeTime && now - (this as any)._lastHandshakeTime < 2000) {
+                    this._logger(`[BRIDGE] Storm Guard: Ignoring redundant 'ready' command.`);
+                    return;
+                }
+                (this as any)._lastHandshakeTime = now;
+
                 await this._sendInitialState();
                 if (this._docController.chapters.length > 0) {
                     this.refreshView();
@@ -354,6 +361,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         webviewView.onDidDispose(() => {
             this._logger('MISSION CONTROL DISPOSED. Purging memory...');
             this._postToAll({ command: 'PURGE_MEMORY' });
+            this._dashboardRelay.clearView();
         });
 
 
@@ -550,16 +558,22 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 }
                 break;
             case OutgoingAction.PLAY:
-                this.continue();
+                this.continue(data.intentId, data.batchId);
+                break;
+            case OutgoingAction.PAUSE:
+                this.pause(data.intentId);
+                break;
+            case OutgoingAction.STOP:
+                this.stop(data.intentId, data.batchId);
                 break;
             case OutgoingAction.JUMP_TO_CHAPTER:
-                this.jumpToChapter(data.index);
+                this.jumpToChapter(data.index, data.intentId, data.batchId);
                 break;
             case OutgoingAction.NEXT_CHAPTER:
-                this.nextChapter();
+                this.nextChapter(data.intentId, data.batchId);
                 break;
             case OutgoingAction.PREV_CHAPTER:
-                this.prevChapter();
+                this.prevChapter(data.intentId, data.batchId);
                 break;
 
             case 'SET_SPEED':
@@ -591,17 +605,21 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
             case OutgoingAction.SENTENCE_ENDED:
                 if (!this._playbackEngine.isPaused) {
-                    this._audioBridge.next(this._getOptions(), false, this._stateStore.state.autoPlayMode);
+                    this._audioBridge.next(this._getOptions(), false, this._stateStore.state.autoPlayMode, data.intentId, data.batchId);
                 }
                 break;
             case OutgoingAction.NEXT_SENTENCE:
-                this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode);
+                this.nextSentence(data.intentId, data.batchId);
                 break;
             case OutgoingAction.PREV_SENTENCE:
-                this._audioBridge.previous(this._getOptions());
+                this.prevSentence(data.intentId, data.batchId);
                 break;
-            case OutgoingAction.JUMP_TO_SENTENCE: this.jumpToSentence(data.index); break;
-            case OutgoingAction.CONTINUE: this.continue(); break;
+            case OutgoingAction.JUMP_TO_SENTENCE:
+                this.jumpToSentence(data.index, data.intentId, data.batchId);
+                break;
+            case OutgoingAction.CONTINUE:
+                this.continue(data.intentId, data.batchId);
+                break;
             case OutgoingAction.FETCH_AUDIO:
                 const audioData = this._playbackEngine.getAudioFromCache(data.cacheKey);
                 if (audioData) {
@@ -615,7 +633,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 } else {
                     this._logger(`[BRIDGE_WARN] FETCH_FAILED: ${data.cacheKey}. Proactively triggering synthesis fallback.`);
                     // [RESILIENCE] If a fetch fails, we MUST start synthesis to prevent a playback stall.
-                    this._audioBridge.synthesize(data.cacheKey, this._getOptions(), data.intentId);
+                    this._audioBridge.synthesize(data.cacheKey, this._getOptions(), data.intentId, data.batchId);
                 }
                 break;
             case OutgoingAction.TOGGLE_PLAY_PAUSE:
@@ -633,10 +651,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
             case OutgoingAction.RESET_CONTEXT: this._resetContext(); break;
             case OutgoingAction.STOP: this.stop(); break;
-            case OutgoingAction.PAUSE: this.pause(); break;
+            case OutgoingAction.PAUSE: this.pause(data.intentId); break;
             case OutgoingAction.LOAD_DOCUMENT: this.loadCurrentDocument(); break;
             case OutgoingAction.REQUEST_SYNTHESIS:
-                this._audioBridge.synthesize(data.cacheKey, this._getOptions(), data.intentId);
+                this._audioBridge.synthesize(data.cacheKey, this._getOptions(), data.intentId, data.batchId);
                 break;
             case OutgoingAction.CLEAR_CACHE:
                 this._playbackEngine.clearCache();
@@ -695,6 +713,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     // No need to syncUI back immediately as webview already has it locally,
                     // but StateStore change will eventually trigger a sync anyway.
                 }
+                break;
+            
+            case OutgoingAction.REPORT_CACHE_DELTA:
+                this._audioBridge.updateManifest(data.delta);
                 break;
         }
     }
@@ -865,9 +887,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._audioBridge.start(startFromChapter, 0, this._getOptions());
     }
 
-    public pause() {
-        this._audioBridge.pause();
-        this._playbackEngine.setPaused(true);
+    public pause(intentId?: number) {
+        this._audioBridge.pause(intentId);
+        this._playbackEngine.setPaused(true, intentId);
     }
 
     public togglePlayPause() {
@@ -882,73 +904,73 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    public stop() {
-        this._audioBridge.stop();
-        this._playbackEngine.setPlaying(false);
-        this._playbackEngine.setPaused(false);
-        this._logger('[STOP] playback_stop');
+    public stop(intentId?: number, batchId?: number) {
+        this._audioBridge.stop(intentId, batchId);
+        this._playbackEngine.setPlaying(false, intentId);
+        this._playbackEngine.setPaused(false, intentId);
+        this._logger(`[STOP] playback_stop (Intent: ${intentId ?? 'current'}, BatchReset: ${!!batchId})`);
     }
 
-    public continue() {
+    public continue(intentId?: number, batchId?: number) {
         this._stateStore.setPreviewing(false); // Commit to full playback
-        this._playbackEngine.setPlaying(true);
-        this._playbackEngine.setPaused(false);
-        this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions());
+        this._playbackEngine.setPlaying(true, intentId);
+        this._playbackEngine.setPaused(false, intentId);
+        this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions(), false, intentId, batchId);
     }
 
     public startOver() {
         this.jumpToSentence(0);
     }
 
-    public jumpToSentence(index: number) {
+    public jumpToSentence(index: number, intentId?: number, batchId?: number) {
         this._stateStore.setPreviewing(false); // Navigation often implies intent to play from there
-        this._playbackEngine.setPlaying(true);
-        this._audioBridge.start(this._stateStore.state.currentChapterIndex, index, this._getOptions());
+        this._playbackEngine.setPlaying(true, intentId);
+        this._audioBridge.start(this._stateStore.state.currentChapterIndex, index, this._getOptions(), false, intentId, batchId);
     }
 
-    public jumpToChapter(index: number) {
+    public jumpToChapter(index: number, intentId?: number, batchId?: number) {
         const chapters = this._docController.chapters;
         if (index < 0 || index >= chapters.length) { return; }
         this._stateStore.setPreviewing(false);
-        this._playbackEngine.setPlaying(true);
-        this._audioBridge.start(index, 0, this._getOptions());
+        this._playbackEngine.setPlaying(true, intentId);
+        this._audioBridge.start(index, 0, this._getOptions(), false, intentId, batchId);
     }
 
-    public nextChapter() {
+    public nextChapter(intentId?: number, batchId?: number) {
         const state = this._stateStore.state;
         const chapters = this._docController.chapters;
         if (!chapters || chapters.length === 0) { return; }
 
         const nextIdx = state.currentChapterIndex + 1;
         if (nextIdx < chapters.length) {
-            this.jumpToChapter(nextIdx);
+            this.jumpToChapter(nextIdx, intentId, batchId);
         } else {
             this._logger('[READALOUD] Already at the last chapter.');
         }
     }
 
-    public prevChapter() {
+    public prevChapter(intentId?: number, batchId?: number) {
         const state = this._stateStore.state;
         const chapters = this._docController.chapters;
         if (!chapters || chapters.length === 0) { return; }
 
         if (state.currentSentenceIndex > 0) {
             // Restart current chapter
-            this.jumpToChapter(state.currentChapterIndex);
+            this.jumpToChapter(state.currentChapterIndex, intentId, batchId);
         } else if (state.currentChapterIndex > 0) {
             // Jump to previous chapter
-            this.jumpToChapter(state.currentChapterIndex - 1);
+            this.jumpToChapter(state.currentChapterIndex - 1, intentId, batchId);
         } else {
             this._logger('[READALOUD] Already at the first chapter.');
         }
     }
 
-    public prevSentence() {
-        this._audioBridge.previous(this._getOptions());
+    public prevSentence(intentId?: number, batchId?: number) {
+        this._audioBridge.previous(this._getOptions(), intentId, batchId);
     }
 
-    public nextSentence() {
-        this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode);
+    public nextSentence(intentId?: number, batchId?: number) {
+        this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode, intentId, batchId);
     }
 
     private _onSelectionChange(chapterIndex: number, sentenceIndex: number) {

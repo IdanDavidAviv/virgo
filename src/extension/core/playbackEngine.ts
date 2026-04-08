@@ -31,9 +31,11 @@ export class PlaybackEngine extends EventEmitter {
     private _cacheSizeBytes: number = 0;
     private _onCacheUpdate?: () => void;
     private _abortController: AbortController | null = null;
+    private _prefetchAbortController: AbortController = new AbortController();
 
     // Hardening: Track unique playback intents to eject stale/zombie tasks
-    private _playbackIntentId: number = 0;
+    private _playbackIntentId: number = Date.now();
+    private _batchIntentId: number = Date.now();
     private _isRateLimited: boolean = false;
     private _watchdogTimer: NodeJS.Timeout | null = null;
     private _isStalled: boolean = false;
@@ -43,6 +45,9 @@ export class PlaybackEngine extends EventEmitter {
     private _lastLoggedCacheTime: number = 0;
     private _retryAttempts: number = 3;
 
+    private _activeSegmentAbortController: AbortController | null = null;
+
+
     constructor(private logger: (msg: string) => void, onCacheUpdate?: () => void) {
         super();
         this._tts = new MsEdgeTTS();
@@ -51,6 +56,17 @@ export class PlaybackEngine extends EventEmitter {
 
     public setLogLevel(level: number) {
         this._logLevel = level;
+    }
+
+    private async _acquireLock() {
+        let release: () => void;
+        const nextLock = new Promise<void>(resolve => {
+            release = resolve;
+        });
+        const currentLock = this._synthesisLock;
+        this._synthesisLock = nextLock;
+        await currentLock;
+        return release!;
     }
 
     public setCacheLimitMb(mb: number) {
@@ -63,7 +79,7 @@ export class PlaybackEngine extends EventEmitter {
     private _pruneCache(incomingSizeBytes: number = 0) {
         // Defensive: ensure incoming size is a number
         const safeIncomingSize = Number.isFinite(incomingSizeBytes) ? incomingSizeBytes : 0;
-        
+
         // LRU Eviction: while total size exceeds limit, remove oldest
         while (this._audioCache.size > 0 && (this._cacheSizeBytes + safeIncomingSize > this._maxCacheBytes)) {
             const firstKey = this._audioCache.keys().next().value;
@@ -81,10 +97,15 @@ export class PlaybackEngine extends EventEmitter {
         }
     }
 
-    private _reinitTTS() {
+    private async _reinitTTS() {
         this.logger(`[NEURAL] Re-initializing MsEdgeTTS client...`);
         try {
+            // [STABILITY] Explicitly null out old instance to help GC
+            this._tts = (null as any);
             this._tts = new MsEdgeTTS();
+            
+            // Wait for a microtask tick
+            await Promise.resolve();
             this.logger(`[NEURAL] Client re-initialized.`);
         } catch (e) {
             this.logger(`[NEURAL] Failed to re-initialize TTS: ${e}`);
@@ -95,7 +116,6 @@ export class PlaybackEngine extends EventEmitter {
     public get isPaused() { return this._isPaused; }
     public get isStalled() { return this._isStalled; }
     public get playbackIntentId() { return this._playbackIntentId; }
-    public getAudioFromCache(cacheKey: string): string | undefined { return this._audioCache.get(cacheKey); }
 
     private _updateStatus(isPlaying?: boolean, isPaused?: boolean, isStalled?: boolean) {
         if (isPlaying !== undefined) { this._isPlaying = isPlaying; }
@@ -115,26 +135,98 @@ export class PlaybackEngine extends EventEmitter {
         this.logger(`[NEURAL] Retry attempts updated to ${attempts}.`);
     }
 
-    public setPlaying(val: boolean) {
+    public setPlaying(val: boolean, intentId?: number) {
+        if (intentId !== undefined) { this.adoptIntent(intentId); }
         this._updateStatus(val, !val ? this._isPaused : false);
     }
 
-    public setPaused(val: boolean) {
+    public setPaused(val: boolean, intentId?: number) {
+        if (intentId !== undefined) { this.adoptIntent(intentId); }
         this._updateStatus(!val ? this._isPlaying : false, val);
     }
 
-    public stop() {
-        this._playbackIntentId++; // Increment to eject all pending tasks
-        this.emit('intent-change', this._playbackIntentId);
-        this._updateStatus(false, false, false);
+    public get batchIntentId() { return this._batchIntentId; }
 
-        if (this._abortController) {
-            this.logger(`[NEURAL] ABORTING in-flight synthesis (Intent: ${this._playbackIntentId}).`);
-            this._abortController.abort();
-            this._abortController = null;
+    public getAudioFromCache(cacheKey: string): string | undefined { return this._audioCache.get(cacheKey); }
+
+    public adoptIntent(id: number) {
+        // [SOVEREIGNTY] Reject Intent 0 if we already have an established session
+        if (id === 0 && this._playbackIntentId > 0) {
+            this.logger(`[PlaybackEngine] 🛡️ Ignored Intent 0 (Stale Handshake noise)`);
+            return;
         }
-        this.stopProcess();
+
+        if (id > this._playbackIntentId) {
+            this.logger(`[PlaybackEngine] 🧬 Adopting Segment Intent: ${id} (Previous: ${this._playbackIntentId})`);
+            this._playbackIntentId = id;
+            this.emit('intent-change', this._playbackIntentId);
+
+            // [SOVEREIGNTY] Stop the current playing segment, but do NOT kill the batch.
+            if (this._activeSegmentAbortController) {
+                this._activeSegmentAbortController.abort('New Segment Intent');
+            }
+            this._activeSegmentAbortController = new AbortController();
+        }
     }
+
+    public adoptBatchIntent(id: number) {
+        if (id > this._batchIntentId) {
+            this.logger(`[PlaybackEngine] 📦 Adopting Batch Intent: ${id} (Previous: ${this._batchIntentId})`);
+            this._batchIntentId = id;
+
+            // [HARDENING] A new batch means a context shift (e.g. new chapter). 
+            // We MUST kill all synthesis tasks (priority AND background) for the old context.
+            if (this._abortController) {
+                this._abortController.abort('New Batch Intent: Context Shift');
+            }
+            this._abortController = new AbortController();
+
+            if (this._activeSegmentAbortController) {
+                this._activeSegmentAbortController.abort('New Batch Intent');
+            }
+            this._activeSegmentAbortController = new AbortController();
+
+            // Clear prefetch queue specifically
+            this._prefetchAbortController.abort('New Batch Intent');
+            this._prefetchAbortController = new AbortController();
+        }
+    }
+
+
+    public stop(intentId?: number, forceBatchReset: boolean = false) {
+        const id = intentId ?? this._playbackIntentId + 1;
+        this.logger(`[ENGINE] Stop (Intent: ${id} | ForceBatch: ${forceBatchReset})`);
+
+        this._isPlaying = false;
+        this._isPaused = false;
+        this._isStalled = false;
+        this._updateStatus();
+
+        if (intentId !== undefined) {
+            this.adoptIntent(intentId);
+        } else {
+            this._playbackIntentId = id;
+        }
+
+        // Always stop the current playing segment
+        if (this._activeSegmentAbortController) {
+            this._activeSegmentAbortController.abort('Stop Action');
+        }
+
+        // --- AUTHORITATIVE RESET ---
+        // We abort both batch and prefetch because a 'Stop' should be universal
+        if (this._batchAbortController) {
+            this._batchAbortController.abort('Stop Action');
+        }
+        this._batchAbortController = new AbortController();
+
+        this._prefetchAbortController.abort('Stop Action');
+        this._prefetchAbortController = new AbortController();
+
+        this.stopProcess();
+        this._reinitTTS();
+    }
+
 
     public stopProcess() {
         if (this._nativeProcess) {
@@ -171,7 +263,7 @@ export class PlaybackEngine extends EventEmitter {
 
         const bytes = Math.floor(totalBase64Chars * 0.75);
         const safeBytes = Number.isFinite(bytes) ? bytes : 0;
-        
+
         // --- THROTTLED LOGGING ---
         const now = Date.now();
         const countChangedSignificantly = Math.abs(this._audioCache.size - this._lastLoggedCacheCount) >= 5;
@@ -262,31 +354,47 @@ export class PlaybackEngine extends EventEmitter {
 
         this._audioCache.set(key, data);
         this._cacheSizeBytes = (Number.isFinite(this._cacheSizeBytes) ? this._cacheSizeBytes : 0) + safeSize;
-        
+
         // [TDD] Emit for Direct Push - include intentId to prevent sequence races
         this.emit('synthesis-complete', { cacheKey: key, intentId });
-        
+
         // [TDD] Emit for Reactive Stats
         this.emit('cache-stats-update', this.getCacheStats());
-        
+
         if (this._onCacheUpdate) { this._onCacheUpdate(); }
     }
 
-    public triggerPrefetch(text: string, cacheKey: string, options: PlaybackOptions) {
+    public triggerPrefetch(text: string, cacheKey: string, options: PlaybackOptions, batchId: number) {
         if (options.mode !== 'neural') { return; }
 
         if (this._audioCache.has(cacheKey) || this._pendingTasks.has(cacheKey)) {
             return;
         }
 
-        this.logger(`[PREFETCH] key:${cacheKey}`);
-        // Background prefetch should NEVER abort the priority task
-        this.speakNeural(text, cacheKey, options, false).catch(e => {
-            this.logger(`[PREFETCH] Background task failed: ${e.message}`);
+        if (batchId < this._batchIntentId) {
+            this.logger(`[PREFETCH] EJECTED: Batch ${batchId} is stale.`);
+            return;
+        }
+
+        this.logger(`[PREFETCH] key:${cacheKey} | Batch:${batchId}`);
+        // Background prefetch should NEVER abort the priority task, but it MUST respect the batch
+        this.speakNeural(text, cacheKey, options, false, this._playbackIntentId, batchId).catch(e => {
+            if (!e.message.includes('Aborted')) {
+                this.logger(`[PREFETCH] Background task failed: ${e.message}`);
+            }
         });
     }
 
-    public async speakNeural(text: string, cacheKey: string, options: PlaybackOptions, isPriority: boolean = true): Promise<string | null> {
+    public async speakNeural(text: string, cacheKey: string, options: PlaybackOptions, isPriority: boolean = true, intentId?: number, batchId?: number): Promise<string | null> {
+        const currentBatchId = batchId ?? this._batchIntentId;
+        const currentIntentId = intentId ?? (isPriority ? this._playbackIntentId + 1 : this._playbackIntentId);
+
+        // [v2.2.2] Dual-Intent Integrity Check
+        if (currentBatchId < this._batchIntentId) {
+            this.logger(`[NEURAL] EJECTED: Batch context ${currentBatchId} is stale (Current: ${this._batchIntentId})`);
+            return null;
+        }
+
         // --- CHECK CACHE ---
         if (this._audioCache.has(cacheKey)) {
             const bytes = this._getSegmentSizeBytes(this._audioCache.get(cacheKey)!);
@@ -299,42 +407,41 @@ export class PlaybackEngine extends EventEmitter {
 
         // --- CACHE MISS (Start synthesis) ---
         if (isPriority) {
-            this.logger(`[CACHE MISS] key:${cacheKey} | Triggering PRIORITY synthesis.`);
+            this.logger(`[CACHE MISS] key:${cacheKey} | Intent:${currentIntentId} | Batch:${currentBatchId}`);
         } else {
-            this.logger(`[CACHE MISS] key:${cacheKey} | Triggering BACKGROUND prefetch.`);
+            this.logger(`[CACHE BACKGROUND] key:${cacheKey} | Batch:${currentBatchId}`);
         }
 
         // --- CHECK PENDING ---
         if (this._pendingTasks.has(cacheKey)) {
-            this.logger(`[PENDING HIT] key:${cacheKey}`);
             if (isPriority) { this._isPlaying = true; }
             return this._pendingTasks.get(cacheKey)!;
         }
 
-        if (isPriority) {
-            this.logger(`[NEURAL] PRIORITY synthesis requested for Intent: ${this._playbackIntentId}`);
-
-            if (this._abortController) {
-                this._abortController.abort();
-            }
-            this._abortController = new AbortController();
-            // --- NEW SYNTHESIS TASK ---
+        if (intentId !== undefined) {
+            this.adoptIntent(intentId);
+        } else if (isPriority) {
             this._playbackIntentId++;
+        }
+
+        if (isPriority) {
+            // Priority tasks abort the PREVIOUS active segment, but NOT the batch queue
+            if (this._activeSegmentAbortController) {
+                this._activeSegmentAbortController.abort('New Priority Segment');
+            }
+            this._activeSegmentAbortController = new AbortController();
+
             this.emit('intent-change', this._playbackIntentId);
-            const currentIntent = this._playbackIntentId;
             this._updateStatus(true, false, true);
+
+            // [SOVEREIGNTY] Interrupt waiting prefetch tasks ONLY if the pipe is full. 
+            // In v2.2.2 we allow them to coexist unless the lock is heavily contested.
+            this._prefetchAbortController.abort('Priority Task Pipe Preference');
+            this._prefetchAbortController = new AbortController();
         }
 
-        const currentIntentId = this._playbackIntentId;
-
-        // [RESILIENCE] Signal the start of synthesis immediately for Adaptive JIT
+        // [RESILIENCE] Signal starting
         this.emit('synthesis-starting', { cacheKey, intentId: currentIntentId });
-
-        // If not a priority request, a controller should already exist (from the last priority task)
-        // or we use a temporary one. But it's better to skip aborting.
-        if (!this._abortController) {
-            this._abortController = new AbortController();
-        }
 
         let taskResolve!: (val: string | null) => void;
         let taskReject!: (err: any) => void;
@@ -342,60 +449,90 @@ export class PlaybackEngine extends EventEmitter {
             taskResolve = res;
             taskReject = rej;
         });
-        // [HARDENING] Suppress unhandled rejection warnings for this internal task
-        // Other callers will still receive the rejection when they await this promise.
-        task.catch(() => {});
 
-        // REGISTER SYNCHRONOUSLY to prevent race on back-to-back calls
+        task.catch(() => { });
         this._pendingTasks.set(cacheKey, task);
 
-        // Actual Work (Async)
-        (async () => {
-            const release = this._synthesisLock;
-            let resolveLock!: () => void;
-            this._synthesisLock = new Promise(r => resolveLock = r);
+        // [v2.3.1] Fire-and-forget worker with captured signals
+        const segmentSignal = isPriority ? this._activeSegmentAbortController?.signal : this._prefetchAbortController.signal;
+        const batchSignal = this._abortController?.signal;
 
-            try {
-                // Wait for existing lock OR abort
-                await Promise.race([
-                    release,
-                    new Promise((_, reject) => {
-                        this._abortController?.signal?.addEventListener('abort', () => reject(new Error('Synthesis Aborted')), { once: true });
-                        if (currentIntentId !== this._playbackIntentId) { reject(new Error('Stale Intent')); }
-                    })
-                ]);
-
-                return await this._getNeuralAudio(text, options.voice, options.retryCount ?? this._retryAttempts, currentIntentId, isPriority);
-            } finally {
-                resolveLock();
-                this._pendingTasks.delete(cacheKey);
-                this._clearWatchdog();
-            }
-        })().then(
-            (res) => {
-                if (isPriority) {
-                    this._updateStatus(undefined, undefined, false);
-                }
-                taskResolve(res);
-            },
-            (err) => {
-                if (isPriority) {
-                    this._updateStatus(undefined, undefined, false);
-                }
-                taskReject(err);
-            }
+        this._runNeuralSynthesis(
+            text, cacheKey, options, isPriority, currentIntentId, currentBatchId,
+            segmentSignal, batchSignal, taskResolve, taskReject
         );
 
+        return task;
+    }
+
+    private async _runNeuralSynthesis(
+        text: string,
+        cacheKey: string,
+        options: PlaybackOptions,
+        isPriority: boolean,
+        currentIntentId: number,
+        currentBatchId: number,
+        segmentSignal: AbortSignal | undefined,
+        batchSignal: AbortSignal | undefined,
+        taskResolve: (val: string | null) => void,
+        taskReject: (err: any) => void
+    ) {
+        const release = this._synthesisLock;
+        let resolveLock!: () => void;
+        this._synthesisLock = new Promise(r => resolveLock = r);
+
         try {
-            const data = await task;
+            this.logger(`[NEURAL] WAITING LOCK: ${cacheKey}`);
+            
+            // Wait for existing lock OR early abort
+            await Promise.race([
+                release,
+                new Promise((_, reject) => {
+                    const onAbort = (msg: string) => reject(new Error(msg));
+                    
+                    if (batchSignal?.aborted) { console.log('DEBUG: Batch Aborted'); return onAbort('Batch Synthesis Aborted'); }
+                    if (segmentSignal?.aborted) { console.log('DEBUG: Segment Aborted'); return onAbort('Segment Aborted'); }
+                    if (currentBatchId < this._batchIntentId) { console.log('DEBUG: Stale Batch'); return onAbort('Stale Context'); }
+
+                    batchSignal?.addEventListener('abort', () => onAbort('Batch Synthesis Aborted'), { once: true });
+                    segmentSignal?.addEventListener('abort', () => onAbort('Segment Aborted'), { once: true });
+                })
+            ]);
+
+            this.logger(`[NEURAL] LOCK ACQUIRED: ${cacheKey}`);
+            
+            const data = await this._getNeuralAudio(
+                text, options.voice, options.retryCount ?? this._retryAttempts,
+                currentIntentId, isPriority, currentBatchId, segmentSignal
+            );
+            
+            if (isPriority) { this._updateStatus(undefined, undefined, false); }
+            
             if (data) {
                 this._addToCache(cacheKey, data, currentIntentId);
-                this.logger(`[NEURAL] success: ${cacheKey}`);
             }
-            return data;
-        } catch (err) {
-            // Error already logged in _getNeuralAudio
-            throw err;
+            
+            taskResolve(data);
+        } catch (err: any) {
+            if (isPriority) { this._updateStatus(undefined, undefined, false); }
+            
+            // CLEAN ABORT: Don't log as error if manually stopped or intent changed
+            const msg = err?.message || String(err);
+            if (msg.includes('Aborted') || msg.includes('Stale') || msg.includes('Cleared') || msg.includes('Cancel')) {
+                this.logger(`[NEURAL] Task terminated: ${cacheKey} | ${msg}`);
+                taskResolve(null);
+                return;
+            }
+            
+            this.logger(`[NEURAL] ERROR: ${cacheKey} | ${msg}`);
+            
+            this.emit('synthesis-failed', { cacheKey, error: msg, intentId: currentIntentId });
+            taskReject(err);
+        } finally {
+            this.logger(`[NEURAL] RELEASING LOCK: ${cacheKey}`);
+            resolveLock();
+            this._pendingTasks.delete(cacheKey);
+            this._clearWatchdog();
         }
     }
 
@@ -415,10 +552,16 @@ export class PlaybackEngine extends EventEmitter {
         }
     }
 
-    private async _getNeuralAudio(text: string, voiceId: string, retryCount = 1, intentId: number, isPriority: boolean): Promise<string | null> {
-        // EXIT IMMEDIATELY IF INTENT IS STALE (Handles rapid jumps before lock)
-        if (intentId !== this._playbackIntentId) {
-            this.logger(`[NEURAL] EJECTED (Pre-lock) - Intent ${intentId} is stale (Current: ${this._playbackIntentId})`);
+    private async _getNeuralAudio(text: string, voiceId: string, retryCount = 1, intentId: number, isPriority: boolean, batchId: number, signal?: AbortSignal): Promise<string | null> {
+        // EXIT IMMEDIATELY IF BATCH IS STALE
+        if (batchId < this._batchIntentId) {
+            this.logger(`[NEURAL] EJECTED (Post-lock) - Batch ${batchId} is stale.`);
+            return null;
+        }
+
+        // EXIT IMMEDIATELY IF INTENT IS STALE (Only for priority tasks)
+        if (isPriority && intentId < this._playbackIntentId) {
+            this.logger(`[NEURAL] EJECTED (Post-lock) - Intent ${intentId} is stale.`);
             return null;
         }
 
@@ -437,24 +580,26 @@ export class PlaybackEngine extends EventEmitter {
         try {
             // FINAL STALE CHECK BEFORE API CALL
             if (intentId !== this._playbackIntentId) {
-                this.logger(`[NEURAL] EJECTED (Pre-flight) - Intent ${intentId} is stale.`);
                 return null;
             }
 
-            const signal = this._abortController?.signal;
-            if (signal?.aborted) {
-                this.logger(`[NEURAL] ABORTED (Pre-flight) - Task cancelled.`);
+            const signalToUse = signal;
+            if (signalToUse?.aborted) {
+                this.logger(`[NEURAL] ABORTED (Pre-flight) - Task cancelled before start.`);
                 return null;
             }
 
-            // XML character safety (Issue #36) is handled by cleanForSpeech
+            // XML character safety
             const escapedText = cleanForSpeech(text);
 
-            // SECOND ABORT CHECK: Right before the expensive setMetadata/toStream calls
-            if (signal?.aborted) {
-                this.logger(`[NEURAL] ABORTED (Pre-flight) - Cancelled before metadata set.`);
-                return null;
+            // [SOVEREIGNTY] Final check before I/O
+            if (this._tts && (this._tts as any)._isDestroyed) {
+                this.logger(`[NEURAL] TTS Instance destroyed. Forcing re-init...`);
+                await this._reinitTTS();
             }
+
+            // Ensure client exists
+            if (!this._tts) { await this._reinitTTS(); }
 
             await this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
             this.logger(`[TTS REQ] text:"${escapedText.substring(0, 30)}..." | voice:${voiceId} | Intent:${intentId}`);
@@ -465,7 +610,20 @@ export class PlaybackEngine extends EventEmitter {
                     return;
                 }
 
-                const { audioStream } = this._tts.toStream(escapedText);
+                let audioStream: any;
+                try {
+                    const result = this._tts.toStream(escapedText);
+                    audioStream = result.audioStream;
+                    
+                    if (!audioStream) {
+                        throw new Error("TTS Engine failed to initialize stream");
+                    }
+                } catch (e: any) {
+                    this.logger(`[TTS CRASH] toStream failed: ${e.message}`);
+                    this._reinitTTS(); // Force re-init on stream failure
+                    reject(e);
+                    return;
+                }
                 const chunks: Buffer[] = [];
                 let hasErrored = false;
 
@@ -496,10 +654,10 @@ export class PlaybackEngine extends EventEmitter {
 
                 audioStream.on("data", (data: Buffer) => {
                     if (hasErrored) { return; }
-                    
+
                     // Reset watchdog with a more generous 10s buffer between chunks
                     startWatchdog(10000);
-                    
+
                     if (chunks.length === 0) {
                         this.logger(`[TTS STREAM] STARTING (chunk 0)`);
                     }
@@ -551,11 +709,24 @@ export class PlaybackEngine extends EventEmitter {
             }
 
             if (retryCount > 0) {
-                // DO NOT RETRY IF STOPPED or STALE
-                if (intentId !== this._playbackIntentId || (!this._isPlaying && !this._isPaused && isPriority)) {
-                    this.logger(`[NEURAL] synthesis_cancelled | Intent ${intentId} is stale or engine stopped.`);
+                // DO NOT RETRY IF BATCH IS STALE
+                if (batchId < this._batchIntentId) {
+                    this.logger(`[NEURAL] synthesis_cancelled | Batch ${batchId} is stale.`);
                     return null;
                 }
+
+                // DO NOT RETRY IF INTENT IS STALE (For priority)
+                if (isPriority && intentId < this._playbackIntentId) {
+                    this.logger(`[NEURAL] synthesis_cancelled | Intent ${intentId} is stale.`);
+                    return null;
+                }
+
+                // DO NOT RETRY IF STOPPED (Only for priority)
+                if (isPriority && !this._isPlaying && !this._isPaused) {
+                    this.logger(`[NEURAL] synthesis_cancelled | Engine stopped.`);
+                    return null;
+                }
+
 
                 // DO NOT RETRY IF PAUSED (Keeps lock free for the user)
                 if (this._isPaused) {
@@ -581,27 +752,27 @@ export class PlaybackEngine extends EventEmitter {
                 const backoffMs = Math.min(1000 * Math.pow(2, 3 - retryCount), 8000);
                 await new Promise(res => setTimeout(res, backoffMs));
 
-                return this._getNeuralAudio(text, voiceId, retryCount - 1, intentId, isPriority);
+                // [SERIALIZATION] Lock is held by parent scope throughout retries to ensure FIFO integrity.
+                return this._getNeuralAudio(text, voiceId, retryCount - 1, intentId, isPriority, batchId);
             }
             this.logger(`[NEURAL] synthesis_failure | error: ${errorMessage}`);
+            
+            // [HARDENING] Specific check for the 'readyState' TypeError which indicates deep library state corruption
+            if (errorMessage.includes('readyState')) {
+                this.logger(`[NEURAL] ☢️ Critical library corruption detected (readyState). Forcing immediate client reset.`);
+                this._reinitTTS();
+            }
+
             throw err;
         }
-    }
-
-    private _getSafeText(text: string): string {
-        // PRODUCTION HARDENING: Neutralize shell injection by whitelisting character set
-        // Allow: Alphanumeric, spaces, basic punctuation (.,!?:;()'")
-        // Deny: Symbols used for shell expansion/redirection ($, `, |, &, <, >, \, {, }, [, ])
-        // Note: Hyphen must be at the end of the character class to be literal.
-        return text.replace(/[^a-zA-Z0-9\s.,!?:;()'"\u0590-\u05FF-]/g, ' ')
-            .replace(/["']/g, ''); // Specifically strip quotes for command safety
     }
 
     public speakLocal(text: string, options: PlaybackOptions, onExit: (code: number | null) => void) {
         this.stopProcess();
         this._updateStatus(true, false, false);
-        this.stopProcess();
-        const safeText = this._getSafeText(text);
+
+        // [v2.3.1] Inlined safety logic
+        const safeText = text.replace(/[^a-zA-Z0-9\s.,!?:;()'"\u0590-\u05FF-]/g, ' ').replace(/["']/g, '');
 
         if (process.platform === 'win32') {
             const psScript = `

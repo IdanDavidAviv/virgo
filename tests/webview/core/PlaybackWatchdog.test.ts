@@ -43,12 +43,12 @@ describe('PlaybackController: Watchdog & Stall Suppression', () => {
         expect(store.getUIState().isAwaitingSync).toBe(false);
     });
 
-    it('SHOULD time out isAwaitingSync if no response arrives within DEFAULT_INTENT_TIMEOUT (2000ms)', () => {
+    it('SHOULD time out isAwaitingSync if no response arrives within INTENT_TIMEOUT_MS (5000ms)', () => {
         controller.nextChapter();
         expect(store.getUIState().isAwaitingSync).toBe(true);
 
-        // Advance time by 3500ms (INTENT_TIMEOUT_MS)
-        vi.advanceTimersByTime(3500);
+        // [v2.2.2] Advance time by 5500ms (exceeds INTENT_TIMEOUT_MS)
+        vi.advanceTimersByTime(5500);
 
         expect(store.getUIState().isAwaitingSync).toBe(false);
     });

@@ -52,6 +52,7 @@ export interface StateMetadata {
     // Agent Governance
     autoInjectSITREP: boolean;
     playbackIntentId: number;
+    batchIntentId: number;
 }
 
 export class StateStore extends EventEmitter {
@@ -95,7 +96,8 @@ export class StateStore extends EventEmitter {
             cacheCount: 0,
             cacheSizeBytes: 0,
             autoInjectSITREP: true,
-            playbackIntentId: 0
+            playbackIntentId: Date.now(),
+            batchIntentId: Date.now()
         };
     }
 
@@ -271,7 +273,19 @@ export class StateStore extends EventEmitter {
      * Updates the global playback intent ID.
      */
     public setPlaybackIntentId(id: number) {
+        if (this._state.playbackIntentId === id) { return; }
         this._state.playbackIntentId = id;
+        this._logger(`[STATE] intent_updated: ${id}`);
+        this.emit('change', this.state);
+    }
+
+    /**
+     * Updates the global batch intent ID.
+     */
+    public setBatchIntentId(id: number) {
+        if (this._state.batchIntentId === id) { return; }
+        this._state.batchIntentId = id;
+        this._logger(`[STATE] batch_intent_updated: ${id}`);
         this.emit('change', this.state);
     }
 

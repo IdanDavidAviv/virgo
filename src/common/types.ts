@@ -9,6 +9,12 @@ export interface Chapter {
     sentenceLines: number[];
 }
 
+export interface WindowSentence {
+    text: string;
+    cIdx: number;
+    sIdx: number;
+}
+
 export interface StateStoreState {
     // FOCUSED (Passive Selection)
     focusedFileName: string;
@@ -44,6 +50,7 @@ export interface UISyncPacket {
     isPaused: boolean;
     playbackStalled: boolean;
     currentSentences: string[];
+    windowSentences?: WindowSentence[]; // [NEW] 100-sentence sliding window (25 back, 75 forward)
     allChapters: { title: string, level: number, index: number, count: number }[]; // [PHASE 4] Full chapter metadata
     currentChapterIndex: number;
     totalChapters: number;
@@ -60,6 +67,7 @@ export interface UISyncPacket {
     cacheSizeBytes: number;
     cacheStats?: { count: number, size: number };
     playbackIntentId: number;
+    batchIntentId: number;
     selectedVoice?: string;
     rate: number;
     volume: number;
@@ -93,6 +101,7 @@ export enum AudioEngineEventType {
 export interface AudioEngineEvent {
     type: AudioEngineEventType;
     intentId?: number;
+    batchId?: number;
     cacheKey?: string;
     message?: string;
 }
@@ -119,6 +128,7 @@ export interface AudioStrategy {
     playFromBase64?(base64: string, cacheKey?: string, intentId?: number): Promise<void>;
     playFromCache?(cacheKey: string, intentId?: number): Promise<boolean>;
     wipeCache?(): Promise<void>;
+    isSegmentReady?(cacheKey: string): boolean;
 }
 
 
@@ -163,9 +173,16 @@ export enum IncomingCommand {
     SYNTHESIS_READY = 'SYNTHESIS_READY',
     SYNTHESIS_STARTING = 'SYNTHESIS_STARTING',
     CLEAR_CACHE_WIPE = 'CLEAR_CACHE_WIPE',
-    CACHE_STATS_UPDATE = 'CACHE_STATS_UPDATE'
+    CACHE_STATS_UPDATE = 'CACHE_STATS_UPDATE',
+    CACHE_MANIFEST = 'CACHE_MANIFEST'
 }
 
+
+export interface CacheDelta {
+    added: string[];
+    removed: string[];
+    isFullSync: boolean;
+}
 
 /**
  * Actions sent FROM Webview TO Extension
@@ -201,5 +218,6 @@ export enum OutgoingAction {
     // Snippet Lookup (Antigravity)
     GET_ALL_SNIPPET_HISTORY = 'GET_ALL_SNIPPET_HISTORY',
     LOAD_SNIPPET = 'LOAD_SNIPPET',
-    SET_ACTIVE_MODE = 'SET_ACTIVE_MODE'
+    SET_ACTIVE_MODE = 'SET_ACTIVE_MODE',
+    REPORT_CACHE_DELTA = 'REPORT_CACHE_DELTA'
 }

@@ -95,7 +95,7 @@ describe('UnifiedPlaybackMutex (E2E Integration)', () => {
         //             Before it gets the lock, we switch to Local.
         
         // 1. Manually take the lock
-        const unlock = await engine.acquirePlaybackLock();
+        const unlock = await engine.acquireLock();
         
         // 2. Queue Neural Playback
         const neuralAudio = (engine as any).neuralStrategy.audio;
@@ -108,7 +108,7 @@ describe('UnifiedPlaybackMutex (E2E Integration)', () => {
         store.updateState({ selectedVoice: 'Local:Default' } as any, 'remote');
         
         // 4. Release lock - Step 1 is done
-        unlock();
+        if (unlock) { unlock(); }
         
         // Neural should now get the lock but MUST reject the playback because it's no longer active
         await neuralPromise;
@@ -137,5 +137,66 @@ describe('UnifiedPlaybackMutex (E2E Integration)', () => {
         await engine.playBlob(new Blob(), 'key-success', 201).then(() => successTraces.push('success_done'));
         
         expect(successTraces).toContain('success_done');
+    });
+});
+
+describe('WebviewAudioEngine: Unified Playback Mutex (Intent-Aware)', () => {
+    let engine: WebviewAudioEngine;
+
+    beforeEach(() => {
+        resetAllSingletons();
+        engine = WebviewAudioEngine.getInstance();
+    });
+
+    it('should release the lock if stop is called while waiting for acquireLock', async () => {
+        // 1. Manually hold the lock
+        const unlock = await engine.acquireLock();
+        
+        // 2. Request another lock (will be stuck)
+        let secondLockAcquired = false;
+        const secondLockPromise = engine.acquireLock().then((resolve) => { 
+            secondLockAcquired = true; 
+            if (resolve) { resolve(); }
+        });
+
+        // 3. Call stop (should bust all pending locks)
+        await engine.stop();
+
+        // 4. Check if second lock was released
+        await secondLockPromise;
+        expect(secondLockAcquired).toBe(true);
+
+        if (unlock) { unlock(); }
+    });
+
+    it('should bust all pending locks when a newer intent arrives', async () => {
+        // 1. Set active intent to 10
+        (engine as any).activeIntentId = 10;
+
+        // 2. Manually hold lock
+        const unlock = await engine.acquireLock();
+
+        // 3. Request lock with intent 10 (will be stuck)
+        let lock10Acquired = false;
+        engine.acquireLock(10).then((resolve) => { 
+            lock10Acquired = true; 
+            if (resolve) { resolve(); }
+        });
+
+        // 4. Request lock with intent 11 (should bust previous)
+        let lock11Acquired = false;
+        const lock11Promise = engine.acquireLock(11).then((resolve) => { 
+            lock11Acquired = true; 
+            if (resolve) { resolve(); }
+        });
+
+        // 5. ASSERT: lock10 should still be stuck because it didn't bust itself
+        expect(lock10Acquired).toBe(false);
+
+        // 6. ASSERT: lock11 should have busted the runway and resolved
+        await lock11Promise;
+        expect(lock11Acquired).toBe(true);
+
+        if (unlock) { unlock(); }
     });
 });

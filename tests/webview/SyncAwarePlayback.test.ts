@@ -28,7 +28,6 @@ describe('Simplified Sync Playback UI', () => {
         // Mock Engine to avoid actual audio calls
         const engine = WebviewAudioEngine.getInstance();
         vi.spyOn(engine, 'ensureAudioContext').mockImplementation(async () => {});
-        vi.spyOn(engine, 'prepareForPlayback').mockImplementation(() => {});
         vi.spyOn(engine, 'playFromCache').mockResolvedValue(true);
 
         // Mock Elements
@@ -79,7 +78,7 @@ describe('Simplified Sync Playback UI', () => {
         PlaybackController.getInstance().play();
         
         // UI and Store should show loading immediately (Optimistic state set by Controller)
-        expect(store.getUIState().isSyncing).toBe(true);
+        expect(store.isSyncing).toBe(true);
         controls.render(); 
         expect(mockEls.btnPlay.classList.contains('is-loading')).toBe(true);
         
@@ -95,7 +94,7 @@ describe('Simplified Sync Playback UI', () => {
             availableVoices: { local: [], neural: [] }
         });
 
-        expect(store.getUIState().isSyncing).toBe(false);
+        expect(store.isSyncing).toBe(false);
         controls.render();
         expect(mockEls.btnPlay.classList.contains('is-loading')).toBe(false);
     });
@@ -103,7 +102,7 @@ describe('Simplified Sync Playback UI', () => {
     it('should apply loading classes and respect grace periods (Stall Logic)', async () => {
         // 1. User Action (Instant Loading)
         PlaybackController.getInstance().play();
-        expect(store.getUIState().isSyncing).toBe(true);
+        expect(store.isSyncing).toBe(true);
         controls.render();
         expect(mockEls.btnPlay.classList.contains('is-loading')).toBe(true);
 

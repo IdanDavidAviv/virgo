@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { StateStore } from '@core/stateStore';
 import { DocumentLoadController } from '@core/documentLoadController';
 import { PlaybackEngine } from '@core/playbackEngine';
-import { UISyncPacket, StateStoreState, IncomingCommand, SnippetHistory } from '../../common/types';
+import { UISyncPacket, StateStoreState, IncomingCommand, SnippetHistory, WindowSentence } from '../../common/types';
 
 export class DashboardRelay {
     private _view?: vscode.WebviewView;
@@ -15,7 +15,20 @@ export class DashboardRelay {
     ) {}
 
     public setView(view: vscode.WebviewView | undefined) {
+        if (this._view && this._view !== view) {
+            this._logger(`[DashboardRelay] 🔄 Replacing existing view. Cleaving old connection.`);
+        }
         this._view = view;
+        if (view) {
+            this._logger(`[DashboardRelay] 🔌 New view attached.`);
+        }
+    }
+
+    public clearView() {
+        if (this._view) {
+            this._logger(`[DashboardRelay] 🏳️ Connection severed.`);
+            this._view = undefined;
+        }
     }
 
     /**
@@ -92,7 +105,9 @@ export class DashboardRelay {
             isLooping: s.isLooping,
             snippetHistory: snippetHistory,
             activeSessionId: activeSessionId,
-            availableVoices: voices
+            availableVoices: voices,
+            batchIntentId: s.batchIntentId,
+            windowSentences: this._calculateWindowSentences(currentChapterIndex, currentSentenceIndex)
         };
 
         this.postMessage({ command: 'UI_SYNC', ...packet });
@@ -137,5 +152,71 @@ export class DashboardRelay {
             command: 'engineStatus',
             status: status
         });
+    }
+
+    /**
+     * Calculates a sliding window of 100 sentences (25 previous, 75 future)
+     * across chapter boundaries for predictive synthesis.
+     */
+    private _calculateWindowSentences(currC: number, currS: number): WindowSentence[] {
+        const chapters = this._docController.chapters;
+        if (!chapters || chapters.length === 0) { return []; }
+
+        const window: WindowSentence[] = [];
+        const BACK_LIMIT = 25;
+        const FUTURE_LIMIT = 75;
+
+        // 1. Backtrack 25 sentences
+        let bC = currC;
+        let bS = currS - 1;
+        let bCount = 0;
+
+        while (bCount < BACK_LIMIT && bC >= 0) {
+            if (bS < 0) {
+                bC--;
+                if (bC >= 0) {
+                    bS = chapters[bC].sentences.length - 1;
+                }
+                continue;
+            }
+            window.unshift({
+                text: chapters[bC].sentences[bS],
+                cIdx: bC,
+                sIdx: bS
+            });
+            bS--;
+            bCount++;
+        }
+
+        // 2. Add current
+        if (currC >= 0 && currC < chapters.length && currS < chapters[currC].sentences.length) {
+            window.push({
+                text: chapters[currC].sentences[currS],
+                cIdx: currC,
+                sIdx: currS
+            });
+        }
+
+        // 3. Lookahead 74 sentences (total 75 including current)
+        let fC = currC;
+        let fS = currS + 1;
+        let fCount = 0;
+
+        while (fCount < (FUTURE_LIMIT - 1) && fC < chapters.length) {
+            if (fS >= chapters[fC].sentences.length) {
+                fC++;
+                fS = 0;
+                continue;
+            }
+            window.push({
+                text: chapters[fC].sentences[fS],
+                cIdx: fC,
+                sIdx: fS
+            });
+            fS++;
+            fCount++;
+        }
+
+        return window;
     }
 }

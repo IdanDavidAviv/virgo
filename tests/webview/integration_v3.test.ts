@@ -251,13 +251,19 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
         it('T1.6 — should post ENGINE_MODE_CHANGED when neural engine button is clicked', () => {
             mountSettingsDrawer();
             document.getElementById('engine-neural')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.ENGINE_MODE_CHANGED, { mode: 'neural' });
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.ENGINE_MODE_CHANGED, 
+                expect.objectContaining({ mode: 'neural', intentId: expect.any(Number) })
+            );
         });
 
         it('T1.7 — should post ENGINE_MODE_CHANGED when local engine button is clicked', () => {
             mountSettingsDrawer();
             document.getElementById('engine-local')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.ENGINE_MODE_CHANGED, { mode: 'local' });
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.ENGINE_MODE_CHANGED, 
+                expect.objectContaining({ mode: 'local', intentId: expect.any(Number) })
+            );
         });
     });
 
@@ -332,21 +338,30 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             mountPlaybackControls();
             store.patchState({ autoPlayMode: 'auto' });
             document.getElementById('btn-autoplay')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.SET_AUTO_PLAY_MODE, { mode: 'chapter' });
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.SET_AUTO_PLAY_MODE, 
+                expect.objectContaining({ mode: 'chapter', intentId: expect.any(Number) })
+            );
         });
 
         it('T2.9 — AUTOPLAY button cycles from chapter → row', () => {
             mountPlaybackControls();
             store.patchState({ autoPlayMode: 'chapter' });
             document.getElementById('btn-autoplay')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.SET_AUTO_PLAY_MODE, { mode: 'row' });
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.SET_AUTO_PLAY_MODE, 
+                expect.objectContaining({ mode: 'row', intentId: expect.any(Number) })
+            );
         });
 
         it('T2.10 — AUTOPLAY button cycles from row → auto', () => {
             mountPlaybackControls();
             store.patchState({ autoPlayMode: 'row' });
             document.getElementById('btn-autoplay')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.SET_AUTO_PLAY_MODE, { mode: 'auto' });
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.SET_AUTO_PLAY_MODE, 
+                expect.objectContaining({ mode: 'auto', intentId: expect.any(Number) })
+            );
         });
     });
 
@@ -421,28 +436,40 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             const interaction = InteractionManager.getInstance();
             interaction.mount();
             window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowLeft', bubbles: true }));
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.PREV_SENTENCE);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.PREV_SENTENCE,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T4.3 — ArrowRight triggers NEXT_SENTENCE', () => {
             const interaction = InteractionManager.getInstance();
             interaction.mount();
             window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowRight', bubbles: true }));
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.NEXT_SENTENCE);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.NEXT_SENTENCE,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T4.4 — ArrowUp triggers PREV_CHAPTER', () => {
             const interaction = InteractionManager.getInstance();
             interaction.mount();
             window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowUp', bubbles: true }));
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.PREV_CHAPTER);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.PREV_CHAPTER,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T4.5 — ArrowDown triggers NEXT_CHAPTER', () => {
             const interaction = InteractionManager.getInstance();
             interaction.mount();
             window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowDown', bubbles: true }));
-            expect(client.postAction).toHaveBeenCalledWith(OutgoingAction.NEXT_CHAPTER);
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.NEXT_CHAPTER,
+                expect.objectContaining({ intentId: expect.any(Number) })
+            );
         });
 
         it('T4.6 — Repeat guard: second immediate ArrowRight is suppressed', () => {
@@ -635,7 +662,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             firstVoice.click();
             expect(client.postAction).toHaveBeenCalledWith(
                 OutgoingAction.VOICE_CHANGED,
-                { voice: 'david' }
+                expect.objectContaining({ voice: 'david', intentId: expect.any(Number) })
             );
         });
     });

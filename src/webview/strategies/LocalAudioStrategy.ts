@@ -114,7 +114,7 @@ export class LocalAudioStrategy implements AudioStrategy {
   }
 
   public stop(): void {
-    if (this.synth.speaking) {
+    if (this.synth && this.synth.speaking) {
       this.synth.cancel();
     }
     this.currentUtterance = null;
@@ -162,4 +162,3 @@ export class LocalAudioStrategy implements AudioStrategy {
     this.stop();
   }
 }
-

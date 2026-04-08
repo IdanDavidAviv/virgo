@@ -125,7 +125,10 @@ describe('SettingsDrawer', () => {
         // Advance timers for debounced setVolume() in PlaybackController
         vi.advanceTimersByTime(200);
 
-        expect(postActionSpy).toHaveBeenCalledWith(OutgoingAction.VOLUME_CHANGED, { volume: 40 });
+        expect(postActionSpy).toHaveBeenCalledWith(
+            OutgoingAction.VOLUME_CHANGED,
+            expect.objectContaining({ volume: 40, intentId: expect.any(Number) })
+        );
     });
 
     it('should toggle "active" class on engine buttons based on store state', () => {

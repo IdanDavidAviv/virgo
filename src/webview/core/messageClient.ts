@@ -10,6 +10,7 @@ export class MessageClient {
   private handlers: Map<string, Array<(payload: any) => void>> = new Map();
   private messageListener: ((event: MessageEvent) => void) | null = null;
   private _logLevel: LogLevel = LogLevel.STANDARD;
+  private _cacheManager: any = null; // Attached via attachCacheManager()
 
 
   private constructor() {
@@ -35,6 +36,24 @@ export class MessageClient {
       console.log('[MessageClient] Adding listener to window');
       window.addEventListener('message', this.messageListener);
     }
+  }
+
+  /**
+   * Explicitly attach a CacheManager instance to handle manifest syncing.
+   * Prevents circular dependency at construction time.
+   */
+  public attachCacheManager(manager: any): void {
+      if (!manager) {
+          console.warn('[MessageClient] ⚠️ Attempted to attach null CacheManager.');
+          return;
+      }
+      this._cacheManager = manager;
+      console.log('[MessageClient] 🔗 CacheManager attached to IPC bridge.');
+      
+      // Wire up delta listener for real-time manifest updates
+      this._cacheManager.setOnDeltaListener((delta: any) => {
+          this.postAction(OutgoingAction.REPORT_CACHE_DELTA, delta);
+      });
   }
 
   /**

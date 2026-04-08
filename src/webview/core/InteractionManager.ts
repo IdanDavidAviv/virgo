@@ -82,41 +82,36 @@ export class InteractionManager {
             return;
         }
 
-        const audioEngine = WebviewAudioEngine.getInstance();
+        const playback = PlaybackController.getInstance();
 
         switch (event.code) {
             case 'Space':
                 event.preventDefault();
-                audioEngine.prepareForPlayback();
-                PlaybackController.getInstance().togglePlayPause();
+                playback.togglePlayPause();
                 break;
 
             case 'ArrowLeft':
                 event.preventDefault();
                 this.lastNavTime = Date.now();
-                audioEngine.prepareForPlayback();
-                this.client.postAction(OutgoingAction.PREV_SENTENCE);
+                playback.prevSentence();
                 break;
 
             case 'ArrowRight':
                 event.preventDefault();
                 this.lastNavTime = Date.now();
-                audioEngine.prepareForPlayback();
-                this.client.postAction(OutgoingAction.NEXT_SENTENCE);
+                playback.nextSentence();
                 break;
 
             case 'ArrowUp':
                 event.preventDefault();
                 this.lastNavTime = Date.now();
-                audioEngine.prepareForPlayback();
-                this.client.postAction(OutgoingAction.PREV_CHAPTER);
+                playback.prevChapter();
                 break;
 
             case 'ArrowDown':
                 event.preventDefault();
                 this.lastNavTime = Date.now();
-                audioEngine.prepareForPlayback();
-                this.client.postAction(OutgoingAction.NEXT_CHAPTER);
+                playback.nextChapter();
                 break;
 
             case 'Escape':
@@ -132,7 +127,7 @@ export class InteractionManager {
         }
 
         // [AUTOPLAY] Every keypress counts as a gesture to unlock the audio context
-        audioEngine.ensureAudioContext();
+        WebviewAudioEngine.getInstance().ensureAudioContext();
     }
 
     /**
