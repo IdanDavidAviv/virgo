@@ -56,6 +56,14 @@ export class WebviewAudioEngine {
     return this.pendingResolvers.size > 0;
   }
 
+  /**
+   * [v2.3.1] Synchronous Tier-1 check.
+   * Required for fast predictive synthesis logic.
+   */
+  public isSegmentReady(key: string): boolean {
+    return CacheManager.getInstance().isCachedLocally(key);
+  }
+
   public get audioElement(): HTMLAudioElement {
     return this._audio;
   }
@@ -112,7 +120,7 @@ export class WebviewAudioEngine {
     
     this.playbackMutex = new Promise<void>(resolve => { resolveNext = resolve; });
     this.pendingResolvers.add(resolveNext!);
-    this.activeLockResolver = resolveNext; // [v2.3.1] Track active lock
+    this.activeLockResolver = resolveNext || null; // [v2.3.1] Track active lock
 
     try {
       console.log(`[AUDIO] ⏳ Waiting for Mutex: intent=${intentId}`);
@@ -238,16 +246,18 @@ export class WebviewAudioEngine {
     }
   }
 
-  public async playFromCache(cacheKey: string, intentId?: number): Promise<void> {
+  public async playFromCache(cacheKey: string, intentId?: number): Promise<boolean> {
       try {
           const blob = await CacheManager.getInstance().get(cacheKey);
           if (blob) {
               await this.playBlob(blob, cacheKey, intentId);
+              return true;
           } else {
-              this.emit(AudioEngineEventType.ERROR, `Cache Miss: ${cacheKey}`);
+              return false;
           }
       } catch (e: any) {
           this.emit(AudioEngineEventType.ERROR, e.message);
+          return false;
       }
   }
 

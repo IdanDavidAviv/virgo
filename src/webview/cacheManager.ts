@@ -233,7 +233,15 @@ export class CacheManager {
     }
 
     /**
-     * Checks if a key exists in the cache.
+     * [v2.3.1] Synchronous Tier-1 check.
+     * Required for fast predictive synthesis logic.
+     */
+    public isCachedLocally(key: string): boolean {
+        return this._memoryCache.has(key);
+    }
+
+    /**
+     * Checks if a key exists in the cache (Async lookup).
      */
     public async exists(key: string): Promise<boolean> {
         const item = await this.get(key);
