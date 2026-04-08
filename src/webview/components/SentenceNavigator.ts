@@ -54,6 +54,18 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
     }
 
     /**
+     * Initializes event listeners for row-based jumping.
+     */
+    protected onMount(): void {
+        this.registerEventListener(this.els.prev, 'click', () => {
+            this.jump(this.state.currentIndex - 1);
+        });
+        this.registerEventListener(this.els.next, 'click', () => {
+            this.jump(this.state.currentIndex + 1);
+        });
+    }
+
+    /**
      * Triggers a jump to a specific sentence index via the Sovereign Head.
      */
     public jump(index: number): void {
@@ -101,7 +113,6 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
         
         if (!text) {
             el.innerHTML = '<span class="sentence-placeholder">&nbsp;</span>';
-            el.onclick = null;
             el.style.pointerEvents = 'none';
             el.style.opacity = '0';
             return;
@@ -119,11 +130,5 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
         el.classList.toggle('rtl', isHebrew);
 
         el.innerHTML = `<span>${renderWithLinks(text)}</span>`;
-
-        if (idx !== -1 && !isCurrent) {
-            el.onclick = () => this.jump(idx);
-        } else {
-            el.onclick = null;
-        }
     }
 }

@@ -24,10 +24,10 @@ description: Architectural map and development guidelines for the Read Aloud ext
 - **`WebviewStore.ts`**: Global reactive store (Redux-lite). Maintained by `UI_SYNC` packets from `SyncManager`.
 - **`CommandDispatcher.ts`**: Entry point for all incoming VS Code messages. Dispatches actions to the store or local services.
 - **`MessageClient.ts`**: Outbound IPC wrapper. Used to send user commands (Play, Pause, Stop) back to VS Code.
+- **`WebviewAudioEngine.ts`**: The "Dumb Player" (Stateless worker). Executes single-threaded audio playback using a single HTMLAudioElement for all strategies.
 
 ### 1.3 Auditory Strategy & Caching (The Holistic Hierarchy)
-- **`AudioStrategy` (Pattern)**: Decouples the synthesis engine from the playback controller.
-- **`NeuralAudioStrategy.ts`**: The **Tier-2 (Memory)** cache layer in the Webview. Maintains a sliding window of `ObjectURL`s for the current and next 2 sentences to ensure zero latency.
+- **Unified Synthesis Pipe**: [v2.3.1] The engine no longer uses explicit Strategy classes. Logic for Neural vs Local is branch-based within the `WebviewAudioEngine`.
 - **`CacheManager.ts`**: The **Tier-1 (Persistent)** storage (SSOT). Uses **IndexedDB** (`ReadAloudAudioCache`) with a 100MB cap and 7-day TTL.
 - **`cachePolicy.ts`**: The centralized authority for key generation across both environments.
 
@@ -50,15 +50,16 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
 
 - **Lifecycle**: Prefetch tasks are aborted immediately on `IntentId` increments (e.g., user skips forward).
 
-### 2.5 Intent Sovereignty & Handshake Gate [v2.3.1]
-- **Intent Sovereignty**: All synthesis and playback tasks MUST be tagged with a `playbackIntentId`. Components (Engine, Strategy, Buffer) MUST immediately eject tasks that do not match the current global intent. Intent IDs are initialized to `Date.now()` to prevent "Intent 0" race conditions during early boot.
-- **Authoritative Stop**: The `stop()` command is universal. It triggers a cascade of aborts across all active segments, pre-fetch batches, and the primary synthesis lock. Following the abort, it performs a mandatory TTS re-initializer cycle to ensure a clean state for subsequent requests.
-- **Handshake Gate**: The Webview (via `PlaybackController`) MUST block all synthesis requests and pre-fetching until the `isHandshakeComplete` flag is true (signaling that the initial `UI_SYNC` has been processed).
-- **Control Sovereignty**: User actions (Play/Pause/Stop) in the Webview are authoritative. Upon a user click, the `PlaybackController` enters a **Sovereign Window (3.5s)**:
-    - It increments the local `playbackIntentId`.
-    - It sets `isAwaitingSync = true`.
-    - It ignores all incoming `UI_SYNC` packets with lower `intentId`s to prevent "UI Flickering" or "Revert to Previous State" during async round-trips.
-- **Instance Guard (Bridge stabilization)**: To prevent SSE "Bridge Storms" during rapid reloads, the `McpBridge` enforces a **200ms eviction delay** before force-purging stale sessions, allowing graceful lifecycle transitions.
+### 2.5 Single Source of Intent (SSOI) & Handshake Gate [v2.3.1]
+- **Intent Sovereignty**: All synthesis and playback tasks MUST be tagged with a `playbackIntentId`. Components MUST immediately eject tasks that do not match the current global intent. Intent IDs are initialized to `Date.now()` to prevent race conditions.
+- **Single Source of Intent (SSOI)**: The `WebviewStore` is the **exclusive owner** of active intent and synchronization state. `PlaybackController` MUST NOT maintain private copies of `isPlaying`, `isAwaitingSync`, or `playbackIntentId`. All logic must read from and write to the store to prevent "Split-Brain" behavior.
+- **Authoritative Stop**: The `stop()` command is universal. It triggers a cascade of aborts across all active segments, pre-fetch batches, and the primary synthesis lock in the `WebviewAudioEngine`.
+- **Handshake Gate**: The Webview MUST block all synthesis requests and pre-fetching until the `isHandshakeComplete` flag is true in the store.
+- **Control Sovereignty**: User actions in the Webview are authoritative. Upon a user click, the system enters a **Sovereign Window (5s)**:
+    - `playbackIntentId` is updated in the store (`Date.now()`).
+    - `isAwaitingSync` is set to `true` in the store.
+    - Incoming `UI_SYNC` packets with lower `intentId`s are ignored to prevent "UI Flickering".
+- **Instance Guard**: To prevent "Bridge Storms", the `McpBridge` enforces a **200ms eviction delay** before force-purging stale sessions.
 
 ## 3. Hook Protocol (Development Guide)
 
@@ -109,7 +110,62 @@ graph TD
     end
 ```
 
-## 6. Maintenance Logic
-- **Discovery**: Before starting a new task, check if the current `task.md` or `implementation_plan.md` suggests an architectural evolution.
-- **Burn-down**: Once a component is refactored (e.g., `PlaybackEngine` -> `AudioStrategy`), update the **Architectural Map** above immediately.
-- **Check-in**: If unsure where to "hook" a new feature, run a search for `StateStore` usage.
+## 7. Architectural Sovereignty Protocol (SSOA)
+
+To maintain high-integrity state and prevent "Split-Brain" bugs, agents MUST adhere to these three pillars:
+
+### 7.1 The "No Shadowing" Rule
+**STRICT PROHIBITION**: Components (Controllers, Engines, UI Classes) are FORBIDDEN from maintaining local private properties that duplicate or shadow data stored in the `WebviewStore` or `StateStore`. 
+- **Correct**: Read `store.getState().isPlaying` inside your method.
+- **Incorrect**: Having `private isPlaying: boolean` in your class and trying to keep it synced.
+- **No Duplication**: NEVER create new properties that duplicate existing ones in the `state` sub-object or vice-versa. If a property exists in both, one MUST be the authority.
+
+### 7.4 Unified State Representation (Flattening)
+To prevent "Ghost State" (where nested and flat properties drift apart), the `WebviewStore` MUST maintain a strictly synchronized representation.
+- **The Reflective Patch**: The `patchState` operation in the `WebviewStore` must automatically "reflect" changes between the flat `UISyncPacket` properties and the nested `state` sub-object.
+- **Authority**: For properties present in both, the flat property in the `UISyncPacket` is the authority for incoming patches.
+
+### 7.2 Locality of Authority (LOA)
+- **State Sovereignty**: All data that persists across user interactions or impacts multiple components MUST reside in a Store.
+- **Pure Logic**: Controllers are "Stateless Services". They execute commands and manage transient side-effects (like the Sync Watchdog), but they do not "own" the truth.
+- **Triggered Side-Effects**: Logic execution should be triggered by Store transitions where possible, ensuring the UI and the Logic are always looking at the same snapshot.
+
+### 7.3 Atomic Intent Management
+Never scatter `Date.now()` or manual ID increments across components.
+- **Rule**: Use centralized store methods (e.g., `store.resetPlaybackIntent()`). This ensures that the `intentId` update and the `isAwaitingSync` lock happen in a single atomic state transition.
+
+## 8. Agent Heuristics for Architecture
+
+### 8.1 "Reconnaissance-First" Development
+Before adding any new property, method, or IPC command:
+1. **Search**: Run `grep_search` or `search_code` for the functional concept (e.g., "sync", "lock", "intent").
+2. **Reconstruct**: If a similar part exists, modify it to support the new use case rather than creating a parallel-but-different part.
+3. **Consolidate**: If you find duplication, your FIRST task is to decommission the redundant part and unify the logic.
+
+### 8.2 The "Duck Test" for Primitives
+If a new requirement "looks like" something the Store already handles (e.g., "I need a way to wait for a response"), use the existing mechanism (e.g., `isAwaitingSync`) instead of creating a new one (e.g., `this.isWaitingForDoc`).
+
+## 9. Autoradiant Health & Fallback Protocol [v2.4.0]
+
+To ensure playback reliability despite the inherent instability of internet-based Neural TTS, the system adheres to the **Autoradiant** philosophy: "Neural by choice, Local by necessity, Healing by design."
+
+### 9.1 Service Health States
+1. **HEALTHY**: Primary mode. All synthesis requests use Neural voices.
+2. **DEGRADED**: Entered after persistent Neural failures or >120s of "Dead" service. Synthesis is automatically routed to **Local** voices.
+3. **HEALING**: Background probing mode. The system attempts Neural prefetching. A successful prefetch transitions the state back to **HEALTHY**.
+
+### 9.2 The "Dead Man's Switch" (2-Minute Rule)
+- **Constraint**: The system MUST NOT fallback to robotic Local voices for transient network blips.
+- **Protocol**: If a prioritary Neural synthesis fails, the `lastNeuralSuccessTime` is checked. Fallback to Local only occurs if:
+    - (A) Persistent errors occur AND
+    - (B) `Date.now() - lastNeuralSuccessTime > 120,000ms`.
+
+### 9.3 Client Sovereignty (Fail-Fast)
+- **Library Corruption**: Errors containing `readyState` or `TypeError` in the TTS client are treated as **Authoritative Corruptions**.
+- **Action**: The `MsEdgeTTS` instance MUST be immediately destroyed and re-initialized. Retries MUST NOT proceed using a corrupted client.
+
+### 9.4 Simplified Synthesis Flow (The "Autoradiant" Loop)
+1. **Acquire Lock**: Unified `synthesisLock` with intent-based early ejection.
+2. **Fresh Client Check**: Verify client health before I/O.
+3. **Synthesis Loop**: A simple `for` loop (3 attempts) with exponential backoff.
+4. **Health Guard**: On error, update health state. If health hits `DEGRADED`, signal the Bridge to pivot.

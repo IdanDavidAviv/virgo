@@ -22,17 +22,27 @@ export class VoiceManager {
      */
     public async scanAndSync(): Promise<void> {
         try {
-            const { local, neural } = await this._playbackEngine.getVoices();
-            this._localVoices = local;
-            this._neuralVoices = neural;
+            // [v2.3.1] Simplified discovery: Extension only scans Neural voices.
+            // Local voices are injected via updateLocalVoices when reported by the Webview.
+            this._neuralVoices = await this._playbackEngine.getVoices() as any[];
             
-            this._stateStore.setVoices(local, neural);
-            this._logger(`[VOICE_SCAN] SUCCESS: Found ${local.length} local and ${neural.length} neural voices.`);
+            this._stateStore.setVoices(this._localVoices, this._neuralVoices);
+            this._logger(`[VOICE_SCAN] SUCCESS: Found ${this._neuralVoices.length} neural voices. Waiting for local report...`);
             
             this.broadcastVoices();
         } catch (e) {
             this._logger(`[VOICE_SCAN] CRITICAL FAILURE: ${e}`);
         }
+    }
+
+    /**
+     * Updates the local voice list from a webview report.
+     */
+    public updateLocalVoices(localVoices: any[]): void {
+        this._localVoices = localVoices;
+        this._stateStore.setVoices(this._localVoices, this._neuralVoices);
+        this._logger(`[VOICE_REPORT] SUCCESS: Received ${localVoices.length} local voices from Webview.`);
+        this.broadcastVoices();
     }
 
     /**

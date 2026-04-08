@@ -36,99 +36,54 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
     /**
      * Initializes event listeners for all control buttons.
      */
-    public mount(): void {
+    protected onMount(): void {
         const {
             btnPlay, btnPause, btnStop,
             btnPrev, btnNext,
             btnPrevSentence, btnNextSentence,
-            btnAutoplay, waveContainer
+            btnAutoplay
         } = this.els;
 
-        // No local state needed, all intents delegated to PlaybackController
+        this.registerEventListener(btnPlay, 'click', (e) => {
+            this.pulse([(e?.currentTarget || btnPlay) as HTMLElement, this.els.statusDot]);
+            PlaybackController.getInstance().play();
+        });
 
-        if (btnPlay) {
-            btnPlay.onclick = (e) => {
-                const el = (e?.currentTarget || btnPlay) as HTMLElement;
-                el.classList.add('pulse');
-                setTimeout(() => el.classList.remove('pulse'), 400);
-                this.els.statusDot?.classList.add('pulse');
-                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+        this.registerEventListener(btnPause, 'click', (e) => {
+            this.pulse([(e?.currentTarget || btnPause) as HTMLElement, this.els.statusDot]);
+            PlaybackController.getInstance().pause();
+        });
 
-                PlaybackController.getInstance().play();
-            };
-        }
-        if (btnPause) {
-            btnPause.onclick = (e) => {
-                const el = (e?.currentTarget || btnPause) as HTMLElement;
-                el.classList.add('pulse');
-                setTimeout(() => el.classList.remove('pulse'), 400);
-                this.els.statusDot?.classList.add('pulse');
-                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+        this.registerEventListener(btnStop, 'click', (e) => {
+            this.pulse([(e?.currentTarget || btnStop) as HTMLElement, this.els.statusDot]);
+            PlaybackController.getInstance().stop();
+        });
 
-                PlaybackController.getInstance().pause();
-            };
-        }
-        if (btnStop) {
-            btnStop.onclick = (e) => {
-                const el = (e?.currentTarget || btnStop) as HTMLElement;
-                el.classList.add('pulse');
-                setTimeout(() => el.classList.remove('pulse'), 400);
-                this.els.statusDot?.classList.add('pulse');
-                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+        // Navigation
+        this.registerEventListener(btnPrev, 'click', (e) => {
+            this.pulse([(e?.currentTarget || btnPrev) as HTMLElement, this.els.statusDot]);
+            PlaybackController.getInstance().prevChapter();
+        });
 
-                PlaybackController.getInstance().stop();
-            };
-        }
+        this.registerEventListener(btnNext, 'click', (e) => {
+            this.pulse([(e?.currentTarget || btnNext) as HTMLElement, this.els.statusDot]);
+            PlaybackController.getInstance().nextChapter();
+        });
 
-        // Navigation (Debounced at the component/client level)
-        if (btnPrev) {
-            btnPrev.onclick = (e) => {
-                const el = (e?.currentTarget || btnPrev) as HTMLElement;
-                el.classList.add('pulse');
-                setTimeout(() => el.classList.remove('pulse'), 400);
-                this.els.statusDot?.classList.add('pulse');
-                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+        this.registerEventListener(btnPrevSentence, 'click', (e) => {
+            this.pulse([(e?.currentTarget || btnPrevSentence) as HTMLElement, this.els.statusDot]);
+            PlaybackController.getInstance().prevSentence();
+        });
 
-                PlaybackController.getInstance().prevChapter();
-            };
-        }
-        if (btnNext) {
-            btnNext.onclick = (e) => {
-                const el = (e?.currentTarget || btnNext) as HTMLElement;
-                el.classList.add('pulse');
-                setTimeout(() => el.classList.remove('pulse'), 400);
-                this.els.statusDot?.classList.add('pulse');
-                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
+        this.registerEventListener(btnNextSentence, 'click', (e) => {
+            this.pulse([(e?.currentTarget || btnNextSentence) as HTMLElement, this.els.statusDot]);
+            PlaybackController.getInstance().nextSentence();
+        });
 
-                PlaybackController.getInstance().nextChapter();
-            };
-        }
-        if (btnPrevSentence) {
-            btnPrevSentence.onclick = (e) => {
-                const el = (e?.currentTarget || btnPrevSentence) as HTMLElement;
-                el.classList.add('pulse');
-                setTimeout(() => el.classList.remove('pulse'), 400);
-                this.els.statusDot?.classList.add('pulse');
-                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
-
-                PlaybackController.getInstance().prevSentence();
-            };
-        }
-        if (btnNextSentence) {
-            btnNextSentence.onclick = (e) => {
-                const el = (e?.currentTarget || btnNextSentence) as HTMLElement;
-                el.classList.add('pulse');
-                setTimeout(() => el.classList.remove('pulse'), 400);
-                this.els.statusDot?.classList.add('pulse');
-                setTimeout(() => this.els.statusDot?.classList.remove('pulse'), 400);
-
-                PlaybackController.getInstance().nextSentence();
-            };
-        }
-
-        if (btnAutoplay) {
-            btnAutoplay.onclick = () => this.cycleAutoPlayMode();
-        }
+        this.registerEventListener(btnAutoplay, 'click', () => {
+            this.pulse(btnAutoplay);
+            this.cycleAutoPlayMode();
+        });
     }
 
     /**
@@ -203,10 +158,6 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
 
         // Dashboard Parity: Authoritative update via Controller
         PlaybackController.getInstance().setAutoPlayMode(nextMode);
-        
-        // Pulse animation for the toggle
-        this.els.btnAutoplay?.classList.add('pulse');
-        setTimeout(() => this.els.btnAutoplay?.classList.remove('pulse'), 400);
     }
 
     /**

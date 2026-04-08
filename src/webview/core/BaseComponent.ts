@@ -10,6 +10,12 @@ export abstract class BaseComponent<T extends Record<string, HTMLElement | null 
   protected els: T;
   protected store: WebviewStore;
   private unsubscribers: Array<() => void> = [];
+  private domListeners: Array<{
+    target: EventTarget;
+    type: string;
+    listener: EventListenerOrEventListenerObject;
+    options?: boolean | AddEventListenerOptions;
+  }> = [];
 
   constructor(elements: T) {
     this.els = elements;
@@ -58,12 +64,27 @@ export abstract class BaseComponent<T extends Record<string, HTMLElement | null 
   }
 
   /**
+   * Safe Event Registration: Tracks listeners for automatic cleanup.
+   */
+  protected registerEventListener(
+    target: EventTarget | null,
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions
+  ): void {
+    if (!target) {return;}
+    target.addEventListener(type, listener, options);
+    this.domListeners.push({ target, type, listener, options });
+  }
+
+  /**
    * Finalizes the component instance. Called by the subclass or entry point.
    */
   public mount(): void {
     const start = performance.now();
     try {
       this.render();
+      this.onMount?.();
       const duration = (performance.now() - start).toFixed(2);
       const logLevel = this.store.getState()?.logLevel || LogLevel.STANDARD;
       if (logLevel === LogLevel.VERBOSE) {
@@ -75,17 +96,45 @@ export abstract class BaseComponent<T extends Record<string, HTMLElement | null 
   }
 
   /**
-   * Cleans up all store subscriptions.
+   * Cleans up all store subscriptions and DOM listeners.
    */
   public unmount(): void {
+    this.onUnmount?.();
+    
+    // Clear Store Subscriptions
     this.unsubscribers.forEach((unsub) => unsub());
     this.unsubscribers = [];
+
+    // Clear DOM Listeners
+    this.domListeners.forEach(({ target, type, listener, options }) => {
+      target.removeEventListener(type, listener, options);
+    });
+    this.domListeners = [];
   }
+
+  /**
+   * Optional lifecycle hooks for subclasses.
+   */
+  protected onMount?(): void;
+  protected onUnmount?(): void;
 
   /**
    * Abstract render method to be implemented by child components.
    */
   public abstract render(): void;
+
+  /**
+   * Triggers a standard pulse animation on the specified element(s).
+   */
+  protected pulse(el: HTMLElement | null | (HTMLElement | null)[]): void {
+    const list = Array.isArray(el) ? el : [el];
+    list.forEach(target => {
+      if (target) {
+        target.classList.add('pulse');
+        setTimeout(() => target.classList.remove('pulse'), 400);
+      }
+    });
+  }
 
   /**
    * Protected helper for sanitized, tagged logging.

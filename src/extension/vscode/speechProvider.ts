@@ -100,6 +100,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._audioBridge.on('engineStatus', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.ENGINE_STATUS, ...payload }));
         this._audioBridge.on('dataPush', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.DATA_PUSH, ...payload }));
         this._audioBridge.on('playbackFinished', () => this._syncStatusBars());
+        this._audioBridge.on('speakLocal', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.SPEAK_LOCAL, ...payload }));
 
         // Register PlaybackEngine Events (Neural Optimization & Cache Parity)
         this._playbackEngine.on('clear-cache', () => {
@@ -586,6 +587,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._settingsManager.saveSetting('selectedVoice', data.value);
                 this._playbackEngine.stop();
                 this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions(), true);
+                break;
+            case OutgoingAction.REPORT_VOICES:
+                this._voiceManager.updateLocalVoices(data.voices);
                 break;
             case 'SET_ENGINE_MODE':
                 this._settingsManager.saveSetting('engineMode', data.value);

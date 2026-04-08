@@ -129,7 +129,8 @@ export class DashboardRelay {
             IncomingCommand.PLAYBACK_STATE_CHANGED,
             IncomingCommand.DATA_PUSH,
             IncomingCommand.CLEAR_CACHE_WIPE,
-            IncomingCommand.CACHE_STATS_UPDATE
+            IncomingCommand.CACHE_STATS_UPDATE,
+            IncomingCommand.SPEAK_LOCAL
         ];
         const isCritical = criticalCommands.includes(message.command);
 

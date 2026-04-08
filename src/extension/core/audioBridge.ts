@@ -14,11 +14,13 @@ export interface AudioBridgeEvents {
     'engineStatus': (payload: { status: string }) => void;
     'dataPush': (payload: { cacheKey: string, data: string, intentId: number }) => void;
     'synthesisReady': (payload: { cacheKey: string, intentId: number }) => void;
+    'speakLocal': (payload: { text: string, voiceId: string, rate: number, volume: number, intentId: number }) => void;
 }
 
 export class AudioBridge extends EventEmitter {
     private _pushDelayMs: number = 200;
     private _webviewCacheManifest: Set<string> = new Set();
+    private _webviewLocalVoices: any[] = [];
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -158,13 +160,22 @@ export class AudioBridge extends EventEmitter {
 
         const sentence = chapter.sentences[sentenceIndex];
         const cacheKey = generateCacheKey(
-            sentence,
-            options.voice,
-            options.rate,
+            sentence, 
+            options.voice, 
+            options.rate, 
             this._docController.metadata.uri?.toString() || this._docController.metadata.fileName
         );
 
-        if (options.mode === 'neural') {
+        // [v2.3.1] Autoradiant Routing: Check health-aware viability before choosing engine
+        const isNeuralSelected = options.mode === 'neural';
+        const isNeuralViable = this._playbackEngine.isNeuralViable();
+        const finalMode = (isNeuralSelected && isNeuralViable) ? 'neural' : 'local';
+
+        if (isNeuralSelected && !isNeuralViable) {
+            this._logger('[BRIDGE] ☢️ Neural stalled > 120s. Autoradiant Fallback -> LOCAL.');
+        }
+
+        if (finalMode === 'neural') {
             // [SOVEREIGNTY] Tiered Cache Lookup
             const extensionCached = this._playbackEngine.getCached(cacheKey);
             const webviewCached = this._webviewCacheManifest.has(cacheKey);
@@ -334,6 +345,20 @@ export class AudioBridge extends EventEmitter {
         }
     }
 
+    public async getVoices() {
+        // [v2.3.1] Simplified: Unify Neural (Extension) and Local (Webview-reported)
+        const neuralVoices = await this._playbackEngine.getVoices() as any;
+        return {
+            local: this._webviewLocalVoices,
+            neural: neuralVoices
+        };
+    }
+
+    public updateWebviewVoices(voices: any[]) {
+        this._logger(`[BRIDGE] Updated ${voices.length} local voices from Webview.`);
+        this._webviewLocalVoices = voices;
+    }
+
     private async _speakNeural(sentence: string, cacheKey: string, options: PlaybackOptions, cIdx: number, sIdx: number, intentId: number, batchId?: number) {
         try {
             const data = await this._playbackEngine.speakNeural(sentence, cacheKey, options, true, intentId, batchId); // true = priority
@@ -390,10 +415,16 @@ export class AudioBridge extends EventEmitter {
     }
 
     private _speakLocal(sentence: string, options: PlaybackOptions) {
-        this._playbackEngine.speakLocal(sentence, options, (code) => {
-            if (code === 0 && !this._playbackEngine.isPaused && this._playbackEngine.isPlaying) {
-                this.next(options);
-            }
+        // [v2.3.1] Simplified Webview IPC: Instead of native SAPI, we command the Webview to speak.
+        // The Webview will handle the utterance and report completion via 'playbackFinished' if needed,
+        // or we can rely on the existing 'next' logic if we want extension-side sequencing.
+        this._logger(`[BRIDGE] >> SPEAK_LOCAL: "${sentence.substring(0, 30)}..."`);
+        
+        this._emitWithIntent('speakLocal', {
+            text: sentence,
+            voiceId: options.voice,
+            rate: options.rate,
+            volume: options.volume
         });
     }
 

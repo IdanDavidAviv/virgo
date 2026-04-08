@@ -22,7 +22,7 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
     activeMode: 'FILE'
   },
   isPlaying: false,
-  isPaused: false,
+  isPaused: true,
   playbackStalled: false,
   currentSentences: [],
   allChapters: [],
@@ -39,8 +39,8 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
   cacheCount: 0,
   cacheSizeBytes: 0,
   cacheStats: { count: 0, size: 0 },
-  playbackIntentId: Date.now(),
-  batchIntentId: Date.now(),
+  playbackIntentId: 0,
+  batchIntentId: 0,
   rate: 0,
   volume: 50,
   activeMode: 'FILE',
@@ -86,6 +86,9 @@ export class WebviewStore {
     listener: Listener<any>,
     lastValue: any
   }> = new Set();
+  private syncTimer: any = null;
+  private readonly STALL_GRACE_MS = 300;
+  private readonly SYNC_TIMEOUT_MS = 5000;
 
   private _isHydrated: boolean = false;
 
@@ -104,7 +107,9 @@ export class WebviewStore {
       pendingChapterIndex: -1,
       neuralBuffer: { count: 0, sizeMb: 0 },
       isSyncing: false,
-      isHandshakeComplete: false
+      isHandshakeComplete: false,
+      playbackIntentId: Date.now(),
+      batchIntentId: Date.now()
     };
   }
 
@@ -130,6 +135,10 @@ export class WebviewStore {
   }
 
   public dispose(): void {
+    if (this.syncTimer) {
+      clearTimeout(this.syncTimer);
+      this.syncTimer = null;
+    }
     this.listeners.clear();
     this._isHydrated = false;
     // Reset to defaults
@@ -147,7 +156,9 @@ export class WebviewStore {
       pendingChapterIndex: -1,
       neuralBuffer: { count: 0, sizeMb: 0 },
       isSyncing: false,
-      isHandshakeComplete: false
+      isHandshakeComplete: false,
+      playbackIntentId: Date.now(),
+      batchIntentId: Date.now()
     };
   }
 
@@ -189,8 +200,18 @@ export class WebviewStore {
    * Unified subscribe method.
    */
   public subscribe<T>(selector: Selector<T>, listener: Listener<T>): () => void {
-    const entry = { selector, listener, lastValue: selector(this.state) };
+    const initialValue = selector(this.state);
+    const entry = { selector, listener, lastValue: initialValue };
     this.listeners.add(entry);
+    
+    // [SOVEREIGNTY] Immediately invoke the listener with the current value
+    // to ensure the subscribing component is always in sync with reality.
+    try {
+      listener(initialValue);
+    } catch (err) {
+      console.error(`[Store] Subscription initial call failed:`, err);
+    }
+
     return () => this.listeners.delete(entry);
   }
 
@@ -204,9 +225,9 @@ export class WebviewStore {
   public patchState(patch: Partial<StoreState>): void {
     const wasHydrated = this._isHydrated;
 
-    if (patch.state && !this._isHydrated) {
+    if ((patch.state || patch.isHandshakeComplete === true) && !this._isHydrated) {
       this._isHydrated = true;
-      patch.isHandshakeComplete = true;
+      if (patch.state){ patch.isHandshakeComplete = true;}
     }
 
     // [PERFORMANCE] Prevent redundant updates if state is identical,
@@ -235,7 +256,77 @@ export class WebviewStore {
     const finalPatch = { ...patch };
     if (patch.state && this.state.state) {
       finalPatch.state = { ...this.state.state, ...patch.state };
+    } else if ('state' in patch && !patch.state) {
+      // If the patch explicitly contains 'state' but it's null/undefined, 
+      // we strip it to prevent wiping the existing authoritative state.
+      delete finalPatch.state;
     }
+
+    // [SOVEREIGNTY] Reflective Patching: Synchronize Twin Properties
+    // Ensures flat properties and nested 'state' properties never drift.
+    if (finalPatch.state) {
+      if (finalPatch.currentChapterIndex !== undefined) {
+        finalPatch.state.currentChapterIndex = finalPatch.currentChapterIndex;
+      } else if (finalPatch.state.currentChapterIndex !== undefined) {
+        (finalPatch as any).currentChapterIndex = finalPatch.state.currentChapterIndex;
+      }
+
+      if (finalPatch.activeMode !== undefined) {
+        finalPatch.state.activeMode = finalPatch.activeMode;
+      } else if (finalPatch.state.activeMode !== undefined) {
+        (finalPatch as any).activeMode = finalPatch.state.activeMode;
+      }
+
+      // [AUTHORITATIVE TWINS]
+      if (finalPatch.autoPlayMode !== undefined) {
+        finalPatch.state.autoPlayMode = finalPatch.autoPlayMode;
+      } else if (finalPatch.state.autoPlayMode !== undefined) {
+        (finalPatch as any).autoPlayMode = finalPatch.state.autoPlayMode;
+      }
+
+      if (finalPatch.volume !== undefined) {
+        finalPatch.state.volume = finalPatch.volume;
+      } else if (finalPatch.state.volume !== undefined) {
+        (finalPatch as any).volume = finalPatch.state.volume;
+      }
+
+      if (finalPatch.rate !== undefined) {
+        finalPatch.state.rate = finalPatch.rate;
+      } else if (finalPatch.state.rate !== undefined) {
+        (finalPatch as any).rate = finalPatch.state.rate;
+      }
+
+      if (finalPatch.engineMode !== undefined) {
+        finalPatch.state.engineMode = finalPatch.engineMode;
+      } else if (finalPatch.state.engineMode !== undefined) {
+        (finalPatch as any).engineMode = finalPatch.state.engineMode;
+      }
+    } else {
+      // If patching flat properties without a 'state' object in the patch,
+      // we must reach into the existing nested state to maintain parity.
+      const currentNested = this.state.state;
+      if (currentNested) {
+          if (finalPatch.currentChapterIndex !== undefined) {
+            finalPatch.state = { ...currentNested, currentChapterIndex: finalPatch.currentChapterIndex };
+          }
+          if (finalPatch.activeMode !== undefined) {
+            finalPatch.state = { ...(finalPatch.state || currentNested), activeMode: finalPatch.activeMode };
+          }
+           if (finalPatch.autoPlayMode !== undefined) {
+            finalPatch.state = { ...(finalPatch.state || currentNested), autoPlayMode: finalPatch.autoPlayMode };
+          }
+          if (finalPatch.volume !== undefined) {
+            finalPatch.state = { ...(finalPatch.state || currentNested), volume: finalPatch.volume };
+          }
+          if (finalPatch.rate !== undefined) {
+            finalPatch.state = { ...(finalPatch.state || currentNested), rate: finalPatch.rate };
+          }
+          if (finalPatch.engineMode !== undefined) {
+            finalPatch.state = { ...(finalPatch.state || currentNested), engineMode: finalPatch.engineMode };
+          }
+      }
+    }
+
     if (patch.availableVoices && this.state.availableVoices) {
       finalPatch.availableVoices = { ...this.state.availableVoices, ...patch.availableVoices };
     }
@@ -244,9 +335,9 @@ export class WebviewStore {
     }
 
     this.state = { ...this.state, ...finalPatch };
-
-    // [DNA] Recalculate static isSyncing for subscribers
-    this.state.isSyncing = this.calculateSyncingState();
+    
+    // [DNA] Recalculate and Schedule re-evaluation
+    this.refreshSyncingState();
 
     // [HARDENING] Notify listeners
     this.listeners.forEach((entry) => {
@@ -306,6 +397,47 @@ export class WebviewStore {
     this.patchState({ activeQueue: window });
   }
 
+  /**
+   * refreshSyncingState(): Reactive recalculation of the isSyncing state.
+   * Resolves "Ghost State" by scheduling re-evaluations when transitions rely on time.
+   */
+  private refreshSyncingState(): void {
+    const wasSyncing = this.state.isSyncing;
+    const isSyncing = this.calculateSyncingState();
+    
+    if (this.syncTimer) {
+      clearTimeout(this.syncTimer);
+      this.syncTimer = null;
+    }
+
+    if (isSyncing !== wasSyncing) {
+      this.state.isSyncing = isSyncing;
+      // Note: We don't recursively call patchState here to avoid loops.
+      // Callers of refreshSyncingState (patchState) will handle listener notification.
+    }
+
+    // Schedule next re-evaluation if we are in a transient state
+    const { isAwaitingSync, playbackStalled, lastStallAt, lastStallSource, playbackIntent } = this.state;
+    if (playbackIntent !== 'PLAYING') {return;}
+
+    if (isAwaitingSync || playbackStalled) {
+      const duration = Date.now() - lastStallAt;
+      const isUserIntent = lastStallSource === 'USER';
+      const grace = isUserIntent ? 0 : this.STALL_GRACE_MS;
+
+      if (!isSyncing && duration < grace) {
+        // Pending "Syncing" start after grace period
+        this.syncTimer = setTimeout(() => this.patchState({}), grace - duration + 1);
+      } else if (isSyncing) {
+        // Pending "Syncing" timeout (Force clear after 5s)
+        this.syncTimer = setTimeout(() => {
+          console.warn('[STORE] ⚠️ Sync Timeout Reached. Force clearing stall state.');
+          this.resetLoadingStates();
+        }, this.SYNC_TIMEOUT_MS - duration + 1);
+      }
+    }
+  }
+
   private calculateSyncingState(): boolean {
     const {
       isAwaitingSync = false,
@@ -320,10 +452,10 @@ export class WebviewStore {
     }
 
     const isUserIntent = lastStallSource === 'USER';
-    const stallGracePeriod = isUserIntent ? 0 : 300; // ms
-    const stallDuration = Date.now() - lastStallAt;
+    const grace = isUserIntent ? 0 : this.STALL_GRACE_MS;
+    const duration = Date.now() - lastStallAt;
 
-    return (playbackStalled || isAwaitingSync) && (stallDuration >= stallGracePeriod);
+    return (playbackStalled || isAwaitingSync) && (duration >= grace);
   }
 
   /**

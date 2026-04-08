@@ -13,9 +13,10 @@ export interface SnippetLookupElements extends Record<string, HTMLElement | null
  */
 export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
     private _selectedSessionId: string | null = null;
+    private _lastHistory: any[] = [];
 
-    public mount(): void {
-        super.mount();
+    constructor(elements: SnippetLookupElements) {
+        super(elements);
 
         // 1. Subscribe to snippet history and active session
         this.subscribe((state) => ({
@@ -23,6 +24,7 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
             activeSessionId: state.activeSessionId,
             activeDocumentUri: state.state?.activeDocumentUri
         }), ({ history, activeSessionId, activeDocumentUri }) => {
+            this._lastHistory = history;
             this.renderHistory(history, activeSessionId, activeDocumentUri);
         });
 
@@ -32,6 +34,43 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
         if (state && !state.snippetHistory) {
             PlaybackController.getInstance().requestSnippetHistory();
         }
+    }
+
+    protected onMount(): void {
+        const { container } = this.els;
+        if (!container) {return;}
+
+        // [SOVEREIGNTY] Event Delegation for everything in snippet lookup
+        this.registerEventListener(container, 'click', (e: Event) => {
+            const target = e.target as HTMLElement;
+
+            // 1. Back button
+            if (target.closest('.snippet-back-button')) {
+                this._selectedSessionId = null;
+                const state = this.store.getState();
+                this.renderHistory(this._lastHistory, state.activeSessionId, state.state?.activeDocumentUri);
+                return;
+            }
+
+            // 2. Session Card
+            const sessionCard = target.closest('.snippet-session-card') as HTMLElement;
+            if (sessionCard) {
+                this._selectedSessionId = sessionCard.dataset.session || null;
+                const state = this.store.getState();
+                this.renderHistory(this._lastHistory, state.activeSessionId, state.state?.activeDocumentUri);
+                return;
+            }
+
+            // 3. Snippet Item
+            const snippetItem = target.closest('.snippet-item') as HTMLElement;
+            if (snippetItem) {
+                const path = snippetItem.dataset.path;
+                if (path) {
+                    PlaybackController.getInstance().loadSnippet(path);
+                }
+                return;
+            }
+        });
     }
 
     private renderHistory(history: any[], activeSessionId?: string, activeDocumentUri?: string | null): void {
@@ -71,14 +110,6 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
         html += '</div>';
 
         this.els.container.innerHTML = html;
-
-        // Add listeners
-        this.els.container.querySelectorAll('.snippet-session-card').forEach(el => {
-            (el as HTMLElement).onclick = () => {
-                this._selectedSessionId = el.getAttribute('data-session');
-                this.renderHistory(history, activeSessionId);
-            };
-        });
     }
 
     private renderSnippetsLayer(history: any[], activeSessionId?: string, activeDocumentUri?: string | null): void {
@@ -100,7 +131,6 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
                 </div>
                 <div class="snippets-list">
                     ${session.snippets.map((s: any) => {
-                        // [AUTO_TURN_DETECTION] Extract turn number from name
                         const turnMatch = s.name.match(/Turn_(\d+)$/i) || s.name.match(/^(\d+)_/);
                         const turnLabel = turnMatch ? `T${turnMatch[1].padStart(3, '0')}` : null;
 
@@ -122,27 +152,6 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
         `;
 
         this.els.container.innerHTML = html;
-
-        // "Back" Button
-        const backBtn = this.els.container.querySelector('.snippet-back-button');
-        if (backBtn) {
-            (backBtn as HTMLElement).onclick = () => {
-                this._selectedSessionId = null;
-                // Re-render
-                const state = WebviewStore.getInstance().getState();
-                this.renderHistory(history, activeSessionId, state?.state?.activeDocumentUri);
-            };
-        }
-
-        // Snippet Items
-        this.els.container.querySelectorAll('.snippet-item').forEach(el => {
-            (el as HTMLElement).onclick = () => {
-                const path = el.getAttribute('data-path');
-                if (path) {
-                    PlaybackController.getInstance().loadSnippet(path);
-                }
-            };
-        });
     }
 
     public render(): void {

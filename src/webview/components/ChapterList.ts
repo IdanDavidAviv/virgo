@@ -1,6 +1,6 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { WebviewStore } from '../core/WebviewStore';
-import { escapeHtml, renderWithLinks } from '../utils';
+import { renderWithLinks } from '../utils';
 import { PlaybackController } from '../playbackController';
 
 export interface ChapterListElements extends Record<string, HTMLElement | null | (HTMLElement | null)[] | undefined> {
@@ -34,6 +34,39 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
         this.subscribe((state) => state.state.currentChapterIndex, () => this.updateHighlights());
         this.subscribe((state) => state.state.currentSentenceIndex, () => this.updateHighlights());
         this.subscribeUI((state) => state.collapsedIndices, () => this.render());
+    }
+
+    protected onMount(): void {
+        const { container } = this.els;
+        if (!container) {return;}
+
+        // [SOVEREIGNTY] Event Delegation for chapter list
+        this.registerEventListener(container, 'click', (e: Event) => {
+            const target = e.target as HTMLElement;
+            
+            // 1. Handle File Links (Exit early)
+            if (target.closest('.file-link')) {
+                return;
+            }
+
+            // 2. Find closest chapter item
+            const item = target.closest('.chapter-item') as HTMLElement;
+            if (!item || item.classList.contains('empty')) {
+                return;
+            }
+
+            const index = parseInt(item.dataset.index || '-1', 10);
+            if (index === -1) {return;}
+
+            // 3. Handle Chevron (Collapse/Expand)
+            if (target.classList.contains('chevron') || target.closest('.chevron')) {
+                this.toggleCollapse(index);
+                return;
+            }
+
+            // 4. Handle Chapter Jump
+            this.jumpToChapter(index);
+        });
     }
 
     /**
@@ -75,7 +108,7 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
         const chapters = state?.allChapters || [];
         const currentIdx = state?.state?.currentChapterIndex ?? -1;
 
-        this.log(`Rendering Chapters: ${chapters.length} | Active: ${currentIdx} | UI State: ${JSON.stringify(WebviewStore.getInstance().getUIState())}`);
+        this.log(`Rendering Chapters: ${chapters.length} | Active: ${currentIdx}`);
 
         container.innerHTML = '';
         this.itemElements = [];
@@ -95,14 +128,10 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
         let hideLevelAt = Infinity;
 
         chapters.forEach((ch, i) => {
-            const isHeading = ch.title.trim().startsWith('#') || ch.level > 0;
-            
-            // If it's a heading, update the 'contextual' level for its subsequent rows
+            // A row's indentation logic
             if (ch.level > 0) {
                 activeHeadingLevel = ch.level;
             }
-
-            // A row's indentation is its own level (if heading) OR its parent's level + 1 (if content)
             const effectiveLevel = ch.level > 0 ? ch.level : activeHeadingLevel + 1;
 
             if (ch.level <= hideLevelAt && ch.level > 0) {
@@ -146,26 +175,6 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
                 <span class="chapter-play-icon">▶</span>
             `;
 
-            item.onclick = (e: MouseEvent) => {
-                if (isEmpty) {
-                    return;
-                }
-                const target = e.target as HTMLElement;
-                
-                // Don't trigger chapter switch if a file-link is clicked
-                if (target.closest('.file-link')) {
-                    return;
-                }
-
-                if (target.classList.contains('chevron')) {
-                    if (isParent) {
-                        this.toggleCollapse(i);
-                    }
-                    return;
-                }
-                this.jumpToChapter(i);
-            };
-
             container.appendChild(item);
             this.itemElements[i] = item;
         });
@@ -204,13 +213,11 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
                     ? `<span style="opacity: 0.5; margin: 0 8px;">•</span><span style="font-weight: 400; opacity: 0.8;">ROW ${currentSentenceDisplay} / ${totalSentences}</span>` 
                     : '';
                 
-                // Update "Full" indicators (with ROW progress)
                 const fullHeaders = fullProgressHeader ? [fullProgressHeader] : (progressHeaders || [progressHeader]);
                 fullHeaders.forEach(h => {
                     if (h) { h.innerHTML = `${chStr}${rowStr}`; }
                 });
 
-                // Update "Chapter Only" indicators
                 if (chapterOnlyHeader) {
                     chapterOnlyHeader.innerHTML = chStr;
                 }
@@ -226,9 +233,7 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
         }
 
         this.itemElements.forEach((el, idx) => {
-            if (!el) {
-                return;
-            }
+            if (!el) {return;}
             const isNowPlaying = idx === currentChapterIdx;
             el.classList.toggle('now-playing', isNowPlaying);
 
@@ -251,9 +256,8 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
 
     private isElementInViewport(el: HTMLElement): boolean {
         const container = this.els.container;
-        if (!container) {
-            return true;
-        }
+        if (!container) {return true;}
+        
         const rect = el.getBoundingClientRect();
         const containerRect = container.getBoundingClientRect();
         return (rect.top >= containerRect.top && rect.bottom <= containerRect.bottom);

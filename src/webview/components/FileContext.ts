@@ -25,52 +25,8 @@ export interface FileContextElements extends Record<string, HTMLElement | HTMLBu
 export class FileContext extends BaseComponent<FileContextElements> {
     private loadType: 'loading' | 'clearing' = 'loading';
 
-    private getFallbackText(forcedAwaiting?: boolean): string {
-        const isAwaiting = forcedAwaiting !== undefined ? forcedAwaiting : this.store.getUIState().isAwaitingSync;
-        if (isAwaiting) {
-            return (this.loadType === 'clearing') ? 'Clearing...' : 'Loading Document...';
-        }
-        return 'No File Loaded';
-    }
-
-    public mount(): void {
-        super.mount();
-
-        // 0. Interaction Listeners
-        if (this.els.btnLoadFile) {
-            this.els.btnLoadFile.addEventListener('click', () => {
-                this.loadType = 'loading';
-                // Bulletproof optimistic update
-                if (this.els.readerFilename) { this.els.readerFilename.textContent = 'Loading Document...'; }
-                PlaybackController.getInstance().loadDocument();
-            });
-        }
-
-        if (this.els.btnResetContext) {
-            this.els.btnResetContext.addEventListener('click', () => {
-                this.loadType = 'clearing';
-                this.els.btnResetContext!.disabled = true; 
-                // Bulletproof optimistic update
-                if (this.els.readerFilename) { this.els.readerFilename.textContent = 'Clearing...'; }
-                
-                // [SYNC] Let the store know we are waiting for a clear response
-                this.store.updateUIState({ isAwaitingSync: true });
-                PlaybackController.getInstance().resetContext();
-            });
-        }
-
-        // Mode Toggles
-        if (this.els.btnModeFile) {
-            this.els.btnModeFile.onclick = () => {
-                PlaybackController.getInstance().setMode('FILE');
-            };
-        }
-
-        if (this.els.btnModeSnippet) {
-            this.els.btnModeSnippet.onclick = () => {
-                PlaybackController.getInstance().setMode('SNIPPET');
-            };
-        }
+    constructor(elements: FileContextElements) {
+        super(elements);
 
         // 1. Focused File Sync
         this.subscribe((state) => ({
@@ -85,7 +41,6 @@ export class FileContext extends BaseComponent<FileContextElements> {
                 this.els.activeSlot.classList.toggle('unsupported', !info.isSupported);
             }
 
-            // [NEW] Update the focused file info
             if (this.els.activeFilename) {
                 this.els.activeFilename.textContent = info.uri ? info.name : 'No Active File';
             }
@@ -93,7 +48,6 @@ export class FileContext extends BaseComponent<FileContextElements> {
                 this.els.activeDir.textContent = info.dir ? `${info.dir} /` : '';
             }
 
-            // [STABILITY] Button stays disabled during sync regardless of support
             const ui = this.store.getUIState();
             if (this.els.btnLoadFile) {
                 this.els.btnLoadFile.disabled = !info.isSupported || ui.isAwaitingSync;
@@ -155,8 +109,54 @@ export class FileContext extends BaseComponent<FileContextElements> {
         });
     }
 
+    protected onMount(): void {
+        const controller = PlaybackController.getInstance();
+        const { btnLoadFile, btnResetContext, btnModeFile, btnModeSnippet } = this.els;
+
+        // 1. Interaction Listeners
+        if (btnLoadFile) {
+            this.registerEventListener(btnLoadFile, 'click', () => {
+                this.loadType = 'loading';
+                if (this.els.readerFilename) { this.els.readerFilename.textContent = 'Loading Document...'; }
+                controller.loadDocument();
+            });
+        }
+
+        if (btnResetContext) {
+            this.registerEventListener(btnResetContext, 'click', () => {
+                this.loadType = 'clearing';
+                btnResetContext.disabled = true; 
+                if (this.els.readerFilename) { this.els.readerFilename.textContent = 'Clearing...'; }
+                
+                this.store.updateUIState({ isAwaitingSync: true });
+                controller.resetContext();
+            });
+        }
+
+        // 2. Mode Toggles
+        if (btnModeFile) {
+            this.registerEventListener(btnModeFile, 'click', () => {
+                controller.setMode('FILE');
+            });
+        }
+
+        if (btnModeSnippet) {
+            this.registerEventListener(btnModeSnippet, 'click', () => {
+                controller.setMode('SNIPPET');
+            });
+        }
+    }
+
     public render(): void {
         this.syncSlot();
+    }
+
+    private getFallbackText(forcedAwaiting?: boolean): string {
+        const isAwaiting = forcedAwaiting !== undefined ? forcedAwaiting : this.store.getUIState().isAwaitingSync;
+        if (isAwaiting) {
+            return (this.loadType === 'clearing') ? 'Clearing...' : 'Loading Document...';
+        }
+        return 'No File Loaded';
     }
 
     private syncSlot(forcedAwaiting?: boolean): void {

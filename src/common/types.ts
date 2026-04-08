@@ -106,30 +106,10 @@ export interface AudioEngineEvent {
     message?: string;
 }
 
-export interface AudioStrategy {
-    id: string;
-    getName(): string;
-    onEvent?: (event: AudioEngineEvent) => void;
-    synthesize(text: string, voice?: AudioVoice, intentId?: number): Promise<void>;
-    play(intentId?: number): Promise<void>;
-    pause(): void;
-    resume(): void;
-    stop(): void;
-    setVolume(volume: number): void;
-    setRate(rate: number): void;
-    getVoices(): Promise<AudioVoice[]>;
-    dispose(): void;
-    
-    // Neural/Cloud specific (optional implementations)
-    setTarget?(cacheKey: string | null): void;
-    startAdaptiveWait?(cacheKey: string, intentId: number): Promise<void>;
-    ingestData?(cacheKey: string, base64: string, intentId: number): Promise<void>;
-    handleSynthesisReady?(cacheKey: string, intentId: number): void;
-    playFromBase64?(base64: string, cacheKey?: string, intentId?: number): Promise<void>;
-    playFromCache?(cacheKey: string, intentId?: number): Promise<boolean>;
-    wipeCache?(): Promise<void>;
-    isSegmentReady?(cacheKey: string): boolean;
-}
+/**
+ * [AUTORADIANT] AudioStrategy is decommissioned.
+ * WebviewAudioEngine now acts as a unified player.
+ */
 
 
 export interface SnippetEntry {
@@ -174,7 +154,8 @@ export enum IncomingCommand {
     SYNTHESIS_STARTING = 'SYNTHESIS_STARTING',
     CLEAR_CACHE_WIPE = 'CLEAR_CACHE_WIPE',
     CACHE_STATS_UPDATE = 'CACHE_STATS_UPDATE',
-    CACHE_MANIFEST = 'CACHE_MANIFEST'
+    CACHE_MANIFEST = 'CACHE_MANIFEST',
+    SPEAK_LOCAL = 'speakLocal'
 }
 
 
@@ -219,5 +200,6 @@ export enum OutgoingAction {
     GET_ALL_SNIPPET_HISTORY = 'GET_ALL_SNIPPET_HISTORY',
     LOAD_SNIPPET = 'LOAD_SNIPPET',
     SET_ACTIVE_MODE = 'SET_ACTIVE_MODE',
-    REPORT_CACHE_DELTA = 'REPORT_CACHE_DELTA'
+    REPORT_CACHE_DELTA = 'REPORT_CACHE_DELTA',
+    REPORT_VOICES = 'reportVoices'
 }

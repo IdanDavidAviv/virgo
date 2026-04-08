@@ -13,11 +13,10 @@ export interface VoiceSelectorElements extends Record<string, HTMLElement | HTML
 export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
     private searchTerm = '';
 
-    public mount(): void {
-        super.mount();
-        this.setupListeners();
+    constructor(elements: VoiceSelectorElements) {
+        super(elements);
 
-        // Subscribe to relevant state changes for list rendering
+        // 1. Subscribe to relevant state changes for list rendering
         this.subscribe((state) => ({
             available: state.availableVoices,
             selected: state.selectedVoice,
@@ -37,18 +36,35 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
         });
     }
 
-    private setupListeners(): void {
-        // No manual change listener needed for div-based list; clicks handle it.
+    protected onMount(): void {
+        const { searchInput, voiceList } = this.els;
 
-        if (this.els.searchInput) {
-            this.els.searchInput.oninput = (e) => {
+        // 1. Search Input delegation
+        if (searchInput) {
+            this.registerEventListener(searchInput, 'input', (e) => {
                 this.searchTerm = (e.target as HTMLInputElement).value.toLowerCase();
                 const state = this.store.getState();
                 if (state && state.availableVoices) {
                     const list = state.engineMode === 'neural' ? state.availableVoices.neural : state.availableVoices.local;
                     this.renderVoiceList(list, state.selectedVoice, state.engineMode);
                 }
-            };
+            });
+        }
+
+        // 2. Voice List delegation
+        if (voiceList) {
+            this.registerEventListener(voiceList, 'click', (e) => {
+                const item = (e.target as HTMLElement).closest('.voice-item') as HTMLElement;
+                if (!item) { return; }
+
+                const id = item.dataset.id;
+                if (!id) { return; }
+
+                this.pulse(item);
+
+                // [DELEGATION] All authority moved to PlaybackController
+                PlaybackController.getInstance().selectVoice(id);
+            });
         }
     }
 
@@ -62,15 +78,15 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
     private renderVoiceList(voicesToUse: any[], selectedVoice: string | undefined, mode: string): void {
         const { isLoadingVoices } = this.store.getUIState();
         if (!this.els.voiceList || isLoadingVoices) { return; }
-        
+
         this.els.voiceList.innerHTML = '';
 
         const filtered = voicesToUse.filter((v: any) => {
             const name = typeof v === 'string' ? v : v.name;
             const lang = typeof v === 'string' ? '' : v.lang;
-            return !this.searchTerm || 
-                   name.toLowerCase().includes(this.searchTerm) || 
-                   lang.toLowerCase().includes(this.searchTerm);
+            return !this.searchTerm ||
+                name.toLowerCase().includes(this.searchTerm) ||
+                lang.toLowerCase().includes(this.searchTerm);
         });
 
         if (filtered.length === 0) {
@@ -85,11 +101,12 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
 
             const item = document.createElement('div');
             item.className = 'voice-item';
+            item.dataset.id = id;
             if (id === selectedVoice) { item.classList.add('selected'); }
 
             const label = document.createElement('span');
             label.className = 'flex-1';
-            
+
             if (mode === 'neural') {
                 label.innerHTML = `<span class="sparkle">✨</span> ${name} ${lang ? `<small style="opacity:0.5; font-size:9px">(${lang})</small>` : ''}`;
             } else {
@@ -97,18 +114,8 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
             }
 
             item.appendChild(label);
-            
-            item.onclick = (e) => {
-                const el = e.currentTarget as HTMLElement;
-                el.classList.add('pulse');
-                setTimeout(() => el.classList.remove('pulse'), 400);
-
-                // [DELEGATION] All authority moved to PlaybackController
-                PlaybackController.getInstance().selectVoice(id);
-            };
-
             this.els.voiceList?.appendChild(item);
-            
+
             // Scroll selected into view on first render
             if (id === selectedVoice) {
                 setTimeout(() => item.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }), 50);

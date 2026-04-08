@@ -23,9 +23,8 @@ export interface SettingsDrawerElements extends Record<string, HTMLElement | HTM
  * Reactive and encapsulated.
  */
 export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
-    public mount(): void {
-        super.mount();
-        this.setupListeners();
+    constructor(elements: SettingsDrawerElements) {
+        super(elements);
 
         // 1. Volume State Sync — guard against feedback loop during drag
         this.subscribe((state) => state.volume, (volume) => {
@@ -75,92 +74,89 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
         });
     }
 
-    private setupListeners(): void {
+    protected onMount(): void {
         const controller = PlaybackController.getInstance();
+        const { btnOpen, btnClose, volumeSlider, rateSlider, btnCloudEngine, btnLocalEngine, cacheDebugTag } = this.els;
 
-        if (this.els.btnOpen) {
-            this.els.btnOpen.addEventListener('click', (e) => {
+        // 1. Drawer Toggles
+        if (btnOpen) {
+            this.registerEventListener(btnOpen, 'click', (e) => {
                 e.stopPropagation();
-                console.log('[SETTINGS] Toggle requested');
                 this.toggle();
             });
         }
         
-        // Only bind close separately if it's a distinct element from btnOpen
-        const closeEl = this.els.btnClose;
-        if (closeEl && closeEl !== this.els.btnOpen) {
-            closeEl.addEventListener('click', (e) => {
+        if (btnClose && btnClose !== btnOpen) {
+            this.registerEventListener(btnClose, 'click', (e) => {
                 e.stopPropagation();
                 this.close();
             });
         }
 
-        // Sliders — delegate to Sovereign Head
-        if (this.els.volumeSlider) {
-            this.els.volumeSlider.oninput = (e) => {
+        // 2. Volume Slider
+        if (volumeSlider) {
+            this.registerEventListener(volumeSlider, 'input', (e) => {
                 this.store.updateUIState({ isDraggingSlider: true });
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 if (this.els.volumeVal) {
                     this.els.volumeVal.textContent = `${val}%`;
                 }
-                
-                // [DELEGATION] Let the controller handle audio engine and IPC
                 controller.setVolume(val);
-            };
-            this.els.volumeSlider.onchange = (e) => {
+            });
+
+            this.registerEventListener(volumeSlider, 'change', (e) => {
                 this.store.updateUIState({ isDraggingSlider: false });
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 controller.setVolume(val);
-            };
+            });
         }
 
-        if (this.els.rateSlider) {
-            this.els.rateSlider.oninput = (e) => {
+        // 3. Rate Slider
+        if (rateSlider) {
+            this.registerEventListener(rateSlider, 'input', (e) => {
                 this.store.updateUIState({ isDraggingSlider: true });
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 if (this.els.rateVal) {
                     const displayRate = (1 + (val / 10)).toFixed(1);
                     this.els.rateVal.textContent = `${displayRate}x`;
                 }
-                
                 controller.setRate(val);
-            };
-            this.els.rateSlider.onchange = (e) => {
+            });
+
+            this.registerEventListener(rateSlider, 'change', (e) => {
                 this.store.updateUIState({ isDraggingSlider: false });
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 controller.setRate(val);
-            };
+            });
         }
 
-        // Engine Toggle
-        if (this.els.btnCloudEngine) {
-            this.els.btnCloudEngine.onclick = () => {
+        // 4. Engine Toggle
+        if (btnCloudEngine) {
+            this.registerEventListener(btnCloudEngine, 'click', () => {
                 controller.setEngineMode('neural');
-            };
+            });
         }
 
-        if (this.els.btnLocalEngine) {
-            this.els.btnLocalEngine.onclick = () => {
+        if (btnLocalEngine) {
+            this.registerEventListener(btnLocalEngine, 'click', () => {
                 controller.setEngineMode('local');
-            };
+            });
         }
 
-        // Cache Clear
-        if (this.els.cacheDebugTag) {
-            this.els.cacheDebugTag.ondblclick = async () => {
+        // 5. Cache Management
+        if (cacheDebugTag) {
+            this.registerEventListener(cacheDebugTag, 'dblclick', async () => {
                 const confirmed = confirm('Clear all cached neural audio?');
                 if (confirmed) {
                     controller.clearCache();
                     ToastManager.show('Audio cache cleared', 'info');
-                    this.els.cacheDebugTag.classList.add('pulse');
-                    setTimeout(() => this.els.cacheDebugTag.classList.remove('pulse'), 500);
+                    this.pulse(cacheDebugTag);
                 }
-            };
+            });
             
-            // Add a hint on single click
-            this.els.cacheDebugTag.onclick = () => {
+            this.registerEventListener(cacheDebugTag, 'click', () => {
                 ToastManager.show('Double-click to clear cache', 'info');
-            };
+            });
         }
     }
 
