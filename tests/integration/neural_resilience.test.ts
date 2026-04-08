@@ -22,14 +22,13 @@ vi.mock('vscode', () => ({
 
 vi.mock('msedge-tts', () => ({
     MsEdgeTTS: class {
-        toStream = vi.fn().mockImplementation(() => {
+        toStream() {
             const stream = new EventEmitter() as any;
-            // Immediate end to prevent test hangs
             process.nextTick(() => stream.emit('end'));
             return { audioStream: stream };
-        });
-        setMetadata = vi.fn().mockResolvedValue(undefined);
-        close = vi.fn();
+        }
+        setMetadata() { return Promise.resolve(); }
+        close() { }
     },
     OUTPUT_FORMAT: { AUDIO_24KHZ_48KBITRATE_MONO_MP3: 'mp3' }
 }));
@@ -81,14 +80,15 @@ describe('Neural Resilience Integration - Extension Layer', () => {
     });
 
     it('should DETECT MsEdgeTTS "readyState" crash and trigger self-healing re-init', async () => {
-        const reinitSpy = vi.spyOn(engine as any, '_reinitTTS');
-        
+        vi.useRealTimers();
+
         // Ensure readyState is defined initially
         (engine as any)._tts.readyState = 1;
 
         // Mock a library crash: property becomes undefined or throws
-        // @ts-ignore - access to internal tts
-        vi.spyOn(engine._tts, 'toStream').mockImplementation(() => {
+        // [v2.3.1] Fix: Spy on prototype because instances are replaced during re-init
+        const MsEdgeTTS = await import('msedge-tts').then(m => m.MsEdgeTTS);
+        vi.spyOn(MsEdgeTTS.prototype, 'toStream').mockImplementation(() => {
             throw new TypeError("Cannot read property 'readyState' of undefined");
         });
 
@@ -96,36 +96,53 @@ describe('Neural Resilience Integration - Extension Layer', () => {
         (engine as any)._tts.readyState = undefined;
 
         console.log('[TEST] Triggering synthesis with simulated library corruption...');
-        
+
         const text = "Test text";
         const voiceId = "en-US-AvaNeural";
-        const abortController = new AbortController();
-        
+
         try {
-            await engine.speakNeural(text, voiceId, { voice: voiceId, mode: 'neural', rate: 1.0, volume: 1.0 }, true, 999, 1);
-        } catch (e) {
-            // Expected failure
+            await engine.speakNeural(
+                text,
+                "crash-test-key-" + Date.now(),
+                { voice: voiceId, mode: 'neural', rate: 1.0, volume: 1.0 },
+                true,
+                engine.playbackIntentId,
+                engine.batchIntentId
+            );
+        } catch (e: any) {
+            console.log(`[TEST] speakNeural caught expected error: ${e.message}`);
         }
 
-        // Verify re-init was called (Self-healing logic)
-        expect(reinitSpy).toHaveBeenCalled();
+        // Verify re-init was called via the logger SSOT
+        await vi.waitFor(() => {
+            const reinitLogged = logger.mock.calls.some(call =>
+                typeof call[0] === 'string' &&
+                call[0].includes('Authority Re-initialization')
+            );
+            if (!reinitLogged) {
+                // Diagnostic: dump last few logs
+                const lastLogs = logger.mock.calls.slice(-3).map(c => c[0]);
+                throw new Error(`Waiting for reinit log. Last logs: ${JSON.stringify(lastLogs)}`);
+            }
+        }, { timeout: 10000 });
+
         console.log('[TEST] ✅ Extension detected crash and signaled failure.');
-    });
+    }, 30000);
 
     it('should marathon-run 5 chapters with explicit synthesis requests', async () => {
         // Mock speakNeural to succeed for the marathon
         const speakSpy = vi.spyOn(engine, 'speakNeural').mockResolvedValue('mock-audio-64');
-        
+
         console.log('[TEST] Starting 5-chapter Marathon with Webview feedback simulation...');
-        
+
         const options = { mode: 'neural', voice: 'V', rate: 1, volume: 50 } as any;
         await bridge.start(0, 0, options);
-        
+
         // Simulate progression loop
         for (let i = 0; i < 5; i++) {
             // 1. Simulate Webview requesting synthesis for current sentence
             await bridge.synthesize("mock-cache-key-" + i, options);
-            
+
             // 2. Simulate Webview finishing playback and moving to next
             await bridge.next(options);
             await vi.advanceTimersByTimeAsync(100);

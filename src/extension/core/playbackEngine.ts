@@ -1,4 +1,3 @@
-import * as child_process from 'child_process';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { EventEmitter } from 'events';
 import { cleanForSpeech } from './speechProcessor';
@@ -24,13 +23,13 @@ export class PlaybackEngine extends EventEmitter {
     // Track ongoing synthesis to prevent duplicates
     private _pendingTasks: Map<string, Promise<string | null>> = new Map();
 
-    private _nativeProcess: any = null;
     private _isPlaying: boolean = false;
     private _isPaused: boolean = false;
 
     private _cacheSizeBytes: number = 0;
     private _onCacheUpdate?: () => void;
     private _abortController: AbortController | null = null;
+    private _batchAbortController: AbortController | null = null;
     private _prefetchAbortController: AbortController = new AbortController();
 
     // Hardening: Track unique playback intents to eject stale/zombie tasks
@@ -46,6 +45,12 @@ export class PlaybackEngine extends EventEmitter {
     private _retryAttempts: number = 3;
 
     private _activeSegmentAbortController: AbortController | null = null;
+
+    // [v2.3.1] Autoradiant Health SSOT
+    private _neuralHealth: 'HEALTHY' | 'DEGRADED' | 'STALLED' = 'HEALTHY';
+    private _lastNeuralSuccessTime: number = Date.now();
+    private _consecutiveNeuralErrors: number = 0;
+    private readonly NEURAL_FALLBACK_THRESHOLD_MS = 120000; // 2 Minutes
 
 
     constructor(private logger: (msg: string) => void, onCacheUpdate?: () => void) {
@@ -97,16 +102,15 @@ export class PlaybackEngine extends EventEmitter {
         }
     }
 
-    private async _reinitTTS() {
-        this.logger(`[NEURAL] Re-initializing MsEdgeTTS client...`);
+    private _reinitTTS() {
+        this.logger('[NEURAL] Authority Re-initialization (Lib Corruption Detected)');
         try {
-            // [STABILITY] Explicitly null out old instance to help GC
-            this._tts = (null as any);
+            if (this._tts) {
+                try { (this._tts as any).close(); } catch (e) {}
+            }
             this._tts = new MsEdgeTTS();
-            
-            // Wait for a microtask tick
-            await Promise.resolve();
-            this.logger(`[NEURAL] Client re-initialized.`);
+            console.log('[DEBUG] _reinitTTS executed successfully');
+            this.logger('[NEURAL] Client re-initialized.');
         } catch (e) {
             this.logger(`[NEURAL] Failed to re-initialize TTS: ${e}`);
         }
@@ -116,6 +120,27 @@ export class PlaybackEngine extends EventEmitter {
     public get isPaused() { return this._isPaused; }
     public get isStalled() { return this._isStalled; }
     public get playbackIntentId() { return this._playbackIntentId; }
+    public get neuralHealth() { return this._neuralHealth; }
+
+    /**
+     * [v2.3.1] Autoradiant: Force a health check and return viability.
+     * Neural is only considered 'Viable' if it has been healthy OR if it is degraded 
+     * but hasn't yet crossed the 2-minute failure threshold.
+     */
+    public isNeuralViable(): boolean {
+        if (this._neuralHealth === 'HEALTHY') { return true; }
+        
+        const timeSinceSuccess = Date.now() - this._lastNeuralSuccessTime;
+        if (timeSinceSuccess < this.NEURAL_FALLBACK_THRESHOLD_MS) {
+            return true; // Still in the 2-minute 'Healing' window
+        }
+
+        if (this._neuralHealth !== 'STALLED') {
+            this.logger(`[NEURAL] ☠️ Health downgraded to STALLED (>120s failure).`);
+            this._neuralHealth = 'STALLED';
+        }
+        return false;
+    }
 
     private _updateStatus(isPlaying?: boolean, isPaused?: boolean, isStalled?: boolean) {
         if (isPlaying !== undefined) { this._isPlaying = isPlaying; }
@@ -218,28 +243,13 @@ export class PlaybackEngine extends EventEmitter {
         if (this._batchAbortController) {
             this._batchAbortController.abort('Stop Action');
         }
-        this._batchAbortController = new AbortController();
-
         this._prefetchAbortController.abort('Stop Action');
         this._prefetchAbortController = new AbortController();
 
-        this.stopProcess();
         this._reinitTTS();
     }
 
 
-    public stopProcess() {
-        if (this._nativeProcess) {
-            try {
-                if (process.platform === 'win32') {
-                    child_process.execSync(`taskkill /F /T /PID ${this._nativeProcess.pid}`);
-                } else {
-                    this._nativeProcess.kill('SIGKILL');
-                }
-            } catch (err) { }
-            this._nativeProcess = null;
-        }
-    }
 
     public clearCache() {
         this._audioCache.clear();
@@ -286,53 +296,14 @@ export class PlaybackEngine extends EventEmitter {
     }
 
     public async getVoices() {
-        const localPromise = new Promise<string[]>((resolve) => {
-            if (process.platform === 'win32') {
-                const command = 'Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.GetInstalledVoices().VoiceInfo.Name';
-                child_process.exec(`powershell -Command "${command}"`, (error: Error | null, stdout: string) => {
-                    if (!error && stdout) {
-                        resolve(stdout.split('\r\n').filter((v: string) => v.trim()).map((v: string) => v.trim()));
-                    } else {
-                        resolve([]);
-                    }
-                });
-            } else if (process.platform === 'darwin') {
-                child_process.exec('say -v "?"', (error, stdout) => {
-                    if (!error && stdout) {
-                        // "Alex                en_US    # Most people would specify..."
-                        const voices = stdout.split('\n')
-                            .filter(line => line.trim())
-                            .map(line => line.split('  ')[0].trim());
-                        resolve(voices);
-                    } else {
-                        resolve([]);
-                    }
-                });
-            } else {
-                // Linux / espeak fallback
-                child_process.exec('espeak --voices', (error, stdout) => {
-                    if (!error && stdout) {
-                        const lines = stdout.split('\n').slice(1); // skip header
-                        const voices = lines
-                            .filter(line => line.trim())
-                            .map(line => line.trim().split(/\s+/)[1]); // Voice name is usually 2nd col
-                        resolve(voices);
-                    } else {
-                        resolve([]);
-                    }
-                });
-            }
-        });
-
-        const neuralPromise = this._tts.getVoices().then(voices => voices.map(v => ({
+        // [v2.3.1] Simplified: Native voices are now discovered via the Webview.
+        // The extension only manages Neural voices.
+        return this._tts.getVoices().then(voices => voices.map(v => ({
             name: v.FriendlyName,
             id: v.ShortName,
             lang: v.Locale,
             gender: v.Gender
         })));
-
-        const [local, neural] = await Promise.all([localPromise, neuralPromise]);
-        return { local, neural };
     }
 
     private _getSegmentSizeBytes(base64: string): number {
@@ -354,6 +325,14 @@ export class PlaybackEngine extends EventEmitter {
 
         this._audioCache.set(key, data);
         this._cacheSizeBytes = (Number.isFinite(this._cacheSizeBytes) ? this._cacheSizeBytes : 0) + safeSize;
+
+        // [v2.3.1] Heal on success
+        if (this._neuralHealth !== 'HEALTHY') {
+            this.logger(`[NEURAL] ❤️‍🩹 Health RESTORED (Synthesis Success).`);
+            this._neuralHealth = 'HEALTHY';
+        }
+        this._lastNeuralSuccessTime = Date.now();
+        this._consecutiveNeuralErrors = 0;
 
         // [TDD] Emit for Direct Push - include intentId to prevent sequence races
         this.emit('synthesis-complete', { cacheKey: key, intentId });
@@ -418,6 +397,8 @@ export class PlaybackEngine extends EventEmitter {
             return this._pendingTasks.get(cacheKey)!;
         }
 
+        console.log(`[DEBUG] speakNeural Start: intent=${currentIntentId}, text="${text.substring(0, 20)}"`);
+        
         if (intentId !== undefined) {
             this.adoptIntent(intentId);
         } else if (isPriority) {
@@ -595,13 +576,23 @@ export class PlaybackEngine extends EventEmitter {
             // [SOVEREIGNTY] Final check before I/O
             if (this._tts && (this._tts as any)._isDestroyed) {
                 this.logger(`[NEURAL] TTS Instance destroyed. Forcing re-init...`);
-                await this._reinitTTS();
+                this._reinitTTS();
             }
 
             // Ensure client exists
-            if (!this._tts) { await this._reinitTTS(); }
+            if (!this._tts) { this._reinitTTS(); }
 
-            await this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
+            try {
+                // [v2.3.1] Catch library/metadata/DOM errors during handshake
+                await this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
+            } catch (e: any) {
+                const msg = e?.message || String(e);
+                if (msg.includes('readyState') || msg.includes('TypeError')) {
+                    this.logger(`[NEURAL] ☢️ Critical library corruption during metadata. Resetting client.`);
+                    this._reinitTTS();
+                }
+                throw e; // Bubble up for retry logic
+            }
             this.logger(`[TTS REQ] text:"${escapedText.substring(0, 30)}..." | voice:${voiceId} | Intent:${intentId}`);
 
             return await new Promise<string>((resolve, reject) => {
@@ -618,10 +609,11 @@ export class PlaybackEngine extends EventEmitter {
                     if (!audioStream) {
                         throw new Error("TTS Engine failed to initialize stream");
                     }
-                } catch (e: any) {
-                    this.logger(`[TTS CRASH] toStream failed: ${e.message}`);
+                } catch (err: any) {
+                    console.log(`[DEBUG] Catching error in _getNeuralAudio: ${err.message}`);
+                    this.logger(`[TTS CRASH] toStream failed: ${err.message}`);
                     this._reinitTTS(); // Force re-init on stream failure
-                    reject(e);
+                    reject(err);
                     return;
                 }
                 const chunks: Buffer[] = [];
@@ -669,6 +661,12 @@ export class PlaybackEngine extends EventEmitter {
                     this._clearWatchdog(); // Ensure watchdog is cleared
                     signal?.removeEventListener('abort', onAbort);
                     this.logger(`[TTS STREAM] COMPLETE | chunks:${chunks.length}`);
+                    
+                    // [v2.3.1] Reset health clock on success
+                    this._lastNeuralSuccessTime = Date.now();
+                    this._consecutiveNeuralErrors = 0;
+                    this._neuralHealth = 'HEALTHY';
+
                     resolve(Buffer.concat(chunks).toString('base64'));
                 });
 
@@ -688,6 +686,21 @@ export class PlaybackEngine extends EventEmitter {
             const abortReason = this._abortController?.signal?.reason;
             const isTimeout = (typeof abortReason === 'string' && abortReason.includes("Timeout")) || errorMessage.includes("Timeout");
             const isAbort = errorMessage.includes("Aborted") || errorMessage.includes("Stale Intent") || isTimeout;
+
+            // [v2.3.1] Global Health Degradation (unless explicitly aborted by user)
+            if (!isAbort) {
+                this._consecutiveNeuralErrors++;
+                if (this._neuralHealth === 'HEALTHY') {
+                    this._neuralHealth = 'DEGRADED';
+                    this.logger(`[NEURAL] ⚠️ Health degraded to DEGRADED (Error: ${errorMessage.substring(0, 50)}).`);
+                }
+            }
+
+            // [v2.3.1] Hardening: Specific check for 'readyState' or 'TypeError' which indicates deep library state corruption
+            if (errorMessage.includes('readyState') || errorMessage.includes('TypeError')) {
+                this.logger(`[NEURAL] ☢️ Critical library corruption detected (${errorMessage.includes('readyState') ? 'readyState' : 'TypeError'}). Forcing immediate client reset.`);
+                this._reinitTTS();
+            }
 
             // CRITICAL: Immediately exit on User Abort or Stale Intent.
             // Timeout is now handled by the retry logic below.
@@ -767,61 +780,10 @@ export class PlaybackEngine extends EventEmitter {
         }
     }
 
-    public speakLocal(text: string, options: PlaybackOptions, onExit: (code: number | null) => void) {
-        this.stopProcess();
-        this._updateStatus(true, false, false);
-
-        // [v2.3.1] Inlined safety logic
-        const safeText = text.replace(/[^a-zA-Z0-9\s.,!?:;()'"\u0590-\u05FF-]/g, ' ').replace(/["']/g, '');
-
-        if (process.platform === 'win32') {
-            const psScript = `
-                $v = New-Object -ComObject SAPI.SpVoice;
-                $v.Volume = ${options.volume};
-                $v.Rate = ${options.rate};
-                if ('${options.voice}') {
-                    $v.Voice = $v.GetVoices() | Where-Object { $_.GetDescription() -eq '${options.voice}' };
-                }
-                $v.Speak('${safeText}')
-            `.trim().replace(/\n/g, ' ');
-            this._nativeProcess = child_process.spawn('powershell', ['-Command', psScript]);
-        } else if (process.platform === 'darwin') {
-            // macOS 'say' command. Rate is in WPM (Words Per Minute). Default around 175.
-            // options.rate is -10 to 10. We'll map to 100-300 WPM approx.
-            const wpm = 175 + (options.rate * 15);
-            const args = ['-r', wpm.toString()];
-            if (options.voice) {
-                args.push('-v', options.voice);
-            }
-            args.push(safeText);
-            this._nativeProcess = child_process.spawn('say', args);
-        } else {
-            // Linux espeak. -s is speed, -a is amplitude (volume), -v is voice name
-            const speed = 160 + (options.rate * 10);
-            const args = ['-s', speed.toString(), '-a', (options.volume * 2).toString()];
-            if (options.voice) {
-                args.push('-v', options.voice);
-            }
-            args.push(safeText);
-            this._nativeProcess = child_process.spawn('espeak', args);
-        }
-
-        const timeout = setTimeout(() => {
-            if (this._nativeProcess) {
-                this.logger(`[LOCAL] Synthesis TIMEOUT (60s). Killing process ${this._nativeProcess.pid}`);
-                this.stopProcess();
-                onExit(-1);
-            }
-        }, 60000);
-
-        this._nativeProcess.on('exit', (code: number | null) => {
-            clearTimeout(timeout);
-            this._nativeProcess = null;
-            this._updateStatus(false, false, false);
-            onExit(code);
-        });
-
-
-        this.logger(`[LOCAL] synthesis_success | platform: ${process.platform}`);
+    public speakLocal(_text: string, _options: PlaybackOptions, _onExit: (code: number | null) => void) {
+        // [DECOMMISSIONED] Local synthesis is now handled exclusively by the Webview.
+        // This method is retained as a stub for interface compatibility during refactor.
+        this.logger(`[PlaybackEngine] ☢️ speakLocal called on Extension Host. This should be routed to Webview.`);
+        _onExit(1);
     }
 }
