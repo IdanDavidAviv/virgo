@@ -37,6 +37,7 @@ import { PlaybackEngine } from '@core/playbackEngine';
 import { AudioBridge } from '@core/audioBridge';
 import { StateStore } from '@core/stateStore';
 import { DocumentLoadController } from '@core/documentLoadController';
+// import { SessionController } from '@webview/sessionController';
 import { SequenceManager } from '@core/sequenceManager';
 import { parseChapters } from '@core/documentParser';
 
@@ -96,17 +97,12 @@ describe('Neural Resilience Integration - Extension Layer', () => {
         (engine as any)._tts.readyState = undefined;
 
         console.log('[TEST] Triggering synthesis with simulated library corruption...');
-
-        const text = "Test text";
-        const voiceId = "en-US-AvaNeural";
-
         try {
             await engine.speakNeural(
-                text,
-                "crash-test-key-" + Date.now(),
-                { voice: voiceId, mode: 'neural', rate: 1.0, volume: 1.0 },
-                true,
-                engine.playbackIntentId,
+                "test",
+                "en-US-GuyNeural",
+                "50",
+                "0",
                 engine.batchIntentId
             );
         } catch (e: any) {
@@ -115,13 +111,13 @@ describe('Neural Resilience Integration - Extension Layer', () => {
 
         // Verify re-init was called via the logger SSOT
         await vi.waitFor(() => {
-            const reinitLogged = logger.mock.calls.some(call =>
+            const reinitLogged = logger.mock.calls.some((call: any[]) =>
                 typeof call[0] === 'string' &&
                 call[0].includes('Authority Re-initialization')
             );
             if (!reinitLogged) {
                 // Diagnostic: dump last few logs
-                const lastLogs = logger.mock.calls.slice(-3).map(c => c[0]);
+                const lastLogs = logger.mock.calls.slice(-3).map((c: any[]) => c[0]);
                 throw new Error(`Waiting for reinit log. Last logs: ${JSON.stringify(lastLogs)}`);
             }
         }, { timeout: 10000 });

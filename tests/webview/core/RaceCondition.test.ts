@@ -41,7 +41,7 @@ describe('Resilience: RaceCondition (v2.3.1 - Mutex Guard)', () => {
         // [ASSERT]: The play command should NOT reach the audio element
         expect(playSpy).not.toHaveBeenCalled();
 
-        release(); // [v2.3.1] Critical cleanup
+        if (release) release(); // [v2.3.1] Critical cleanup
     });
 
     it('SHOULD allow audio packets that match the current intent', async () => {
@@ -88,6 +88,6 @@ describe('Resilience: RaceCondition (v2.3.1 - Mutex Guard)', () => {
         await engine.playBlob(blob, 'key', 101); // Even higher than 100 but < MAX
         
         expect(playSpy).not.toHaveBeenCalled();
-        release();
+        if (release) release();
     });
 });

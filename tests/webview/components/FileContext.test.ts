@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FileContext } from '@webview/components/FileContext';
 import { WebviewStore } from '@webview/core/WebviewStore';
 import { MessageClient } from '@webview/core/MessageClient';
-import { SessionController } from '@webview/sessionController';
+// import { SessionController } from '@webview/sessionController';
 import { resetAllSingletons, wireDispatcher, FULL_DOM_TEMPLATE } from '../testUtils';
 
 describe('FileContext (Optimistic UI)', () => {
