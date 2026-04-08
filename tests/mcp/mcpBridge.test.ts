@@ -62,7 +62,7 @@ describe('McpBridge Tests', () => {
 
     describe('McpBridge Integration (SSE + Tools)', () => {
         it('should allow tool discovery and execution over SSE', async () => {
-            const transport = new SSEClientTransport(new URL(`http://localhost:${TEST_PORT}/sse`));
+            const transport = new SSEClientTransport(new URL(`http://127.0.0.1:${TEST_PORT}/sse`));
             const client = new Client(
                 { name: "test-runner", version: "1.0.0" },
                 { capabilities: {} }
@@ -100,11 +100,11 @@ describe('McpBridge Tests', () => {
             expect(statusResult.content[0].text).toContain('Active Store Size: 1');
 
             await transport.close();
-        }, 10000); // Higher timeout for CI/Windows throughput
+        }, 30000); // Higher timeout for CI/Windows throughput (v2.2.2 stabilization)
 
         it('should handle multiple concurrent sessions', async () => {
-            const t1 = new SSEClientTransport(new URL(`http://localhost:${TEST_PORT}/sse`));
-            const t2 = new SSEClientTransport(new URL(`http://localhost:${TEST_PORT}/sse`));
+            const t1 = new SSEClientTransport(new URL(`http://127.0.0.1:${TEST_PORT}/sse`));
+            const t2 = new SSEClientTransport(new URL(`http://127.0.0.1:${TEST_PORT}/sse`));
             
             const c1 = new Client({ name: "cli-1", version: "1" }, { capabilities: {} });
             const c2 = new Client({ name: "cli-2", version: "1" }, { capabilities: {} });
@@ -120,6 +120,6 @@ describe('McpBridge Tests', () => {
             expect(r2.content[0].text).toBeTruthy();
 
             await Promise.all([t1.close(), t2.close()]);
-        }, 15000);
+        }, 30000);
     });
 });

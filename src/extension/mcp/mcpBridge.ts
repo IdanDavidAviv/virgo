@@ -215,7 +215,7 @@ export class McpBridge extends EventEmitter {
             const port = initialPort + attempt;
             try {
                 await new Promise<void>((resolve, reject) => {
-                    this._httpServer = this._app.listen(port, "localhost", () => {
+                    this._httpServer = this._app.listen(port, "127.0.0.1", () => {
                         this._logger(`[MCP_BRIDGE] Server listening on http://localhost:${port}/sse (PID ${process.pid})`);
                         this.writeDiscoveryInfo(port);
                         resolve();

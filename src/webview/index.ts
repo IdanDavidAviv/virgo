@@ -137,7 +137,7 @@ export function bootstrap() {
         readerFilename: document.getElementById('reader-filename') as HTMLElement,
         readerDir: document.getElementById('reader-dir') as HTMLElement,
         btnLoadFile: document.getElementById('btn-load-file') as HTMLButtonElement,
-        btnClearReader: document.getElementById('btn-clear-reader') as HTMLButtonElement,
+        btnResetContext: document.getElementById('btn-clear-reader') as HTMLButtonElement,
         btnModeFile: document.getElementById('mode-file') as HTMLButtonElement,
         btnModeSnippet: document.getElementById('mode-snippet') as HTMLButtonElement,
         fileModeContainer: document.getElementById('file-mode-container') as HTMLElement,
