@@ -69,12 +69,15 @@ export class CommandDispatcher {
           // Extension provided raw data (Synthesis Hit or Extension Cache Hit)
           audioEngine.playFromBase64(data.data, data.cacheKey, intentId);
         } else if (data?.cacheKey) {
-          // Zero-IPC Prefetch Hit - try to play from local IndexedDB
+          // Hint received: try local cache first
           const success = await audioEngine.playFromCache(data.cacheKey, intentId);
           if (!success) {
-            console.warn(`[Dispatcher] ⚠️ Cache Miss for ${data.cacheKey} - requesting fresh synthesis.`);
-            playback.acquireLock();
-            MessageClient.getInstance().postAction(OutgoingAction.REQUEST_SYNTHESIS, { cacheKey: data.cacheKey, intentId });
+            // [HARDENING] If local cache misses, the bridge might still have it (e.g., Prefetch Hit).
+            // Try FETCH_AUDIO before escalating to full REQUEST_SYNTHESIS to prevent loops.
+            console.log(`[Dispatcher] 🧩 Hint Cache Miss for ${data.cacheKey}. Requesting Pull (FETCH_AUDIO)...`);
+            MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId });
+          } else {
+            console.log(`[Dispatcher] ✅ Hint Cache Hit for ${data.cacheKey}`);
           }
         }
         break;
@@ -82,6 +85,15 @@ export class CommandDispatcher {
       case IncomingCommand.SYNTHESIS_STARTING:
         console.log('[Dispatcher] ⚡ SYNTHESIS_STARTING Received', data);
         audioEngine.startAdaptiveWait(data.cacheKey, data.intentId);
+        break;
+
+      case IncomingCommand.SYNTHESIS_READY:
+        console.log('[Dispatcher] ✨ SYNTHESIS_READY Received', data);
+        // Bridge reports audio is ready in its cache. Pull it if we don't have it.
+        const hasLocal = await audioEngine.playFromCache(data.cacheKey, data.intentId);
+        if (!hasLocal) {
+          MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId: data.intentId });
+        }
         break;
 
       case IncomingCommand.DATA_PUSH:

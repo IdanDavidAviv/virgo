@@ -20,6 +20,9 @@ export class NeuralAudioStrategy implements AudioStrategy {
     private waitTimers: Map<string, any> = new Map();
     private pendingCacheKey: string | null = null;
     private targetCacheKey: string | null = null;
+    private memoryCache: Map<string, { blob: Blob, timestamp: number }> = new Map();
+    private readonly MAX_MEMORY_CACHE_ENTRIES = 12;
+    private ingestedKeys: Set<string> = new Set();
 
     constructor() {
         this.audio = new Audio();
@@ -116,6 +119,7 @@ export class NeuralAudioStrategy implements AudioStrategy {
         }
         this.sovereignUrl = null;
         this.clearAdaptiveWait();
+        this.ingestedKeys.clear();
     }
 
     public setVolume(value: number): void {
@@ -160,6 +164,13 @@ export class NeuralAudioStrategy implements AudioStrategy {
     public async ingestData(cacheKey: string, base64: string, intentId: number): Promise<void> {
         console.log('[NeuralStrategy] 📥 ingestData (Passive Worker)', { cacheKey, intentId });
         
+        // [DEDUPLICATION] Prevent reprocessing the same blob within a session
+        if (this.ingestedKeys.has(cacheKey)) {
+            console.log(`[NeuralStrategy] ♻️ Duplicate ingestion skipped for: ${cacheKey}`);
+            return;
+        }
+        this.ingestedKeys.add(cacheKey);
+
         // [INTENT LATCH]
         if (intentId < this.activeIntentId) {
             console.log('[NeuralStrategy] ⚠️ ingestData rejected: stale intentId');
@@ -167,7 +178,13 @@ export class NeuralAudioStrategy implements AudioStrategy {
         }
 
         const blob = this.base64ToBlob(base64);
-        this.cache.set(cacheKey, blob).catch(err => console.error('[NeuralStrategy] Cache save failed:', err));
+        
+        // [v2.2.1] Populate Tier-1 Memory Cache for inclusive zero-latency hits
+        this.memoryCache.set(cacheKey, { blob, timestamp: Date.now() });
+        this.pruneMemoryCache();
+
+        // [HARDENED] Await persistence to prevent race conditions during rapid PLAY_AUDIO commands
+        await this.cache.set(cacheKey, blob).catch(err => console.error('[NeuralStrategy] Cache save failed:', err));
 
         // [RESOLUTION]
         if (this.pendingCacheKey === cacheKey || this.targetCacheKey === cacheKey) {
@@ -188,13 +205,22 @@ export class NeuralAudioStrategy implements AudioStrategy {
         
         const blob = this.base64ToBlob(base64);
         if (cacheKey) {
-            this.cache.set(cacheKey, blob).catch(err => console.error('[NeuralStrategy] Cache save failed:', err));
+            this.memoryCache.set(cacheKey, { blob, timestamp: Date.now() });
+            this.pruneMemoryCache();
+            await this.cache.set(cacheKey, blob).catch(err => console.error('[NeuralStrategy] Cache save failed:', err));
         }
         await this.playBlob(blob, cacheKey || `base64-${Date.now()}`, intentId);
     }
 
     public async playFromCache(cacheKey: string, intentId?: number): Promise<boolean> {
-        const blob = await this.cache.get(cacheKey);
+        // [v2.2.1] Tier-1 Memory Cache Check (Synchronous/Low Latency)
+        let blob: Blob | null = this.memoryCache.get(cacheKey)?.blob || null;
+
+        if (!blob) {
+            // Tier-2 IndexedDB Cache Check (Persistent)
+            blob = await this.cache.get(cacheKey);
+        }
+
         if (blob) {
             // [INTENT GUARD]
             if (intentId !== undefined && intentId < this.activeIntentId) {
@@ -212,7 +238,23 @@ export class NeuralAudioStrategy implements AudioStrategy {
 
     public async wipeCache(): Promise<void> {
         this.dispose();
+        this.memoryCache.clear();
         await this.cache.clearAll();
+    }
+
+    private pruneMemoryCache(): void {
+        if (this.memoryCache.size <= this.MAX_MEMORY_CACHE_ENTRIES) { return; }
+        
+        // LRU Pruning: Sort by timestamp and remove oldest
+        const sorted = Array.from(this.memoryCache.entries())
+            .sort((a, b) => a[1].timestamp - b[1].timestamp);
+        
+        while (this.memoryCache.size > this.MAX_MEMORY_CACHE_ENTRIES) {
+            const oldest = sorted.shift();
+            if (oldest) {
+                this.memoryCache.delete(oldest[0]);
+            }
+        }
     }
 
     public async playBlob(blob: Blob, cacheKey: string, intentId?: number): Promise<void> {
@@ -223,10 +265,10 @@ export class NeuralAudioStrategy implements AudioStrategy {
             return;
         }
 
-        // [SOVEREIGNTY] Strategy must only play if its engine type is ACTIVE in the store
-        const { selectedVoice } = WebviewStore.getInstance().getState() || {};
-        if (selectedVoice && !selectedVoice.startsWith('Neural:')) {
-            console.log(`[NeuralStrategy] 🛑 Strategy inactive (Voice: ${selectedVoice}). Rejecting playBlob.`);
+        // [SOVEREIGNTY] Strategy must only play if it is the currently active engine mode
+        const { engineMode } = WebviewStore.getInstance().getState() || {};
+        if (engineMode && engineMode !== 'neural') {
+            console.log(`[NeuralStrategy] 🛑 Strategy inactive (Mode: ${engineMode}). Rejecting playBlob.`);
             return;
         }
 

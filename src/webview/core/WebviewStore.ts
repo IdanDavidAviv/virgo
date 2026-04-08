@@ -37,6 +37,8 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
   engineMode: 'local',
   cacheCount: 0,
   cacheSizeBytes: 0,
+  cacheStats: { count: 0, size: 0 },
+  playbackIntentId: 0,
   rate: 0,
   volume: 50,
   activeMode: 'FILE',
@@ -344,9 +346,9 @@ export class WebviewStore {
    */
   public resetCacheStats(): void {
     this.patchState({ 
-        cacheCount: 0, 
+        cacheCount: 0,
         cacheSizeBytes: 0,
-        cacheStats: { count: 0, size: 0 } // [PHASE 4.5] Unified Reset
+        cacheStats: { count: 0, size: 0 } 
     });
     this.updateUIState({ neuralBuffer: { count: 0, sizeMb: 0 } });
   }
@@ -382,6 +384,11 @@ export class WebviewStore {
                 lastStallAt: Date.now(), 
                 lastStallSource: 'AUTO' // Background stalls are auto
             });
+        }
+
+        // [INTENT] Capture authoritative intent from extension
+        if (key === 'playbackIntentId' && value !== undefined) {
+            this.updateUIState({ playbackIntentId: value as number });
         }
       }
     });

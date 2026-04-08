@@ -48,6 +48,7 @@ export class CacheManager {
      * @param key The cache key (voice-docId-salt-chapter-sentence)
      */
     public async get(key: string): Promise<Blob | null> {
+        console.log(`[CacheManager] 🔍 Reading: ${key}`);
         try {
             const db = await this.getDB();
             return new Promise((resolve, reject) => {
@@ -55,8 +56,15 @@ export class CacheManager {
                 const store = transaction.objectStore(this.storeName);
                 const request = store.get(key);
 
-                request.onsuccess = () => resolve(request.result || null);
-                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                    const result = request.result || null;
+                    console.log(`[CacheManager] 📀 Read Result: ${result ? 'Hit' : 'Miss'} for ${key}`);
+                    resolve(result);
+                };
+                request.onerror = () => {
+                    console.error(`[CacheManager] ❌ Read Error for ${key}:`, request.error);
+                    reject(request.error);
+                };
             });
         } catch (e) {
             console.error('CacheManager.get failed:', e);
@@ -68,6 +76,7 @@ export class CacheManager {
      * Saves an audio blob to the cache.
      */
     public async set(key: string, blob: Blob): Promise<void> {
+        console.log(`[CacheManager] 💾 Writing: ${key} (${blob.size} bytes)`);
         try {
             const db = await this.getDB();
             return new Promise((resolve, reject) => {
@@ -75,8 +84,14 @@ export class CacheManager {
                 const store = transaction.objectStore(this.storeName);
                 const request = store.put(blob, key);
 
-                request.onsuccess = () => resolve();
-                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                    console.log(`[CacheManager] ✅ Write Success: ${key}`);
+                    resolve();
+                };
+                request.onerror = () => {
+                    console.error(`[CacheManager] ❌ Write Error for ${key}:`, request.error);
+                    reject(request.error);
+                };
             });
         } catch (e) {
             console.error('CacheManager.set failed:', e);
