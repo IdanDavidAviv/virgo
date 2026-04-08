@@ -59,6 +59,7 @@ export interface UISyncPacket {
     cacheCount: number;
     cacheSizeBytes: number;
     cacheStats?: { count: number, size: number };
+    playbackIntentId: number;
     selectedVoice?: string;
     rate: number;
     volume: number;

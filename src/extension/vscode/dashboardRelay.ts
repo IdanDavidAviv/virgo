@@ -81,6 +81,7 @@ export class DashboardRelay {
             engineMode: s.engineMode,
             cacheCount: cacheStats.count,
             cacheSizeBytes: cacheStats.sizeBytes,
+            playbackIntentId: s.playbackIntentId,
             selectedVoice: s.selectedVoice,
             rate: s.rate,
             volume: s.volume,

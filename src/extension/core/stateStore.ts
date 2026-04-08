@@ -51,6 +51,7 @@ export interface StateMetadata {
 
     // Agent Governance
     autoInjectSITREP: boolean;
+    playbackIntentId: number;
 }
 
 export class StateStore extends EventEmitter {
@@ -93,7 +94,8 @@ export class StateStore extends EventEmitter {
             autoPlayOnInjection: false,
             cacheCount: 0,
             cacheSizeBytes: 0,
-            autoInjectSITREP: true
+            autoInjectSITREP: true,
+            playbackIntentId: 0
         };
     }
 
@@ -262,6 +264,14 @@ export class StateStore extends EventEmitter {
         };
         this._state = { ...this._getInitialState(), ...savedOptions };
         this._logger('[STATE] full_reset_complete');
+        this.emit('change', this.state);
+    }
+
+    /**
+     * Updates the global playback intent ID.
+     */
+    public setPlaybackIntentId(id: number) {
+        this._state.playbackIntentId = id;
         this.emit('change', this.state);
     }
 

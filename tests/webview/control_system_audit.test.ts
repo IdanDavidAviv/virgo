@@ -189,7 +189,7 @@ describe('Control System Audit (Reproduction)', () => {
         }
     });
 
-    it('REPRO: Cache Miss in Webview should trigger REQUEST_SYNTHESIS', async () => {
+    it('PULL FIX: Cache Miss in Webview should trigger FETCH_AUDIO handshake (NOT immediate synthesis)', async () => {
         const engine = WebviewAudioEngine.getInstance();
         const dispatcher = CommandDispatcher.getInstance();
         const postActionSpy = vi.spyOn(MessageClient.getInstance(), 'postAction');
@@ -207,8 +207,9 @@ describe('Control System Audit (Reproduction)', () => {
             // NO data provided!
         });
 
+        // The webview now triggers a Pull-handshake first to avoid loops
         expect(postActionSpy).toHaveBeenCalledWith(
-            OutgoingAction.REQUEST_SYNTHESIS,
+            OutgoingAction.FETCH_AUDIO,
             expect.objectContaining({ cacheKey: 'missing-key' })
         );
     });

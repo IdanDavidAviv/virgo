@@ -95,6 +95,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         // Register AudioBridge Events
         this._audioBridge.on('playAudio', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.PLAY_AUDIO, ...payload }));
         this._audioBridge.on('synthesisStarting', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.SYNTHESIS_STARTING, ...payload }));
+        this._audioBridge.on('synthesisReady', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.SYNTHESIS_READY, ...payload }));
         this._audioBridge.on('synthesisError', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.SYNTHESIS_ERROR, ...payload }));
         this._audioBridge.on('engineStatus', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.ENGINE_STATUS, ...payload }));
         this._audioBridge.on('dataPush', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.DATA_PUSH, ...payload }));
@@ -106,6 +107,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
         this._playbackEngine.on('cache-stats-update', payload => {
             this._dashboardRelay.postMessage({ command: IncomingCommand.CACHE_STATS_UPDATE, ...payload });
+        });
+
+        this._playbackEngine.on('intent-change', (intentId: number) => {
+            this._stateStore.setPlaybackIntentId(intentId);
         });
 
         // Initial setup of document context listeners
@@ -598,17 +603,19 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case OutgoingAction.JUMP_TO_SENTENCE: this.jumpToSentence(data.index); break;
             case OutgoingAction.CONTINUE: this.continue(); break;
             case OutgoingAction.FETCH_AUDIO:
-                const audio = this._playbackEngine.getAudioFromCache(data.cacheKey);
-                if (audio) {
+                const audioData = this._playbackEngine.getAudioFromCache(data.cacheKey);
+                if (audioData) {
                     this._logger(`[BRIDGE] PULL_FETCH: ${data.cacheKey} | Intent: ${data.intentId}`);
                     this._postToAll({
                         command: IncomingCommand.DATA_PUSH,
                         cacheKey: data.cacheKey,
-                        data: audio,
+                        data: audioData,
                         intentId: data.intentId
                     });
                 } else {
-                    this._logger(`[BRIDGE_WARN] FETCH_FAILED: ${data.cacheKey} not found in cache.`);
+                    this._logger(`[BRIDGE_WARN] FETCH_FAILED: ${data.cacheKey}. Proactively triggering synthesis fallback.`);
+                    // [RESILIENCE] If a fetch fails, we MUST start synthesis to prevent a playback stall.
+                    this._audioBridge.synthesize(data.cacheKey, this._getOptions(), data.intentId);
                 }
                 break;
             case OutgoingAction.TOGGLE_PLAY_PAUSE:
@@ -962,9 +969,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _broadcastCacheStats() {
+        const stats = this._playbackEngine.getCacheStats();
         this._dashboardRelay.postMessage({
-            command: 'cacheStats',
-            count: this._playbackEngine.getCacheStats().count
+            command: IncomingCommand.CACHE_STATS_UPDATE,
+            count: stats.count,
+            size: stats.sizeBytes
         });
     }
 

@@ -69,7 +69,7 @@ describe('AudioBridge', () => {
         expect(playbackEngine.speakNeural).not.toHaveBeenCalled();
     });
 
-    it('should emit playAudio with empty data on extension cache hit (Pull Architecture)', async () => {
+    it('should emit playAudio with binary data on extension cache hit (Push-on-Hit Architecture)', async () => {
         const playAudioSpy = vi.fn();
         const readySpy = vi.fn();
         audioBridge.on('playAudio', playAudioSpy);
@@ -81,13 +81,13 @@ describe('AudioBridge', () => {
 
         expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
             cacheKey: expect.stringContaining('NeuralVoice'),
-            data: '', // Decommissioned Push
+            data: 'cached-blob', // Restored Push
             sentenceIndex: 0
         }));
         expect(readySpy).toHaveBeenCalled();
     });
 
-    it('should call speakNeural and emit playAudio with empty data when synthesize() is called', async () => {
+    it('should call speakNeural and emit playAudio with binary data when synthesize() is called', async () => {
         const playAudioSpy = vi.fn();
         const readySpy = vi.fn();
         audioBridge.on('playAudio', playAudioSpy);
@@ -106,7 +106,7 @@ describe('AudioBridge', () => {
         expect(playbackEngine.speakNeural).toHaveBeenCalled();
         expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
             cacheKey: 'some-key',
-            data: '' // Decommissioned Push
+            data: 'fresh-blob' // Restored Push
         }));
         expect(readySpy).toHaveBeenCalledWith(expect.objectContaining({
             cacheKey: 'some-key',

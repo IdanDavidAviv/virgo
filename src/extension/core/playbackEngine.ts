@@ -125,6 +125,7 @@ export class PlaybackEngine extends EventEmitter {
 
     public stop() {
         this._playbackIntentId++; // Increment to eject all pending tasks
+        this.emit('intent-change', this._playbackIntentId);
         this._updateStatus(false, false, false);
 
         if (this._abortController) {
@@ -317,6 +318,10 @@ export class PlaybackEngine extends EventEmitter {
                 this._abortController.abort();
             }
             this._abortController = new AbortController();
+            // --- NEW SYNTHESIS TASK ---
+            this._playbackIntentId++;
+            this.emit('intent-change', this._playbackIntentId);
+            const currentIntent = this._playbackIntentId;
             this._updateStatus(true, false, true);
         }
 

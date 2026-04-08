@@ -136,11 +136,11 @@ export class AudioBridge extends EventEmitter {
             const cachedData = this._playbackEngine.getCached(cacheKey);
             
             if (cachedData) {
-                this._logger(`[BRIDGE] Extension Cache HUB Hit: ${cacheKey}. Notifying READY (Pull Mode).`);
+                this._logger(`[BRIDGE] Extension Cache HUB Hit: ${cacheKey}. Pushing binary data.`);
                 this._stateStore.setLoadType('cache');
                 this.emit('playAudio', {
                     cacheKey,
-                    data: '', // Decommissioned Push: Data is now pulled via FETCH_AUDIO
+                    data: cachedData, // Restore Push Mode for performance
                     text: sentence,
                     chapterIndex,
                     sentenceIndex,
@@ -148,7 +148,7 @@ export class AudioBridge extends EventEmitter {
                     sentences: chapter.sentences,
                     intentId: this._playbackEngine.playbackIntentId
                 });
-                // Trigger the Pull handshake
+                // Still trigger the Ready signal for telemetry/sync
                 this.emit('synthesisReady', { cacheKey, intentId: this._playbackEngine.playbackIntentId });
             } else {
                 this._logger(`[BRIDGE] Zero-IPC: Triggering Webview Cache Check for ${cacheKey}`);
@@ -286,7 +286,7 @@ export class AudioBridge extends EventEmitter {
             if (data && (this._playbackEngine.isPlaying || state.isPreviewing)) {
                 this.emit('playAudio', {
                     cacheKey,
-                    data: '', // Decommissioned Push: Data is now pulled via FETCH_AUDIO
+                    data, // Restore Push Mode for performance
                     text: sentence,
                     chapterIndex: cIdx,
                     sentenceIndex: sIdx,
