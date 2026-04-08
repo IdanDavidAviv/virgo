@@ -100,8 +100,9 @@ export class McpBridge extends EventEmitter {
 
     /**
      * Start the server with Port Roaming capability.
+     * Returns the port it settled on.
      */
-    public async start(initialPort: number = 7413, maxAttempts: number = 8) {
+    public async start(initialPort: number = 7413, maxAttempts: number = 8): Promise<number> {
         const envPort = process.env.READ_ALOUD_MCP_PORT ? parseInt(process.env.READ_ALOUD_MCP_PORT, 10) : undefined;
         if (envPort && !isNaN(envPort)) {
             this._logger(`[MCP_BRIDGE] Debug Override: Locking to port ${envPort}`);
@@ -229,13 +230,14 @@ export class McpBridge extends EventEmitter {
                         }
                     });
                 });
-                return; // Successfully started
+                return port; // Successfully started
             } catch (err) {
                 if (attempt === maxAttempts - 1) {
                     throw new Error(`[MCP_BRIDGE] Exhausted all ${maxAttempts} ports.`);
                 }
             }
         }
+        throw new Error("Failed to start server");
     }
 
     private writeDiscoveryInfo(port: number) {

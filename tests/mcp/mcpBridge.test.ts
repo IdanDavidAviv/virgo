@@ -12,6 +12,9 @@ vi.mock('vscode', () => ({
         Production: 1,
         Development: 2,
         Test: 3
+    },
+    workspace: {
+        workspaceFolders: []
     }
 }));
 
@@ -31,9 +34,11 @@ describe('McpBridge Tests', () => {
     });
 
 
+    let activePort: number;
+
     beforeAll(async () => {
         bridge = new McpBridge(testPersistencePath, logger);
-        await bridge.start(TEST_PORT);
+        activePort = await bridge.start(TEST_PORT);
     });
 
     afterAll(async () => {
@@ -62,7 +67,7 @@ describe('McpBridge Tests', () => {
 
     describe('McpBridge Integration (SSE + Tools)', () => {
         it('should allow tool discovery and execution over SSE', async () => {
-            const transport = new SSEClientTransport(new URL(`http://127.0.0.1:${TEST_PORT}/sse`));
+            const transport = new SSEClientTransport(new URL(`http://127.0.0.1:${activePort}/sse`));
             const client = new Client(
                 { name: "test-runner", version: "1.0.0" },
                 { capabilities: {} }
@@ -85,17 +90,17 @@ describe('McpBridge Tests', () => {
                     sessionId: 'test_session'
                 }
             }) as any;
-            
+
             expect(injectResult.isError).toBeFalsy();
             expect(injectResult.content[0].type).toBe('text');
             expect(injectResult.content[0].text.toLowerCase()).toContain('successfully');
 
             // 3. Verify Status
-            const statusResult = await client.callTool({ 
+            const statusResult = await client.callTool({
                 name: 'get_injection_status',
-                arguments: {} 
+                arguments: {}
             }) as any;
-            
+
             expect(statusResult.isError).toBeFalsy();
             expect(statusResult.content[0].text).toContain('Active Store Size: 1');
 
@@ -103,9 +108,9 @@ describe('McpBridge Tests', () => {
         }, 30000); // Higher timeout for CI/Windows throughput (v2.2.2 stabilization)
 
         it('should handle multiple concurrent sessions', async () => {
-            const t1 = new SSEClientTransport(new URL(`http://127.0.0.1:${TEST_PORT}/sse`));
-            const t2 = new SSEClientTransport(new URL(`http://127.0.0.1:${TEST_PORT}/sse`));
-            
+            const t1 = new SSEClientTransport(new URL(`http://127.0.0.1:${activePort}/sse`));
+            const t2 = new SSEClientTransport(new URL(`http://127.0.0.1:${activePort}/sse`));
+
             const c1 = new Client({ name: "cli-1", version: "1" }, { capabilities: {} });
             const c2 = new Client({ name: "cli-2", version: "1" }, { capabilities: {} });
 
