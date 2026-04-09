@@ -56,13 +56,7 @@ export class DashboardRelay {
         const currentChapterIndex = s.currentChapterIndex ?? 0;
         const currentSentenceIndex = s.currentSentenceIndex ?? 0;
 
-        // [DOC_PROBE] Trace active editor visibility
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            this._logger(`[RELAY] 🔎 [DOC_PROBE] No active editor found at sync time. Source: ${s.focusedFileName}`);
-        } else {
-            this._logger(`[RELAY] 🔎 [DOC_PROBE] Editor found: ${editor.document.fileName}`);
-        }
+
 
         const currentChapter = (currentChapterIndex >= 0 && currentChapterIndex < chapters.length) 
             ? chapters[currentChapterIndex] 
@@ -160,8 +154,6 @@ export class DashboardRelay {
             const result = this._view.webview.postMessage(message);
             if (!result) {
                 this._logger(`[RELAY] ❌ postMessage returned FALSE for command: ${message.command}`);
-            } else {
-                this._logger(`[RELAY] ✅ postMessage successful: ${message.command}`);
             }
         } else {
             this._logger(`[RELAY] 🚫 postMessage BLOCKED (Hidden & Non-Critical): ${message.command}`);
@@ -172,7 +164,6 @@ export class DashboardRelay {
         // [Hygiene] Idempotency guard — skip broadcast if voice list is unchanged.
         const hash = neural.map((v: any) => v.id || v.shortName || v.Name || '').join(',');
         if (hash === this._lastVoiceHash) {
-            this._logger(`[RELAY] ⏭️ voices broadcast skipped (unchanged, ${neural.length} voices).`);
             return;
         }
         this._lastVoiceHash = hash;

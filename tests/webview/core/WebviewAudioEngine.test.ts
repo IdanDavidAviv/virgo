@@ -118,3 +118,74 @@ describe('WebviewAudioEngine (v2.3.1 - Dumb Player)', () => {
         await playback;
     });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [NEURAL GUARD] setRate() — Law 8.1: No playbackRate for pre-baked neural audio
+// ─────────────────────────────────────────────────────────────────────────────
+describe('WebviewAudioEngine.setRate() — Neural Guard (Law 8.1)', () => {
+    let engine: WebviewAudioEngine;
+    let store: WebviewStore;
+
+    beforeEach(() => {
+        resetAllSingletons();
+        engine = WebviewAudioEngine.getInstance();
+        store = WebviewStore.getInstance();
+        store.updateState({ isHydrated: true }, 'local');
+        vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+        vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('[Law 8.1] should NOT set playbackRate when engineMode is neural', () => {
+        // [ARRANGE] Engine in neural mode
+        store.patchState({ engineMode: 'neural', rate: 4 });
+
+        // [ACT] Apply rate directly
+        engine.setRate(4);
+
+        // [ASSERT] playbackRate must remain at its default (1.0), untouched
+        expect(engine.audioElement.playbackRate).toBe(1.0);
+    });
+
+    it('[Law 8.1] should SET playbackRate when engineMode is local', () => {
+        // [ARRANGE] Engine in local TTS mode
+        store.patchState({ engineMode: 'local', rate: 2 });
+
+        // [ACT]
+        engine.setRate(2);
+
+        // [ASSERT] playbackRate must be applied for local mode
+        expect(engine.audioElement.playbackRate).toBe(2);
+    });
+
+    it('[Law 8.1] rate store subscription must not corrupt neural playback speed', () => {
+        // [ARRANGE] Start in neural mode with rate=4
+        store.patchState({ engineMode: 'neural', rate: 1 });
+
+        // Confirm baseline
+        expect(engine.audioElement.playbackRate).toBe(1.0);
+
+        // [ACT] Simulate store rate change (reactive subscription fires setRate)
+        store.patchState({ rate: 4 });
+
+        // [ASSERT] Reactive setRate(4) must NOT have touched playbackRate in neural mode
+        expect(engine.audioElement.playbackRate).toBe(1.0);
+    });
+
+    it('[Law 8.1] switching from neural to local mode applies correct playbackRate', () => {
+        // [ARRANGE] Start neural
+        store.patchState({ engineMode: 'neural', rate: 3 });
+        engine.setRate(3);
+        expect(engine.audioElement.playbackRate).toBe(1.0); // still untouched
+
+        // [ACT] Switch to local
+        store.patchState({ engineMode: 'local' });
+        engine.setRate(3);
+
+        // [ASSERT] Now it should apply
+        expect(engine.audioElement.playbackRate).toBe(3);
+    });
+});

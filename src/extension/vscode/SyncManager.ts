@@ -15,6 +15,11 @@ export class SyncManager implements vscode.Disposable {
     // [Gate 5] Startup Orchestration — debounce coalescer. All requestSync() calls within a 50ms
     // window collapse into a single flush. Prevents 4–6 redundant UI_SYNC packets during boot.
     private static readonly COALESCE_MS = 50;
+    // [Gate 5 Addendum] Steady-state playback coalesce: suppress state-equivalent flushes
+    // during active playback. Reset to '' on intent change or idle state.
+    private _lastFlushHash: string = '';
+    // Tracks playback state for the hash guard — updated via setPlayingState().
+    private _isPlaying: boolean = false;
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -86,6 +91,18 @@ export class SyncManager implements vscode.Disposable {
         }, SyncManager.COALESCE_MS);
     }
 
+    /**
+     * Update the isPlaying state so the Gate 5 Addendum hash guard works correctly.
+     * Call this whenever the extension's playback state changes.
+     */
+    public setPlayingState(isPlaying: boolean): void {
+        this._isPlaying = isPlaying;
+        if (!isPlaying) {
+            // Clear hash on idle — always allow the next flush to pass through
+            this._lastFlushHash = '';
+        }
+    }
+
     private _flush() {
         if (this._syncTimer) {
             clearTimeout(this._syncTimer);
@@ -96,6 +113,18 @@ export class SyncManager implements vscode.Disposable {
         if (this._view && !this._view.visible) {
             this._needsSync = true;
             return;
+        }
+
+        // [Gate 5 Addendum] During active playback, suppress state-equivalent flushes.
+        // This prevents document observer ticks from emitting redundant UI_SYNC packets
+        // when nothing has actually changed (same chapters, intent, hydrated, isPlaying).
+        if (this._isPlaying) {
+            const sessionId = this._activeSessionId;
+            const hash = `${sessionId}::playing`;
+            if (hash === this._lastFlushHash) {
+                return; // Absorbed — state is equivalent, no change to broadcast
+            }
+            this._lastFlushHash = hash;
         }
 
         const historyToSync = this._pendingSnippetHistory;

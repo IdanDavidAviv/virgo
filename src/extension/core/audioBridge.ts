@@ -20,6 +20,12 @@ export interface AudioBridgeEvents {
 export class AudioBridge extends EventEmitter {
     private _pushDelayMs: number = 200;
     private _webviewCacheManifest: Set<string> = new Set();
+    // [Law 7.1] Cache confirmation window (200ms) to prevent FETCH_FAILED false positives
+    // when the Webview ACKs a Tier-2 disk-hit slightly after the bridge timeout fires.
+    private _recentCacheConfirmations: Map<string, number> = new Map();
+    // [Law 7.2] Per-intentId dedup Set for synthesisStarting emissions.
+    // Key format: `${cacheKey}::${intentId}`. Cleared on intent increment.
+    private _emittedSynthesisStarting: Set<string> = new Set();
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -226,6 +232,35 @@ export class AudioBridge extends EventEmitter {
     }
 
     /**
+     * [Law 7.1] Notify the bridge that the Webview has confirmed a Tier-2 disk-cache
+     * hit for the given key. This prevents FETCH_FAILED from triggering redundant synthesis.
+     */
+    public notifyCacheConfirmation(key: string): void {
+        this._recentCacheConfirmations.set(key, Date.now());
+    }
+
+    /**
+     * [Law 7.2] Deduplicated synthesisStarting emitter.
+     * Suppresses duplicate events for the same cacheKey + intentId pair.
+     */
+    public emitSynthesisStarting(cacheKey: string, intentId: number): void {
+        const guard = `${cacheKey}::${intentId}`;
+        if (this._emittedSynthesisStarting.has(guard)) {
+            this._logger(`[BRIDGE] [DEDUP] synthesisStarting suppressed for ${cacheKey} (Intent: ${intentId})`);
+            return;
+        }
+        this._emittedSynthesisStarting.add(guard);
+        this.emit('synthesisStarting', { cacheKey, intentId });
+    }
+
+    /**
+     * [Law 7.2] Clear the synthesisStarting dedup set — call on intent increment.
+     */
+    public clearSynthesisStartingDedup(): void {
+        this._emittedSynthesisStarting.clear();
+    }
+
+    /**
      * Called when the webview reports a cache miss and needs a fresh synthesis.
      */
     public async synthesize(cacheKey: string, options: PlaybackOptions, intentId?: number, batchId?: number) {
@@ -241,6 +276,15 @@ export class AudioBridge extends EventEmitter {
             const currentBatch = this._playbackEngine.batchIntentId;
             batchId = currentBatch > 0 ? currentBatch : 1;
             this._logger(`[BRIDGE] [PROTOCOL_REPAIR] Synthesis request with Batch 0. Adopted: ${batchId}`);
+        }
+
+        // [Law 7.1] FETCH_FAILED Fallback Guard: If the Webview confirmed a cache hit
+        // for this key within the last 200ms, skip synthesis and emit playAudio directly.
+        const confirmedAt = this._recentCacheConfirmations.get(cacheKey);
+        if (confirmedAt !== undefined && Date.now() - confirmedAt < 200) {
+            this._logger(`[BRIDGE] [LAW_7.1] Cache confirmation found for ${cacheKey} within 200ms. Skipping synthesis — emitting playAudio from disk.`);
+            this._emitWithIntent('playAudio', { cacheKey, data: '' });
+            return;
         }
 
         const state = this._stateStore.state;

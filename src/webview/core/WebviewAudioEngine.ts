@@ -413,8 +413,15 @@ export class WebviewAudioEngine {
   }
 
   public setRate(val: number): void {
-    this._audio.playbackRate = val;
-    if (this._utterance) {this._utterance.rate = val;}
+    // [NEURAL GUARD] Neural audio (Edge TTS MP3) is already synthesized at the target
+    // rate via SSML <prosody rate=...>. Applying playbackRate on top would compound the
+    // speed (e.g. 4x baked × 4x playbackRate = 16x effective), destroying pitch.
+    // playbackRate is only valid for local SpeechSynthesis (browser TTS) mode.
+    const engineMode = WebviewStore.getInstance().getState().engineMode;
+    if (engineMode !== 'neural') {
+      this._audio.playbackRate = val;
+    }
+    if (this._utterance) { this._utterance.rate = val; }
   }
 
   public dispose(): void {
