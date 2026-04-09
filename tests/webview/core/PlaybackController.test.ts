@@ -44,10 +44,8 @@ describe('PlaybackController: Optimistic Transitions (TDD)', () => {
             rate: 0,
             selectedVoice: 'en-US-SteffanNeural',
             currentChapterIndex: 0,
-            isHandshakeComplete: true,
-            state: {
-                currentSentenceIndex: 0
-            },
+            currentSentenceIndex: 0,
+            isHydrated: true,
             playbackStalled: false 
         };
         (store as any)._isHydrated = true;

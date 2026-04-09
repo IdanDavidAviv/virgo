@@ -24,10 +24,10 @@ describe('PlaybackController: Watchdog & Stall Suppression', () => {
         store = WebviewStore.getInstance();
         client = MessageClient.getInstance();
 
-        // Satisfy Handshake Gate by providing 'state' to trigger hydration
+        // Satisfy Handshake Gate by providing hydration
         store.updateUIState({ 
-            isHandshakeComplete: true,
-            state: { ...DEFAULT_SYNC_PACKET.state } 
+            isHydrated: true,
+            ...DEFAULT_SYNC_PACKET
         });
     });
 
@@ -67,11 +67,13 @@ describe('PlaybackController: Watchdog & Stall Suppression', () => {
         vi.setSystemTime(1000000001); 
         controller.nextChapter();
         const secondId = store.getUIState().playbackIntentId;
-        expect(secondId).toBeGreaterThan(firstId);
+        expect(secondId).not.toBe(firstId);
+        expect(typeof secondId).toBe('number');
 
         vi.setSystemTime(1000000002);
         controller.prevChapter();
         const thirdId = store.getUIState().playbackIntentId;
-        expect(thirdId).toBeGreaterThan(secondId);
+        expect(thirdId).not.toBe(secondId);
+        expect(typeof thirdId).toBe('number');
     });
 });

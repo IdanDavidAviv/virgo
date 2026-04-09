@@ -86,14 +86,7 @@ export function resetAllSingletons() {
         delete win.__PLAYBACK_CONTROLLER__;
     }
 
-    WebviewStore.resetInstance();
-    MessageClient.resetInstance();
-    PlaybackController.resetInstance();
-    WebviewAudioEngine.resetInstance();
-    CommandDispatcher.resetInstance();
-    CacheManager.resetInstance();
-    
-    // [SOVEREIGNTY] Polyfill SpeechSynthesisUtterance for jsdom
+    // [SOVEREIGNTY] Polyfill SpeechSynthesisUtterance for jsdom BEFORE singletons capture it
     if (typeof window !== 'undefined') {
         (window as any).SpeechSynthesisUtterance = class {
             text: string;
@@ -106,8 +99,13 @@ export function resetAllSingletons() {
         };
         (window as any).speechSynthesis = {
             speak: vi.fn((utterance: any) => {
-                if (utterance.onstart) { utterance.onstart(); }
-                if (utterance.onend) { utterance.onend(); }
+                // Ensure events are dispatched to trigger resolve/release
+                setTimeout(() => {
+                    if (utterance.onstart) { utterance.onstart(); }
+                    setTimeout(() => {
+                        if (utterance.onend) { utterance.onend(); }
+                    }, 10);
+                }, 10);
             }),
             cancel: vi.fn(),
             pause: vi.fn(),
@@ -118,6 +116,13 @@ export function resetAllSingletons() {
             paused: false
         };
     }
+
+    WebviewStore.resetInstance();
+    MessageClient.resetInstance();
+    PlaybackController.resetInstance();
+    WebviewAudioEngine.resetInstance();
+    CommandDispatcher.resetInstance();
+    CacheManager.resetInstance();
 
     // Reset vitest mocks
     vi.clearAllMocks();
@@ -149,5 +154,58 @@ export function getCoreSystems() {
         client: MessageClient.getInstance(),
         controller: PlaybackController.getInstance(),
         engine: WebviewAudioEngine.getInstance()
+    };
+}
+
+import { UISyncPacket } from '../../src/common/types';
+
+/**
+ * Creates a valid, flat UISyncPacket for use in tests.
+ */
+export function createMockSyncPacket(overrides: Partial<UISyncPacket> = {}): UISyncPacket {
+    return {
+        // [SOVEREIGNTY] Intent Baselines
+        playbackIntentId: 1,
+        batchIntentId: 1,
+        
+        // FOCUSED
+        focusedFileName: '',
+        focusedRelativeDir: '',
+        focusedDocumentUri: null,
+        focusedIsSupported: true,
+
+        // ACTIVE
+        activeFileName: 'test.md',
+        activeRelativeDir: '',
+        activeDocumentUri: 'file:///test.md',
+
+        // State Flags
+        currentChapterIndex: 0,
+        currentSentenceIndex: 0,
+        isPlaying: false,
+        isPaused: false,
+        playbackStalled: false,
+        isRefreshing: false,
+        isPreviewing: false,
+        isLooping: false,
+        activeMode: 'FILE',
+        engineMode: 'neural',
+        autoPlayMode: 'auto',
+
+        // Settings
+        volume: 50,
+        rate: 1.0,
+
+        // Data
+        availableVoices: { local: [], neural: [] },
+        allChapters: [],
+        currentSentences: [],
+        
+        // Stats
+        cacheCount: 0,
+        cacheSizeBytes: 0,
+        logLevel: 1,
+        
+        ...overrides
     };
 }

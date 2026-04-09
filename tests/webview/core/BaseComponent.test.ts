@@ -70,7 +70,7 @@ describe('BaseComponent', () => {
       data: {
         command: IncomingCommand.UI_SYNC,
         isPlaying: true,
-        state: { currentSentenceIndex: 0 }
+        currentSentenceIndex: 0
       }
     }));
     

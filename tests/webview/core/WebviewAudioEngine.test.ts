@@ -14,11 +14,12 @@ describe('WebviewAudioEngine (v2.3.1 - Dumb Player)', () => {
     beforeEach(() => {
         resetAllSingletons();
         engine = WebviewAudioEngine.getInstance();
-        engine.stop(true); // [HARDENING] Reset intentId to 0 for each test
+        engine.stop(); 
+        (engine as any).activeIntentId = 0; // [HARDENING] Reset intentId to 0 for each test isolation
         store = WebviewStore.getInstance();
         
         // Hydrate store for engine listeners
-        store.updateState({ isHandshakeComplete: true }, 'local');
+        store.updateState({ isHydrated: true }, 'local');
 
         // Spy on Audio elements
         vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
@@ -113,7 +114,7 @@ describe('WebviewAudioEngine (v2.3.1 - Dumb Player)', () => {
         // [ASSERT]: Overall we should only have called speak once
         expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1);
         
-        engine.stop('infinity');
+        engine.stop();
         await playback;
     });
 });

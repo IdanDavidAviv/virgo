@@ -16,14 +16,14 @@ describe('Resilience: RaceCondition (v2.3.1 - Mutex Guard)', () => {
         resetAllSingletons();
         engine = WebviewAudioEngine.getInstance();
         engine.activeIntentId = 0;
-        engine.stop('reset'); // [HARDENING] Reset intentId for isolation
+        engine.stop(); // [HARDENING] Reset for isolation
 
         const audio = engine.audioElement;
         playSpy = vi.spyOn(audio, 'play').mockImplementation(() => Promise.resolve());
         vi.spyOn(audio, 'pause');
         vi.spyOn(audio, 'addEventListener');
 
-        WebviewStore.getInstance().updateState({ isHandshakeComplete: true }, 'local');
+        WebviewStore.getInstance().updateState({ isHydrated: true }, 'local');
         
         if (typeof window.URL.createObjectURL === 'undefined') {
             window.URL.createObjectURL = vi.fn().mockReturnValue('mock-url');
@@ -41,7 +41,7 @@ describe('Resilience: RaceCondition (v2.3.1 - Mutex Guard)', () => {
         // [ASSERT]: The play command should NOT reach the audio element
         expect(playSpy).not.toHaveBeenCalled();
 
-        if (release) release(); // [v2.3.1] Critical cleanup
+        if (release) {release();} // [v2.3.1] Critical cleanup
     });
 
     it('SHOULD allow audio packets that match the current intent', async () => {
@@ -80,14 +80,14 @@ describe('Resilience: RaceCondition (v2.3.1 - Mutex Guard)', () => {
         // 1. Current intent is 100
         const release = await engine.acquireLock(100);
         
-        // 2. Stop is called (should effectively block any intent < infinity)
-        engine.stop('infinity');
+        // 2. Stop is called (resets activeIntentId to 0)
+        engine.stop();
         
-        // 3. A packet arrives with a "valid" but now stale intent
+        // 3. A packet arrives with a "stale" intent (90)
         const blob = new Blob(['stale'], { type: 'audio/mp3' });
-        await engine.playBlob(blob, 'key', 101); // Even higher than 100 but < MAX
+        await engine.playBlob(blob, 'key', 90); 
         
         expect(playSpy).not.toHaveBeenCalled();
-        if (release) release();
+        if (release) {release();}
     });
 });

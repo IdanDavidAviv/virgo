@@ -47,38 +47,63 @@ describe('MessageClient', () => {
 
     client.onCommand(IncomingCommand.UI_SYNC, handler);
 
-    // Simulate incoming message with nested payload
+    // Simulate incoming message with flat payload
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         command: IncomingCommand.UI_SYNC,
-        payload
+        payload: {
+          ...payload,
+          currentChapterIndex: 0,
+          currentSentenceIndex: 0,
+          volume: 50,
+          rate: 0,
+          allChapters: [],
+          currentSentences: [],
+          snippetHistory: []
+        }
       }
     }));
 
-    expect(handler).toHaveBeenCalledWith(payload);
+    expect(handler).toHaveBeenCalledWith({
+      ...payload,
+      currentChapterIndex: 0,
+      currentSentenceIndex: 0,
+      volume: 50,
+      rate: 0,
+      allChapters: [],
+      currentSentences: [],
+      snippetHistory: []
+    });
   });
 
-  it('should route legacy spread-style incoming commands', () => {
+  it('should route incoming commands with flat properties', () => {
     const client = MessageClient.getInstance();
     const handler = vi.fn();
-    
-    // Legacy structure from DashboardRelay.ts: { command: 'UI_SYNC', ...packet }
-    const spreadPacket = {
-      state: { currentChapterIndex: 5 },
+    // All packets are now flat.
+    const flatPacket = {
+      currentChapterIndex: 5,
       isPlaying: true
     };
 
     client.onCommand(IncomingCommand.UI_SYNC, handler);
 
-    // Simulate incoming message with spread properties
+    // Simulate incoming message with flat properties
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         command: IncomingCommand.UI_SYNC,
-        ...spreadPacket
+        ...flatPacket
       }
     }));
 
-    expect(handler).toHaveBeenCalledWith(spreadPacket);
+    expect(handler).toHaveBeenCalledWith({
+      ...flatPacket,
+      currentSentenceIndex: 0,
+      volume: 50,
+      rate: 0,
+      allChapters: [],
+      currentSentences: [],
+      snippetHistory: []
+    });
   });
 
   describe('Tiered Logging', () => {
@@ -140,7 +165,8 @@ describe('MessageClient', () => {
         isPlaying: true,
         cacheCount: 42,
         cacheSizeBytes: 1024 * 1024 * 5,
-        state: { currentChapterIndex: 1, currentSentenceIndex: 5 },
+        currentChapterIndex: 1,
+        currentSentenceIndex: 5,
         logLevel: 1 // STANDARD
       };
 
