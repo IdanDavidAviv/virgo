@@ -496,17 +496,25 @@ export class PlaybackController {
 
         const resolvedUri = currentUri || store.getSentenceKey();
 
-        // [SOVEREIGNTY] Check cache before synthesis request
-        WebviewAudioEngine.getInstance().playFromCache(resolvedUri, intentId).then(hit => {
-            if (!hit) {
-                console.log(`[PlaybackController] Cache miss for ${resolvedUri}. Requesting synthesis...`);
-                MessageClient.getInstance().postAction(OutgoingAction.REQUEST_SYNTHESIS, {
-                    cacheKey: resolvedUri,
-                    intentId,
-                    batchId: store.getState().batchIntentId
-                });
-            }
-        });
+        // [Law 7.3 — Play Guard] Only invoke the local cache + REQUEST_SYNTHESIS path when
+        // we have a valid, non-empty cache key. An empty key means no currentText has landed
+        // yet (e.g., fresh LOAD_DOCUMENT with no sentenceChanged yet). In that case, the
+        // extension's PLAY → continue() → audioBridge.start() path will handle everything
+        // correctly using the docController chapters — no webview-side REQUEST_SYNTHESIS needed.
+        if (resolvedUri) {
+            WebviewAudioEngine.getInstance().playFromCache(resolvedUri, intentId).then(hit => {
+                if (!hit) {
+                    console.log(`[PlaybackController] Cache miss for ${resolvedUri}. Requesting synthesis...`);
+                    MessageClient.getInstance().postAction(OutgoingAction.REQUEST_SYNTHESIS, {
+                        cacheKey: resolvedUri,
+                        intentId,
+                        batchId: store.getState().batchIntentId
+                    });
+                }
+            });
+        } else {
+            console.log('[PlaybackController] ⚠️ No resolved URI — skipping local cache check. Extension PLAY handler will drive synthesis via audioBridge.start().');
+        }
 
         MessageClient.getInstance().postAction(OutgoingAction.PLAY, {
             cacheKey: resolvedUri,

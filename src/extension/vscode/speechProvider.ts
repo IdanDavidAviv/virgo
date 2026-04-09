@@ -794,12 +794,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         try {
             // 1. Get all session directories 
             const entries = await vscode.workspace.fs.readDirectory(rootUri);
+
+            // [SCANNER_EXCLUSION] System-only directories that must never appear in the Discovery Sidebar.
+            // These are anti-gravity internal dirs and must be filtered before session enumeration.
+            const EXCLUDED_DIRS = new Set(['brain', 'protocols', 'tempmediaStorage']);
+
             const allDirs = (await Promise.all(entries.map(async ([name, type]) => {
                 if (type !== vscode.FileType.Directory) { return null; }
                 
                 // [BRAIN_ISOLATION] Filter out system/agent directories from Discovery Sidebar
                 // We keep discovery strictly for user-facing 'read_aloud' sessions.
-                if (name === 'brain') {
+                if (EXCLUDED_DIRS.has(name)) {
                     return null;
                 }
                 const fullUri = vscode.Uri.joinPath(rootUri, name);
