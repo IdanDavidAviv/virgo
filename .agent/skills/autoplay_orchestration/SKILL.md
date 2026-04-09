@@ -9,7 +9,14 @@ This skill defines the authoritative architecture for the Read Aloud playback en
 
 ## 1. System Dynamics
 
-The system revolves around the **Intent Lifecycle**. An action (PLAY, PAUSE, STOP, JUMP) creates a new `intentId`. All downstream processes (Synthesis, Ingestion, Playback) must honor this `intentId`.
+The system revolves around the **Sovereign Intent Baton**. 
+- **Acquire**: The user (or auto-next) initiates an action. A new `intentId` (Baton) is minted **only** for disruptive actions (Stop, Jump, Manual Play). 
+- **Continuity**: Seamless transitions (next sentence/pre-fetch) **inherit** the current Baton.
+- **Execution Phases**:
+    - **Call**: Extension is notified of the intent.
+    - **Synthesis**: Extension prepares the audio.
+    - **Play**: Webview receives audio and plays it IF the baton hasn't moved (Baton Magnitude Check).
+    - **Reject**: Stale intents (lesser baton magnitude) are immediately discarded by the "Zombie Guard".
 
 ```mermaid
 graph TD

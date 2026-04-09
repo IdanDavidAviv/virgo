@@ -15,7 +15,12 @@ export interface WindowSentence {
     sIdx: number;
 }
 
-export interface StateStoreState {
+export enum LogLevel {
+    STANDARD = 1,
+    VERBOSE = 2
+}
+
+export interface UISyncPacket {
     // FOCUSED (Passive Selection)
     focusedFileName: string;
     focusedRelativeDir: string;
@@ -37,54 +42,37 @@ export interface StateStoreState {
     isRefreshing: boolean;
     isPreviewing: boolean;
     activeMode: 'FILE' | 'SNIPPET';
+    isLooping: boolean;
 
     // [SOVEREIGNTY] Active Playback Configuration
+    isPlaying: boolean;
+    isPaused: boolean;
+    playbackStalled: boolean;
     volume: number;
     rate: number;
     engineMode: 'local' | 'neural';
     autoPlayMode: 'auto' | 'chapter' | 'row';
-}
+    selectedVoice?: string;
 
-export enum LogLevel {
-    STANDARD = 1,
-    VERBOSE = 2
-}
-
-export interface UISyncPacket {
-    state: StateStoreState;
-    isPlaying: boolean;
-    isPaused: boolean;
-    playbackStalled: boolean;
+    // Data Windows
     currentSentences: string[];
     windowSentences?: WindowSentence[]; // [NEW] 100-sentence sliding window (25 back, 75 forward)
-    allChapters: { title: string, level: number, index: number, count: number }[]; // [PHASE 4] Full chapter metadata
-    currentChapterIndex: number;
-    totalChapters: number;
-    isLooping: boolean;
-    snippetHistory?: SnippetHistory;
-    currentText: string;
-    canPrevChapter: boolean;
-    canNextChapter: boolean;
-    canPrevSentence: boolean;
-    canNextSentence: boolean;
-    autoPlayMode: 'auto' | 'chapter' | 'row';
-    engineMode: 'local' | 'neural';
+    allChapters: { title: string, level: number, index: number, count: number }[]; // Full chapter metadata
+    
+    // Integrity & Cache
     cacheCount: number;
     cacheSizeBytes: number;
     cacheStats?: { count: number, size: number };
     playbackIntentId: number;
     batchIntentId: number;
-    selectedVoice?: string;
-    rate: number;
-    volume: number;
     lastLoadType?: 'cache' | 'synth' | 'none';
-    activeMode: 'FILE' | 'SNIPPET';
     activeSessionId?: string;
     logLevel: LogLevel;
     availableVoices?: {
         local: any[];
         neural: any[];
     };
+    snippetHistory?: SnippetHistory;
 }
 
 

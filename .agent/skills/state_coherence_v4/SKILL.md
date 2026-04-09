@@ -71,6 +71,8 @@ if (Date.now() < this.intentExpiry) {
 
 ## 4. Implementation Checklist
 
+- [ ] **Zero Nesting**: Ensure the Store has no nested `state` objects. All synced properties must be top-level.
+- [ ] **Intent Baton**: Use `intentId` as a session baton. Jumps/Stops mint a new ID; continuity (auto-next/pre-fetch) inherits the current ID.
 - [ ] Consolidate overlapping flags into a single "Source of Truth" enum.
 - [ ] Move logic-based derived states (e.g., `isSyncing`) into a single method or a Controller property.
 - [ ] Ensure all "Optimistic UI" patches are tied to a specific "Sovereignty Lock" that is explicitly released by the Controller.

@@ -53,6 +53,7 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
 ### 2.5 Single Source of Intent (SSOI) & Handshake Gate [v2.3.1]
 - **Intent Sovereignty**: All synthesis and playback tasks MUST be tagged with a `playbackIntentId`. Components MUST immediately eject tasks that do not match the current global intent. Intent IDs are initialized to `Date.now()` to prevent race conditions.
 - **Single Source of Intent (SSOI)**: The `WebviewStore` is the **exclusive owner** of active intent and synchronization state. `PlaybackController` MUST NOT maintain private copies of `isPlaying`, `isAwaitingSync`, or `playbackIntentId`. All logic must read from and write to the store to prevent "Split-Brain" behavior.
+- **Abortable Intent Pattern**: `WebviewAudioEngine` manages an internal `AbortController` linked to the active intent. New intents call `abort()` on the previous controller, which immediately releases locks and cancels async playback/fetch tasks.
 - **Authoritative Stop**: The `stop()` command is universal. It triggers a cascade of aborts across all active segments, pre-fetch batches, and the primary synthesis lock in the `WebviewAudioEngine`.
 - **Handshake Gate**: The Webview MUST block all synthesis requests and pre-fetching until the `isHandshakeComplete` flag is true in the store.
 - **Control Sovereignty**: User actions in the Webview are authoritative. Upon a user click, the system enters a **Sovereign Window (5s)**:
@@ -60,6 +61,16 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
     - `isAwaitingSync` is set to `true` in the store.
     - Incoming `UI_SYNC` packets with lower `intentId`s are ignored to prevent "UI Flickering".
 - **Instance Guard**: To prevent "Bridge Storms", the `McpBridge` enforces a **200ms eviction delay** before force-purging stale sessions.
+
+### 2.6 Snippet Data Sovereignty [v2.3.1]
+- **Directory Redirection**: To ensure the playback experience remains focused on content, the extension's data root is redirected to the `antigravity/read_aloud/` subdirectory.
+- **Sovereign Isolation**:
+    - **User Content**: All playback snippets, session metadata (`extension_state.json`), and transitory audio files MUST reside in `/read_aloud/<sessionId>`.
+    - **Agent Process**: Internal agent artifacts (e.g., `task.md`, `implementation_plan.md`, `walkthrough.md`, `.log`) reside in `/brain/<sessionId>`.
+- **UI Visibility & Privacy Shield**:
+    - **Discovery Logic**: The Webview Sidebar (Snippet Lookup) MUST exclusively discover files from the `read_aloud/` path.
+    - **No-Brain Regex**: Discovery and rendering logic MUST explicitly ignore any path or session ID containing the word `brain` (case-insensitive). This ensures that agent artifacts (tasks, plans, logs) do not clutter the user's snippet history.
+    - **Limit**: Snippet history is strictly limited to the **10 most recent** non-brain sessions to prevent performance degradation.
 
 ## 3. Hook Protocol (Development Guide)
 
@@ -120,19 +131,17 @@ To maintain high-integrity state and prevent "Split-Brain" bugs, agents MUST adh
 - **Incorrect**: Having `private isPlaying: boolean` in your class and trying to keep it synced.
 - **No Duplication**: NEVER create new properties that duplicate existing ones in the `state` sub-object or vice-versa. If a property exists in both, one MUST be the authority.
 
-### 7.4 Unified State Representation (Flattening)
-To prevent "Ghost State" (where nested and flat properties drift apart), the `WebviewStore` MUST maintain a strictly synchronized representation.
-- **The Reflective Patch**: The `patchState` operation in the `WebviewStore` must automatically "reflect" changes between the flat `UISyncPacket` properties and the nested `state` sub-object.
-- **Authority**: For properties present in both, the flat property in the `UISyncPacket` is the authority for incoming patches.
-
-### 7.2 Locality of Authority (LOA)
-- **State Sovereignty**: All data that persists across user interactions or impacts multiple components MUST reside in a Store.
-- **Pure Logic**: Controllers are "Stateless Services". They execute commands and manage transient side-effects (like the Sync Watchdog), but they do not "own" the truth.
-- **Triggered Side-Effects**: Logic execution should be triggered by Store transitions where possible, ensuring the UI and the Logic are always looking at the same snapshot.
-
 ### 7.3 Atomic Intent Management
 Never scatter `Date.now()` or manual ID increments across components.
 - **Rule**: Use centralized store methods (e.g., `store.resetPlaybackIntent()`). This ensures that the `intentId` update and the `isAwaitingSync` lock happen in a single atomic state transition.
+
+### 7.4 Sanitization Layer [v2.3.1]
+- **Purpose**: Prevent `undefined` properties (CundefinedSundefined logging) from infecting the state.
+- **Mechanism**: `MessageClient` implements a **Sanitizer** that validates `UI_SYNC` packets before they reach the Store, ensuring concrete numbers for indices, volume, and rate.
+
+### 7.5 State-First Convergence [v2.3.1]
+- **Purpose**: Resolve "Ghost State" during high-frequency IPC updates.
+- **Hierarchy**: During a `UI_SYNC`, the Extension's nested `state` object is the definitive authority. The `WebviewStore`'s `patchState` must perform a strictly mirrors the sub-object onto flat properties to prevent local optimistic UI from permanently diverging from the Extension's reality.
 
 ## 8. Agent Heuristics for Architecture
 

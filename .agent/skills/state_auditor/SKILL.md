@@ -81,7 +81,8 @@ sequenceDiagram
 ### Phase 1: Artifact Discovery
 - **Identify State Containers**: Locate all files holding state (Stores, Engines, Controllers).
 - **Scan for "Logic Leaks"**: Look for `if` statements or calculations inside data containers (Stores).
-- **Map the Handshake**: Trace how a user action flows from UI -> Controller -> Engine -> Sync -> UI.
+- **Audit Dependency Availability**: Instead of complex handshakes, check: "Can this component safely function if its dependency is missing/loading?"
+- **Map Sovereignty Boundaries**: Trace how a user action flows. Ensure components check for availability proactively rather than waiting for pushes.
 
 ### Phase 2: Conflict Matrix (The "Truth Map")
 Create a table for every major state variable. Identify its "Sovereign Owner".
@@ -97,7 +98,11 @@ For each variable, apply the **Tri-Layer Sovereign Test**:
 2.  **Intent Lock?**: Does the Controller prevent external Syncs from overwriting a pending user intent?
 3.  **Command Execution?**: Does the Engine execute commands without caring about the "World State"?
 
-## 3. Refactoring Patterns
+### 4. Standalone Sovereignty (The Pull Model)
+Components should be as standalone as possible to prevent "Handshake Deadlocks".
+1.  **Direct State Access**: Provide easy, streamlined access to managed state for other components.
+2.  **Lazy Readiness**: Responsibility for checking dependency availability lies with the consumer, not the provider.
+3.  **Minimal Handshaking**: Only use handshakes for critical external resources (e.g. Browser Audio Context). UI state should be optimistic and "Always Available".
 
 ### Intent-ID Latching
 Ensure that every user action is tagged with a unique `intentId`.
