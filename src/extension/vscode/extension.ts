@@ -97,7 +97,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const sessionId = resolveLatestSessionId(antigravityRoot, brainRoot); 
     const persistencePath = path.join(antigravityRoot, sessionId);
 
-    speechProvider = new SpeechProvider(context, log, mainStatusBarItem, brainRoot, sessionId, () => syncSelection());
+    speechProvider = new SpeechProvider(context, log, mainStatusBarItem, antigravityRoot, sessionId, () => syncSelection());
     log('--- PORTLESS SYNC ACTIVE (Filesystem Watcher) ---');
     log(`[ANTIGRAVITY] Session: ${sessionId}`);
     
@@ -260,9 +260,19 @@ export async function activate(context: vscode.ExtensionContext) {
                     const input = tab.input as any;
                     uri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
                 }
-                // Fallback to visible editors if tab input yields nothing
-                if (!uri && vscode.window.visibleTextEditors.length > 0) {
-                    uri = vscode.window.visibleTextEditors[0].document.uri;
+            }
+
+            // [GUARD] Privacy & System Isolation
+            if (uri) {
+                const uriString = uri.toString();
+                const isInternal = uriString.includes('extension-output:') || 
+                                 uriString.includes('vscode-vfs:') ||
+                                 uriString.toLowerCase().includes('brain') ||
+                                 uriString.toLowerCase().includes('antigravity');
+                
+                if (isInternal) {
+                    // Do not update focus for internal/agent files
+                    return;
                 }
             }
 

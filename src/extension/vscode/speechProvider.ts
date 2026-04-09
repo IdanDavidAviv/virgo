@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { Chapter } from '@core/documentParser';
 import { DocumentLoadController } from '@core/documentLoadController';
 import { StateStore } from '@core/stateStore';
@@ -13,6 +14,7 @@ import { McpWatcher } from '@vscode/McpWatcher';
 import { VoiceManager } from '@vscode/VoiceManager';
 import { SettingsManager } from '@vscode/SettingsManager';
 import { SyncManager } from '@vscode/SyncManager';
+import { PersistenceManager } from './PersistenceManager';
 
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
@@ -36,9 +38,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _voiceManager!: VoiceManager;
     private _settingsManager!: SettingsManager;
     private _syncManager!: SyncManager;
+    private _persistenceManager: PersistenceManager;
     private _debounceSaveTimers: Map<string, NodeJS.Timeout> = new Map();
 
-    private _lastReportedProgress: number = -1;
+    private _lastHandshakeTime?: number;
     private _debounceTimers: Map<string, NodeJS.Timeout> = new Map();
 
 
@@ -57,6 +60,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._stateStore = new StateStore(this._logger);
         this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
         this._audioBridge = new AudioBridge(this._stateStore, this._docController, this._playbackEngine, this._sequenceManager, this._logger);
+        this._persistenceManager = new PersistenceManager(this._context, this._stateStore, this._logger);
 
 
         // [PHASE 1 REFACTOR] Modularized MCP Watcher
@@ -128,6 +132,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         // [AUTO_BOOTSTRAP] Ensure session state exists for Vocal Sync
         this._ensureSessionState();
+
+        // [v2.3.1] Persistent Context Restoration
+        this._persistenceManager.hydrate();
+        this._persistenceManager.watch();
+
+        // If a document was restored from persistence, trigger an initial load
+        if (this._stateStore.state.activeDocumentUri) {
+            this.loadCurrentDocument(true); // true = useHydratedProgress
+        }
     }
 
     public pivotSession(newSessionId: string) {
@@ -151,7 +164,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public updateSessionContext(root: string, sessionId: string) {
-        this._antigravityRoot = root;
+        this._antigravityRoot = path.join(root, 'read_aloud');
         this._sessionId = sessionId;
         this._settingsManager.pivotSession(root, sessionId);
         this._mcpWatcher?.pivot(root, sessionId);
@@ -221,6 +234,18 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public setActiveEditor(uri: vscode.Uri | undefined) {
         if (!uri) {
             this._stateStore.setFocusedFile(undefined, 'No Selection', '', false);
+            return;
+        }
+
+        // [GUARD] Privacy & System Isolation
+        const uriString = uri.toString();
+        const isInternal = uriString.includes('extension-output:') || 
+                         uriString.includes('vscode-vfs:') ||
+                         uriString.toLowerCase().includes('brain') ||
+                         uriString.toLowerCase().includes('antigravity');
+        
+        if (isInternal) {
+            this._logger(`[FOCUS_GUARD] Ignoring internal focus: ${uriString}`);
             return;
         }
 
@@ -336,13 +361,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async data => {
             if (data.command === 'ready') {
                 const now = Date.now();
-                if ((this as any)._lastHandshakeTime && now - (this as any)._lastHandshakeTime < 2000) {
+                if (this._lastHandshakeTime && now - this._lastHandshakeTime < 2000) {
                     this._logger(`[BRIDGE] Storm Guard: Ignoring redundant 'ready' command.`);
                     return;
                 }
-                (this as any)._lastHandshakeTime = now;
+                this._lastHandshakeTime = now;
 
                 await this._sendInitialState();
+
                 if (this._docController.chapters.length > 0) {
                     this.refreshView();
                 }
@@ -526,29 +552,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const history = await this._getSnippetHistory();
         this._syncManager.requestSync(true, history);
         this._voiceManager.broadcastVoices();
-
-        if (this._docController.chapters.length > 0) {
-            this._postToAll({
-                command: 'chapters',
-                chapters: this._docController.chapters.map((c, i) => ({
-                    title: c.title,
-                    level: c.level,
-                    index: i,
-                    count: c.sentences.length
-                })),
-                current: this._stateStore.state.currentChapterIndex,
-                total: this._docController.chapters.length
-            });
-        }
     }
 
     private async _handleWebviewMessage(data: any, source: string = 'webview') {
-        if (!data || !data.command) {
+        const sanitized = this._validatePayload(data);
+        if (!sanitized.command) {
             this._logger(`[DASHBOARD -> EXTENSION] IGNORED_MALFORMED_MESSAGE: ${JSON.stringify(data)}`);
             return;
         }
 
-        const cmd = data.command;
+        const cmd = sanitized.command;
+        const payload = sanitized; // For brevity in handlers
         this._logger(`[READALOUD <- ${source.toUpperCase()}] Command: ${cmd}`);
 
         switch (cmd) {
@@ -559,22 +573,22 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 }
                 break;
             case OutgoingAction.PLAY:
-                this.continue(data.intentId, data.batchId);
+                this.continue(payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.PAUSE:
-                this.pause(data.intentId);
+                this.pause(payload.intentId);
                 break;
             case OutgoingAction.STOP:
-                this.stop(data.intentId, data.batchId);
+                this.stop(payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.JUMP_TO_CHAPTER:
-                this.jumpToChapter(data.index, data.intentId, data.batchId);
+                this.jumpToChapter(payload.index, payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.NEXT_CHAPTER:
-                this.nextChapter(data.intentId, data.batchId);
+                this.nextChapter(payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.PREV_CHAPTER:
-                this.prevChapter(data.intentId, data.batchId);
+                this.prevChapter(payload.intentId, payload.batchId);
                 break;
 
             case 'SET_SPEED':
@@ -609,35 +623,35 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
             case OutgoingAction.SENTENCE_ENDED:
                 if (!this._playbackEngine.isPaused) {
-                    this._audioBridge.next(this._getOptions(), false, this._stateStore.state.autoPlayMode, data.intentId, data.batchId);
+                    this._audioBridge.next(this._getOptions(), false, this._stateStore.state.autoPlayMode, payload.intentId, payload.batchId);
                 }
                 break;
             case OutgoingAction.NEXT_SENTENCE:
-                this.nextSentence(data.intentId, data.batchId);
+                this.nextSentence(payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.PREV_SENTENCE:
-                this.prevSentence(data.intentId, data.batchId);
+                this.prevSentence(payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.JUMP_TO_SENTENCE:
-                this.jumpToSentence(data.index, data.intentId, data.batchId);
+                this.jumpToSentence(payload.index, payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.CONTINUE:
-                this.continue(data.intentId, data.batchId);
+                this.continue(payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.FETCH_AUDIO:
-                const audioData = this._playbackEngine.getAudioFromCache(data.cacheKey);
+                const audioData = this._playbackEngine.getAudioFromCache(payload.cacheKey);
                 if (audioData) {
-                    this._logger(`[BRIDGE] PULL_FETCH: ${data.cacheKey} | Intent: ${data.intentId}`);
+                    this._logger(`[BRIDGE] PULL_FETCH: ${payload.cacheKey} | Intent: ${payload.intentId}`);
                     this._postToAll({
                         command: IncomingCommand.DATA_PUSH,
-                        cacheKey: data.cacheKey,
+                        cacheKey: payload.cacheKey,
                         data: audioData,
-                        intentId: data.intentId
+                        intentId: payload.intentId
                     });
                 } else {
-                    this._logger(`[BRIDGE_WARN] FETCH_FAILED: ${data.cacheKey}. Proactively triggering synthesis fallback.`);
+                    this._logger(`[BRIDGE_WARN] FETCH_FAILED: ${payload.cacheKey}. Proactively triggering synthesis fallback.`);
                     // [RESILIENCE] If a fetch fails, we MUST start synthesis to prevent a playback stall.
-                    this._audioBridge.synthesize(data.cacheKey, this._getOptions(), data.intentId, data.batchId);
+                    this._audioBridge.synthesize(payload.cacheKey, this._getOptions(), payload.intentId, payload.batchId);
                 }
                 break;
             case OutgoingAction.TOGGLE_PLAY_PAUSE:
@@ -655,10 +669,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
             case OutgoingAction.RESET_CONTEXT: this._resetContext(); break;
             case OutgoingAction.STOP: this.stop(); break;
-            case OutgoingAction.PAUSE: this.pause(data.intentId); break;
+            case OutgoingAction.PAUSE: this.pause(payload.intentId); break;
             case OutgoingAction.LOAD_DOCUMENT: this.loadCurrentDocument(); break;
             case OutgoingAction.REQUEST_SYNTHESIS:
-                this._audioBridge.synthesize(data.cacheKey, this._getOptions(), data.intentId, data.batchId);
+                this._audioBridge.synthesize(payload.cacheKey, this._getOptions(), payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.CLEAR_CACHE:
                 this._playbackEngine.clearCache();
@@ -720,82 +734,108 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
             
             case OutgoingAction.REPORT_CACHE_DELTA:
-                this._audioBridge.updateManifest(data.delta);
+                this._audioBridge.updateManifest(payload.delta);
                 break;
         }
     }
 
-    private async _getSnippetHistory(): Promise<SnippetHistory> {
-        if (!fs.existsSync(this._antigravityRoot)) {
-            return [];
-        }
+    /**
+     * [v2.3.1 Architectural Hardening]
+     * Sanitizes incoming webview payloads to prevent TypeErrors in downstream consumers.
+     * Guarantees logical defaults for index, intentId, and batchId.
+     */
+    private _validatePayload(data: any): any {
+        if (!data || typeof data !== 'object') {return {};}
+        
+        // Ensure critical primitives have defaults to prevent TypeErrors
+        return {
+            ...data,
+            intentId: typeof data.intentId === 'number' ? data.intentId : (typeof data.intentId === 'string' ? parseInt(data.intentId) : 0),
+            batchId: typeof data.batchId === 'number' ? data.batchId : (typeof data.batchId === 'string' ? parseInt(data.batchId) : 0),
+            index: typeof data.index === 'number' ? data.index : (typeof data.value === 'number' ? data.value : 0),
+            delta: {
+                added: Array.isArray(data.delta?.added) ? data.delta.added : [],
+                removed: Array.isArray(data.delta?.removed) ? data.delta.removed : [],
+                isFullSync: !!data.delta?.isFullSync
+            }
+        };
+    }
 
+    private async _getSnippetHistory(): Promise<SnippetHistory> {
+        const rootUri = vscode.Uri.file(this._antigravityRoot);
+        
         try {
             // 1. Get all session directories 
-            const allDirs = fs.readdirSync(this._antigravityRoot)
-                .map(f => {
-                    const fullPath = path.join(this._antigravityRoot, f);
-                    try {
-                        const stats = fs.statSync(fullPath);
-                        return stats.isDirectory() ? { id: f, mtime: stats.mtimeMs } : null;
-                    } catch { return null; }
-                })
-                .filter((x): x is { id: string; mtime: number } => x !== null)
-                .sort((a, b) => b.mtime - a.mtime);
+            const entries = await vscode.workspace.fs.readDirectory(rootUri);
+            const allDirs = (await Promise.all(entries.map(async ([name, type]) => {
+                if (type !== vscode.FileType.Directory) { return null; }
+                const fullUri = vscode.Uri.joinPath(rootUri, name);
+                try {
+                    const stats = await vscode.workspace.fs.stat(fullUri);
+                    return { id: name, mtime: stats.mtime, uri: fullUri };
+                } catch { return null; }
+            })))
+            .filter((x): x is { id: string; mtime: number; uri: vscode.Uri } => x !== null)
+            .sort((a, b) => b.mtime - a.mtime);
 
             // 2. Prioritize Active Session
             const activeId = this._sessionId;
-            let sessionIds = allDirs.map(s => s.id).filter(id => id !== activeId);
+            let sessions = allDirs.filter(s => s.id !== activeId);
             
-            if (activeId && fs.existsSync(path.join(this._antigravityRoot, activeId))) {
-                sessionIds.unshift(activeId);
+            const activeSession = allDirs.find(s => s.id === activeId);
+            if (activeSession) {
+                sessions.unshift(activeSession);
             }
 
-            // 3. Limit to 10 total
-            sessionIds = sessionIds.slice(0, 10);
+            // 3. Limit to 10 total (Privacy Shield: Explicitly ignore anything with 'brain')
+            sessions = sessions
+                .filter(s => !s.id.toLowerCase().includes('brain'))
+                .slice(0, 10);
 
             const result: SnippetHistory = [];
 
-            for (const sessionId of sessionIds) {
-                const sessionPath = path.join(this._antigravityRoot, sessionId);
+            for (const session of sessions) {
+                const sessionUri = session.uri;
                 
                 let displayName: string | undefined = undefined;
                 try {
                     // [HUMAN_TITLES] Probe extension_state.json for the human-readable title
-                    const stateFile = path.join(sessionPath, 'extension_state.json');
-                    if (fs.existsSync(stateFile)) {
-                        const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-                        if (state.session_title) {
-                            displayName = state.session_title;
-                        }
+                    const stateUri = vscode.Uri.joinPath(sessionUri, 'extension_state.json');
+                    const content = await vscode.workspace.fs.readFile(stateUri);
+                    const state = JSON.parse(new TextDecoder().decode(content));
+                    if (state.session_title) {
+                        displayName = state.session_title;
                     }
                 } catch (e) {
-                    this._logger(`[SNIPPET_HISTORY] Failed to read state for ${sessionId}: ${e}`);
+                    // It's okay if state file doesn't exist
                 }
 
-                const files = fs.readdirSync(sessionPath)
-                    .filter(f => f.endsWith('.md'))
-                    .map(f => {
-                        const filePath = path.join(sessionPath, f);
-                        const stats = fs.statSync(filePath);
-                        
-                        // Extract name: 1712250000000_my_snippet.md -> my_snippet
-                        const firstUnderscore = f.indexOf('_');
-                        const snippetName = firstUnderscore !== -1 ? f.substring(firstUnderscore + 1).replace('.md', '') : f;
-                        
-                        return {
-                            name: snippetName,
-                            fsPath: filePath,
-                            uri: vscode.Uri.file(filePath).toString(),
-                            timestamp: stats.mtimeMs
-                        };
-                    })
-                    .sort((a, b) => b.timestamp - a.timestamp);
+                const sessionEntries = await vscode.workspace.fs.readDirectory(sessionUri);
+                const files = (await Promise.all(sessionEntries.map(async ([f, type]) => {
+                    if (type !== vscode.FileType.File) { return null; }
+                    if (!this._isFormatSupported(f) || f.toLowerCase().includes('brain')) { return null; }
 
-                if (files.length > 0 || sessionId === activeId) {
+                    const fileUri = vscode.Uri.joinPath(sessionUri, f);
+                    const stats = await vscode.workspace.fs.stat(fileUri);
+                    
+                    const firstUnderscore = f.indexOf('_');
+                    let snippetName = firstUnderscore !== -1 ? f.substring(firstUnderscore + 1) : f;
+                    snippetName = snippetName.replace(/\.(md|markdown|txt|log|resolved\.\d+)$/i, '');
+                    
+                    return {
+                        name: snippetName,
+                        fsPath: fileUri.fsPath,
+                        uri: fileUri.toString(),
+                        timestamp: stats.mtime
+                    };
+                })))
+                .filter((x): x is { name: string; fsPath: string; uri: string; timestamp: number } => x !== null)
+                .sort((a, b) => b.timestamp - a.timestamp);
+
+                if (files.length > 0 || session.id === activeId) {
                     result.push({
-                        id: sessionId,
-                        sessionName: displayName || sessionId,
+                        id: session.id,
+                        sessionName: displayName || session.id,
                         displayName: displayName,
                         snippets: files
                     });
@@ -820,7 +860,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
 
-    public async loadCurrentDocument(): Promise<boolean> {
+    public async loadCurrentDocument(useHydratedProgress: boolean = false): Promise<boolean> {
         // [REINFORCEMENT] Clear current playback immediately to prevent audio overlap
         this.stop();
 
@@ -837,6 +877,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const metadata = this._docController.metadata;
         const chapters = this._docController.chapters;
 
+        // Determine if we should use existing StateStore progress (from persistence rehydration)
+        const initialProgress = useHydratedProgress ? { 
+            chapterIndex: this._stateStore.state.currentChapterIndex, 
+            sentenceIndex: this._stateStore.state.currentSentenceIndex 
+        } : null;
+
         // Commit to STATE: Update the active context (Loaded File) Atomically
         this._stateStore.setActiveDocument(
             metadata.uri,
@@ -844,10 +890,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             metadata.relativeDir,
             metadata.versionSalt,
             metadata.contentHash,
-            null
+            initialProgress
         );
 
-        if (metadata.uri) {
+        if (metadata.uri && !useHydratedProgress) {
+            // Only probe SettingsManager if we're not already use hydrated context
             const progress = this._settingsManager.loadProgress(metadata.uri, metadata.versionSalt, metadata.contentHash);
             if (progress) {
                 this._stateStore.setProgress(progress.chapterIndex, progress.sentenceIndex);
@@ -891,9 +938,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._audioBridge.start(startFromChapter, 0, this._getOptions());
     }
 
-    public pause(intentId?: number) {
-        this._audioBridge.pause(intentId);
-        this._playbackEngine.setPaused(true, intentId);
+    public pause(intentId?: string) {
+        this._audioBridge.pause(intentId as any);
+        this._playbackEngine.setPaused(true, intentId as any);
     }
 
     public togglePlayPause() {
@@ -908,39 +955,39 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    public stop(intentId?: number, batchId?: number) {
-        this._audioBridge.stop(intentId, batchId);
-        this._playbackEngine.setPlaying(false, intentId);
-        this._playbackEngine.setPaused(false, intentId);
+    public stop(intentId?: string, batchId?: string) {
+        this._audioBridge.stop(intentId as any, batchId as any);
+        this._playbackEngine.setPlaying(false, intentId as any);
+        this._playbackEngine.setPaused(false, intentId as any);
         this._logger(`[STOP] playback_stop (Intent: ${intentId ?? 'current'}, BatchReset: ${!!batchId})`);
     }
 
-    public continue(intentId?: number, batchId?: number) {
+    public continue(intentId?: string, batchId?: string) {
         this._stateStore.setPreviewing(false); // Commit to full playback
-        this._playbackEngine.setPlaying(true, intentId);
-        this._playbackEngine.setPaused(false, intentId);
-        this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions(), false, intentId, batchId);
+        this._playbackEngine.setPlaying(true, intentId as any);
+        this._playbackEngine.setPaused(false, intentId as any);
+        this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions(), false, intentId as any, batchId as any);
     }
 
     public startOver() {
         this.jumpToSentence(0);
     }
 
-    public jumpToSentence(index: number, intentId?: number, batchId?: number) {
+    public jumpToSentence(index: number, intentId?: string, batchId?: string) {
         this._stateStore.setPreviewing(false); // Navigation often implies intent to play from there
-        this._playbackEngine.setPlaying(true, intentId);
-        this._audioBridge.start(this._stateStore.state.currentChapterIndex, index, this._getOptions(), false, intentId, batchId);
+        this._playbackEngine.setPlaying(true, intentId as any);
+        this._audioBridge.start(this._stateStore.state.currentChapterIndex, index, this._getOptions(), false, intentId as any, batchId as any);
     }
 
-    public jumpToChapter(index: number, intentId?: number, batchId?: number) {
+    public jumpToChapter(index: number, intentId?: string, batchId?: string) {
         const chapters = this._docController.chapters;
         if (index < 0 || index >= chapters.length) { return; }
         this._stateStore.setPreviewing(false);
-        this._playbackEngine.setPlaying(true, intentId);
-        this._audioBridge.start(index, 0, this._getOptions(), false, intentId, batchId);
+        this._playbackEngine.setPlaying(true, intentId as any);
+        this._audioBridge.start(index, 0, this._getOptions(), false, intentId as any, batchId as any);
     }
 
-    public nextChapter(intentId?: number, batchId?: number) {
+    public nextChapter(intentId?: string, batchId?: string) {
         const state = this._stateStore.state;
         const chapters = this._docController.chapters;
         if (!chapters || chapters.length === 0) { return; }
@@ -953,7 +1000,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    public prevChapter(intentId?: number, batchId?: number) {
+    public prevChapter(intentId?: string, batchId?: string) {
         const state = this._stateStore.state;
         const chapters = this._docController.chapters;
         if (!chapters || chapters.length === 0) { return; }
@@ -969,12 +1016,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    public prevSentence(intentId?: number, batchId?: number) {
-        this._audioBridge.previous(this._getOptions(), intentId, batchId);
+    public prevSentence(intentId?: string, batchId?: string) {
+        this._audioBridge.previous(this._getOptions(), intentId as any, batchId as any);
     }
 
-    public nextSentence(intentId?: number, batchId?: number) {
-        this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode, intentId, batchId);
+    public nextSentence(intentId?: string, batchId?: string) {
+        this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode, intentId as any, batchId as any);
     }
 
     private _onSelectionChange(chapterIndex: number, sentenceIndex: number) {

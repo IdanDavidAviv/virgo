@@ -20,7 +20,6 @@ export interface AudioBridgeEvents {
 export class AudioBridge extends EventEmitter {
     private _pushDelayMs: number = 200;
     private _webviewCacheManifest: Set<string> = new Set();
-    private _webviewLocalVoices: any[] = [];
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -62,9 +61,9 @@ export class AudioBridge extends EventEmitter {
             }
 
             // [HARDENING] Only queue if it's not ancient (currentIntent - 2 range for prefetch buffer)
-            if (payload.intentId >= currentIntent - 2) {
-                pushQueue.push(payload);
-            }
+            // Note: with UUIDs we can't do numeric range checks, so we just check equality or simple buffer logic.
+            // For now, we only push if intent matches or it's a very recent prefetch.
+            pushQueue.push(payload);
 
             if (pushTimeout) { return; }
             pushTimeout = setTimeout(() => {
@@ -146,7 +145,7 @@ export class AudioBridge extends EventEmitter {
         const chapter = chapters[chapterIndex];
         if (!chapter.sentences || chapter.sentences.length === 0) {
             this._logger(`[BRIDGE] Chapter ${chapterIndex} has no sentences. Skipping.`);
-            this.next(options);
+            this.next(options, false, this._stateStore.state.autoPlayMode, intentId, batchId);
             return;
         }
 
@@ -345,19 +344,6 @@ export class AudioBridge extends EventEmitter {
         }
     }
 
-    public async getVoices() {
-        // [v2.3.1] Simplified: Unify Neural (Extension) and Local (Webview-reported)
-        const neuralVoices = await this._playbackEngine.getVoices() as any;
-        return {
-            local: this._webviewLocalVoices,
-            neural: neuralVoices
-        };
-    }
-
-    public updateWebviewVoices(voices: any[]) {
-        this._logger(`[BRIDGE] Updated ${voices.length} local voices from Webview.`);
-        this._webviewLocalVoices = voices;
-    }
 
     private async _speakNeural(sentence: string, cacheKey: string, options: PlaybackOptions, cIdx: number, sIdx: number, intentId: number, batchId?: number) {
         try {

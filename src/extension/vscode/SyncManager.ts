@@ -8,8 +8,8 @@ export class SyncManager implements vscode.Disposable {
     private _needsSync: boolean = false;
     private _view?: vscode.WebviewView;
     private _activeSessionId: string = 'SESSION-ID-MISSING';
-
-    private static readonly SYNC_THROTTLE_MS = 100;
+    private _pendingSnippetHistory: any | null = null;
+    private static readonly SYNC_THROTTLE_MS = 150;
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -33,11 +33,21 @@ export class SyncManager implements vscode.Disposable {
      */
     public setView(view: vscode.WebviewView | undefined) {
         this._view = view;
+
+        // [v2.3.1 OMEGA] Immediate Grounding
+        // Ensure intent baseline is set as soon as a view is available.
+        if (view && (this._stateStore.state.playbackIntentId === 0 || this._stateStore.state.batchIntentId === 0)) {
+            this._logger('[SYNC] Grounding Intent Baseline...');
+            if (this._stateStore.state.playbackIntentId === 0) { this._stateStore.setPlaybackIntentId(1); }
+            if (this._stateStore.state.batchIntentId === 0) { this._stateStore.setBatchIntentId(1); }
+        }
+
         if (view?.visible && this._needsSync) {
             this._logger('[SYNC] Flushing background updates on reveal');
             this.requestSync(true); // Immediate flush
         }
     }
+
 
     /**
      * Request a UI synchronization.
@@ -45,13 +55,18 @@ export class SyncManager implements vscode.Disposable {
      * @param snippetHistory Optional history to include in the packet.
      */
     public requestSync(immediate: boolean = false, snippetHistory?: any) {
+        // Buffer history if provided
+        if (snippetHistory) {
+            this._pendingSnippetHistory = snippetHistory;
+        }
+
         if (!this._view?.visible) {
             this._needsSync = true;
             return;
         }
 
         if (immediate) {
-            this._flush(snippetHistory);
+            this._flush();
             return;
         }
 
@@ -65,18 +80,26 @@ export class SyncManager implements vscode.Disposable {
         }, SyncManager.SYNC_THROTTLE_MS);
     }
 
-    private _flush(snippetHistory?: any) {
+    private _flush() {
         if (this._syncTimer) {
             clearTimeout(this._syncTimer);
             this._syncTimer = undefined;
         }
+
+        const historyToSync = this._pendingSnippetHistory;
+        this._pendingSnippetHistory = null;
+
         this._needsSync = false;
         
         // Final sanity check for visibility
         if (this._view?.visible) {
-            this._dashboardRelay.sync(snippetHistory, this._activeSessionId);
+            this._dashboardRelay.sync(historyToSync, this._activeSessionId);
         } else {
             this._needsSync = true;
+            // Restore history if flush failed
+            if (historyToSync) {
+                this._pendingSnippetHistory = historyToSync;
+            }
         }
     }
 

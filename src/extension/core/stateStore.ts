@@ -96,8 +96,8 @@ export class StateStore extends EventEmitter {
             cacheCount: 0,
             cacheSizeBytes: 0,
             autoInjectSITREP: true,
-            playbackIntentId: Date.now(),
-            batchIntentId: Date.now()
+            playbackIntentId: 1,
+            batchIntentId: 1
         };
     }
 

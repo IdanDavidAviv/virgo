@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { StateStore } from '@core/stateStore';
 import { DocumentLoadController } from '@core/documentLoadController';
 import { PlaybackEngine } from '@core/playbackEngine';
-import { UISyncPacket, StateStoreState, IncomingCommand, SnippetHistory, WindowSentence } from '../../common/types';
+import { UISyncPacket, IncomingCommand, SnippetHistory, WindowSentence } from '../../common/types';
 
 export class DashboardRelay {
     private _view?: vscode.WebviewView;
@@ -40,83 +40,84 @@ export class DashboardRelay {
 
         const s = this._stateStore.state;
         
-        // Map StateStoreState for the packet (Matches src/common/types.ts)
-        const state: StateStoreState = {
-            focusedFileName: s.focusedFileName,
-            focusedRelativeDir: s.focusedRelativeDir,
-            focusedDocumentUri: s.focusedDocumentUri?.toString() || null,
-            focusedIsSupported: s.focusedIsSupported,
-            focusedVersionSalt: s.focusedVersionSalt,
+        // [INTEGRITY] Validation Guard: Check for undefined properties that should be numeric/objects
+        const missingFields: string[] = [];
+        if (s.currentChapterIndex === undefined) {missingFields.push('currentChapterIndex');}
+        if (s.currentSentenceIndex === undefined) {missingFields.push('currentSentenceIndex');}
+        if (s.volume === undefined) {missingFields.push('volume');}
+        
+        if (missingFields.length > 0) {
+            this._logger(`[DashboardRelay] ⚠️ WARNING: StateStore has undefined fields: ${missingFields.join(', ')}. Applying emergency fallback.`);
+        }
 
-            activeFileName: s.activeFileName,
-            activeRelativeDir: s.activeRelativeDir,
-            activeDocumentUri: s.activeDocumentUri?.toString() || null,
-            versionSalt: s.versionSalt,
-
-            currentChapterIndex: s.currentChapterIndex,
-            currentSentenceIndex: s.currentSentenceIndex,
-            isRefreshing: s.isRefreshing,
-            isPreviewing: s.isPreviewing,
-            activeMode: s.activeMode,
-
-            // [SOVEREIGNTY] Active Playback Configuration
-            volume: s.volume,
-            rate: s.rate,
-            engineMode: s.engineMode,
-            autoPlayMode: s.autoPlayMode
-        };
-
-        const chapters = this._docController.chapters;
-        const currentChapterIndex = state.currentChapterIndex;
-        const currentSentenceIndex = state.currentSentenceIndex;
+        const chapters = this._docController.chapters || [];
+        const currentChapterIndex = s.currentChapterIndex ?? 0;
+        const currentSentenceIndex = s.currentSentenceIndex ?? 0;
 
         const currentChapter = (currentChapterIndex >= 0 && currentChapterIndex < chapters.length) 
             ? chapters[currentChapterIndex] 
             : null;
 
-        const cacheStats = this._playbackEngine.getCacheStats();
+        const cacheStats = this._playbackEngine.getCacheStats() || { count: 0, sizeBytes: 0 };
         const config = vscode.workspace.getConfiguration('readAloud');
         const logLevel = config.get<string>('logging.level', 'Standard') === 'Verbose' ? 2 : 1;
 
         const packet: UISyncPacket = {
-            state,
-            isPlaying: s.isPlaying,
-            isPaused: s.isPaused,
-            playbackStalled: s.playbackStalled,
-            currentSentences: currentChapter ? currentChapter.sentences : [],
-            currentText: currentChapter ? currentChapter.sentences[currentSentenceIndex] || "" : "",
-            totalChapters: chapters.length,
-            allChapters: chapters.map((c, i) => ({
-                title: c.title,
-                level: c.level,
-                index: i,
-                count: c.sentences.length
-            })),
-            canPrevChapter: currentChapterIndex > 0,
-            canNextChapter: currentChapterIndex < chapters.length - 1,
-            canPrevSentence: currentSentenceIndex > 0,
-            canNextSentence: (currentChapter && currentSentenceIndex < currentChapter.sentences.length - 1) || false,
-            autoPlayMode: s.autoPlayMode,
-            engineMode: s.engineMode,
-            cacheCount: cacheStats.count,
-            cacheSizeBytes: cacheStats.sizeBytes,
-            playbackIntentId: s.playbackIntentId,
+            // FOCUSED (Passive Selection)
+            focusedFileName: s.focusedFileName || 'No Selection',
+            focusedRelativeDir: s.focusedRelativeDir || '',
+            focusedDocumentUri: s.focusedDocumentUri?.toString() || null,
+            focusedIsSupported: !!s.focusedIsSupported,
+            focusedVersionSalt: s.focusedVersionSalt,
+
+            // ACTIVE (Loaded Reader)
+            activeFileName: s.activeFileName || 'No File Loaded',
+            activeRelativeDir: s.activeRelativeDir || '',
+            activeDocumentUri: s.activeDocumentUri?.toString() || null,
+            versionSalt: s.versionSalt,
+
+            // Playback Progress
+            currentChapterIndex,
+            currentSentenceIndex,
+            
+            // UI Flags
+            isRefreshing: !!s.isRefreshing,
+            isPreviewing: !!s.isPreviewing,
+            activeMode: s.activeMode || 'FILE',
+            isLooping: !!s.isLooping,
+
+            // [SOVEREIGNTY] Active Playback Configuration
+            isPlaying: !!s.isPlaying,
+            isPaused: !!s.isPaused,
+            playbackStalled: !!s.playbackStalled,
+            volume: s.volume ?? 50,
+            rate: s.rate ?? 0,
+            engineMode: s.engineMode || 'local',
+            autoPlayMode: s.autoPlayMode || 'auto',
             selectedVoice: s.selectedVoice,
-            rate: s.rate,
-            volume: s.volume,
-            lastLoadType: s.lastLoadType,
-            activeMode: state.activeMode,
-            logLevel: logLevel,
-            currentChapterIndex: currentChapterIndex,
-            isLooping: s.isLooping,
-            snippetHistory: snippetHistory,
+
+            // Data Windows
+            currentSentences: currentChapter ? currentChapter.sentences : [],
+            allChapters: chapters.map((c, i) => ({
+                title: c.title || `Chapter ${i+1}`,
+                level: c.level ?? 0,
+                index: i,
+                count: c.sentences ? c.sentences.length : 0
+            })),
+            
+            // Integrity & Cache
+            cacheCount: cacheStats.count ?? 0,
+            cacheSizeBytes: cacheStats.sizeBytes ?? 0,
+            playbackIntentId: s.playbackIntentId || 1,
+            batchIntentId: s.batchIntentId || 1,
+            lastLoadType: s.lastLoadType || 'none',
             activeSessionId: activeSessionId,
-            availableVoices: voices,
-            batchIntentId: s.batchIntentId,
+            logLevel: logLevel,
+            availableVoices: voices || s.availableVoices,
             windowSentences: this._calculateWindowSentences(currentChapterIndex, currentSentenceIndex)
         };
 
-        this.postMessage({ command: 'UI_SYNC', ...packet });
+        this.postMessage({ command: IncomingCommand.UI_SYNC, ...packet });
     }
 
     /**
@@ -136,7 +137,9 @@ export class DashboardRelay {
             IncomingCommand.DATA_PUSH,
             IncomingCommand.CLEAR_CACHE_WIPE,
             IncomingCommand.CACHE_STATS_UPDATE,
-            IncomingCommand.SPEAK_LOCAL
+            IncomingCommand.SPEAK_LOCAL,
+            IncomingCommand.VOICES,
+            IncomingCommand.ENGINE_STATUS
         ];
         const isCritical = criticalCommands.includes(message.command);
 
@@ -150,14 +153,16 @@ export class DashboardRelay {
             command: 'voices',
             voices: local,
             neuralVoices: neural,
-            engineMode: engineMode
+            engineMode: engineMode,
+            playbackIntentId: this._stateStore.state.playbackIntentId
         });
     }
 
     public broadcastEngineStatus(status: string) {
         this.postMessage({
             command: 'engineStatus',
-            status: status
+            status: status,
+            playbackIntentId: this._stateStore.state.playbackIntentId
         });
     }
 

@@ -1,6 +1,7 @@
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { EventEmitter } from 'events';
 import { cleanForSpeech } from './speechProcessor';
+import * as crypto from 'crypto';
 
 export type EngineMode = 'local' | 'neural';
 
@@ -32,9 +33,9 @@ export class PlaybackEngine extends EventEmitter {
     private _batchAbortController: AbortController | null = null;
     private _prefetchAbortController: AbortController = new AbortController();
 
-    // Hardening: Track unique playback intents to eject stale/zombie tasks
-    private _playbackIntentId: number = Date.now();
-    private _batchIntentId: number = Date.now();
+    // Hardening: Track monotonic unique playback intents to eject stale/zombie tasks
+    private _playbackIntentId: number = 0;
+    private _batchIntentId: number = 0;
     private _isRateLimited: boolean = false;
     private _watchdogTimer: NodeJS.Timeout | null = null;
     private _isStalled: boolean = false;
@@ -175,9 +176,9 @@ export class PlaybackEngine extends EventEmitter {
     public getAudioFromCache(cacheKey: string): string | undefined { return this._audioCache.get(cacheKey); }
 
     public adoptIntent(id: number) {
-        // [SOVEREIGNTY] Reject Intent 0 if we already have an established session
-        if (id === 0 && this._playbackIntentId > 0) {
-            this.logger(`[PlaybackEngine] 🛡️ Ignored Intent 0 (Stale Handshake noise)`);
+        // [SOVEREIGNTY] Magnitude Protection: Reject stale packets
+        if (id < this._playbackIntentId) {
+            this.logger(`[PlaybackEngine] 🛡️ Ejected stale intent: ${id} < current ${this._playbackIntentId}`);
             return;
         }
 
@@ -195,6 +196,12 @@ export class PlaybackEngine extends EventEmitter {
     }
 
     public adoptBatchIntent(id: number) {
+        // [SOVEREIGNTY] Magnitude Protection: Reject stale packets
+        if (id < this._batchIntentId) {
+            this.logger(`[PlaybackEngine] 🛡️ Ejected stale batch intent: ${id} < current ${this._batchIntentId}`);
+            return;
+        }
+
         if (id > this._batchIntentId) {
             this.logger(`[PlaybackEngine] 📦 Adopting Batch Intent: ${id} (Previous: ${this._batchIntentId})`);
             this._batchIntentId = id;
@@ -219,8 +226,7 @@ export class PlaybackEngine extends EventEmitter {
 
 
     public stop(intentId?: number, forceBatchReset: boolean = false) {
-        const id = intentId ?? this._playbackIntentId + 1;
-        this.logger(`[ENGINE] Stop (Intent: ${id} | ForceBatch: ${forceBatchReset})`);
+        this.logger(`[ENGINE] Stop (Intent: ${intentId ?? this._playbackIntentId} | ForceBatch: ${forceBatchReset})`);
 
         this._isPlaying = false;
         this._isPaused = false;
@@ -229,8 +235,6 @@ export class PlaybackEngine extends EventEmitter {
 
         if (intentId !== undefined) {
             this.adoptIntent(intentId);
-        } else {
-            this._playbackIntentId = id;
         }
 
         // Always stop the current playing segment
@@ -369,7 +373,7 @@ export class PlaybackEngine extends EventEmitter {
         const currentIntentId = intentId ?? (isPriority ? this._playbackIntentId + 1 : this._playbackIntentId);
 
         // [v2.2.2] Dual-Intent Integrity Check
-        if (currentBatchId < this._batchIntentId) {
+        if (currentBatchId !== this._batchIntentId && batchId !== undefined) {
             this.logger(`[NEURAL] EJECTED: Batch context ${currentBatchId} is stale (Current: ${this._batchIntentId})`);
             return null;
         }
@@ -473,7 +477,7 @@ export class PlaybackEngine extends EventEmitter {
                     
                     if (batchSignal?.aborted) { console.log('DEBUG: Batch Aborted'); return onAbort('Batch Synthesis Aborted'); }
                     if (segmentSignal?.aborted) { console.log('DEBUG: Segment Aborted'); return onAbort('Segment Aborted'); }
-                    if (currentBatchId < this._batchIntentId) { console.log('DEBUG: Stale Batch'); return onAbort('Stale Context'); }
+                    if (currentBatchId !== this._batchIntentId) { console.log('DEBUG: Stale Batch'); return onAbort('Stale Context'); }
 
                     batchSignal?.addEventListener('abort', () => onAbort('Batch Synthesis Aborted'), { once: true });
                     segmentSignal?.addEventListener('abort', () => onAbort('Segment Aborted'), { once: true });
@@ -535,13 +539,13 @@ export class PlaybackEngine extends EventEmitter {
 
     private async _getNeuralAudio(text: string, voiceId: string, retryCount = 1, intentId: number, isPriority: boolean, batchId: number, signal?: AbortSignal): Promise<string | null> {
         // EXIT IMMEDIATELY IF BATCH IS STALE
-        if (batchId < this._batchIntentId) {
+        if (batchId !== this._batchIntentId) {
             this.logger(`[NEURAL] EJECTED (Post-lock) - Batch ${batchId} is stale.`);
             return null;
         }
 
         // EXIT IMMEDIATELY IF INTENT IS STALE (Only for priority tasks)
-        if (isPriority && intentId < this._playbackIntentId) {
+        if (isPriority && intentId !== this._playbackIntentId) {
             this.logger(`[NEURAL] EJECTED (Post-lock) - Intent ${intentId} is stale.`);
             return null;
         }
@@ -723,13 +727,13 @@ export class PlaybackEngine extends EventEmitter {
 
             if (retryCount > 0) {
                 // DO NOT RETRY IF BATCH IS STALE
-                if (batchId < this._batchIntentId) {
+                if (batchId !== this._batchIntentId) {
                     this.logger(`[NEURAL] synthesis_cancelled | Batch ${batchId} is stale.`);
                     return null;
                 }
 
                 // DO NOT RETRY IF INTENT IS STALE (For priority)
-                if (isPriority && intentId < this._playbackIntentId) {
+                if (isPriority && intentId !== this._playbackIntentId) {
                     this.logger(`[NEURAL] synthesis_cancelled | Intent ${intentId} is stale.`);
                     return null;
                 }
