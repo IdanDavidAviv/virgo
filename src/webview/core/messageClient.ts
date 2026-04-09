@@ -156,12 +156,54 @@ export class MessageClient {
   }
 
   /**
+   * [DEFENSE] Sanitization Layer
+   * Ensures UISyncPacket properties are concrete before store hydration.
+   */
+  private sanitizeUISync(packet: UISyncPacket): UISyncPacket {
+    if (!packet || typeof packet !== 'object') {
+      return {} as any;
+    }
+
+    // Create a shallow clone of the packet
+    const p = { ...packet };
+    
+    // Ensure numeric fields are concrete (Prevent undefined propagation)
+    p.currentChapterIndex = typeof p.currentChapterIndex === 'number' ? p.currentChapterIndex : 0;
+    p.currentSentenceIndex = typeof p.currentSentenceIndex === 'number' ? p.currentSentenceIndex : 0;
+    p.volume = typeof p.volume === 'number' ? p.volume : 50;
+    p.rate = typeof p.rate === 'number' ? p.rate : 1.0;
+    
+    // Ensure boolean fields are concrete
+    p.isPlaying = !!p.isPlaying;
+    p.isPaused = !!p.isPaused;
+    p.playbackStalled = !!p.playbackStalled;
+
+    // Sanitize collection fields on the packet itself
+    p.allChapters = p.allChapters || [];
+    p.currentSentences = p.currentSentences || [];
+    p.snippetHistory = p.snippetHistory || [];
+    p.playbackIntentId = p.playbackIntentId ?? 0;
+    
+    return p;
+  }
+
+  /**
    * Converts a packet to a high-density shorthand string for standard logging.
    */
   private toShorthand(command: string, payload: any): string {
     if (command === IncomingCommand.UI_SYNC) {
       const p = payload as UISyncPacket;
-      return `State: ${p.isPlaying ? 'PLAY' : 'STOP'} | Progress: C${p.state?.currentChapterIndex}S${p.state?.currentSentenceIndex} | Cache: ${p.cacheCount} (${(p.cacheSizeBytes / (1024 * 1024)).toFixed(2)}MB)`;
+      const c = p.currentChapterIndex ?? '?';
+      const s = p.currentSentenceIndex ?? '?';
+      const status = p.isPlaying ? 'PLAY' : (p.isPaused ? 'PAUSE' : 'STOP');
+      
+      let cacheInfo = '';
+      if (p.cacheCount !== undefined) {
+          const sizeMB = ((p.cacheSizeBytes || 0) / (1024 * 1024)).toFixed(2);
+          cacheInfo = ` | Cache: ${p.cacheCount} (${sizeMB}MB)`;
+      }
+
+      return `State: ${status} | Progress: C${c}S${s}${cacheInfo} | IX: ${p.playbackIntentId || '0'}`;
     }
     
     if (command === IncomingCommand.CACHE_STATS || command === IncomingCommand.CACHE_STATS_UPDATE) {
@@ -178,6 +220,18 @@ export class MessageClient {
 
     if (command === IncomingCommand.SYNTHESIS_STARTING) {
       return `Key: ${payload.cacheKey}`;
+    }
+
+    if (command === IncomingCommand.SYNTHESIS_READY) {
+      return `Key: ${payload.cacheKey} | Intent: ${payload.intentId}`;
+    }
+
+    if (command === IncomingCommand.SPEAK_LOCAL) {
+      return `Text: ${payload.text?.substring(0, 20)}... | Intent: ${payload.intentId}`;
+    }
+
+    if (command === IncomingCommand.ENGINE_STATUS) {
+      return `Status: ${payload.status} | Intent: ${payload.intentId || '0'}`;
     }
 
     return JSON.stringify(this.summarize(payload) || '');
@@ -207,7 +261,12 @@ export class MessageClient {
     }
 
     // Support both legacy spread structure and new nested payload structure
-    const finalPayload = (payload !== undefined ? payload : (Object.keys(rest).length > 0 ? rest : message));
+    let finalPayload = (payload !== undefined ? payload : (Object.keys(rest).length > 0 ? rest : message));
+
+    // [DEFENSE] Apply sanitization to UI_SYNC
+    if (command === IncomingCommand.UI_SYNC) {
+      finalPayload = this.sanitizeUISync(finalPayload);
+    }
 
     // Update log level if present in sync packet
     if (command === IncomingCommand.UI_SYNC && finalPayload.logLevel) {
@@ -222,6 +281,9 @@ export class MessageClient {
                              command === IncomingCommand.CACHE_STATS ||
                              command === IncomingCommand.CACHE_STATS_UPDATE ||
                              command === IncomingCommand.SYNTHESIS_STARTING ||
+                             command === IncomingCommand.SYNTHESIS_READY ||
+                             command === IncomingCommand.ENGINE_STATUS ||
+                             command === IncomingCommand.SPEAK_LOCAL ||
                              command === IncomingCommand.SENTENCE_CHANGED ||
                              command === IncomingCommand.CLEAR_CACHE_WIPE;
 

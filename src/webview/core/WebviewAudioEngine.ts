@@ -19,12 +19,17 @@ export class WebviewAudioEngine {
   public instanceId: number = Math.random();
   
   public activeIntentId: number = 0;
+  private _lockOwnerIntentId: number | null = null;
+
+  /** [SOVEREIGNTY] Authoritative Playback Mutex */
   private playbackMutex: Promise<void> = Promise.resolve();
   private pendingResolvers: Set<() => void> = new Set();
-  private intentCounter: number = 0;
+  private _localSequence: number = 0;
+  private activeSequence: number = 0;
   private activeLockResolver: (() => void) | null = null;
   private activePlaybackResolver: (() => void) | null = null;
   private _activeObjectURLs: Set<string> = new Set();
+  private _abortController: AbortController | null = null;
 
   public constructor() {
     this._audio = new Audio();
@@ -45,7 +50,7 @@ export class WebviewAudioEngine {
 
   public static resetInstance(): void {
     if (this.instance) {
-      this.instance.stop('reset');
+      this.instance.stop();
       this.instance.dispose();
     }
     this.instance = undefined as any;
@@ -86,7 +91,7 @@ export class WebviewAudioEngine {
     let lastPlaying = store.getState().isPlaying;
     store.subscribe((s) => s.isPlaying, (playing) => { 
       if (lastPlaying === true && playing === false) {
-        this.stop('infinity');
+        this.stop();
       }
       lastPlaying = playing;
     });
@@ -97,70 +102,85 @@ export class WebviewAudioEngine {
   }
 
    /**
-   * [v2.3.1] Simplified Lock Mechanism
-   * Ensures serial execution of playback actions.
+   * [v2.3.1] Simplified Lock Mechanism (Abortable)
+   * Ensures serial execution of playback actions with authoritative cancellation.
    */
   public async acquireLock(intentId?: number): Promise<(() => void) | null> {
     console.log(`[AUDIO] 🔒 AcquireLock Start: intent=${intentId}, active=${this.activeIntentId}`);
-    // 1. Pre-lock Verifcation
-    if (intentId !== undefined && intentId < this.activeIntentId) {
-        console.warn(`[AUDIO] 🧟 Intent Rejected (Pre-Lock): ${intentId} < ${this.activeIntentId}`);
-        return null;
-    }
-
-    // 2. Intent Sovereignty
-    if (intentId !== undefined && intentId > this.activeIntentId) {
-      console.log(`[AUDIO] 🚀 New Intent: ${intentId} (Busting ${this.activeIntentId})`);
-      this.activeIntentId = intentId;
-      this.stop('none'); 
-    }
-
-    const previousMutex = this.playbackMutex;
-    let resolveNext: (() => void) | undefined;
     
-    this.playbackMutex = new Promise<void>(resolve => { resolveNext = resolve; });
+    // 1. Intent Sovereignty & Preemption
+    const isNewIntent = intentId !== undefined && intentId > this.activeIntentId;
+    
+    if (isNewIntent) {
+      console.log(`[AUDIO] 🔥 Sovereign Preemption: ${intentId} > ${this.activeIntentId} (Instance=${this.instanceId})`);
+      this.stop(); // Authoritative reset - also resets playbackMutex to resolved
+      this.activeIntentId = intentId!;
+      this._abortController = new AbortController();
+      this.activeSequence = ++this._localSequence;
+    } else if (intentId !== undefined && intentId < this.activeIntentId) {
+        console.warn(`[AUDIO] 🧟 Stale Intent Rejected: ${intentId} < ${this.activeIntentId} (Instance=${this.instanceId})`);
+        return null;
+    } else if (this._abortController === null) {
+      this._abortController = new AbortController();
+    }
+
+    const currentSequence = this.activeSequence;
+    const currentAbortSignal = this._abortController?.signal;
+    
+    // [SOVEREIGNTY] Capture mutex AFTER potential preemption reset
+    const previousMutex = this.playbackMutex; 
+    let resolveNext: (() => void) | undefined;
+    this.playbackMutex = new Promise<void>(resolve => {
+      resolveNext = resolve;
+    });
     this.pendingResolvers.add(resolveNext!);
-    this.activeLockResolver = resolveNext || null; // [v2.3.1] Track active lock
 
     try {
-      console.log(`[AUDIO] ⏳ Waiting for Mutex: intent=${intentId}`);
+      console.log(`[AUDIO] ⏳ Waiting for Mutex: intent=${intentId} (Currently held by: ${this._lockOwnerIntentId}, Instance=${this.instanceId})`);
       
-      // [SOVEREIGNTY] 4s Safety Watchdog (v2.3.1)
-      // Prevents "Zombie Locks" from freezing the entire engine
+      let watchdog: any;
+      
+      // [SOVEREIGNTY] Authoritative Wait with Safety Watchdog
       await Promise.race([
-          previousMutex,
-          new Promise(r => setTimeout(() => {
-              console.warn(`[AUDIO] ⚠️ Mutex Wait Watchdog triggered for intent=${intentId}`);
-              r(null);
-          }, 4000))
+          previousMutex.catch(() => {}), // Ignore previous errors
+          new Promise((_, reject) => {
+              if (currentAbortSignal?.aborted) {
+                  return reject(new Error('Aborted'));
+              }
+              currentAbortSignal?.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
+          }),
+          new Promise(r => {
+              watchdog = setTimeout(() => {
+                  console.warn(`[AUDIO] ⚠️ Mutex Safety Timeout (intent=${intentId}, waiting for=${this._lockOwnerIntentId}, Instance=${this.instanceId})`);
+                  r(null);
+              }, 3000);
+          })
       ]);
       
-      console.log(`[AUDIO] ✅ Mutex Acquired: intent=${intentId}`);
+      if (watchdog) {clearTimeout(watchdog);}
       
-      // 3. Post-lock Verification
-      if (intentId !== undefined && intentId < this.activeIntentId) {
-          console.warn(`[AUDIO] 🧟 Intent Rejected (Post-Lock): ${intentId} < ${this.activeIntentId}`);
+      // 2. Post-lock Verification
+      // If we were preempted WHILE waiting, we must discard this lock and pass it forward.
+      if (currentSequence !== this.activeSequence || (currentAbortSignal && currentAbortSignal.aborted)) {
+          console.warn(`[AUDIO] 🧟 Intent Discarded (Post-Lock): intent=${intentId} (Instance=${this.instanceId})`);
           this.pendingResolvers.delete(resolveNext!);
-          if (this.activeLockResolver === resolveNext) {this.activeLockResolver = null;}
           resolveNext!();
           return null;
       }
 
-      // 4. Update authority
-      const finalIntent = intentId ?? ++this.intentCounter;
-      if (finalIntent > this.activeIntentId) {
-        this.activeIntentId = finalIntent;
-      }
-
+      this._lockOwnerIntentId = intentId ?? -1;
+      console.log(`[AUDIO] ✅ Mutex Acquired: intent=${intentId} (Instance=${this.instanceId})`);
+      
       return () => {
+        if (this._lockOwnerIntentId === (intentId ?? -1)) {
+            this._lockOwnerIntentId = null;
+        }
         this.pendingResolvers.delete(resolveNext!);
-        if (this.activeLockResolver === resolveNext) {this.activeLockResolver = null;}
         resolveNext!();
       };
-    } catch (e) {
-      console.warn(`[AUDIO] Lock Acquisition Failed: ${e instanceof Error ? e.message : 'Unknown'}`);
+    } catch (err: any) {
+      console.warn(`[AUDIO] 🔒 Lock Failed: ${err.message} (intent=${intentId})`);
       this.pendingResolvers.delete(resolveNext!);
-      if (this.activeLockResolver === resolveNext) {this.activeLockResolver = null;}
       resolveNext!();
       return null;
     }
@@ -180,56 +200,64 @@ export class WebviewAudioEngine {
     const release = await this.acquireLock(intentId);
     if (release === null) { return; }
 
+    const signal = this._abortController?.signal;
+
     try {
+        if (signal?.aborted) { return; }
+
         await new Promise<void>((resolve) => {
             const url = URL.createObjectURL(blob);
             this._activeObjectURLs.add(url);
             this._audio.src = url;
             
-            const cleanup = () => {
+            let isResolved = false;
+            let playWatchdog: any;
+
+            const finish = (reason: string) => {
+                if (isResolved) {return;}
+                isResolved = true;
+                
+                if (playWatchdog) {clearTimeout(playWatchdog);}
                 this._audio.removeEventListener('ended', onEnded);
                 this._audio.removeEventListener('error', onError);
+                if (signal) { signal.removeEventListener('abort', onAborted); }
+                
                 URL.revokeObjectURL(url);
-                if (this.activePlaybackResolver === resolve) {this.activePlaybackResolver = null;}
-            };
-
-            this.activePlaybackResolver = resolve; // [v2.3.1] Initial tracker
-
-            const onEnded = () => {
-                cleanup();
+                if (this.activePlaybackResolver === resolve) { this.activePlaybackResolver = null; }
+                
+                // console.log(`[AUDIO] 🏁 Play finished (reason=${reason}, intent=${intentId})`);
                 resolve();
             };
-            
-            const onError = () => {
-                cleanup();
-                this.emit(AudioEngineEventType.ERROR, `Playback Error: ${key}`);
-                resolve();
+
+            const onEnded = () => finish('ended');
+            const onError = (e: any) => {
+                this.emit(AudioEngineEventType.ERROR, `Playback Error: ${intentId}`);
+                finish('error');
+            };
+            const onAborted = () => {
+                this._audio.pause();
+                finish('abort');
             };
             
             this._audio.addEventListener('ended', onEnded);
             this._audio.addEventListener('error', onError);
+            if (signal) {
+                if (signal.aborted) { onAborted(); return; }
+                signal.addEventListener('abort', onAborted, { once: true });
+            }
             
-            // Authoritative Cancellation
-            const cancel = () => {
-                this._audio.pause();
-                console.log(`[AUDIO] 🛑 Authoritative Cancellation triggered: intent=${intentId}`);
-                onEnded();
-            };
-            this._audio.play().catch(e => {
-                if (e.name !== 'AbortError') {
-                    this.emit(AudioEngineEventType.ERROR, e.message);
-                }
-                onEnded();
-            });
+            this._audio.play()
+                .catch(e => {
+                    if (e.name !== 'AbortError') {
+                        console.error(`[AUDIO] ❌ Play Rejected: intent=${intentId}`, e);
+                    }
+                    finish('reject');
+                });
 
-            // [SOVEREIGNTY] Safety Watchdog (v2.3.1)
-            // Ensure tests and production never hang forever if JSDOM/Hardware events fail
-            setTimeout(() => {
-                if (this.activePlaybackResolver === cancel || this.activePlaybackResolver === resolve) {
-                    console.warn(`[AUDIO] Watchdog resolved hanging playBlob (intent=${intentId})`);
-                    onEnded();
-                }
-            }, 3000); // 3s for test compatibility (v2.3.1)
+            this.activePlaybackResolver = resolve;
+            playWatchdog = setTimeout(() => {
+                finish('watchdog');
+            }, 3000); // 3s safety fallback
         });
     } finally {
         release();
@@ -323,9 +351,13 @@ export class WebviewAudioEngine {
 
   /**
    * [v2.2.1] Atomic Ingestion
+   * [v2.3.2] Strict Baton Floor Enforcement
    */
   public async ingestData(cacheKey: string, base64: string, intentId: number): Promise<void> {
-    if (intentId < this.activeIntentId) {return;}
+    if (intentId < this.activeIntentId && this.activeIntentId !== 0) {
+        console.warn(`[AUDIO] 🧟 Rejecting stale ingestion: ${intentId} < ${this.activeIntentId}`);
+        return;
+    }
     try {
         const response = await fetch(`data:application/octet-stream;base64,${base64}`);
         const blob = await response.blob();
@@ -336,7 +368,7 @@ export class WebviewAudioEngine {
   }
 
   public async wipeCache(): Promise<void> {
-    this.stop('none'); // Ensure active blob URLs are revoked via cleanup
+    this.stop();
     await CacheManager.getInstance().clearAll();
   }
 
@@ -357,45 +389,29 @@ export class WebviewAudioEngine {
     }
   }
 
-  public stop(mode: 'infinity' | 'reset' | 'none' | boolean = 'reset'): void {
-    // legacy boolean support
-    let targetMode = mode;
-    if (mode === true) {targetMode = 'reset';}
-    if (mode === false) {targetMode = 'infinity';}
+  public stop(): void {
+    const count = this.pendingResolvers.size;
+    console.log(`[AUDIO] 🛑 Stop triggered: intent=${this.activeIntentId} (Instance=${this.instanceId}, Resolvers=${count})`);
 
-    console.log(`[AUDIO] 🛑 Stop requested (Mode: ${targetMode})`);
-
+    this._abortController?.abort();
+    this._abortController = null;
+    
     this._audio.pause();
     this._audio.src = '';
     
-    // [v2.3.1] Ghost Audio Guard: Explicitly revoke all tracked blob URLs
     this._activeObjectURLs.forEach(url => URL.revokeObjectURL(url));
     this._activeObjectURLs.clear();
 
     this.stopLocal();
     
-    // [v2.3.1] Force-resolve ALL potential blockers
-    if (this.activeLockResolver) {
-        this.activeLockResolver();
-        this.activeLockResolver = null;
-    }
-    if (this.activePlaybackResolver) {
-        this.activePlaybackResolver();
-        this.activePlaybackResolver = null;
-    }
-
+    // Force-resolve ALL potential blockers
     this.pendingResolvers.forEach(resolve => resolve());
     this.pendingResolvers.clear();
 
-    if (targetMode !== 'none') {
-      this.playbackMutex = Promise.resolve();
-    }
-
-    if (targetMode === 'infinity') {
-      this.activeIntentId = Infinity;
-    } else if (targetMode === 'reset') {
-      this.activeIntentId = 0;
-    }
+    this.playbackMutex = Promise.resolve();
+    this.activeIntentId = 0;
+    this._lockOwnerIntentId = null;
+    this.activeSequence = 0;
   }
 
   private stopLocal(): void {

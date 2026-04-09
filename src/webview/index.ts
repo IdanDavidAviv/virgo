@@ -106,7 +106,7 @@ export function bootstrap() {
         current: document.getElementById('sentence-current'),
         next: document.getElementById('sentence-next')
     }));
-    if (navigator) registry.push(navigator);
+    if (navigator) {registry.push(navigator);}
 
     const controls = safeMount('controls', document.getElementById('btn-play'), (el) => new PlaybackControls({
         btnPlay: el as HTMLButtonElement,
@@ -120,14 +120,14 @@ export function bootstrap() {
         waveContainer: document.getElementById('sentence-navigator') as HTMLElement,
         statusDot: document.getElementById('status-dot') as HTMLElement
     }));
-    if (controls) registry.push(controls);
+    if (controls) {registry.push(controls);}
 
     const chapterList = safeMount('chapterList', document.getElementById('chapter-list'), (el) => new ChapterList({
         container: el,
         fullProgressHeader: document.getElementById('sentence-progress'),
         chapterOnlyHeader: document.getElementById('chapter-progress')
     }));
-    if (chapterList) registry.push(chapterList);
+    if (chapterList) {registry.push(chapterList);}
 
     const settings = safeMount('settings', document.getElementById('settings-drawer'), (el) => new SettingsDrawer({
         drawer: el,
@@ -142,7 +142,7 @@ export function bootstrap() {
         stateDebugTag: document.getElementById('state-debug-tag') as HTMLElement,
         engineToggleGroup: document.querySelector('.engine-toggle-group') as HTMLElement
     }));
-    if (settings) registry.push(settings);
+    if (settings) {registry.push(settings);}
 
     const fileContext = safeMount('fileContext', document.querySelector('.context-slot.selection'), (el) => new FileContext({
         activeSlot: el,
@@ -159,18 +159,18 @@ export function bootstrap() {
         snippetLookupContainer: document.getElementById('snippet-lookup-container') as HTMLElement,
         transferLayer: document.querySelector('.transfer-layer') as HTMLElement
     }));
-    if (fileContext) registry.push(fileContext);
+    if (fileContext) {registry.push(fileContext);}
 
     const snippetLookup = safeMount('snippetLookup', document.getElementById('snippet-lookup-container'), (el) => new SnippetLookup({
         container: el
     }));
-    if (snippetLookup) registry.push(snippetLookup);
+    if (snippetLookup) {registry.push(snippetLookup);}
 
     const voiceSelector = safeMount('voiceSelector', document.getElementById('voice-list-container'), (el) => new VoiceSelector({
         voiceList: el,
         searchInput: document.getElementById('voice-search') as HTMLInputElement
     }));
-    if (voiceSelector) registry.push(voiceSelector);
+    if (voiceSelector) {registry.push(voiceSelector);}
 
     console.log('[BOOT] Mapping Elements...');
 

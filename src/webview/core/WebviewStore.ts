@@ -7,7 +7,6 @@ import { generateCacheKey } from '../../common/cachePolicy';
  * Ensures that all reactive properties have valid defaults before the first UI_SYNC arrives.
  */
 export const DEFAULT_SYNC_PACKET: UISyncPacket = {
-  state: {
     focusedFileName: '',
     focusedRelativeDir: '',
     focusedDocumentUri: null,
@@ -20,41 +19,28 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
     isRefreshing: false,
     isPreviewing: false,
     activeMode: 'FILE',
+    isLooping: false,
+    isPlaying: false,
+    isPaused: true,
+    playbackStalled: false,
     volume: 50,
     rate: 0,
     engineMode: 'local',
-    autoPlayMode: 'auto'
-  },
-  isPlaying: false,
-  isPaused: true,
-  playbackStalled: false,
-  currentSentences: [],
-  allChapters: [],
-  currentChapterIndex: 0,
-  totalChapters: 0,
-  isLooping: false,
-  currentText: '',
-  canPrevChapter: false,
-  canNextChapter: false,
-  canPrevSentence: false,
-  canNextSentence: false,
-  autoPlayMode: 'auto',
-  engineMode: 'local',
-  cacheCount: 0,
-  cacheSizeBytes: 0,
-  cacheStats: { count: 0, size: 0 },
-  playbackIntentId: 0,
-  batchIntentId: 0,
-  rate: 0,
-  volume: 50,
-  activeMode: 'FILE',
-  logLevel: LogLevel.STANDARD,
-  availableVoices: {
-    local: [],
-    neural: []
-  },
-  windowSentences: [],
-  selectedVoice: undefined
+    autoPlayMode: 'auto',
+    currentSentences: [],
+    allChapters: [],
+    cacheCount: 0,
+    cacheSizeBytes: 0,
+    playbackIntentId: 0,
+    batchIntentId: 0,
+    logLevel: LogLevel.STANDARD,
+    availableVoices: {
+        local: [],
+        neural: []
+    },
+    windowSentences: [],
+    selectedVoice: undefined,
+    snippetHistory: []
 };
 
 export type StoreState = UISyncPacket & {
@@ -71,14 +57,14 @@ export type StoreState = UISyncPacket & {
   pendingChapterIndex: number;
   neuralBuffer: { count: number, sizeMb: number };
   isSyncing: boolean;
-  isHandshakeComplete: boolean;
+  isHydrated: boolean;
 };
 
 export type Selector<T, S = StoreState> = (state: S) => T;
 export type Listener<T> = (value: T) => void;
 
 /**
- * WebviewStore: Simplified & Unified Reactive Store (v2.3.1)
+ * WebviewStore: Simplified & Unified Reactive Store (v2.3.2)
  * Mirrors the Extension's StateStore while managing transient UI properties.
  */
 export class WebviewStore {
@@ -111,9 +97,9 @@ export class WebviewStore {
       pendingChapterIndex: -1,
       neuralBuffer: { count: 0, sizeMb: 0 },
       isSyncing: false,
-      isHandshakeComplete: false,
-      playbackIntentId: Date.now(),
-      batchIntentId: Date.now()
+      isHydrated: false,
+      playbackIntentId: 0,
+      batchIntentId: 0
     };
   }
 
@@ -160,9 +146,9 @@ export class WebviewStore {
       pendingChapterIndex: -1,
       neuralBuffer: { count: 0, sizeMb: 0 },
       isSyncing: false,
-      isHandshakeComplete: false,
-      playbackIntentId: Date.now(),
-      batchIntentId: Date.now()
+      isHydrated: false,
+      playbackIntentId: 0,
+      batchIntentId: 0
     };
   }
 
@@ -187,16 +173,13 @@ export class WebviewStore {
   }
 
   public getSentenceKey(): string {
-    const text = this.state.currentText;
-    if (!text) {
-      return `${this.state.currentChapterIndex}_${this.state.state.currentSentenceIndex}`;
-    }
-
+    const text = (this.state as any).currentText || '';
+    
     return generateCacheKey(
       text,
       this.state.selectedVoice || 'default',
       this.state.rate,
-      this.state.state.activeDocumentUri
+      this.state.activeDocumentUri
     );
   }
 
@@ -227,11 +210,25 @@ export class WebviewStore {
   }
 
   public patchState(patch: Partial<StoreState>): void {
+    // [v2.3.1 OMEGA] Immediate Grounding
+    // Ensure intent baseline is set as soon as a view is available.
+    if (this.state.playbackIntentId === 0 && patch.playbackIntentId === undefined) { patch.playbackIntentId = 1; }
+    if (this.state.batchIntentId === 0 && patch.batchIntentId === undefined) { patch.batchIntentId = 1; }
+
+    // [SOVEREIGNTY] Monotonic Intent Protection
+    if (patch.playbackIntentId !== undefined && patch.playbackIntentId < this.state.playbackIntentId) {
+      delete patch.playbackIntentId;
+    }
+    if (patch.batchIntentId !== undefined && patch.batchIntentId < this.state.batchIntentId) {
+      delete patch.batchIntentId;
+    }
+
     const wasHydrated = this._isHydrated;
 
-    if ((patch.state || patch.isHandshakeComplete === true) && !this._isHydrated) {
+    // Simple hydration check (if it looks like a sync packet)
+    if ((patch.activeFileName || patch.isHydrated === true) && !this._isHydrated) {
       this._isHydrated = true;
-      if (patch.state){ patch.isHandshakeComplete = true;}
+      patch.isHydrated = true;
     }
 
     // [PERFORMANCE] Prevent redundant updates if state is identical,
@@ -244,65 +241,25 @@ export class WebviewStore {
     const oldState = { ...this.state };
 
     // [SOVEREIGNTY] Timestamp local stalls
-    // We update lastStallAt if we are starting a stall, OR if the source is explicitly being changed.
     const isStartingStall = (patch.isAwaitingSync && !oldState.isAwaitingSync) || (patch.playbackStalled && !oldState.playbackStalled);
     const isChangingSource = patch.lastStallSource && patch.lastStallSource !== oldState.lastStallSource;
 
     if (isStartingStall || isChangingSource) {
       patch.lastStallAt = Date.now();
-      // If source not provided in patch, default to AUTO if starting playbackStalled, else USER
       if (!patch.lastStallSource) {
         patch.lastStallSource = patch.playbackStalled ? 'AUTO' : 'USER';
       }
     }
 
-    // [SOVEREIGNTY] Deep merge nested state to prevent partial syncs from overwriting metadata
-    const finalPatch = { ...patch };
-    if (patch.state && this.state.state) {
-      finalPatch.state = { ...this.state.state, ...patch.state };
-    } else if ('state' in patch && !patch.state) {
-      // If the patch explicitly contains 'state' but it's null/undefined, 
-      // we strip it to prevent wiping the existing authoritative state.
-      delete finalPatch.state;
-    }
-
-    // [SOVEREIGNTY] Reflective Patching (v2.3.1 - Robust)
-    // Bidirectional synchronization between flat properties and the nested state object.
-    const syncKeys = ['volume', 'rate', 'engineMode', 'autoPlayMode', 'activeMode', 'currentChapterIndex'] as const;
-
-    // 1. Sync from Flat Patch to Nested State (Local UI updates)
-    // Prioritize flat properties provided in the patch by reflecting them into the nested state.
-    const nest = finalPatch.state || (this.state.state ? { ...this.state.state } : null);
-    if (nest) {
-        let nestChanged = false;
-        syncKeys.forEach(key => {
-            if ((patch as any)[key] !== undefined) {
-                (nest as any)[key] = (patch as any)[key];
-                nestChanged = true;
-            }
-        });
-        if (nestChanged) finalPatch.state = nest;
-    }
-
-    // 2. Sync from Nested State to Flat Props (Extension Authoritarian sync)
-    // If 'state' was in original patch (or updated above), propagate its values to flat properties.
-    // [HARDENING] If patch.state existed, it wins over any flat props in the SAME patch.
-    if (finalPatch.state) {
-        syncKeys.forEach(key => {
-            if ((finalPatch.state as any)[key] !== undefined) {
-                (finalPatch as any)[key] = (finalPatch.state as any)[key];
-            }
-        });
-    }
-
+    // Merge nested objects if they exist in patch
     if (patch.availableVoices && this.state.availableVoices) {
-      finalPatch.availableVoices = { ...this.state.availableVoices, ...patch.availableVoices };
+      patch.availableVoices = { ...this.state.availableVoices, ...patch.availableVoices };
     }
     if (patch.cacheStats && this.state.cacheStats) {
-      finalPatch.cacheStats = { ...this.state.cacheStats, ...patch.cacheStats };
+      patch.cacheStats = { ...this.state.cacheStats, ...patch.cacheStats };
     }
 
-    this.state = { ...this.state, ...finalPatch };
+    this.state = { ...this.state, ...patch };
     
     // [DNA] Recalculate and Schedule re-evaluation
     this.refreshSyncingState();
@@ -310,9 +267,6 @@ export class WebviewStore {
     // [HARDENING] Notify listeners
     this.listeners.forEach((entry) => {
       const newValue = entry.selector(this.state);
-
-      // [SOVEREIGNTY] Force notification on first hydration (transition to _isHydrated = true)
-      // or if the slice actually changed.
       const shouldNotify = (!wasHydrated && this._isHydrated) || !this.isEqual(newValue, entry.lastValue);
 
       if (shouldNotify) {
@@ -321,7 +275,7 @@ export class WebviewStore {
       }
     });
 
-    console.log(`[STORE] 💎 State Updated. isSyncing=${this.state.isSyncing}, isSupported=${this.state.state?.focusedIsSupported}, awaitingSync=${this.state.isAwaitingSync}`);
+    console.log(`[STORE] 💎 State Updated. isSyncing=${this.state.isSyncing}, awaitingSync=${this.state.isAwaitingSync}`);
   }
 
   public resetCacheStats(): void {
@@ -350,15 +304,15 @@ export class WebviewStore {
   }
 
   public resetPlaybackIntent(): number {
-    const newId = Date.now();
-    this.patchState({ playbackIntentId: newId });
-    return newId;
+    const nextId = this.state.playbackIntentId + 1;
+    this.patchState({ playbackIntentId: nextId });
+    return nextId;
   }
 
   public resetBatchIntent(): number {
-    const newId = Date.now();
-    this.patchState({ batchIntentId: newId });
-    return newId;
+    const nextId = this.state.batchIntentId + 1;
+    this.patchState({ batchIntentId: nextId });
+    return nextId;
   }
 
   public setQueue(window: WindowSentence[]): void {

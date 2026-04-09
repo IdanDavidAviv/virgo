@@ -117,13 +117,9 @@ export class CommandDispatcher {
 
       case IncomingCommand.PLAYBACK_STATE_CHANGED:
         // [DEFENSIVE] Only handle if it looks like a valid sync packet
-        if (data && data.state) {
+        if (data) {
           this.handleUiSync(data as UISyncPacket);
           playback.handleSync(data as UISyncPacket);
-        } else if (data && (data.isPlaying !== undefined || data.isPaused !== undefined)) {
-          // [LEGACY/PARTIAL] Allow patching playback flags specifically
-          store.patchState(data);
-          playback.handleSync(data);
         } else {
           console.warn('[Dispatcher] ⚠️ Ignoring malformed PLAYBACK_STATE_CHANGED');
         }
@@ -201,10 +197,7 @@ export class CommandDispatcher {
         const currentState = store.getState();
         if (currentState) {
             store.patchState({
-                state: {
-                    ...currentState.state,
-                    currentSentenceIndex: data.index
-                }
+                currentSentenceIndex: data.index
             });
         }
         break;
@@ -217,8 +210,8 @@ export class CommandDispatcher {
   }
 
   private handleUiSync(packet: UISyncPacket): void {
-    if (!packet || !packet.state) {
-        console.warn('[Dispatcher] 🛑 Refusing to sync malformed packet (missing state)');
+    if (!packet) {
+        console.warn('[Dispatcher] 🛑 Refusing to sync null/undefined packet');
         return;
     }
     
@@ -230,10 +223,7 @@ export class CommandDispatcher {
     }
 
     // 1. Update the reactive store (init/hydrate)
-    store.updateState({
-      ...packet,
-      state: packet.state
-    } as any);
+    store.updateState(packet);
 
     // 2. Synchronize Physical Audio Engine with State (Volume/Rate)
     const audioEngine = WebviewAudioEngine.getInstance();
