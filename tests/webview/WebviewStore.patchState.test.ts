@@ -12,7 +12,7 @@ function dispatchSync(data: Partial<UISyncPacket>) {
     window.dispatchEvent(new MessageEvent('message', {
         data: { 
             command: IncomingCommand.UI_SYNC, 
-            state: { currentSentenceIndex: 0 }, 
+            currentSentenceIndex: 0, 
             ...data 
         }
     }));

@@ -36,7 +36,7 @@ describe('Loading Lifecycle Audit & Stabilization (v2.3.1)', () => {
         controller = PlaybackController.getInstance();
 
         // 🟢 Authoritative Handshake
-        store.updateState({ isHandshakeComplete: true });
+        store.updateState({ isHydrated: true });
     });
 
     it('SHOULD clear isAwaitingSync during resetLoadingStates', () => {

@@ -24,7 +24,7 @@ describe('WebviewStore: Delta Sync Integrity', () => {
             data: {
                 command: IncomingCommand.UI_SYNC,
                 availableVoices: initialVoices,
-                state: { currentSentenceIndex: 0 }
+                currentSentenceIndex: 0
             }
         }));
 
@@ -35,13 +35,13 @@ describe('WebviewStore: Delta Sync Integrity', () => {
             data: {
                 command: IncomingCommand.UI_SYNC,
                 // availableVoices missing!
-                state: { currentSentenceIndex: 1 }
+                currentSentenceIndex: 1
             }
         }));
 
         // 3. ASSERT: Voices are PRESERVED
         expect(store.getState()!.availableVoices).toEqual(initialVoices);
-        expect(store.getState()!.state.currentSentenceIndex).toBe(1);
+        expect(store.getState()!.currentSentenceIndex).toBe(1);
     });
 
     it('SHOULD update voice list when explicitly provided (Handshake/Engine Change)', () => {
@@ -54,7 +54,7 @@ describe('WebviewStore: Delta Sync Integrity', () => {
             data: {
                 command: IncomingCommand.UI_SYNC,
                 availableVoices: initialVoices,
-                state: { currentSentenceIndex: 0 }
+                currentSentenceIndex: 0
             }
         }));
 
@@ -63,7 +63,7 @@ describe('WebviewStore: Delta Sync Integrity', () => {
             data: {
                 command: IncomingCommand.UI_SYNC,
                 availableVoices: updatedVoices,
-                state: { currentSentenceIndex: 0 }
+                currentSentenceIndex: 0
             }
         }));
 

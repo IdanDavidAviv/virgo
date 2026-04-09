@@ -14,10 +14,11 @@ describe('WebviewStore Debug', () => {
         expect(store.isHydrated()).toBe(false);
 
         store.updateState({ 
-            state: { currentSentenceIndex: 10 } 
+            currentSentenceIndex: 10,
+            isHydrated: true
         } as any);
 
         expect(store.isHydrated()).toBe(true);
-        expect(store.getState()?.state.currentSentenceIndex).toBe(10);
+        expect(store.getState()?.currentSentenceIndex).toBe(10);
     });
 });

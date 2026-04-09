@@ -13,6 +13,7 @@ import { SettingsDrawer } from '../../src/webview/components/SettingsDrawer';
 import { PlaybackControls } from '../../src/webview/components/PlaybackControls';
 import { FileContext } from '../../src/webview/components/FileContext';
 import { VoiceSelector } from '../../src/webview/components/VoiceSelector';
+import { SnippetLookup } from '../../src/webview/components/SnippetLookup';
 
 /**
  * @vitest-environment jsdom
@@ -103,19 +104,17 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
 
         store = WebviewStore.getInstance();
         store.updateState({
-            state: {
-                focusedFileName: '',
-                focusedRelativeDir: '',
-                focusedDocumentUri: null,
-                focusedIsSupported: false,
-                activeFileName: '',
-                activeRelativeDir: '',
-                activeDocumentUri: null,
-                currentChapterIndex: 0,
-                currentSentenceIndex: 0,
-                isRefreshing: false,
-                isPreviewing: false
-            },
+            focusedFileName: '',
+            focusedRelativeDir: '',
+            focusedDocumentUri: null,
+            focusedIsSupported: false,
+            activeFileName: '',
+            activeRelativeDir: '',
+            activeDocumentUri: null,
+            currentChapterIndex: 0,
+            currentSentenceIndex: 0,
+            isRefreshing: false,
+            isPreviewing: false,
             isPlaying: false,
             isPaused: false,
             rate: 1.0,
@@ -137,10 +136,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             ...DEFAULT_SYNC_PACKET,
             currentSentences: ['Hello'],
             allChapters: [{ title: 'C1', level: 1, index: 0, count: 1 }],
-            state: {
-                ...DEFAULT_SYNC_PACKET.state,
-                focusedIsSupported: true
-            }
+            focusedIsSupported: true
         });
     });
 
@@ -203,6 +199,14 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
         });
         context.mount();
         return context;
+    }
+
+    function mountSnippetLookup() {
+        const lookup = new SnippetLookup({
+            container: document.getElementById('snippet-lookup-container') as HTMLElement
+        });
+        lookup.mount();
+        return lookup;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -521,19 +525,17 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
         it('T5.1 — LOAD FILE button posts LOAD_DOCUMENT when a focused file exists', () => {
             mountFileContext();
             dispatcher.dispatch(IncomingCommand.UI_SYNC, {
-                state: {
-                    focusedFileName: 'test.md',
-                    focusedRelativeDir: '/docs',
-                    focusedDocumentUri: 'file:///docs/test.md',
-                    focusedIsSupported: true,
-                    activeFileName: '',
-                    activeRelativeDir: '',
-                    activeDocumentUri: null,
-                    currentChapterIndex: 0,
-                    currentSentenceIndex: 0,
-                    isRefreshing: false,
-                    isPreviewing: false
-                }
+                focusedFileName: 'test.md',
+                focusedRelativeDir: '/docs',
+                focusedDocumentUri: 'file:///docs/test.md',
+                focusedIsSupported: true,
+                activeFileName: '',
+                activeRelativeDir: '',
+                activeDocumentUri: null,
+                currentChapterIndex: 0,
+                currentSentenceIndex: 0,
+                isRefreshing: false,
+                isPreviewing: false
             } as any);
 
             document.getElementById('btn-load-file')!.click();
@@ -558,19 +560,17 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
         it('T5.3 — Active filename updates when UI_SYNC delivers focusedFileName', () => {
             mountFileContext();
             dispatcher.dispatch(IncomingCommand.UI_SYNC, {
-                state: {
-                    focusedFileName: 'README.md',
-                    focusedRelativeDir: '/src',
-                    focusedDocumentUri: 'file:///src/README.md',
-                    focusedIsSupported: true,
-                    activeFileName: '',
-                    activeRelativeDir: '',
-                    activeDocumentUri: null,
-                    currentChapterIndex: 0,
-                    currentSentenceIndex: 0,
-                    isRefreshing: false,
-                    isPreviewing: false
-                }
+                focusedFileName: 'README.md',
+                focusedRelativeDir: '/src',
+                focusedDocumentUri: 'file:///src/README.md',
+                focusedIsSupported: true,
+                activeFileName: '',
+                activeRelativeDir: '',
+                activeDocumentUri: null,
+                currentChapterIndex: 0,
+                currentSentenceIndex: 0,
+                isRefreshing: false,
+                isPreviewing: false
             } as any);
             expect(document.getElementById('active-filename')!.textContent).toBe('README.md');
         });
@@ -675,19 +675,17 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             await dispatcher.dispatch(IncomingCommand.UI_SYNC, {
                 isPlaying: true,
                 isPaused: false,
-                state: {
-                    currentChapterIndex: 2,
-                    currentSentenceIndex: 5,
-                    focusedFileName: '',
-                    focusedRelativeDir: '',
-                    focusedDocumentUri: null,
-                    focusedIsSupported: false,
-                    activeFileName: '',
-                    activeRelativeDir: '',
-                    activeDocumentUri: null,
-                    isRefreshing: false,
-                    isPreviewing: false
-                }
+                currentChapterIndex: 2,
+                currentSentenceIndex: 5,
+                focusedFileName: '',
+                focusedRelativeDir: '',
+                focusedDocumentUri: null,
+                focusedIsSupported: false,
+                activeFileName: '',
+                activeRelativeDir: '',
+                activeDocumentUri: null,
+                isRefreshing: false,
+                isPreviewing: false
             } as any);
             expect(store.getState()?.isPlaying).toBe(true);
         });
@@ -759,19 +757,17 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             cacheCount: 0,
             cacheSizeBytes: 0,
             // rate/volume intentionally omitted to verify normalization defaults
-            state: {
-                focusedFileName: '',
-                focusedRelativeDir: '',
-                focusedDocumentUri: null,
-                focusedIsSupported: false,
-                activeFileName: '',
-                activeRelativeDir: '',
-                activeDocumentUri: null,
-                currentChapterIndex: 0,
-                currentSentenceIndex: 0,
-                isRefreshing: false,
-                isPreviewing: false
-            },
+            focusedFileName: '',
+            focusedRelativeDir: '',
+            focusedDocumentUri: null,
+            focusedIsSupported: false,
+            activeFileName: '',
+            activeRelativeDir: '',
+            activeDocumentUri: null,
+            currentChapterIndex: 0,
+            currentSentenceIndex: 0,
+            isRefreshing: false,
+            isPreviewing: false,
             snippetHistory: [
                 {
                     id: 'session-1',
@@ -822,6 +818,83 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             cb.mockClear();
             store.patchState({ rate: 2 });
             expect(cb).not.toHaveBeenCalled();
+        });
+    });
+    describe('Snippet Mode Integration (#2 Regression Guard)', () => {
+        let fileContext: any;
+        let snippetLookup: any;
+        let elements: any;
+
+        beforeEach(() => {
+            fileContext = mountFileContext();
+            snippetLookup = mountSnippetLookup();
+            elements = {
+                btnModeSnippet: document.getElementById('btn-mode-snippet') as HTMLButtonElement,
+                btnModeFile: document.getElementById('btn-mode-file') as HTMLButtonElement,
+                fileModeContainer: document.getElementById('file-mode-container') as HTMLElement,
+                snippetLookupContainer: document.getElementById('snippet-lookup-container') as HTMLElement
+            };
+        });
+
+        it('should enable Snippet Mode, discover history, and navigate to a specific snippet', async () => {
+            // 0. Wire dispatcher (needed for ui-sync to reach store/components if using client, 
+            // but we use dispatcher.dispatch directly which also works if store is registered)
+            
+            // 1. Initial State: Mode selection
+            elements.btnModeSnippet.click();
+            expect(elements.snippetLookupContainer.style.display).toBe('block');
+            expect(elements.fileModeContainer.style.display).toBe('none');
+
+            // 2. Mock full sync with snippet history
+            const mockHistory = [
+                { 
+                    id: 'session-dna', 
+                    sessionName: 'DNA Fix', 
+                    snippets: [
+                        { name: 'Fragment_A.md', fsPath: 'c:/Fragment_A.md', timestamp: Date.now() },
+                        { name: 'Fragment_B.md', fsPath: 'c:/Fragment_B.md', timestamp: Date.now() }
+                    ] 
+                }
+            ];
+
+            dispatcher.dispatch(IncomingCommand.UI_SYNC, { 
+                ...DEFAULT_SYNC_PACKET,
+                snippetHistory: mockHistory,
+                activeSessionId: 'session-dna',
+                activeMode: 'SNIPPET'
+            } as any);
+
+            // 3. Verify session card rendered
+            const sessionCard = elements.snippetLookupContainer.querySelector('.snippet-session-card') as HTMLElement;
+            expect(sessionCard).not.toBeNull();
+            expect(sessionCard.textContent).toContain('DNA Fix');
+            expect(sessionCard.classList.contains('is-active')).toBe(true);
+            expect(sessionCard.textContent).toContain('2 snippets');
+
+            // 4. Navigate into session
+            sessionCard.click();
+            expect(elements.snippetLookupContainer.querySelector('.snippet-layer-snippets')).not.toBeNull();
+            expect(elements.snippetLookupContainer.textContent).toContain('Fragment_A');
+            expect(elements.snippetLookupContainer.textContent).toContain('Fragment_B');
+
+            // 5. Verify icons assigned correctly (Generic icon for content snippets)
+            const icons = elements.snippetLookupContainer.querySelectorAll('.snippet-icon');
+            expect(icons[0].textContent).toBe('📝');
+            expect(icons[1].textContent).toBe('📝');
+
+            // 6. Select a snippet (should trigger IPC)
+            const snippetItem = elements.snippetLookupContainer.querySelector('.snippet-item') as HTMLElement;
+            snippetItem.click();
+
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.LOAD_SNIPPET,
+                expect.objectContaining({ path: 'c:/Fragment_A.md', intentId: expect.any(Number) })
+            );
+
+            // 7. Test Back Button
+            const backBtn = elements.snippetLookupContainer.querySelector('.snippet-back-button') as HTMLElement;
+            backBtn.click();
+            expect(elements.snippetLookupContainer.querySelector('.snippet-layer-sessions')).not.toBeNull();
         });
     });
 });

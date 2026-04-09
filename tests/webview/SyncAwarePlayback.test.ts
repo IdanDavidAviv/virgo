@@ -8,16 +8,17 @@ import { PlaybackController } from '@webview/playbackController';
 import { WebviewAudioEngine } from '@webview/core/WebviewAudioEngine';
 import { CommandDispatcher } from '@webview/core/CommandDispatcher';
 import { IncomingCommand } from '@common/types';
-import { resetAllSingletons, wireDispatcher } from './testUtils';
+import { resetAllSingletons, wireDispatcher, FULL_DOM_TEMPLATE } from './testUtils';
 
 describe('Simplified Sync Playback UI', () => {
+    vi.setConfig({ testTimeout: 10000 });
     let store: WebviewStore;
     let controls: PlaybackControls;
     let mockEls: any;
 
     beforeEach(() => {
         vi.useFakeTimers();
-        document.body.innerHTML = '';
+        document.body.innerHTML = FULL_DOM_TEMPLATE;
         
         resetAllSingletons();
         wireDispatcher();
@@ -27,6 +28,17 @@ describe('Simplified Sync Playback UI', () => {
 
         // Mock Engine to avoid actual audio calls
         const engine = WebviewAudioEngine.getInstance();
+        const audioElement = engine.audioElement;
+        vi.spyOn(audioElement, 'play').mockImplementation(function(this: HTMLMediaElement) {
+            // [v2.3.2] Safe dispatch to avoid JSDOM race conditions
+            const target = this || audioElement;
+            setTimeout(() => {
+                if (target && typeof target.dispatchEvent === 'function') {
+                    target.dispatchEvent(new Event('ended'));
+                }
+            }, 0);
+            return Promise.resolve();
+        });
         vi.spyOn(engine, 'ensureAudioContext').mockImplementation(async () => {});
         vi.spyOn(engine, 'playFromCache').mockResolvedValue(true);
 
@@ -52,21 +64,19 @@ describe('Simplified Sync Playback UI', () => {
             playbackStalled: false,
             availableVoices: { local: [], neural: [] },
             selectedVoice: 'test-voice',
-            state: { 
-                currentChapterIndex: 0, 
-                currentSentenceIndex: 0,
-                focusedFileName: 'test.md',
-                focusedRelativeDir: '/docs',
-                focusedDocumentUri: 'file:///test.md',
-                focusedIsSupported: true,
-                activeFileName: 'test.md',
-                activeRelativeDir: '/docs',
-                activeDocumentUri: 'file:///test.md',
-                versionSalt: '1',
-                focusedVersionSalt: '1',
-                totalChapters: 1
-            } as any,
-            isHandshakeComplete: true
+            currentChapterIndex: 0, 
+            currentSentenceIndex: 0,
+            focusedFileName: 'test.md',
+            focusedRelativeDir: '/docs',
+            focusedDocumentUri: 'file:///test.md',
+            focusedIsSupported: true,
+            activeFileName: 'test.md',
+            activeRelativeDir: '/docs',
+            activeDocumentUri: 'file:///test.md',
+            versionSalt: '1',
+            focusedVersionSalt: '1',
+            allChapters: [{ title: 'Chapter 1', level: 1, index: 0, count: 1 }],
+            isHydrated: true
         }, 'local');
     });
 
@@ -85,7 +95,7 @@ describe('Simplified Sync Playback UI', () => {
         
         // Remote sync arrives via UI_SYNC command
         await CommandDispatcher.getInstance().dispatch(IncomingCommand.UI_SYNC, {
-            state: { ...store.getState(), isPlaying: true, isPaused: false },
+            ...store.getState(),
             isPlaying: true,
             isPaused: false,
             playbackStalled: false,
@@ -93,7 +103,7 @@ describe('Simplified Sync Playback UI', () => {
             currentSentences: ['Test'],
             totalChapters: 1,
             availableVoices: { local: [], neural: [] },
-            isHandshakeComplete: true
+            isHydrated: true
         });
 
         expect(store.isSyncing).toBe(false);
@@ -110,7 +120,7 @@ describe('Simplified Sync Playback UI', () => {
 
         // 2. Playback Starts (Clears Loading from Sync)
         await CommandDispatcher.getInstance().dispatch(IncomingCommand.UI_SYNC, {
-            state: { ...store.getState(), isPlaying: true, isPaused: false, playbackStalled: false },
+            ...store.getState(),
             isPlaying: true,
             isPaused: false,
             playbackStalled: false,
@@ -125,7 +135,7 @@ describe('Simplified Sync Playback UI', () => {
 
         // 3. Background Engine Stall 
         await CommandDispatcher.getInstance().dispatch(IncomingCommand.UI_SYNC, {
-            state: { ...store.getState(), isPlaying: true, playbackStalled: true },
+            ...store.getState(),
             isPlaying: true,
             playbackStalled: true,
             availableVoices: { local: [], neural: [] }

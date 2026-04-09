@@ -25,11 +25,11 @@ describe('WebviewStore: activeMode Sync', () => {
             data: {
                 command: IncomingCommand.UI_SYNC,
                 isPlaying: false,
-                state: { activeMode: 'FILE' } as any
+                activeMode: 'FILE'
             }
         }));
 
-        expect(store.getState()?.state.activeMode).toBe('FILE');
+        expect(store.getState()?.activeMode).toBe('FILE');
     });
 
     it('should hydrate activeMode: SNIPPET when received', () => {
@@ -39,11 +39,11 @@ describe('WebviewStore: activeMode Sync', () => {
             data: {
                 command: IncomingCommand.UI_SYNC,
                 isPlaying: false,
-                state: { activeMode: 'SNIPPET' } as any
+                activeMode: 'SNIPPET'
             }
         }));
 
-        expect(store.getState()?.state.activeMode).toBe('SNIPPET');
+        expect(store.getState()?.activeMode).toBe('SNIPPET');
     });
 
     it('should notify subscribers when activeMode changes', () => {
@@ -51,14 +51,14 @@ describe('WebviewStore: activeMode Sync', () => {
         const listener = vi.fn();
         
         // Subscribe to activeMode
-        store.subscribe((state) => state.state.activeMode, listener);
+        store.subscribe((state) => state.activeMode, listener);
 
         // First sync
         window.dispatchEvent(new MessageEvent('message', {
             data: {
                 command: IncomingCommand.UI_SYNC,
                 isPlaying: false,
-                state: { activeMode: 'FILE' } as any
+                activeMode: 'FILE'
             }
         }));
 
@@ -70,7 +70,7 @@ describe('WebviewStore: activeMode Sync', () => {
             data: {
                 command: IncomingCommand.UI_SYNC,
                 isPlaying: false,
-                state: { activeMode: 'SNIPPET' } as any
+                activeMode: 'SNIPPET'
             }
         }));
 

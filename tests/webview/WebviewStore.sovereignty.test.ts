@@ -36,7 +36,7 @@ describe('WebviewStore Sovereignty (TDD: Stale Sync Guard)', () => {
                 command: IncomingCommand.UI_SYNC,
                 isPlaying: false,
                 isPaused: false,
-                state: { currentSentenceIndex: 0 },
+                currentSentenceIndex: 0,
                 volume: 50,
                 rate: 1.0,
                 availableVoices: []
@@ -56,7 +56,7 @@ describe('WebviewStore Sovereignty (TDD: Stale Sync Guard)', () => {
                 command: IncomingCommand.UI_SYNC,
                 isPlaying: false, // STALE!
                 isPaused: false,
-                state: { currentSentenceIndex: 0 },
+                currentSentenceIndex: 0,
                 volume: 50,
                 rate: 1.0,
                 availableVoices: []

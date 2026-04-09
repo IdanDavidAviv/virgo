@@ -42,10 +42,8 @@ describe('Playback State-Aware UI & Transition Grace (v2.3.1)', () => {
             volume: 50,
             rate: 1,
             selectedVoice: 'test',
-            isHandshakeComplete: true,
-            state: {
-                currentSentenceIndex: 0
-            } as any
+            isHydrated: true,
+            currentSentenceIndex: 0
         }, 'local');
 
         controls = new PlaybackControls(els);
