@@ -1,0 +1,34 @@
+﻿
+> readme-preview-read-aloud@2.2.2 typecheck
+> tsc --noEmit
+
+src/webview/core/CommandDispatcher.ts(82,16): error TS1345: An expression of type 'void' cannot be tested for truthiness.
+src/webview/core/CommandDispatcher.ts(102,14): error TS1345: An expression of type 'void' cannot be tested for truthiness.
+src/webview/core/WebviewAudioEngine.ts(115,5): error TS2322: Type '(() => void) | undefined' is not assignable to type '(() => void) | null'.
+  Type 'undefined' is not assignable to type '(() => void) | null'.
+src/webview/core/WebviewStore.ts(282,26): error TS2339: Property 'autoPlayMode' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(283,35): error TS2339: Property 'autoPlayMode' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(284,61): error TS2339: Property 'autoPlayMode' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(288,26): error TS2339: Property 'volume' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(289,35): error TS2339: Property 'volume' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(290,55): error TS2339: Property 'volume' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(294,26): error TS2339: Property 'rate' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(295,35): error TS2339: Property 'rate' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(296,53): error TS2339: Property 'rate' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(300,26): error TS2339: Property 'engineMode' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(301,35): error TS2339: Property 'engineMode' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(302,59): error TS2339: Property 'engineMode' does not exist on type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(316,74): error TS2353: Object literal may only specify known properties, and 'autoPlayMode' does not exist in type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(319,74): error TS2353: Object literal may only specify known properties, and 'volume' does not exist in type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(322,74): error TS2353: Object literal may only specify known properties, and 'rate' does not exist in type 'StateStoreState'.
+src/webview/core/WebviewStore.ts(325,74): error TS2353: Object literal may only specify known properties, and 'engineMode' does not exist in type 'StateStoreState'.
+src/webview/playbackController.ts(411,13): error TS18048: 'event.intentId' is possibly 'undefined'.
+src/webview/playbackController.ts(417,13): error TS18048: 'event.intentId' is possibly 'undefined'.
+src/webview/playbackController.ts(511,18): error TS1345: An expression of type 'void' cannot be tested for truthiness.
+src/webview/playbackController.ts(856,25): error TS2339: Property 'isSegmentReady' does not exist on type 'WebviewAudioEngine'.
+tests/integration/neural_resilience.test.ts(118,57): error TS7006: Parameter 'call' implicitly has an 'any' type.
+tests/integration/neural_resilience.test.ts(124,66): error TS7006: Parameter 'c' implicitly has an 'any' type.
+tests/webview/components/FileContext.test.ts(8,35): error TS2307: Cannot find module '@webview/sessionController' or its corresponding type declarations.
+tests/webview/core/RaceCondition.test.ts(44,9): error TS2721: Cannot invoke an object which is possibly 'null'.
+tests/webview/core/RaceCondition.test.ts(91,9): error TS2721: Cannot invoke an object which is possibly 'null'.
+tests/webview/SyncAwarePlayback.test.ts(31,61): error TS2345: Argument of type 'boolean' is not assignable to parameter of type 'void'.
