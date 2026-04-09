@@ -57,7 +57,7 @@ describe('VoiceSelector', () => {
                     neural: []
                 },
                 engineMode: 'local',
-                state: { currentSentenceIndex: 0 }
+                currentSentenceIndex: 0
             }
         }));
 
@@ -81,7 +81,7 @@ describe('VoiceSelector', () => {
                     ]
                 },
                 engineMode: 'neural',
-                state: { currentSentenceIndex: 0 }
+                currentSentenceIndex: 0
             }
         }));
 
@@ -107,7 +107,7 @@ describe('VoiceSelector', () => {
                     neural: []
                 },
                 engineMode: 'local',
-                state: { currentSentenceIndex: 0 }
+                currentSentenceIndex: 0
             }
         }));
 
@@ -149,7 +149,7 @@ describe('VoiceSelector', () => {
                     neural: []
                 },
                 engineMode: 'local',
-                state: { currentSentenceIndex: 0 }
+                currentSentenceIndex: 0
             }
         }));
 
@@ -176,7 +176,7 @@ describe('VoiceSelector', () => {
         window.dispatchEvent(new MessageEvent('message', {
             data: {
                 command: IncomingCommand.UI_SYNC,
-                state: { currentSentenceIndex: 0 },
+                currentSentenceIndex: 0,
                 availableVoices: {
                     local: [{ id: 'v1', name: 'V1', lang: '' }],
                     neural: []

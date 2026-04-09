@@ -40,14 +40,12 @@ describe('PlaybackControls', () => {
         // [SOVEREIGNTY] Hard-hydrate the store for testing BEFORE Controller init
         const store = WebviewStore.getInstance();
         store.updateState({ 
-            state: { 
-                isHandshakeComplete: true,
-                playbackIntentId: 100,
-                autoPlayMode: 'auto',
-                volume: 50,
-                rate: 0
-            } as any
-        });
+            isHydrated: true,
+            playbackIntentId: 100,
+            autoPlayMode: 'auto',
+            volume: 50,
+            rate: 0
+        } as any);
 
         // Initialize instance to trigger listeners
         PlaybackController.getInstance();

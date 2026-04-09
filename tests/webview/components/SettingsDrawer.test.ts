@@ -56,14 +56,12 @@ describe('SettingsDrawer', () => {
 
         // [SOVEREIGNTY] Hard-hydrate the store for testing
         WebviewStore.getInstance().updateState({ 
-            state: { 
-                isHandshakeComplete: true, 
-                playbackIntentId: 100,
-                volume: 50,
-                rate: 0,
-                engineMode: 'neural'
-            } as any
-        });
+            isHydrated: true, 
+            playbackIntentId: 12345,
+            volume: 50,
+            rate: 0,
+            engineMode: 'neural'
+        } as any);
 
         vi.useFakeTimers();
     });
@@ -114,7 +112,7 @@ describe('SettingsDrawer', () => {
                 command: IncomingCommand.UI_SYNC,
                 volume: 25,
                 rate: -5,
-                state: { currentSentenceIndex: 0 }
+                currentSentenceIndex: 0
             }
         }));
 
@@ -151,7 +149,7 @@ describe('SettingsDrawer', () => {
             data: {
                 command: IncomingCommand.UI_SYNC,
                 engineMode: 'neural',
-                state: { currentSentenceIndex: 0 }
+                currentSentenceIndex: 0
             }
         }));
 
@@ -162,7 +160,7 @@ describe('SettingsDrawer', () => {
             data: {
                 command: IncomingCommand.UI_SYNC,
                 engineMode: 'local',
-                state: { currentSentenceIndex: 0 }
+                currentSentenceIndex: 0
             }
         }));
 

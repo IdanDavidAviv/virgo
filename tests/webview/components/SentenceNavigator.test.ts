@@ -35,7 +35,7 @@ describe('SentenceNavigator', () => {
 
         // [SOVEREIGNTY] Hard-hydrate the store for testing
         WebviewStore.getInstance().patchState({ 
-            isHandshakeComplete: true,
+            isHydrated: true,
             playbackIntentId: 100
         });
     });
@@ -47,7 +47,7 @@ describe('SentenceNavigator', () => {
         // Directly update store instead of event (to avoid racing in tests)
         WebviewStore.getInstance().updateState({
             currentSentences: ['S1', 'S2', 'S3'],
-            state: { currentSentenceIndex: 1 } as any
+            currentSentenceIndex: 1
         });
 
         expect(elements.prev.innerHTML).toContain('S1');
@@ -62,7 +62,7 @@ describe('SentenceNavigator', () => {
         // Populate store
         WebviewStore.getInstance().updateState({
             currentSentences: ['S1', 'S2', 'S3'],
-            state: { currentSentenceIndex: 1 } as any
+            currentSentenceIndex: 1
         });
 
         const postSpy = vi.spyOn(MessageClient.getInstance(), 'postAction');
@@ -77,7 +77,7 @@ describe('SentenceNavigator', () => {
 
         WebviewStore.getInstance().updateState({
             currentSentences: ['S1', 'S2', 'S3'],
-            state: { currentSentenceIndex: 1 } as any,
+            currentSentenceIndex: 1,
             playbackStalled: true
         });
 
@@ -94,7 +94,7 @@ describe('SentenceNavigator', () => {
         // Populate store first
         WebviewStore.getInstance().updateState({
             currentSentences: ['S1', 'S2', 'S3'],
-            state: { currentSentenceIndex: 0 } as any
+            currentSentenceIndex: 0
         });
 
         // Initialize controller to handle the jump

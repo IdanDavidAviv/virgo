@@ -53,11 +53,9 @@ describe('FileContext (Optimistic UI)', () => {
 
         // [STABILITY] Must set a supported focused file so btnLoadFile is enabled for clicking
         WebviewStore.getInstance().updateState({
-            state: { 
-                focusedDocumentUri: 'file:///test.md', 
-                focusedIsSupported: true,
-                activeDocumentUri: null
-            } as any
+            focusedDocumentUri: 'file:///test.md', 
+            focusedIsSupported: true,
+            activeDocumentUri: null
         });
 
         const btn = elements.btnLoadFile;
@@ -77,7 +75,7 @@ describe('FileContext (Optimistic UI)', () => {
 
         // Initial state active
         WebviewStore.getInstance().updateState({
-            state: { activeDocumentUri: 'file:///test.md', activeFileName: 'test.md' } as any
+            activeDocumentUri: 'file:///test.md', activeFileName: 'test.md'
         });
 
         const btn = elements.btnResetContext;
@@ -94,7 +92,7 @@ describe('FileContext (Optimistic UI)', () => {
 
         // Enable button
         WebviewStore.getInstance().updateState({
-            state: { focusedDocumentUri: 'file:///done.md', focusedIsSupported: true } as any
+            focusedDocumentUri: 'file:///done.md', focusedIsSupported: true
         });
 
         const btn = elements.btnLoadFile;
@@ -104,7 +102,7 @@ describe('FileContext (Optimistic UI)', () => {
         // Simulate extension response (UI_SYNC clears isAwaitingSync)
         WebviewStore.getInstance().updateUIState({ isAwaitingSync: false });
         WebviewStore.getInstance().updateState({
-            state: { activeDocumentUri: 'file:///done.md', activeFileName: 'done.md' } as any
+            activeDocumentUri: 'file:///done.md', activeFileName: 'done.md'
         });
 
         // Use vi.waitFor for the final sync since it might involve state propagation
