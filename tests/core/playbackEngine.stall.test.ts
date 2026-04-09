@@ -7,6 +7,7 @@ vi.mock('msedge-tts', () => {
         MsEdgeTTS: vi.fn().mockImplementation(function() {
             return {
                 getVoices: vi.fn().mockResolvedValue([]),
+                setMetadata: vi.fn().mockResolvedValue(undefined),
                 push: vi.fn(),
                 on: vi.fn(),
             };

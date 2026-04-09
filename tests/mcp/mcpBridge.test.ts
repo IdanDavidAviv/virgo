@@ -105,26 +105,34 @@ describe('McpBridge Tests', () => {
             expect(statusResult.content[0].text).toContain('Active Store Size: 1');
 
             await transport.close();
+            // Allow Gate 2 handshake lock to clear via SSE req.on('close')
+            await new Promise(r => setTimeout(r, 100));
         }, 30000); // Higher timeout for CI/Windows throughput (v2.2.2 stabilization)
 
-        it('should handle multiple concurrent sessions', async () => {
+        it('should absorb duplicate concurrent SSE probes via Gate 2', async () => {
+            // [Gate 2] Validation: When a second SSE connection is attempted while
+            // the handshake of the first is still in-flight, the bridge must absorb
+            // the duplicate probe (HTTP 429) and keep the first session alive.
             const t1 = new SSEClientTransport(new URL(`http://127.0.0.1:${activePort}/sse`));
-            const t2 = new SSEClientTransport(new URL(`http://127.0.0.1:${activePort}/sse`));
+            const c1 = new Client({ name: "cli-primary", version: "1" }, { capabilities: {} });
 
-            const c1 = new Client({ name: "cli-1", version: "1" }, { capabilities: {} });
-            const c2 = new Client({ name: "cli-2", version: "1" }, { capabilities: {} });
+            // Connect primary session
+            await c1.connect(t1);
 
-            await Promise.all([c1.connect(t1), c2.connect(t2)]);
-
+            // Verify primary session is fully functional
             const r1 = await c1.callTool({ name: 'get_injection_status', arguments: {} }) as any;
-            const r2 = await c2.callTool({ name: 'get_injection_status', arguments: {} }) as any;
-
             expect(r1.isError).toBeFalsy();
-            expect(r2.isError).toBeFalsy();
             expect(r1.content[0].text).toBeTruthy();
-            expect(r2.content[0].text).toBeTruthy();
 
-            await Promise.all([t1.close(), t2.close()]);
+            // A second simultaneous probe should be rejected by Gate 2 (429)
+            const probeResponse = await fetch(`http://127.0.0.1:${activePort}/sse`);
+            expect(probeResponse.status).toBe(429);
+
+            // Primary session remains unaffected
+            const r2 = await c1.callTool({ name: 'get_injection_status', arguments: {} }) as any;
+            expect(r2.isError).toBeFalsy();
+
+            await t1.close();
         }, 30000);
     });
 });
