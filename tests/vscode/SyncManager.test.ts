@@ -23,7 +23,12 @@ describe('SyncManager', () => {
         mockStateStore = {
             on: vi.fn(),
             emit: vi.fn(),
-            state: {}
+            state: {
+                playbackIntentId: 0,
+                batchIntentId: 0
+            },
+            setPlaybackIntentId: vi.fn(),
+            setBatchIntentId: vi.fn()
         };
 
         mockDashboardRelay = {
@@ -46,21 +51,25 @@ describe('SyncManager', () => {
         };
 
         syncManager.setView(mockView);
+        vi.clearAllMocks();
     });
 
     it('should subscribe to StateStore changes on creation', () => {
-        expect(mockStateStore.on).toHaveBeenCalledWith('change', expect.any(Function));
+        // We test a fresh instance to avoid beforeEach interference
+        const localMockStateStore = { on: vi.fn() };
+        new SyncManager(localMockStateStore as any, mockDashboardRelay as any, mockLogger);
+        expect(localMockStateStore.on).toHaveBeenCalledWith('change', expect.any(Function));
     });
 
-    it('should throttle multiple sync requests within 100ms', () => {
+    it('should throttle multiple sync requests within 150ms', () => {
         syncManager.requestSync();
         syncManager.requestSync();
         syncManager.requestSync();
 
         expect(mockDashboardRelay.sync).not.toHaveBeenCalled();
 
-        vi.advanceTimersByTime(100);
-
+        vi.advanceTimersByTime(150);
+        
         expect(mockDashboardRelay.sync).toHaveBeenCalledTimes(1);
     });
 
@@ -73,7 +82,7 @@ describe('SyncManager', () => {
         mockView.visible = false;
         syncManager.requestSync();
         
-        vi.advanceTimersByTime(100);
+        vi.advanceTimersByTime(150);
         expect(mockDashboardRelay.sync).not.toHaveBeenCalled();
         expect((syncManager as any)._needsSync).toBe(true);
     });
@@ -95,13 +104,13 @@ describe('SyncManager', () => {
     it('should update activeSessionId and trigger immediate sync', () => {
         syncManager.setSessionId('NEW-SESSION');
         expect((syncManager as any)._activeSessionId).toBe('NEW-SESSION');
-        expect(mockDashboardRelay.sync).toHaveBeenCalledWith(undefined, 'NEW-SESSION');
+        expect(mockDashboardRelay.sync).toHaveBeenCalledWith(null, 'NEW-SESSION');
     });
 
     it('should carry through snippetHistory during flush', () => {
         const history = [{ id: '1' }];
         syncManager.requestSync(true, history);
-        expect(mockDashboardRelay.sync).toHaveBeenCalledWith(history, expect.anything());
+        expect(mockDashboardRelay.sync).toHaveBeenCalledWith(history, 'SESSION-ID-MISSING');
     });
 
     it('should clear timer on dispose', () => {

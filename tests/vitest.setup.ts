@@ -1,6 +1,16 @@
 import { vi } from 'vitest';
 import 'fake-indexeddb/auto';
 
+// [v2.3.1] Mock crypto for UUID support in JSDOM
+if (typeof global !== 'undefined') {
+    Object.defineProperty(global, 'crypto', {
+        value: {
+            randomUUID: () => '00000000-0000-0000-0000-000000000000'
+        },
+        configurable: true
+    });
+}
+
 // Mock Webview-specific globals
 (global as any).acquireVsCodeApi = () => ({
     postMessage: vi.fn(),

@@ -22,8 +22,8 @@ describe('Sovereign Intent Alignment (Extension Side)', () => {
     });
 
     it('should reject Intent 0 if a high-intent session is already established', () => {
-        // 1. Establish a high intent (e.g. timestamp) representing a running session
-        const highIntent = Date.now() + 1000;
+        // 1. Establish a high intent (monotonic) representing a running session
+        const highIntent = 1000;
         engine.adoptIntent(highIntent);
         expect((engine as any)._playbackIntentId).toBe(highIntent);
 
@@ -36,16 +36,16 @@ describe('Sovereign Intent Alignment (Extension Side)', () => {
     });
 
     it('should accept higher intent IDs normally', () => {
-        const intent1 = Date.now() + 1000;
-        const intent2 = Date.now() + 2000;
+        const intent1 = 10;
+        const intent2 = 20;
         engine.adoptIntent(intent1);
         engine.adoptIntent(intent2);
         expect((engine as any)._playbackIntentId).toBe(intent2);
     });
 
     it('should correctly Adopt Intent when the engine is fresh (Initial -> New)', () => {
-        // Initial state _playbackIntentId is Date.now() (system time)
-        const newIntent = Date.now() + 5000;
+        // Initial state _playbackIntentId is 1 (monotonic baseline)
+        const newIntent = 5;
         engine.adoptIntent(newIntent); 
         expect((engine as any)._playbackIntentId).toBe(newIntent);
     });

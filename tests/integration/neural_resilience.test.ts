@@ -101,8 +101,9 @@ describe('Neural Resilience Integration - Extension Layer', () => {
             await engine.speakNeural(
                 "test",
                 "en-US-GuyNeural",
+                // @ts-ignore
                 "50",
-                "0",
+                "0-intent-id",
                 engine.batchIntentId
             );
         } catch (e: any) {
@@ -131,7 +132,7 @@ describe('Neural Resilience Integration - Extension Layer', () => {
 
         console.log('[TEST] Starting 5-chapter Marathon with Webview feedback simulation...');
 
-        const options = { mode: 'neural', voice: 'V', rate: 1, volume: 50 } as any;
+        const options = { mode: 'neural', voice: 'V', rate: 1, volume: 50, playbackIntentId: 'test-intent-id', batchIntentId: 'test-batch-id' } as any;
         await bridge.start(0, 0, options);
 
         // Simulate progression loop

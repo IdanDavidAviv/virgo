@@ -55,7 +55,7 @@ describe('PlaybackEngine Lock Integrity', () => {
 
         // Fire both calls instantly as NON-PRIORITY to prevent "Latest Wins" abortion
         // Priority tasks (isPriority: true) explicitly abort previous segments, which would break FIFO testing.
-        const testIntent = Date.now() + 1000;
+        const testIntent = 1000;
         const p1 = engine.speakNeural('Prompt 1', 'id1', defaultOptions, false, testIntent);
         const p2 = engine.speakNeural('Prompt 2', 'id2', defaultOptions, false, testIntent);
 
@@ -101,7 +101,7 @@ describe('PlaybackEngine Lock Integrity', () => {
         stream1.destroy = vi.fn();
         mockTtsInstance.toStream.mockReturnValue({ audioStream: stream1 });
 
-        const testIntent = Date.now() + 1000;
+        const testIntent = 1000;
         const p1 = engine.speakNeural('Prompt 1', 'id1', defaultOptions, false, testIntent);
         const p2 = engine.speakNeural('Prompt 2', 'id2', defaultOptions, false, testIntent);
 
