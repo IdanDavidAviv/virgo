@@ -32,7 +32,7 @@ describe('Sovereign Intent Alignment (Extension Side)', () => {
 
         // 3. Verification: Intent should remain at high value
         expect((engine as any)._playbackIntentId).toBe(highIntent);
-        expect(logger).toHaveBeenCalledWith(expect.stringContaining('Ignored Intent 0'));
+        expect(logger).toHaveBeenCalledWith(expect.stringContaining('Ejected stale intent: 0'));
     });
 
     it('should accept higher intent IDs normally', () => {

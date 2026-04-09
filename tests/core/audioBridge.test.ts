@@ -52,22 +52,27 @@ describe('AudioBridge', () => {
 
     const options: PlaybackOptions = { voice: 'NeuralVoice', rate: 0, volume: 50, mode: 'neural' };
 
-    it('should update StateStore progress and emit playAudio with empty data on start (Zero-IPC)', async () => {
+    it('[Law 7.3] should NOT emit playAudio on cache miss — only synthesisReady fires (Zero-IPC pull handshake)', async () => {
         const playAudioSpy = vi.fn();
+        const synthesisReadySpy = vi.fn();
         audioBridge.on('playAudio', playAudioSpy);
+        audioBridge.on('synthesisReady', synthesisReadySpy);
         vi.spyOn(playbackEngine, 'getCached').mockReturnValue(null);
 
         await audioBridge.start(0, 0, options);
 
+        // Law 7.3: playAudio MUST NOT be emitted with empty data on a cache miss.
+        // The pull handshake is initiated exclusively via synthesisReady.
+        expect(playAudioSpy).not.toHaveBeenCalled();
+        expect(synthesisReadySpy).toHaveBeenCalledWith(expect.objectContaining({
+            cacheKey: expect.stringMatching(/neuralvoice/i)
+        }));
+
+        // StateStore progress must still be updated
         expect(stateStore.state.currentChapterIndex).toBe(0);
         expect(stateStore.state.currentSentenceIndex).toBe(0);
-        expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
-            cacheKey: expect.stringMatching(/neuralvoice/i),
-            data: '',
-            sentenceIndex: 0,
-            sentences: expect.any(Array),
-            totalSentences: 2
-        }));
+
+        // speakNeural is NOT called on start() — synthesis is triggered separately by REQUEST_SYNTHESIS
         expect(playbackEngine.speakNeural).not.toHaveBeenCalled();
     });
 
@@ -159,9 +164,11 @@ describe('AudioBridge', () => {
         expect(playbackEngine.speakLocal).not.toHaveBeenCalled();
     });
 
-    it('should ignore stale synthesis results during rapid sentence jumps', async () => {
+    it('[Law 7.3] should ignore stale synthesis results during rapid sentence jumps — playAudio never fires on miss', async () => {
         const playAudioSpy = vi.fn();
+        const synthesisReadySpy = vi.fn();
         audioBridge.on('playAudio', playAudioSpy);
+        audioBridge.on('synthesisReady', synthesisReadySpy);
 
         // Mock a slow synthesis for the first call
         let firstResolve: any;
@@ -171,29 +178,27 @@ describe('AudioBridge', () => {
         // Ensure playbackEngine.stop is tracked
         const stopSpy = vi.spyOn(playbackEngine, 'stop');
 
-        // 1. Initial Start (Zero-IPC) -> _activeRequestId = 1
+        // 1. Initial Start (cache miss) → only synthesisReady should fire, NOT playAudio
         await audioBridge.start(0, 0, options);
-        expect(playAudioSpy).toHaveBeenCalledTimes(1);
+        expect(playAudioSpy).not.toHaveBeenCalled();
+        expect(synthesisReadySpy).toHaveBeenCalledTimes(1);
         
-        // 2. Trigger synthesis for the first sentence -> Enters _speakNeural with requestId=1
+        // 2. Trigger synthesis for the first sentence → enters _speakNeural with intentId=1
         const synthPromise = audioBridge.synthesize('key-0', options);
 
-        // 3. Rapid Jump while synthesis is pending -> _activeRequestId = 2
+        // 3. Rapid Jump while synthesis is pending → new intent, _activeRequestId bumped
         await audioBridge.start(0, 1, options);
-        expect(playAudioSpy).toHaveBeenCalledTimes(2);
+        expect(playAudioSpy).not.toHaveBeenCalled(); // Still no playAudio — second start is also a miss
+        expect(synthesisReadySpy).toHaveBeenCalledTimes(2); // synthesisReady fires for both starts
 
-        // 4. Finish the (now stale) synthesis for requestId=1
+        // 4. Finish the (now stale) synthesis for the first request
         firstResolve('base64_stale');
         await synthPromise;
 
         expect(stopSpy).toHaveBeenCalled();
         
-        // VERIFY: playAudio should have been called twice (both with empty data for Zero-IPC starts), 
-        // but the 'base64_stale' data should have been ignored because the requestId (1) 
-        // no longer matches the current _activeRequestId (2).
-        expect(playAudioSpy).toHaveBeenCalledTimes(2); 
-        const sentData = playAudioSpy.mock.calls.map(c => c[0].data);
-        expect(sentData).not.toContain('base64_stale');
-        expect(sentData.every((d: string) => d === '')).toBe(true);
+        // VERIFY: playAudio must never have been emitted with empty data or stale data
+        // Law 7.3 guarantees playAudio is only emitted when real data is available.
+        expect(playAudioSpy).not.toHaveBeenCalled();
     });
 });

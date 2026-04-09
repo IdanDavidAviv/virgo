@@ -18,7 +18,13 @@ vi.mock('vscode', () => {
                 text: '',
                 show: vi.fn(),
                 dispose: vi.fn()
-            }))
+            })),
+            activeTextEditor: undefined,
+            tabGroups: {
+                activeTabGroup: {
+                    activeTab: undefined
+                }
+            }
         },
         ThemeColor: vi.fn(),
         ExtensionMode: { Development: 1 },
