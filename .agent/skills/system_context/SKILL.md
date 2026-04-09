@@ -6,10 +6,33 @@ description: Architectural map and development guidelines for the Read Aloud ext
 # System Context & Architecture Protocol
 
 > [!IMPORTANT]
-> This skill is the **Source of Truth (SSOT)** for the Read Aloud extension's internal systems. 
+> This skill is the **Source of Truth (SSOT)** for the Read Aloud extension's internal systems.
 > **AGENT MANDATE**: If you modify, refactor, or introduce a new system that contradicts or extends the content below, you MUST update this skill in the same turn.
 
-## 1. Architectural Map (Snapshot: 2026-04-08)
+## 0. Skill Coherence Mandate
+
+> [!IMPORTANT]
+> All system skills are **bidirectional**. Before any significant action, read the relevant skill(s) that govern the affected subsystem. After any significant action, follow the **[skill_coherence_loop](../skill_coherence_loop/SKILL.md)** protocol to propose updates.
+> A `skill pass [on <context>]` command triggers an explicit coherence audit at any time.
+
+### 0.1 Skill Index (Living Map)
+
+| Skill | Governs | Last Updated |
+|---|---|---|
+| [`system_context`](../system_context/SKILL.md) | Architectural map, subsystem ownership, agent heuristics | 2026-04-10 |
+| [`startup_orchestration`](../startup_orchestration/SKILL.md) | Boot sequence, Pulse graph, DPG, Phase 1–3 dependencies | 2026-04-09 |
+| [`autoplay_orchestration`](../autoplay_orchestration/SKILL.md) | Playback pipeline, pre-fetch, neural laws, intent baton | 2026-04-09 |
+| [`state_coherence_v4`](../state_coherence_v4/SKILL.md) | State sovereignty, split-brain detection, fluid handshake | 2026-04-09 |
+| [`state_auditor`](../state_auditor/SKILL.md) | Multi-layer state conflict detection and audit methodology | 2026-04-09 |
+| [`read_aloud_injection_guard`](../read_aloud_injection_guard/SKILL.md) | MCP injection, dedup guards, sensory parity, verbatim rules | 2026-04-09 |
+| [`session_persistence`](../session_persistence/SKILL.md) | `extension_state.json`, turn indexing, session metadata | 2026-04-09 |
+| [`lifecycle_guard`](../lifecycle_guard/SKILL.md) | Memory leaks, event listener cleanup, webview disposal | 2026-04-09 |
+| [`log_sanitization_v3`](../log_sanitization_v3/SKILL.md) | Log density, shorthand formats, symmetrical prefixes | 2026-04-09 |
+| [`release_prestige`](../release_prestige/SKILL.md) | Extension packaging, installation testing, VSIX integrity | 2026-04-09 |
+| [`version_sentinel`](../version_sentinel/SKILL.md) | Semantic versioning, changelog, release protocol | 2026-04-09 |
+| [`skill_coherence_loop`](../skill_coherence_loop/SKILL.md) | Skill lifecycle, bidirectional read/write protocol, harvest gate | 2026-04-10 |
+
+## 1. Architectural Map (Snapshot: 2026-04-09)
 
 ### 1.1 Core Backend (VS Code Extension)
 - **`StateStore.ts`**: The central, reactive **EventEmitter** storing all document and playback status.
@@ -49,6 +72,11 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
     3. **Web-DB**: Persistent IndexedDB (The long-term SSOT).
 
 - **Lifecycle**: Prefetch tasks are aborted immediately on `IntentId` increments (e.g., user skips forward).
+- **Known Event Mirroring (Not a Bug):** `CACHE_STATS_UPDATE` is emitted by **two separate paths**
+  for the same cache event: (1) the Extension bridge on write, and (2) the Webview `CacheManager`
+  on read/hydration acknowledgment. This produces two `[HOST->WEBVIEW] [CACHE_STATS_UPDATE]`
+  log lines per cache operation. Do NOT suppress either side without verifying which path owns
+  cache authority for the current operation (synthesis write vs. disk hydration).
 
 ### 2.5 Single Source of Intent (SSOI) & Handshake Gate 
 - **Intent Sovereignty**: All synthesis and playback tasks MUST be tagged with a `playbackIntentId`. Components MUST immediately eject tasks that do not match the current global intent. Intent IDs are initialized to **1** as the authoritative baseline across all environments (Extension Host, Webview, PlaybackEngine) to ensure total synchronization upon first handshake.

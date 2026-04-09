@@ -121,3 +121,90 @@ The Orchestrator must be decoupled from the specific Sidebar or Webview implemen
 1. **State Latching**: Always update `intentId` before sending commands to the extension.
 2. **Buffer Immunity**: Blobs tagged with the *current* `intentId` are immune to pruning for 5 seconds.
 3. **Optimistic Locking**: Use `isAwaitingSync` to prevent "Command Overlap" (e.g., clicking Pause while a Play sync is in transit).
+
+---
+
+## 7. Bridge Integrity Laws ⚖️
+
+> **Observed: 2026-04-10.** These laws are BINDING for any agent modifying `mcpBridge.ts`
+> or the `PULL_FETCH` / `FETCH_FAILED` code paths.
+
+### Law 7.1 — FETCH_FAILED Fallback Guard (No Redundant Synthesis on Disk-Hit)
+
+**Problem:** The extension bridge emits `playAudio` after a Tier-2 disk hit hydrates the Webview
+`CacheManager`. However, the bridge-side `PULL_FETCH` timeout does not wait for the webview's
+hydration acknowledgment. If the webview ACKs a disk-hydration **after** the fetch timeout fires,
+the bridge incorrectly classifies the fetch as `FETCH_FAILED` and triggers a full re-synthesis —
+burning a NEURAL lock on audio that already exists on disk.
+
+**Canonical Diagnostic Signature:**
+```
+[BRIDGE_WARN] FETCH_FAILED: <key>. Proactively triggering synthesis fallback.
+[CACHE HIT] key:<same key> | Size: XX.XKB
+```
+These two lines for the **same key** in rapid succession confirm the bug is active.
+
+**Law:** The `FETCH_FAILED` fallback path MUST check if the Webview confirmed a
+`CACHE_STATS_UPDATE` for the same `cacheKey` within the preceding 200ms window before
+classifying a fetch as truly failed. If a recent cache confirmation exists for the key, the
+bridge MUST emit `playAudio` with the disk-cached key directly — synthesis MUST NOT be triggered.
+
+```typescript
+// REQUIRED guard in mcpBridge.ts — FETCH_FAILED handler
+private _recentCacheConfirmations = new Map<string, number>(); // key → timestamp
+
+// Called when webview sends CACHE_STATS_UPDATE:
+private onCacheStatsUpdate(key: string) {
+    this._recentCacheConfirmations.set(key, Date.now());
+}
+
+// Called in FETCH_FAILED fallback path:
+private onFetchFailed(key: string, intentId: number) {
+    const confirmedAt = this._recentCacheConfirmations.get(key);
+    if (confirmedAt && Date.now() - confirmedAt < 200) {
+        // Webview already has this — skip synthesis, emit playAudio directly
+        this.emit('playAudio', { cacheKey: key, intentId });
+        return;
+    }
+    // Truly failed — proceed with synthesis fallback
+    this._startSynthesisFallback(key, intentId);
+}
+```
+
+**Verification:** After the fix, `[BRIDGE_WARN] FETCH_FAILED` MUST NOT be followed by
+`[CACHE HIT]` for the same key. The `[BRIDGE] >> EMIT synthesisStarting` event MUST NOT fire
+for a key that already has a confirmed Tier-2 disk hit.
+
+---
+
+### Law 7.2 — SYNTHESIS_STARTING Deduplication Guard
+
+**Problem:** When `FETCH_FAILED` triggers the synthesis fallback path (Law 7.1), the bridge
+emits a second `SYNTHESIS_STARTING` for the same `cacheKey` that already received a
+`SYNTHESIS_STARTING` in the primary path. The Webview `Dispatcher` processes both signals,
+causing redundant render cycles and confusing state transitions.
+
+**Law:** The bridge MUST maintain a `Set<string>` of in-flight `SYNTHESIS_STARTING` emissions,
+scoped to the current `intentId`. The key for this set MUST be `${cacheKey}::${intentId}`.
+If an entry is already in the set, any subsequent `SYNTHESIS_STARTING` emission for the same
+pair MUST be silently suppressed — regardless of the code path that triggered it.
+
+```typescript
+// REQUIRED guard in mcpBridge.ts — synthesisStarting emitter
+private _emittedSynthesisStarting = new Set<string>();
+
+private emitSynthesisStarting(cacheKey: string, intentId: number) {
+    const guard = `${cacheKey}::${intentId}`;
+    if (this._emittedSynthesisStarting.has(guard)) return; // Deduplicated
+    this._emittedSynthesisStarting.add(guard);
+    this.emit('synthesisStarting', { cacheKey, intentId });
+}
+
+// Clear on intent increment:
+private onIntentIncrement() {
+    this._emittedSynthesisStarting.clear();
+}
+```
+
+**Verification:** For any given `cacheKey + intentId` pair, exactly **1**
+`[WEBVIEW INFO] [HOST->WEBVIEW] [SYNTHESIS_STARTING]` line in the diagnostics log.

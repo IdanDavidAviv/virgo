@@ -260,6 +260,42 @@ public requestSync(immediate = false) {
 **Verification:** At most **2** `[RELAY] ✅ postMessage successful: UI_SYNC` lines during the
 boot sequence (one for Pulse 1, one for Pulse 2). No duplicate syncs from the same trigger.
 
+#### Gate 5 Addendum — Intent-Stable Coalesce (Live Playback)
+
+> **Observed: 2026-04-10.** Gate 5 governs boot-time sync coalescing. However, the same
+> redundant `UI_SYNC` burst pattern also occurs **during active playback** — two identical
+> `[RELAY] 📦 Assembled Packet` lines in the same timestamp with identical `intent`, `chapters`,
+> and `hydrated` fields. Document observer ticks can reopen the coalesce timer during playback,
+> bypassing the gate's boot-time guard.
+
+**Addendum Law:** `SyncManager._flush()` MUST compute a shallow hash of the outgoing packet
+before transmitting — specifically `chapters + intent + hydrated + isPlaying`. If the hash
+matches the last-flushed hash **AND** `isPlaying === true`, the flush MUST be silently absorbed
+(no postMessage, no log). The hash MUST be cleared on any user action or intent increment.
+
+```typescript
+// REQUIRED addendum in SyncManager.ts — _flush()
+private _lastFlushHash: string = '';
+
+private _flush() {
+    const packet = this._buildPacket();
+
+    // Gate 5 Addendum: suppress state-equivalent flushes during playback
+    if (packet.isPlaying) {
+        const hash = `${packet.chapters}|${packet.intent}|${packet.hydrated}|${packet.isPlaying}`;
+        if (hash === this._lastFlushHash) return; // Absorbed — no change
+        this._lastFlushHash = hash;
+    } else {
+        this._lastFlushHash = ''; // Clear on idle state — always allow next flush
+    }
+
+    this._relay.postMessage('UI_SYNC', packet);
+}
+```
+
+**Verification:** During steady-state playback (no user action, no sentence advance), zero
+redundant `[RELAY] 📦 Assembled Packet` lines within any 500ms window.
+
 ---
 
 ### Hygiene Rule — Voice Scan Idempotency
