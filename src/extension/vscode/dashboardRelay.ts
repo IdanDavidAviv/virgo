@@ -6,6 +6,8 @@ import { UISyncPacket, IncomingCommand, SnippetHistory, WindowSentence } from '.
 
 export class DashboardRelay {
     private _view?: vscode.WebviewView;
+    // [Hygiene] Voice scan idempotency — only emit if the voice list has changed since last broadcast.
+    private _lastVoiceHash: string = '';
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -167,6 +169,13 @@ export class DashboardRelay {
     }
 
     public broadcastVoices(local: any[], neural: any[], engineMode: string) {
+        // [Hygiene] Idempotency guard — skip broadcast if voice list is unchanged.
+        const hash = neural.map((v: any) => v.id || v.shortName || v.Name || '').join(',');
+        if (hash === this._lastVoiceHash) {
+            this._logger(`[RELAY] ⏭️ voices broadcast skipped (unchanged, ${neural.length} voices).`);
+            return;
+        }
+        this._lastVoiceHash = hash;
         this.postMessage({
             command: 'voices',
             voices: local,

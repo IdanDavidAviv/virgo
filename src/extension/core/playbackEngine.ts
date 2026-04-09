@@ -52,12 +52,24 @@ export class PlaybackEngine extends EventEmitter {
     private _lastNeuralSuccessTime: number = Date.now();
     private _consecutiveNeuralErrors: number = 0;
     private readonly NEURAL_FALLBACK_THRESHOLD_MS = 120000; // 2 Minutes
+    // [Gate 3] Startup Orchestration — lock-aware TTS disposal.
+    // _reinitTTS() called while synthesis is active defers until the finally block fires.
+    private _synthesisActive: number = 0;
+    private _pendingReinit: boolean = false;
+    // [Gate 4] Startup Orchestration — TTS warm-up gate.
+    // MsEdgeTTS opens its WebSocket lazily on first setMetadata(). This gate resolves once
+    // the client is confirmed ready so that real synthesis never races against the WS handshake.
+    private _ttsReady: Promise<void>;
+    private _resolveTtsReady!: () => void;
 
 
     constructor(private logger: (msg: string) => void, onCacheUpdate?: () => void) {
         super();
+        this._ttsReady = new Promise(r => { this._resolveTtsReady = r; });
         this._tts = new MsEdgeTTS();
         this._onCacheUpdate = onCacheUpdate;
+        // [Gate 4] Warm up the TTS client immediately so the WebSocket is open before first use.
+        this._warmUpTts();
     }
 
     public setLogLevel(level: number) {
@@ -104,17 +116,46 @@ export class PlaybackEngine extends EventEmitter {
     }
 
     private _reinitTTS() {
+        // [Gate 3] If synthesis is actively in-flight, defer disposal until lock is released.
+        if (this._synthesisActive > 0) {
+            this.logger('[NEURAL] ⏳ Re-init deferred — synthesis in-flight. Will execute on lock release.');
+            this._pendingReinit = true;
+            return;
+        }
+        this._executeReinit();
+    }
+
+    private _executeReinit() {
         this.logger('[NEURAL] Authority Re-initialization (Lib Corruption Detected)');
+        // [Gate 4] Reset the ready gate before spinning up the new client.
+        this._ttsReady = new Promise(r => { this._resolveTtsReady = r; });
         try {
             if (this._tts) {
                 try { (this._tts as any).close(); } catch (e) {}
             }
             this._tts = new MsEdgeTTS();
-            console.log('[DEBUG] _reinitTTS executed successfully');
             this.logger('[NEURAL] Client re-initialized.');
         } catch (e) {
             this.logger(`[NEURAL] Failed to re-initialize TTS: ${e}`);
         }
+        // Warm up the new client asynchronously.
+        this._warmUpTts();
+    }
+
+    /** [Gate 4] Fire a zero-cost warm-up setMetadata to open the WebSocket before real synthesis. */
+    private _warmUpTts() {
+        // Use a known-good voice ID for the warm-up probe.
+        const WARMUP_VOICE = 'en-US-GuyNeural';
+        this._tts.setMetadata(WARMUP_VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {})
+            .then(() => {
+                this.logger('[NEURAL] 🟢 TTS warm-up complete. WS transport open.');
+                this._resolveTtsReady();
+            })
+            .catch((e: any) => {
+                this.logger(`[NEURAL] ⚠️ TTS warm-up failed (non-fatal): ${e?.message}`);
+                // Resolve anyway — synthesis will self-heal via existing retry logic.
+                this._resolveTtsReady();
+            });
     }
 
     public get isPlaying() { return this._isPlaying; }
@@ -484,6 +525,8 @@ export class PlaybackEngine extends EventEmitter {
                 })
             ]);
 
+            // [Gate 3] Mark synthesis as active — _reinitTTS() will defer if called now
+            this._synthesisActive++;
             this.logger(`[NEURAL] LOCK ACQUIRED: ${cacheKey}`);
             
             const data = await this._getNeuralAudio(
@@ -515,6 +558,13 @@ export class PlaybackEngine extends EventEmitter {
             taskReject(err);
         } finally {
             this.logger(`[NEURAL] RELEASING LOCK: ${cacheKey}`);
+            this._synthesisActive = Math.max(0, this._synthesisActive - 1);
+            // [Gate 3] Execute any deferred reinit now that the lock is released
+            if (this._pendingReinit && this._synthesisActive === 0) {
+                this._pendingReinit = false;
+                this.logger('[NEURAL] ✅ Executing deferred re-init (lock released).');
+                this._executeReinit();
+            }
             resolveLock();
             this._pendingTasks.delete(cacheKey);
             this._clearWatchdog();
@@ -587,6 +637,9 @@ export class PlaybackEngine extends EventEmitter {
             if (!this._tts) { this._reinitTTS(); }
 
             try {
+                // [Gate 4] Await TTS warm-up gate before calling setMetadata.
+                // Prevents 'readyState' TypeError on cold-boot first synthesis request.
+                await this._ttsReady;
                 // [v2.3.1] Catch library/metadata/DOM errors during handshake
                 await this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
             } catch (e: any) {
