@@ -1,7 +1,8 @@
 import { BaseComponent } from '../core/BaseComponent';
-import { WebviewStore } from '../core/WebviewStore';
+import { WebviewStore, StoreState } from '../core/WebviewStore';
 import { PlaybackController } from '../playbackController';
 import { escapeHtml } from '../utils';
+import { SnippetSession, SnippetEntry } from '../../common/types';
 
 export interface SnippetLookupElements extends Record<string, HTMLElement | null | undefined> {
     container: HTMLElement;
@@ -18,14 +19,24 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
     constructor(elements: SnippetLookupElements) {
         super(elements);
 
-        // 1. Subscribe to snippet history and active session
-        this.subscribe((state) => ({
+        this.subscribe((state: StoreState) => ({
             history: state.snippetHistory || [],
             activeSessionId: state.activeSessionId,
-            activeDocumentUri: state.state?.activeDocumentUri
-        }), ({ history, activeSessionId, activeDocumentUri }) => {
-            this._lastHistory = history;
-            this.renderHistory(history, activeSessionId, activeDocumentUri);
+            activeDocumentUri: state.activeDocumentUri
+        }), (data: { history: any[], activeSessionId: string | undefined, activeDocumentUri: string | null }) => {
+            const history = data.history || [];
+            const activeSessionId = data.activeSessionId;
+            const activeDocumentUri = data.activeDocumentUri;
+
+            // [PRIVACY_SHIELD] redundant filter to ensure 'brain' paths never leak to UI
+            const filteredHistory = history
+                .filter((s: SnippetSession) => s && s.id && !s.id.toLowerCase().includes('brain'))
+                .map((s: SnippetSession) => ({
+                    ...s,
+                    snippets: (s.snippets || []).filter((sn: SnippetEntry) => sn && sn.fsPath && !sn.fsPath.toLowerCase().includes('brain'))
+                }));
+            this._lastHistory = filteredHistory;
+            this.renderHistory(filteredHistory, activeSessionId, activeDocumentUri);
         });
 
         // 2. Initial request if empty
@@ -48,7 +59,7 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
             if (target.closest('.snippet-back-button')) {
                 this._selectedSessionId = null;
                 const state = this.store.getState();
-                this.renderHistory(this._lastHistory, state.activeSessionId, state.state?.activeDocumentUri);
+                this.renderHistory(this._lastHistory, state.activeSessionId, state.activeDocumentUri);
                 return;
             }
 
@@ -57,7 +68,7 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
             if (sessionCard) {
                 this._selectedSessionId = sessionCard.dataset.session || null;
                 const state = this.store.getState();
-                this.renderHistory(this._lastHistory, state.activeSessionId, state.state?.activeDocumentUri);
+                this.renderHistory(this._lastHistory, state.activeSessionId, state.activeDocumentUri);
                 return;
             }
 
@@ -78,7 +89,12 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
         if (!container) { return; }
 
         if (history.length === 0) {
-            container.innerHTML = `<div class="snippet-empty">No snippets found in Antigravity Root.</div>`;
+            container.innerHTML = `
+                <div class="snippet-empty-container">
+                    <div class="snippet-empty-icon">🛰️</div>
+                    <div class="snippet-empty">No snippets found in this session.</div>
+                </div>
+            `;
             return;
         }
 
@@ -130,7 +146,7 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
                     <span class="title-text">${escapeHtml(session.sessionName)}</span>
                 </div>
                 <div class="snippets-list">
-                    ${session.snippets.map((s: any) => {
+                    ${(session.snippets || []).map((s: any) => {
                         const turnMatch = s.name.match(/Turn_(\d+)$/i) || s.name.match(/^(\d+)_/);
                         const turnLabel = turnMatch ? `T${turnMatch[1].padStart(3, '0')}` : null;
 

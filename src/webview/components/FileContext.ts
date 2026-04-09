@@ -30,11 +30,11 @@ export class FileContext extends BaseComponent<FileContextElements> {
 
         // 1. Focused File Sync
         this.subscribe((state) => ({
-            uri: state.state.focusedDocumentUri,
-            name: state.state.focusedFileName,
-            dir: state.state.focusedRelativeDir,
-            version: state.state.focusedVersionSalt,
-            isSupported: state.state.focusedIsSupported
+            uri: state.focusedDocumentUri,
+            name: state.focusedFileName,
+            dir: state.focusedRelativeDir,
+            version: (state as any).focusedVersionSalt,
+            isSupported: state.focusedIsSupported
         }), (info) => {
             if (this.els.activeSlot) {
                 this.els.activeSlot.classList.toggle('active', !!info.uri);
@@ -59,10 +59,10 @@ export class FileContext extends BaseComponent<FileContextElements> {
 
         // 2. Active (Reading) File Sync
         this.subscribe((state) => ({
-            uri: state.state.activeDocumentUri,
-            name: state.state.activeFileName,
-            dir: state.state.activeRelativeDir,
-            version: state.state.versionSalt
+            uri: state.activeDocumentUri,
+            name: state.activeFileName,
+            dir: state.activeRelativeDir,
+            version: (state as any).versionSalt
         }), () => {
             this.syncSlot();
         });
@@ -80,7 +80,7 @@ export class FileContext extends BaseComponent<FileContextElements> {
         });
 
         this.subscribe((state) => {
-            return (state.state.activeDocumentUri !== state.state.focusedDocumentUri) && (state.state.focusedIsSupported ?? false);
+            return (state.activeDocumentUri !== state.focusedDocumentUri) && (state.focusedIsSupported ?? false);
         }, (isMismatch) => {
             if (this.els.btnLoadFile) {
                 this.els.btnLoadFile.classList.toggle('mismatch', !!isMismatch);
@@ -162,12 +162,12 @@ export class FileContext extends BaseComponent<FileContextElements> {
     private syncSlot(forcedAwaiting?: boolean): void {
         const state = this.store.getState();
         this.updateSlot(
-            state.state.activeDocumentUri || undefined,
+            state.activeDocumentUri || undefined,
             this.els.readerFilename,
             this.els.readerDir,
-            state.state.versionSalt || undefined,
-            state.state.activeFileName || undefined,
-            state.state.activeRelativeDir || undefined,
+            (state as any).versionSalt || undefined,
+            state.activeFileName || undefined,
+            state.activeRelativeDir || undefined,
             this.getFallbackText(forcedAwaiting)
         );
     }

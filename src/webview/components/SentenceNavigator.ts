@@ -37,7 +37,7 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
             this.render();
         });
 
-        this.subscribe((state) => state.state.currentSentenceIndex, (index) => {
+        this.subscribe((state) => state.currentSentenceIndex, (index) => {
             this.state.currentIndex = index;
             this.render();
         });

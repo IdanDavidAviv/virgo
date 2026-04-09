@@ -31,8 +31,8 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
             }
         });
 
-        this.subscribe((state) => state.state.currentChapterIndex, () => this.updateHighlights());
-        this.subscribe((state) => state.state.currentSentenceIndex, () => this.updateHighlights());
+        this.subscribe((state) => state.currentChapterIndex, () => this.updateHighlights());
+        this.subscribe((state) => state.currentSentenceIndex, () => this.updateHighlights());
         this.subscribeUI((state) => state.collapsedIndices, () => this.render());
     }
 
@@ -106,7 +106,7 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
         const state = WebviewStore.getInstance().getState();
         const { collapsedIndices } = WebviewStore.getInstance().getUIState();
         const chapters = state?.allChapters || [];
-        const currentIdx = state?.state?.currentChapterIndex ?? -1;
+        const currentIdx = state?.currentChapterIndex ?? -1;
 
         this.log(`Rendering Chapters: ${chapters.length} | Active: ${currentIdx}`);
 
@@ -191,8 +191,8 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
             return;
         }
 
-        const currentChapterIdx = state.state.currentChapterIndex;
-        const currentSentenceIdx = state.state.currentSentenceIndex;
+        const currentChapterIdx = state.currentChapterIndex;
+        const currentSentenceIdx = state.currentSentenceIndex;
         const currentSentences = state.currentSentences || [];
         const totalSentences = currentSentences.length;
 
