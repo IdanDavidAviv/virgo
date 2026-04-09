@@ -123,6 +123,34 @@ describe('AudioBridge — Bridge Integrity Laws', () => {
         });
     });
 
+    // ─── Law 7.3 ─────────────────────────────────────────────────────────────
+
+    describe('Law 7.3 — playAudio Single Emission Guarantee (cache-miss path)', () => {
+        it('cache-miss: start() should emit synthesisReady but NOT playAudio', async () => {
+            // Enforce: no data in either cache
+            vi.spyOn(playbackEngine, 'getCached').mockReturnValue(null);
+            (audioBridge as any)._webviewCacheManifest = new Set();
+
+            const playAudioSpy = vi.fn();
+            const synthesisReadySpy = vi.fn();
+            audioBridge.on('playAudio', playAudioSpy);
+            audioBridge.on('synthesisReady', synthesisReadySpy);
+
+            // start() is async but _speakNeural is mocked — we await the microtask queue
+            await audioBridge.start(0, 0, options);
+
+            // synthesisReady MUST fire to initiate the pull handshake
+            expect(synthesisReadySpy).toHaveBeenCalledTimes(1);
+
+            // playAudio must NOT be emitted by start() itself — only by _speakNeural on completion
+            // (speakNeural is mocked to return 'blob', which triggers its own playAudio path)
+            const startCallsOnly = playAudioSpy.mock.calls.filter(
+                ([payload]) => payload?.data === ''
+            );
+            expect(startCallsOnly).toHaveLength(0);
+        });
+    });
+
     // ─── Law 7.2 ─────────────────────────────────────────────────────────────
 
     describe('Law 7.2 — SYNTHESIS_STARTING Deduplication Guard', () => {

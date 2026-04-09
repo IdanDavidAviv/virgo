@@ -211,15 +211,11 @@ export class AudioBridge extends EventEmitter {
             } else {
                 this._logger(`[BRIDGE] Sovereign Cache MISS: ${cacheKey}. Triggering fresh synth/fetch flow.`);
                 this._stateStore.setLoadType('synth');
-                this._emitWithIntent('playAudio', {
-                    cacheKey,
-                    data: '',
-                    text: sentence,
-                    chapterIndex,
-                    sentenceIndex,
-                    totalSentences: chapter.sentences.length,
-                    sentences: chapter.sentences
-                });
+                // [Law 7.3] Only synthesisReady fires on miss — NOT playAudio.
+                // playAudio is emitted exactly once, by _speakNeural, when real data is available.
+                // Emitting playAudio(data:'') here was wrong: it violated the playAudio contract
+                // (emit only when you have data) and caused the webview engine to start two
+                // competing AudioBufferSourceNode decodes → pitch + speed corruption.
                 this._emitWithIntent('synthesisReady', { cacheKey });
             }
 
