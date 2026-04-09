@@ -45,7 +45,6 @@ The diagram below illustrates the timing relationship between intent creation an
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant S as Webview Store
     participant C as Playback Controller
     participant E as Extension
     participant S as Webview Store / Engine
@@ -59,9 +58,14 @@ sequenceDiagram
     E->>E: Neural Synthesis
     E->>S: IPC: SYNTHESIS_READY (IntentId: X, CacheKey: K)
     
-    alt Intent Parity
-        S->>E: IPC: FETCH_AUDIO (CacheKey: K)
-        E->>S: IPC: DATA_PUSH (Binary Base64)
+    alt Cache HIT (Extension RAM)
+        E->>S: IPC: playAudio (CacheKey: K, data: <blob>)
+        S->>U: Start Audio Playback
+    else Cache MISS — synthesisReady pull handshake [Law 7.3]
+        E->>S: IPC: synthesisReady (CacheKey: K)
+        S->>E: IPC: REQUEST_SYNTHESIS (CacheKey: K)
+        E->>E: _speakNeural() → audio data
+        E->>S: IPC: playAudio (CacheKey: K, data: <blob>)
         S->>U: Start Audio Playback
     else Stale Intent (User Stopped)
         Note over S: Intent mismatch (X vs Y)
@@ -208,3 +212,57 @@ private onIntentIncrement() {
 
 **Verification:** For any given `cacheKey + intentId` pair, exactly **1**
 `[WEBVIEW INFO] [HOST->WEBVIEW] [SYNTHESIS_STARTING]` line in the diagnostics log.
+
+---
+
+### Law 7.3 — `playAudio` Single-Emission Contract (Cache-Miss Path)
+
+> **Observed: 2026-04-10.** Source: `audioBridge.ts` cache-miss branch. Commit: `112fafe`.
+
+**Problem:** The cache-miss `else` branch in `audioBridge.start()` previously emitted a speculative
+`playAudio` with `data: ''` before synthesis had begun — violating the contract that `playAudio`
+means "here is audio, play it." This caused `WebviewAudioEngine` to initiate two competing
+`AudioBufferSourceNode` decodes for the same intent → pitch corruption, 2×–16× speed, or silence.
+
+**Root Cause:** The emission was added as an optimistic pre-warm hint but the webview's
+`CommandDispatcher` has no "receive playAudio, wait for data" branch — it immediately attempted
+`playFromCache → FETCH_AUDIO`, racing against the real synthesis landing.
+
+**Law:** The `playAudio` event MUST be emitted **exactly once per sentence**, by `_speakNeural()`,
+only AFTER synthesis has produced real audio data. The cache-miss `start()` path MUST emit
+**only `synthesisReady`** to initiate the pull handshake. The handshake flow is:
+
+```
+start() cache-miss
+  → emit synthesisReady { cacheKey }
+  → [webview] miss → REQUEST_SYNTHESIS
+  → synthesize() → _speakNeural()
+  → emit playAudio { cacheKey, data: <blob> }   ← SINGLE authoritative emission
+```
+
+**Enforcement:**
+```typescript
+// ✅ CORRECT — in audioBridge.ts cache-miss branch:
+this._emitWithIntent('synthesisReady', { cacheKey }); // Only this. Nothing else.
+
+// ❌ WRONG — must never appear in cache-miss:
+this._emitWithIntent('playAudio', { cacheKey, data: '', ... }); // Violates contract
+```
+
+**Test:** `tests/core/audioBridge.bridge.test.ts` — Law 7.3 describe block:
+asserts that `start()` on a cache-miss emits `synthesisReady` (×1) and zero `playAudio(data:'')` signals.
+
+**Verification:** In `diagnostics.log`, for a cache-miss sentence:
+- ✅ One `[BRIDGE] >> EMIT synthesisReady`
+- ✅ Zero `[BRIDGE] >> EMIT playAudio` from `start()` (only one from `_speakNeural`)
+- ✅ One `FETCH_AUDIO` round-trip, not two
+- ✅ Audio starts promptly with correct pitch and speed
+
+**Known Design Gap — LOAD_DOCUMENT without Play Intent:**
+If the user presses **Load File** (dispatches `LOAD_DOCUMENT`) and then **Play** (dispatches
+`TOGGLE_PLAY_PAUSE` or `CONTINUE`), the audio bridge has no active sentence/intent → silence.
+`LOAD_DOCUMENT` alone calls `loadCurrentDocument()` — it does NOT call `start()` or prime the bridge.
+The `LOAD_AND_PLAY` action is the correct atomic path for load + immediate playback.
+Any "Play after Load" UX flow MUST either:
+1. Use `LOAD_AND_PLAY` directly, OR
+2. Guard `continue()` with a fallback to `start(0, 0, options)` when no active intent exists.

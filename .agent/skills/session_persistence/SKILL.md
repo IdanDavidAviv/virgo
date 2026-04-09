@@ -39,3 +39,35 @@ In `mcpStandalone.ts` or `mcpBridge.ts`, the `inject_markdown` tool must accept 
 ## 5. Maintenance
 - **Update Location**: Metadata updates MUST target `extension_state.json`.
 - **Abolition**: `state.json` in the `brain/` directory is deprecated and MUST NOT be used for session vitals.
+
+---
+
+## 6. Snippet Scanner Exclusion List
+
+> [!NOTE]
+> Observed: 2026-04-10. `_getSnippetHistory()` iterates ALL directories in `antigravityRoot` (`read_aloud/`).
+> System-only directories are NOT user sessions and produce empty results but waste I/O and clutter
+> session discovery. They MUST be excluded from the scan.
+
+### Directories to Filter (in `_getSnippetHistory()`)
+
+| Directory | Reason |
+|---|---|
+| `brain/` | Agent memory (already excluded — line 802) |
+| `protocols/` | Agent protocol templates — not a user session |
+| `tempmediaStorage/` | Transient media files — not a user session |
+
+### Implementation
+```typescript
+// REQUIRED filter in _getSnippetHistory() directory scan:
+const EXCLUDED_DIRS = new Set(['brain', 'protocols', 'tempmediaStorage']);
+
+// In the filter instead of checking name === 'brain' only:
+if (EXCLUDED_DIRS.has(name)) { return null; }
+```
+
+### Files in Root (Non-Session)
+These are filtered automatically by the `type !== FileType.Directory` check:
+- `active_servers.json`
+- `mcp_discovery.json`
+- Any future flat files added to the root

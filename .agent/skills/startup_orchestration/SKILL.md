@@ -63,6 +63,29 @@ graph TD
 ### 3.3 SSOI (Single Source of Intent)
 - Initial `playbackIntentId` MUST be preserved through the sequence to ensure that any user command sent *during* hydration (e.g., "Stop") takes precedence over late-arriving data packets.
 
+### 3.4 Focused vs Active Document Duality
+
+> [!IMPORTANT]
+> These are two distinct state fields with different lifecycle semantics. Binding the wrong one to UI
+> causes the "auto-loading" regression where switching tabs overwrites the Loaded File display.
+
+| Field | Updated By | Semantics | UI Usage |
+|---|---|---|---|
+| `focusedDocumentUri` / `focusedFileName` | `setActiveEditor()` on every tab change | **Passive** — tracks cursor location. Updates on every `onDidChangeActiveTextEditor` event. | "Focused File" (read-only indicator). MUST NOT be used for "Loaded File" display. |
+| `activeDocumentUri` / `activeDocumentFileName` | `loadCurrentDocument()` on explicit user action | **Active** — the document loaded for synthesis. Only updates when `LOAD_DOCUMENT` or `LOAD_AND_PLAY` succeeds. | **"Loaded File"** — the correct binding for any UI slot showing the document queued for reading. |
+
+**Rule:** Any webview UI component displaying "Loaded File", "Current Document", or equivalent MUST
+bind to `activeDocumentFileName` (or `activeDocumentUri`). Binding to `focusedFileName` will cause
+the field to update silently on every tab switch, overriding the user's explicit load action.
+
+**DPG Interaction:** `_tryInitialDocumentLoad()` calls `loadCurrentDocument()` which promotes the
+focused URI to active. After this promotion, `focusedFileName` continues to track tab switches
+independently — it must never again feed the "Loaded File" display slot.
+
+**LOAD_DOCUMENT vs LOAD_AND_PLAY:**
+- `LOAD_DOCUMENT` → `loadCurrentDocument()` → sets `activeDocumentUri` — does NOT prime audio bridge.
+- `LOAD_AND_PLAY` → `loadCurrentDocument()` + `continue()` — atomic. Play button after Load File MUST use this or guard `continue()` with a `start()` fallback.
+
 ---
 
 ## 4. Gate Implementation Law ⚖️

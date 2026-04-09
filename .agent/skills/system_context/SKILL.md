@@ -59,6 +59,17 @@ description: Architectural map and development guidelines for the Read Aloud ext
 ### 2.1 The "Ghost Focus" Multiplexer
 Located in `extension.ts`, the `syncSelection()` function tracks document focus across tab changes, editor switches, and sidebar interactions. If no active editor exists (e.g., the webview has focus), it falls back to the last active tab or visible editor.
 
+> [!IMPORTANT]
+> **`focusedFileName` (passive) ≠ `activeDocumentFileName` (explicit load)**
+>
+> `syncSelection()` calls `setActiveEditor()` on EVERY tab change, which updates `focusedDocumentUri`
+> and `focusedFileName` in `StateStore`. This is passive tracking only.
+>
+> `activeDocumentFileName` is set exclusively by `loadCurrentDocument()` — only when the user
+> explicitly loads a file. Any webview UI component displaying **"Loaded File"** or **"Current Document"**
+> MUST bind to `activeDocumentFileName`, not `focusedFileName`. Binding to `focusedFileName` causes
+> the display to overwrite on every tab switch, bypassing the explicit Load File button mechanism.
+
 ### 2.2 Brain Sensitivity Protocol
 The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When a new directory is created, it automatically pivots its internal session context to maintain parity with the active agent session.
 
