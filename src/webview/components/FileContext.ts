@@ -38,19 +38,19 @@ export class FileContext extends BaseComponent<FileContextElements> {
         }), (info) => {
             if (this.els.activeSlot) {
                 this.els.activeSlot.classList.toggle('active', !!info.uri);
-                this.els.activeSlot.classList.toggle('unsupported', !info.isSupported);
             }
 
             if (this.els.activeFilename) {
-                this.els.activeFilename.textContent = info.uri ? info.name : 'No Active File';
+                this.els.activeFilename.textContent = info.name || 'No Document Focused';
             }
             if (this.els.activeDir) {
+                // [DE-RESTRICT] Never show restriction warnings.
                 this.els.activeDir.textContent = info.dir ? `${info.dir} /` : '';
             }
 
             const ui = this.store.getUIState();
             if (this.els.btnLoadFile) {
-                this.els.btnLoadFile.disabled = !info.isSupported || ui.isAwaitingSync;
+                this.els.btnLoadFile.disabled = ui.isAwaitingSync;
             }
             if (this.els.btnResetContext) {
                 this.els.btnResetContext.disabled = ui.isAwaitingSync;
@@ -80,7 +80,7 @@ export class FileContext extends BaseComponent<FileContextElements> {
         });
 
         this.subscribe((state) => {
-            return (state.activeDocumentUri !== state.focusedDocumentUri) && (state.focusedIsSupported ?? false);
+            return (state.activeDocumentUri?.toString() !== state.focusedDocumentUri?.toString());
         }, (isMismatch) => {
             if (this.els.btnLoadFile) {
                 this.els.btnLoadFile.classList.toggle('mismatch', !!isMismatch);

@@ -34,14 +34,6 @@ export class SyncManager implements vscode.Disposable {
     public setView(view: vscode.WebviewView | undefined) {
         this._view = view;
 
-        // [v2.3.1 OMEGA] Immediate Grounding
-        // Ensure intent baseline is set as soon as a view is available.
-        if (view && (this._stateStore.state.playbackIntentId === 0 || this._stateStore.state.batchIntentId === 0)) {
-            this._logger('[SYNC] Grounding Intent Baseline...');
-            if (this._stateStore.state.playbackIntentId === 0) { this._stateStore.setPlaybackIntentId(1); }
-            if (this._stateStore.state.batchIntentId === 0) { this._stateStore.setBatchIntentId(1); }
-        }
-
         if (view?.visible && this._needsSync) {
             this._logger('[SYNC] Flushing background updates on reveal');
             this.requestSync(true); // Immediate flush
@@ -61,8 +53,7 @@ export class SyncManager implements vscode.Disposable {
         }
 
         if (!this._view?.visible) {
-            this._needsSync = true;
-            return;
+            this._logger(`[SYNC] 👻 View Hidden (visible: ${this._view?.visible ?? 'false'}) - SYNCING ANYWAY (Simulation)`);
         }
 
         if (immediate) {
@@ -91,16 +82,8 @@ export class SyncManager implements vscode.Disposable {
 
         this._needsSync = false;
         
-        // Final sanity check for visibility
-        if (this._view?.visible) {
-            this._dashboardRelay.sync(historyToSync, this._activeSessionId);
-        } else {
-            this._needsSync = true;
-            // Restore history if flush failed
-            if (historyToSync) {
-                this._pendingSnippetHistory = historyToSync;
-            }
-        }
+        // [DIAGNOSTIC] Final sanity check for visibility - BYPASSED
+        this._dashboardRelay.sync(historyToSync, this._activeSessionId);
     }
 
     public dispose() {

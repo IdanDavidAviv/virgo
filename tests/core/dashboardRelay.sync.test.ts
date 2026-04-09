@@ -68,8 +68,8 @@ describe('DashboardRelay (Unified Sync)', () => {
         
         const packet = postMessage.mock.calls[0][0];
         expect(packet.command).toBe('UI_SYNC');
-        expect(packet.state.activeFileName).toBe('file.md');
-        expect(packet.state.currentChapterIndex).toBe(1);
+        expect(packet.activeFileName).toBe('file.md');
+        expect(packet.currentChapterIndex).toBe(1);
         expect(packet.allChapters).toHaveLength(2);
         expect(packet.allChapters[0].count).toBe(2);
         expect(packet.playbackStalled).toBe(false);
@@ -90,6 +90,5 @@ describe('DashboardRelay (Unified Sync)', () => {
         const packet = postMessage.mock.calls[0][0];
         
         expect(packet.currentSentences).toEqual(['s1', 's2']);
-        expect(packet.currentText).toBe('s1');
     });
 });

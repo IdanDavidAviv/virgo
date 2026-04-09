@@ -156,9 +156,9 @@
         },
         "readAloud.playback.rate": {
           "type": "number",
-          "default": 0,
-          "minimum": -10,
-          "maximum": 10,
+          "default": 1.0,
+          "minimum": 0.5,
+          "maximum": 2.0,
           "description": "Speech rate (speed). Higher is faster."
         },
         "readAloud.playback.volume": {

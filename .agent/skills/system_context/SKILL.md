@@ -27,7 +27,7 @@ description: Architectural map and development guidelines for the Read Aloud ext
 - **`WebviewAudioEngine.ts`**: The "Dumb Player" (Stateless worker). Executes single-threaded audio playback using a single HTMLAudioElement for all strategies.
 
 ### 1.3 Auditory Strategy & Caching (The Holistic Hierarchy)
-- **Unified Synthesis Pipe**: [v2.3.1] The engine no longer uses explicit Strategy classes. Logic for Neural vs Local is branch-based within the `WebviewAudioEngine`.
+- **Unified Synthesis Pipe**: The engine no longer uses separate strategy classes. Logic for Neural vs Local is controlled via the `engineMode` property and executed by the `WebviewAudioEngine`.
 - **`CacheManager.ts`**: The **Tier-1 (Persistent)** storage (SSOT). Uses **IndexedDB** (`ReadAloudAudioCache`) with a 100MB cap and 7-day TTL.
 - **`cachePolicy.ts`**: The centralized authority for key generation across both environments.
 
@@ -50,27 +50,31 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
 
 - **Lifecycle**: Prefetch tasks are aborted immediately on `IntentId` increments (e.g., user skips forward).
 
-### 2.5 Single Source of Intent (SSOI) & Handshake Gate [v2.3.1]
-- **Intent Sovereignty**: All synthesis and playback tasks MUST be tagged with a `playbackIntentId`. Components MUST immediately eject tasks that do not match the current global intent. Intent IDs are initialized to `Date.now()` to prevent race conditions.
-- **Single Source of Intent (SSOI)**: The `WebviewStore` is the **exclusive owner** of active intent and synchronization state. `PlaybackController` MUST NOT maintain private copies of `isPlaying`, `isAwaitingSync`, or `playbackIntentId`. All logic must read from and write to the store to prevent "Split-Brain" behavior.
+### 2.5 Single Source of Intent (SSOI) & Handshake Gate 
+- **Intent Sovereignty**: All synthesis and playback tasks MUST be tagged with a `playbackIntentId`. Components MUST immediately eject tasks that do not match the current global intent. Intent IDs are initialized to **1** as the authoritative baseline across all environments (Extension Host, Webview, PlaybackEngine) to ensure total synchronization upon first handshake.
+- **Single Source of Intent (SSOI)**: The `WebviewStore` is the **exclusive owner** of active intent and synchronization state in the UI. `PlaybackController` MUST NOT maintain private copies of `isPlaying`, `isAwaitingSync`, or `playbackIntentId`. All logic must read from and write to the store to prevent "Split-Brain" behavior.
 - **Abortable Intent Pattern**: `WebviewAudioEngine` manages an internal `AbortController` linked to the active intent. New intents call `abort()` on the previous controller, which immediately releases locks and cancels async playback/fetch tasks.
 - **Authoritative Stop**: The `stop()` command is universal. It triggers a cascade of aborts across all active segments, pre-fetch batches, and the primary synthesis lock in the `WebviewAudioEngine`.
-- **Handshake Gate**: The Webview MUST block all synthesis requests and pre-fetching until the `isHandshakeComplete` flag is true in the store.
+- **Handshake Gate**: The Webview MUST block all synthesis requests and pre-fetching until the `isHandshakeComplete` flag is true in the store. This ensures the intent baseline has synced.
 - **Control Sovereignty**: User actions in the Webview are authoritative. Upon a user click, the system enters a **Sovereign Window (5s)**:
     - `playbackIntentId` is updated in the store (`Date.now()`).
     - `isAwaitingSync` is set to `true` in the store.
     - Incoming `UI_SYNC` packets with lower `intentId`s are ignored to prevent "UI Flickering".
 - **Instance Guard**: To prevent "Bridge Storms", the `McpBridge` enforces a **200ms eviction delay** before force-purging stale sessions.
+- **Monotonic Batch ID Hardening**: `batchId` tracks manual vs auto-advance sequences. 
+    - **Manual Action**: Increments `batchId`.
+    - **Auto-Advance**: Persists `batchId` to maintain sequence continuity.
+    - **Batch 0**: Prevented globally; minimum valid `batchId` is 1. Synthesis requests with 0-value IDs auto-adopt current authoritative IDs.
 
-### 2.6 Snippet Data Sovereignty [v2.3.1]
+### 2.6 Snippet Data Sovereignty 
 - **Directory Redirection**: To ensure the playback experience remains focused on content, the extension's data root is redirected to the `antigravity/read_aloud/` subdirectory.
 - **Sovereign Isolation**:
     - **User Content**: All playback snippets, session metadata (`extension_state.json`), and transitory audio files MUST reside in `/read_aloud/<sessionId>`.
     - **Agent Process**: Internal agent artifacts (e.g., `task.md`, `implementation_plan.md`, `walkthrough.md`, `.log`) reside in `/brain/<sessionId>`.
-- **UI Visibility & Privacy Shield**:
-    - **Discovery Logic**: The Webview Sidebar (Snippet Lookup) MUST exclusively discover files from the `read_aloud/` path.
-    - **No-Brain Regex**: Discovery and rendering logic MUST explicitly ignore any path or session ID containing the word `brain` (case-insensitive). This ensures that agent artifacts (tasks, plans, logs) do not clutter the user's snippet history.
-    - **Limit**: Snippet history is strictly limited to the **10 most recent** non-brain sessions to prevent performance degradation.
+    - **UI Visibility & Privacy Shield (Sovereignty Protocol)**:
+    - **Focus Sovereignty**: Focus state is the ultimate authority. If an agent artifact (e.g., `task.md`, `diag.log`) is focused in the VS Code editor, the system MUST load the document and allow synthesis. 
+    - **Discovery-only Isolation (The Brain Exception)**: The Webview Sidebar (Snippet Lookup) MUST filter ONLY the `brain/` directory. Directories like `knowledge/` and `protocols/` are permissible for discovery. This ensures UI history hygiene while maintaining permissive authoritative focus.
+    - **Limit**: Snippet history is strictly limited to the **10 most recent** non-system sessions to prevent performance degradation.
 
 ## 3. Hook Protocol (Development Guide)
 
@@ -110,7 +114,7 @@ graph TD
     end
 
     subgraph "Webview (Playback & Persistence SSOT)"
-        G --> I[NeuralAudioStrategy: Ingest]
+        G --> I[WebviewAudioEngine: Ingest]
         H --> J[CacheManager: Load Blob]
         I --> K[Tier-2: Memory Window Objects]
         J --> K
@@ -135,11 +139,14 @@ To maintain high-integrity state and prevent "Split-Brain" bugs, agents MUST adh
 Never scatter `Date.now()` or manual ID increments across components.
 - **Rule**: Use centralized store methods (e.g., `store.resetPlaybackIntent()`). This ensures that the `intentId` update and the `isAwaitingSync` lock happen in a single atomic state transition.
 
-### 7.4 Sanitization Layer [v2.3.1]
-- **Purpose**: Prevent `undefined` properties (CundefinedSundefined logging) from infecting the state.
-- **Mechanism**: `MessageClient` implements a **Sanitizer** that validates `UI_SYNC` packets before they reach the Store, ensuring concrete numbers for indices, volume, and rate.
+### 7.4 Sanitization Layer 
+- **Purpose**: Prevent `undefined` properties (CundefinedSundefined logging) from infecting the state and ensure valid defaults.
+- **Sanitizer**: `MessageClient` implements a **Sanitizer** that validates `UI_SYNC` packets before they reach the Store.
+- **Zero-Point Baseline**: All intent IDs (`playbackIntentId`, `batchIntentId`) MUST initialize to **1**. 
+- **Baseline Rate**: The system mandates **1.0** as the authoritative default (Normal) rate. All calculations, store initializations, and UI state normalization MUST adhere to this constant. Values of 0 for rate are considered corrupt and MUST be defaulted to 1.0.
+- **Loading Boundaries**: The system maintains a distinction between UI focus and Discovery. Internal agent paths (`brain`, `antigravity`) are filtered ONLY from the Snippet Discovery Sidebar to maintain history hygiene. They are FULLY permitted for loading and synthesis if they are the actively focused editor in VS Code.
 
-### 7.5 State-First Convergence [v2.3.1]
+### 7.5 State-First Convergence 
 - **Purpose**: Resolve "Ghost State" during high-frequency IPC updates.
 - **Hierarchy**: During a `UI_SYNC`, the Extension's nested `state` object is the definitive authority. The `WebviewStore`'s `patchState` must perform a strictly mirrors the sub-object onto flat properties to prevent local optimistic UI from permanently diverging from the Extension's reality.
 
@@ -154,7 +161,7 @@ Before adding any new property, method, or IPC command:
 ### 8.2 The "Duck Test" for Primitives
 If a new requirement "looks like" something the Store already handles (e.g., "I need a way to wait for a response"), use the existing mechanism (e.g., `isAwaitingSync`) instead of creating a new one (e.g., `this.isWaitingForDoc`).
 
-## 9. Autoradiant Health & Fallback Protocol [v2.4.0]
+## 9. Autoradiant Health & Fallback Protocol 
 
 To ensure playback reliability despite the inherent instability of internet-based Neural TTS, the system adheres to the **Autoradiant** philosophy: "Neural by choice, Local by necessity, Healing by design."
 

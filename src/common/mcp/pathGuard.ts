@@ -13,10 +13,10 @@ export class PathGuard {
             throw new Error(`[PathGuard] ${label} is missing.`);
         }
 
-        // Strict whitelist: small alphanumeric, hyphens, underscores
-        const regex = /^[a-z0-9_-]+$/i;
+        // Strict whitelist: small alphanumeric, hyphens, underscores, dots
+        const regex = /^[a-z0-9_\-\.]+$/i;
         if (!regex.test(id)) {
-            throw new Error(`[PathGuard] Invalid ${label}: '${id}'. Only alphanumeric, hyphens, and underscores are allowed (Security Breach Prevention).`);
+            throw new Error(`[PathGuard] Invalid ${label}: '${id}'. Only alphanumeric, hyphens, underscores, and dots are allowed (Security Breach Prevention).`);
         }
 
         return id;

@@ -92,13 +92,13 @@ describe('SettingsDrawer', () => {
 
         const slider = elements.rateSlider as HTMLInputElement;
         
-        // 0 -> 1.0x
-        slider.value = '0';
+        // 1.0 -> 1.0x
+        slider.value = '1.0';
         slider.dispatchEvent(new Event('input'));
         expect(elements.rateVal.textContent).toBe('1.0x');
 
-        // 5 -> 1.5x (1 + 5/10)
-        slider.value = '5';
+        // 1.5 -> 1.5x
+        slider.value = '1.5';
         slider.dispatchEvent(new Event('input'));
         expect(elements.rateVal.textContent).toBe('1.5x');
     });
@@ -111,14 +111,14 @@ describe('SettingsDrawer', () => {
             data: {
                 command: IncomingCommand.UI_SYNC,
                 volume: 25,
-                rate: -5,
+                rate: 0.5,
                 currentSentenceIndex: 0
             }
         }));
 
         expect(elements.volumeSlider.value).toBe('25');
         expect(elements.volumeVal.textContent).toBe('25%');
-        expect(elements.rateSlider.value).toBe('-5');
+        expect(elements.rateSlider.value).toBe('0.5');
         expect(elements.rateVal.textContent).toBe('0.5x');
     });
 

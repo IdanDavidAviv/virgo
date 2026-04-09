@@ -4,9 +4,9 @@ import { CacheManager } from '../cacheManager';
 import { MessageClient } from './MessageClient';
 
 /**
- * WebviewAudioEngine: Simplified "Dumb Player" Worker (v2.3.1)
+ * WebviewAudioEngine: Simplified "Dumb Player" Worker (v2.3.2)
  * [AUTORADIANT]: Decommissioned AudioStrategy pattern. Unified synthesis pipe.
- * passive worker that executes commands from the Extension (Extension handles health).
+ * passive worker that executes commands from the Extension.
  */
 export class WebviewAudioEngine {
   private static instance: WebviewAudioEngine;
@@ -26,10 +26,8 @@ export class WebviewAudioEngine {
   private pendingResolvers: Set<() => void> = new Set();
   private _localSequence: number = 0;
   private activeSequence: number = 0;
-  private activeLockResolver: (() => void) | null = null;
-  private activePlaybackResolver: (() => void) | null = null;
-  private _activeObjectURLs: Set<string> = new Set();
   private _abortController: AbortController | null = null;
+  private _activeObjectURLs: Set<string> = new Set();
 
   public constructor() {
     this._audio = new Audio();
@@ -56,15 +54,10 @@ export class WebviewAudioEngine {
     this.instance = undefined as any;
   }
 
-  // Testability & Visibility
   public isBusy(): boolean {
     return this.pendingResolvers.size > 0;
   }
 
-  /**
-   * [v2.3.1] Synchronous Tier-1 check.
-   * Required for fast predictive synthesis logic.
-   */
   public isSegmentReady(key: string): boolean {
     return CacheManager.getInstance().isCachedLocally(key);
   }
@@ -74,12 +67,18 @@ export class WebviewAudioEngine {
   }
 
   private setupAudioListeners(): void {
-    this._audio.onplay = () => this.emit(AudioEngineEventType.PLAYING);
-    this._audio.onpause = () => this.emit(AudioEngineEventType.PAUSED);
-    this._audio.onended = () => this.emit(AudioEngineEventType.ENDED);
-    this._audio.onerror = (e) => this.emit(AudioEngineEventType.ERROR, `Audio Error: ${this._audio.error?.message || 'Unknown'}`);
-    this._audio.onwaiting = () => this.emit(AudioEngineEventType.BUFFERING);
-    this._audio.onstalled = () => this.emit(AudioEngineEventType.STALLED);
+    this._audio.addEventListener('play', () => this.emit(AudioEngineEventType.PLAYING));
+    this._audio.addEventListener('pause', () => this.emit(AudioEngineEventType.PAUSED));
+    this._audio.addEventListener('ended', () => this.emit(AudioEngineEventType.ENDED));
+    this._audio.addEventListener('error', () => {
+        const errorMsg = `Audio Error: ${this._audio.error?.message || 'Unknown'} (Code: ${this._audio.error?.code})`;
+        console.error(`[AUDIO] ❌ ${errorMsg}`);
+        this.emit(AudioEngineEventType.ERROR, errorMsg);
+    });
+    this._audio.addEventListener('waiting', () => this.emit(AudioEngineEventType.BUFFERING));
+    this._audio.addEventListener('stalled', () => this.emit(AudioEngineEventType.STALLED));
+    this._audio.addEventListener('loadstart', () => console.log('[AUDIO] 🏁 loadstart'));
+    this._audio.addEventListener('canplay', () => console.log('[AUDIO] ✅ canplay'));
   }
 
   private setupStoreListeners(): void {
@@ -101,24 +100,15 @@ export class WebviewAudioEngine {
     this.onEvent?.({ type, message, intentId: this.activeIntentId });
   }
 
-   /**
-   * [v2.3.1] Simplified Lock Mechanism (Abortable)
-   * Ensures serial execution of playback actions with authoritative cancellation.
-   */
   public async acquireLock(intentId?: number): Promise<(() => void) | null> {
-    console.log(`[AUDIO] 🔒 AcquireLock Start: intent=${intentId}, active=${this.activeIntentId}`);
-    
-    // 1. Intent Sovereignty & Preemption
     const isNewIntent = intentId !== undefined && intentId > this.activeIntentId;
     
     if (isNewIntent) {
-      console.log(`[AUDIO] 🔥 Sovereign Preemption: ${intentId} > ${this.activeIntentId} (Instance=${this.instanceId})`);
-      this.stop(); // Authoritative reset - also resets playbackMutex to resolved
+      this.stop(); 
       this.activeIntentId = intentId!;
       this._abortController = new AbortController();
       this.activeSequence = ++this._localSequence;
     } else if (intentId !== undefined && intentId < this.activeIntentId) {
-        console.warn(`[AUDIO] 🧟 Stale Intent Rejected: ${intentId} < ${this.activeIntentId} (Instance=${this.instanceId})`);
         return null;
     } else if (this._abortController === null) {
       this._abortController = new AbortController();
@@ -127,7 +117,6 @@ export class WebviewAudioEngine {
     const currentSequence = this.activeSequence;
     const currentAbortSignal = this._abortController?.signal;
     
-    // [SOVEREIGNTY] Capture mutex AFTER potential preemption reset
     const previousMutex = this.playbackMutex; 
     let resolveNext: (() => void) | undefined;
     this.playbackMutex = new Promise<void>(resolve => {
@@ -136,22 +125,16 @@ export class WebviewAudioEngine {
     this.pendingResolvers.add(resolveNext!);
 
     try {
-      console.log(`[AUDIO] ⏳ Waiting for Mutex: intent=${intentId} (Currently held by: ${this._lockOwnerIntentId}, Instance=${this.instanceId})`);
-      
       let watchdog: any;
-      
-      // [SOVEREIGNTY] Authoritative Wait with Safety Watchdog
       await Promise.race([
-          previousMutex.catch(() => {}), // Ignore previous errors
+          previousMutex,
           new Promise((_, reject) => {
-              if (currentAbortSignal?.aborted) {
-                  return reject(new Error('Aborted'));
-              }
+              if (currentAbortSignal?.aborted) { return reject(new Error('Aborted')); }
               currentAbortSignal?.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
           }),
           new Promise(r => {
               watchdog = setTimeout(() => {
-                  console.warn(`[AUDIO] ⚠️ Mutex Safety Timeout (intent=${intentId}, waiting for=${this._lockOwnerIntentId}, Instance=${this.instanceId})`);
+                  console.warn(`[AUDIO] ⚠️ Mutex Safety Timeout (intent=${intentId})`);
                   r(null);
               }, 3000);
           })
@@ -159,27 +142,19 @@ export class WebviewAudioEngine {
       
       if (watchdog) {clearTimeout(watchdog);}
       
-      // 2. Post-lock Verification
-      // If we were preempted WHILE waiting, we must discard this lock and pass it forward.
       if (currentSequence !== this.activeSequence || (currentAbortSignal && currentAbortSignal.aborted)) {
-          console.warn(`[AUDIO] 🧟 Intent Discarded (Post-Lock): intent=${intentId} (Instance=${this.instanceId})`);
           this.pendingResolvers.delete(resolveNext!);
           resolveNext!();
           return null;
       }
 
       this._lockOwnerIntentId = intentId ?? -1;
-      console.log(`[AUDIO] ✅ Mutex Acquired: intent=${intentId} (Instance=${this.instanceId})`);
-      
       return () => {
-        if (this._lockOwnerIntentId === (intentId ?? -1)) {
-            this._lockOwnerIntentId = null;
-        }
+        if (this._lockOwnerIntentId === (intentId ?? -1)) { this._lockOwnerIntentId = null; }
         this.pendingResolvers.delete(resolveNext!);
         resolveNext!();
       };
     } catch (err: any) {
-      console.warn(`[AUDIO] 🔒 Lock Failed: ${err.message} (intent=${intentId})`);
       this.pendingResolvers.delete(resolveNext!);
       resolveNext!();
       return null;
@@ -208,7 +183,6 @@ export class WebviewAudioEngine {
         await new Promise<void>((resolve) => {
             const url = URL.createObjectURL(blob);
             this._activeObjectURLs.add(url);
-            this._audio.src = url;
             
             let isResolved = false;
             let playWatchdog: any;
@@ -216,29 +190,39 @@ export class WebviewAudioEngine {
             const finish = (reason: string) => {
                 if (isResolved) {return;}
                 isResolved = true;
-                
                 if (playWatchdog) {clearTimeout(playWatchdog);}
                 this._audio.removeEventListener('ended', onEnded);
                 this._audio.removeEventListener('error', onError);
+                this._audio.removeEventListener('canplay', onCanPlay);
                 if (signal) { signal.removeEventListener('abort', onAborted); }
-                
                 URL.revokeObjectURL(url);
-                if (this.activePlaybackResolver === resolve) { this.activePlaybackResolver = null; }
-                
-                // console.log(`[AUDIO] 🏁 Play finished (reason=${reason}, intent=${intentId})`);
                 resolve();
             };
 
+            const onCanPlay = () => {
+                this._audio.play().catch(e => {
+                    if (e.name === 'NotAllowedError') {
+                        // [AUTOPLAY GUARD] Browser blocked play() — no user gesture yet.
+                        // Rollback the store immediately to prevent phantom isPlaying:true state.
+                        console.warn(`[AUDIO] 🚫 Autoplay blocked for: ${key}. Rolling back store.`);
+                        WebviewStore.getInstance().patchState({ isPlaying: false, isPaused: false });
+                        // [PROPAGATION] Notify extension so its StateStore stays in sync.
+                        // without this the next UI_SYNC would overwrite the rollback with isPlaying:true.
+                        try {
+                            (window as any).vscode?.postMessage({ command: 'PLAYBACK_BLOCKED', cacheKey: key });
+                        } catch (_) { /* webview sandbox — non-fatal */ }
+                    } else if (e.name !== 'AbortError') {
+                        console.error(`[AUDIO] ❌ Play Failed: ${key}`, e);
+                    }
+                    finish('reject');
+                });
+            };
+
             const onEnded = () => finish('ended');
-            const onError = (e: any) => {
-                this.emit(AudioEngineEventType.ERROR, `Playback Error: ${intentId}`);
-                finish('error');
-            };
-            const onAborted = () => {
-                this._audio.pause();
-                finish('abort');
-            };
+            const onError = () => finish('error');
+            const onAborted = () => { this._audio.pause(); finish('abort'); };
             
+            this._audio.addEventListener('canplay', onCanPlay);
             this._audio.addEventListener('ended', onEnded);
             this._audio.addEventListener('error', onError);
             if (signal) {
@@ -246,52 +230,55 @@ export class WebviewAudioEngine {
                 signal.addEventListener('abort', onAborted, { once: true });
             }
             
-            this._audio.play()
-                .catch(e => {
-                    if (e.name !== 'AbortError') {
-                        console.error(`[AUDIO] ❌ Play Rejected: intent=${intentId}`, e);
-                    }
-                    finish('reject');
-                });
+            this._audio.src = url;
+            this._audio.load();
 
-            this.activePlaybackResolver = resolve;
-            playWatchdog = setTimeout(() => {
-                finish('watchdog');
-            }, 3000); // 3s safety fallback
+            playWatchdog = setTimeout(() => finish('watchdog'), 5000);
         });
     } finally {
         release();
     }
   }
 
-  public async playFromBase64(base64: string, cacheKey?: string, intentId?: number): Promise<void> {
-    try {
-        const response = await fetch(`data:audio/mpeg;base64,${base64}`);
-        const blob = await response.blob();
-        await this.playBlob(blob, cacheKey || 'temp', intentId);
-    } catch (e: any) {
-        this.emit(AudioEngineEventType.ERROR, e.message);
-    }
+  public async playFromBase64(base64: string, cacheKey: string, intentId: number): Promise<void> {
+      const buffer = this._base64ToBuffer(base64);
+      const blob = new Blob([buffer.buffer as ArrayBuffer], { type: 'audio/mpeg' });
+      await this.playBlob(blob, cacheKey, intentId);
   }
 
   public async playFromCache(cacheKey: string, intentId?: number): Promise<boolean> {
-      try {
-          const blob = await CacheManager.getInstance().get(cacheKey);
-          if (blob) {
-              await this.playBlob(blob, cacheKey, intentId);
-              return true;
-          } else {
-              return false;
-          }
-      } catch (e: any) {
-          this.emit(AudioEngineEventType.ERROR, e.message);
-          return false;
+      const blob = await CacheManager.getInstance().get(cacheKey);
+      if (blob) {
+          await this.playBlob(blob, cacheKey, intentId);
+          return true;
       }
+      return false;
   }
 
-  /**
-   * speakLocal (Renamed from synthesize to reflect purpose)
-   */
+  private _base64ToBuffer(base64: string): Uint8Array {
+      const binaryString = atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes;
+  }
+
+  public async ingestData(cacheKey: string, base64: string, intentId: number): Promise<void> {
+    if (intentId < this.activeIntentId && this.activeIntentId !== 0) {
+        console.warn(`[AUDIO] 🧟 Rejecting stale ingestion: ${intentId} < ${this.activeIntentId}`);
+        return;
+    }
+    try {
+        const buffer = this._base64ToBuffer(base64);
+        const blob = new Blob([buffer.buffer as ArrayBuffer], { type: 'audio/mpeg' });
+        await CacheManager.getInstance().set(cacheKey, blob);
+    } catch (e) {
+        console.error(`[AUDIO] ❌ Ingestion failed for ${cacheKey}:`, e);
+    }
+  }
+
   public async speakLocal(text: string, voiceId?: string, intentId?: number): Promise<void> {
     const release = await this.acquireLock(intentId);
     if (release === null) { return; }
@@ -308,39 +295,21 @@ export class WebviewAudioEngine {
             }
 
             const state = WebviewStore.getInstance().getState();
-            this._utterance.rate = 1 + (state.rate / 10);
+            this._utterance.rate = state.rate;
             this._utterance.volume = state.volume / 100;
 
-            const cleanup = () => {
+            const onEnd = () => {
                 if (this._utterance) {
                     this._utterance.onstart = null;
                     this._utterance.onend = null;
                     this._utterance.onerror = null;
                 }
-                if (this.activePlaybackResolver === resolve) {this.activePlaybackResolver = null;}
-            };
-
-            this.activePlaybackResolver = resolve; // [v2.3.1] Wire up for stop()
-
-            const onEnd = () => {
-                cleanup();
                 resolve();
             };
 
             this._utterance.onstart = () => this.emit(AudioEngineEventType.PLAYING);
             this._utterance.onend = onEnd;
-            this._utterance.onerror = (e) => {
-                cleanup();
-                this.emit(AudioEngineEventType.ERROR, `Local Error: ${e.error}`);
-                onEnd();
-            };
-
-            // Authoritative Cancellation Hook
-            this.activePlaybackResolver = () => {
-                this.stopLocal();
-                console.log(`[AUDIO] 🛑 Authoritative Cancellation triggered (Synthesis): intent=${intentId}`);
-                onEnd();
-            };
+            this._utterance.onerror = () => onEnd();
 
             this._speechSynth.speak(this._utterance);
         });
@@ -349,67 +318,86 @@ export class WebviewAudioEngine {
     }
   }
 
-  /**
-   * [v2.2.1] Atomic Ingestion
-   * [v2.3.2] Strict Baton Floor Enforcement
-   */
-  public async ingestData(cacheKey: string, base64: string, intentId: number): Promise<void> {
-    if (intentId < this.activeIntentId && this.activeIntentId !== 0) {
-        console.warn(`[AUDIO] 🧟 Rejecting stale ingestion: ${intentId} < ${this.activeIntentId}`);
-        return;
-    }
-    try {
-        const response = await fetch(`data:application/octet-stream;base64,${base64}`);
-        const blob = await response.blob();
-        await CacheManager.getInstance().set(cacheKey, blob);
-    } catch (e) {
-        console.error(`[AUDIO] ❌ Ingestion failed for ${cacheKey}:`, e);
-    }
-  }
-
   public async wipeCache(): Promise<void> {
     this.stop();
     await CacheManager.getInstance().clearAll();
   }
 
-  public purgeMemory(): void {
-    this.stop();
+  /**
+   * scanVoices(): Discovers available browser SpeechSynthesis voices
+   * and patches them into the WebviewStore.
+   */
+  public scanVoices(): void {
+    if (typeof window === 'undefined' || !window.speechSynthesis) { return; }
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) { return; }
+    const mapped = voices.map(v => ({ name: v.name, voiceURI: v.voiceURI, lang: v.lang, localService: v.localService }));
+    WebviewStore.getInstance().patchState({
+      availableVoices: {
+        local: mapped,
+        neural: WebviewStore.getInstance().getState().availableVoices?.neural ?? []
+      }
+    });
+    console.log(`[AUDIO] 🎙️ scanVoices: ${mapped.length} local voices loaded.`);
   }
 
+  /**
+   * pause(): Suspends physical audio playback without aborting the intent.
+   */
   public pause(): void {
     this._audio.pause();
     this._speechSynth.pause();
   }
 
+  /**
+   * resume(): Resumes suspended audio playback.
+   */
   public resume(): void {
-    if (this._utterance) {
-      this._speechSynth.resume();
-    } else {
+    if (this._audio.src) {
       this._audio.play().catch(() => {});
     }
+    this._speechSynth.resume();
+  }
+
+  /**
+   * purgeMemory(): Aborts active playback and revokes all object URLs
+   * without resetting the intent chain. Used by FIFO queue flushes.
+   */
+  public purgeMemory(): void {
+    this._abortController?.abort();
+    this._abortController = null;
+    this._audio.pause();
+    if (typeof this._audio.removeAttribute === 'function') {
+      this._audio.removeAttribute('src');
+    } else {
+      (this._audio as any).src = '';
+    }
+    this._activeObjectURLs.forEach(url => URL.revokeObjectURL(url));
+    this._activeObjectURLs.clear();
+    console.log('[AUDIO] 🧹 purgeMemory: Object URLs revoked.');
   }
 
   public stop(): void {
-    const count = this.pendingResolvers.size;
-    console.log(`[AUDIO] 🛑 Stop triggered: intent=${this.activeIntentId} (Instance=${this.instanceId}, Resolvers=${count})`);
-
     this._abortController?.abort();
     this._abortController = null;
     
     this._audio.pause();
-    this._audio.src = '';
+    if (typeof this._audio.removeAttribute === 'function') {
+      this._audio.removeAttribute('src');
+    } else {
+      (this._audio as any).src = '';
+    }
+    this._audio.load();
     
     this._activeObjectURLs.forEach(url => URL.revokeObjectURL(url));
     this._activeObjectURLs.clear();
 
     this.stopLocal();
     
-    // Force-resolve ALL potential blockers
     this.pendingResolvers.forEach(resolve => resolve());
     this.pendingResolvers.clear();
 
     this.playbackMutex = Promise.resolve();
-    this.activeIntentId = 0;
     this._lockOwnerIntentId = null;
     this.activeSequence = 0;
   }
@@ -425,30 +413,14 @@ export class WebviewAudioEngine {
   }
 
   public setRate(val: number): void {
-    this._audio.playbackRate = 1 + (val / 10);
-    if (this._utterance) {this._utterance.rate = 1 + (val / 10);}
-  }
-
-  public scanVoices(): void {
-    const voices = this._speechSynth.getVoices();
-    if (voices.length > 0) {
-      const report = voices.map(v => ({
-        name: v.name,
-        id: v.voiceURI,
-        lang: v.lang,
-        engine: 'local'
-      }));
-      MessageClient.getInstance().postAction(OutgoingAction.REPORT_VOICES, { voices: report });
-    }
+    this._audio.playbackRate = val;
+    if (this._utterance) {this._utterance.rate = val;}
   }
 
   public dispose(): void {
     this.stop();
     if (typeof this._audio.remove === 'function') {
       this._audio.remove();
-    } else {
-      this._audio.pause();
-      this._audio.src = '';
     }
   }
 }

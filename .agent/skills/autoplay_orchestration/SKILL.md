@@ -10,8 +10,8 @@ This skill defines the authoritative architecture for the Read Aloud playback en
 ## 1. System Dynamics
 
 The system revolves around the **Sovereign Intent Baton**. 
-- **Acquire**: The user (or auto-next) initiates an action. A new `intentId` (Baton) is minted **only** for disruptive actions (Stop, Jump, Manual Play). 
-- **Continuity**: Seamless transitions (next sentence/pre-fetch) **inherit** the current Baton.
+- **Acquire**: The user (or auto-next) initiates an action. A new `intentId` (Baton) is minted **only** for disruptive actions (Stop, Jump, Manual Play). `batchId` is incremented for every **manual gesture**.
+- **Continuity**: Seamless transitions (auto-next/pre-fetch) **inherit** the current `batchId` to maintain sequence continuity, while disruptive jumps reset the context.
 - **Execution Phases**:
     - **Call**: Extension is notified of the intent.
     - **Synthesis**: Extension prepares the audio.
@@ -48,24 +48,24 @@ sequenceDiagram
     participant S as Webview Store
     participant C as Playback Controller
     participant E as Extension
-    participant A as Neural Strategy
+    participant S as Webview Store / Engine
 
     U->>C: Click Play
     Note over C: Increment IntentId (X)
     C->>S: Optimistic Patch (isPlaying: true)
-    Note over S: Set IntentExpiry (+3500ms)
+    Note over S: Set IntentExpiry (+1500ms)
     C->>E: IPC: action:PLAY (IntentId: X)
     
     E->>E: Neural Synthesis
-    E->>A: IPC: SYNTHESIS_READY (IntentId: X, CacheKey: K)
+    E->>S: IPC: SYNTHESIS_READY (IntentId: X, CacheKey: K)
     
     alt Intent Parity
-        A->>E: IPC: FETCH_AUDIO (CacheKey: K)
-        E->>A: IPC: DATA_PUSH (Binary Base64)
-        A->>U: Start Audio Playback
+        S->>E: IPC: FETCH_AUDIO (CacheKey: K)
+        E->>S: IPC: DATA_PUSH (Binary Base64)
+        S->>U: Start Audio Playback
     else Stale Intent (User Stopped)
-        Note over A: Intent mismatch (X vs Y)
-        Note over A: Pull Aborted
+        Note over S: Intent mismatch (X vs Y)
+        Note over S: Pull Aborted
     end
 ```
 
@@ -77,25 +77,31 @@ sequenceDiagram
 | `playbackIntent` | WebviewStore | User's desired state. | Used for reconciliation with Extension syncs. |
 | `lastIntentId` | WebviewStore | Incremental counter for every state change. | **Sovereignty Key**: Data with older IDs must be discarded. |
 | `isAwaitingSync` | WebviewStore | UI Lock during transition. | Prevents rapid fire commands while extension is processing. |
+| `batchId` | Both | Monotonic sequence ID. | Tracks manual vs auto-advance chunks. |
 
 ## 3. Timing Registry (TTL)
 
 | Parameter | Value | Entity | Purpose |
 | :--- | :--- | :--- | :--- |
-| `INTENT_TIMEOUT_MS` | 3500ms | WebviewStore | Sovereignty window encompassing synthesis latency. |
-| `FETCH_TIMEOUT` | 5000ms | NeuralStrategy | Timeout for the Pull-Fetch handshake before giving up. |
+| `INTENT_TIMEOUT_MS` | 1500ms | WebviewStore | Sovereignty window encompassing synthesis latency. |
+| `FETCH_TIMEOUT` | 5000ms | Webview Audio Engine | Timeout for the Pull-Fetch handshake before giving up. |
 | `SYNC_GRACE_PERIOD` | 400ms | WebviewStore | Delay before showing "Loading" spinner during syncs. |
-| `PASSAGE_HOLD_SEC` | 10s | NeuralStrategy | Immunity window for segments with matching `intentId`. |
+| `PASSAGE_HOLD_SEC` | 10s | Webview Audio Engine | Immunity window for segments with matching `intentId`. |
 
 ## 4. The "Guard" Consolidation
 
 ### Sovereignty Guard (WebviewStore)
-Blocks extensions syncs that contradict the last user intent within the 3500ms `intentExpiry` window.
+Blocks extensions syncs that contradict the last user intent within the 1500ms `intentExpiry` window. Implements **Segmented Sovereignty**: allows Telemetry fields to pass while filtering Disruptive fields during the window.
 
-### Reactive Pull Handshake (NeuralAudioStrategy)
-Replaces the "unsolicited push" model. The strategy now waits for a `SYNTHESIS_READY` notification and explicitly requests data.
+### Reactive Pull Handshake (WebviewAudioEngine)
+Replaces the "unsolicited push" model. The engine now waits for a `SYNTHESIS_READY` notification and explicitly requests data.
 - **Rule**: Never ingest data unless an active pull request exists for that specific `cacheKey` and `intentId`.
 - **Refinement**: If `intentId` matches the current active intent, the segment is NOT a zombie and must be fetched/buffered, regardless of temporary UI sync transitions.
+
+### Monotonic Batch Hardening 
+Ensures that synthesis and playback never drift due to Batch 0 leakage.
+- **Rule**: Minimum valid `batchId` is 1.
+- **Protocol**: If a request arrives at the Extension with ID 0, it must be hardened (auto-upgraded) to 1 or the current authoritative IDs (`playbackIntentId` and `batchId`) before starting synthesis.
 
 ## 4. Trigger System
 

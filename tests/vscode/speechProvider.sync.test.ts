@@ -10,7 +10,8 @@ vi.mock('vscode', () => {
     return {
         Uri: {
             joinPath: vi.fn((uri, ...parts) => ({ fsPath: parts.join('/') })),
-            parse: vi.fn(s => ({ toString: () => s }))
+            parse: vi.fn(s => ({ toString: () => s })),
+            file: vi.fn(s => ({ fsPath: s, toString: () => `file://${s}` }))
         },
         window: {
             createStatusBarItem: vi.fn(() => ({
@@ -61,6 +62,10 @@ describe('SpeechProvider (Sync)', () => {
                 get: vi.fn((key, def) => def),
                 update: vi.fn()
             },
+            workspaceState: {
+                get: vi.fn((key, def) => def),
+                update: vi.fn()
+            },
             extension: {
                 packageJSON: { version: '1.0.0' }
             },
@@ -103,7 +108,7 @@ describe('SpeechProvider (Sync)', () => {
         vi.clearAllMocks();
 
         stateStore.setOptions({ rate: 5, volume: 80 });
-        vi.advanceTimersByTime(100);
+        vi.advanceTimersByTime(200);
 
         const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
         expect(syncCalls.length).toBe(1);
@@ -117,7 +122,7 @@ describe('SpeechProvider (Sync)', () => {
         vi.clearAllMocks();
 
         stateStore.setVoices([{ id: 'v1', name: 'Voice 1', lang: 'en' }], [{ id: 'nv1', name: 'Neural 1', lang: 'en' }]);
-        vi.advanceTimersByTime(100);
+        vi.advanceTimersByTime(200);
 
         const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
         expect(syncCalls.length).toBeGreaterThanOrEqual(1);
@@ -148,7 +153,7 @@ describe('SpeechProvider (Sync)', () => {
         expect(config.update).toHaveBeenCalledWith('playback.voice', 'new-voice', vscode.ConfigurationTarget.Global);
 
         // 3. Verify UI_SYNC broadcast (Throttled)
-        vi.advanceTimersByTime(100);
+        vi.advanceTimersByTime(200);
         const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
         expect(syncCalls.length).toBeGreaterThanOrEqual(1);
         expect(syncCalls[syncCalls.length - 1][0].selectedVoice).toBe('new-voice');
@@ -161,7 +166,7 @@ describe('SpeechProvider (Sync)', () => {
 
         // Simulate a "stalled" engine status
         engine.emit('status', { isPlaying: false, isPaused: false, isStalled: true });
-        vi.advanceTimersByTime(100);
+        vi.advanceTimersByTime(200);
 
         const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
         expect(syncCalls.length).toBeGreaterThanOrEqual(1);
@@ -178,7 +183,7 @@ describe('SpeechProvider (Sync)', () => {
             cacheKey: 'test-key'
         });
 
-        expect(synthSpy).toHaveBeenCalledWith('test-key', expect.anything(), undefined, undefined);
+        expect(synthSpy).toHaveBeenCalledWith('test-key', expect.anything(), 0, 0);
     });
 
     it('should handle CLEAR_CACHE and trigger playbackEngine.clearCache', async () => {
@@ -221,10 +226,10 @@ describe('SpeechProvider (Sync)', () => {
         expect(syncCalls.length).toBeGreaterThanOrEqual(1);
         
         const lastSync = syncCalls[syncCalls.length - 1][0];
-        // The packet structure is { command: 'UI_SYNC', state: { activeFileName, ... } }
-        expect(lastSync.state.activeFileName).toBe('atomic.md');
-        expect(lastSync.state.currentChapterIndex).toBe(0);
-        expect(lastSync.state.currentSentenceIndex).toBe(0);
+        // The packet structure is flattened: { command: 'UI_SYNC', activeFileName, ... }
+        expect(lastSync.activeFileName).toBe('atomic.md');
+        expect(lastSync.currentChapterIndex).toBe(0);
+        expect(lastSync.currentSentenceIndex).toBe(0);
         expect(lastSync.isPlaying).toBe(false);
     });
 });

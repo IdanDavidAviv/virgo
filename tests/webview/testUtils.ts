@@ -19,7 +19,7 @@ export const FULL_DOM_TEMPLATE = `
         <span id="settings-toggle">⚙</span>
         <button id="settings-close">X</button>
         <input id="volume-slider" type="range" min="0" max="100" value="50">
-        <input id="rate-slider" type="range" min="-10" max="10" value="0">
+        <input id="rate-slider" type="range" min="0.1" max="10" value="1.0" step="0.1">
         <span id="volume-val">50%</span>
         <span id="rate-val">1.0x</span>
         <button id="engine-neural">Neural</button>

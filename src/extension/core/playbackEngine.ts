@@ -34,8 +34,8 @@ export class PlaybackEngine extends EventEmitter {
     private _prefetchAbortController: AbortController = new AbortController();
 
     // Hardening: Track monotonic unique playback intents to eject stale/zombie tasks
-    private _playbackIntentId: number = 0;
-    private _batchIntentId: number = 0;
+    private _playbackIntentId: number = 1;
+    private _batchIntentId: number = 1;
     private _isRateLimited: boolean = false;
     private _watchdogTimer: NodeJS.Timeout | null = null;
     private _isStalled: boolean = false;

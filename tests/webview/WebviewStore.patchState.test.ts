@@ -39,7 +39,7 @@ describe('WebviewStore — patchState (#2 regression guard)', () => {
     });
 
     it('should merge a partial patch into existing state', () => {
-        dispatchSync({ isPlaying: false, isPaused: false, rate: 0 });
+        dispatchSync({ isPlaying: false, isPaused: false, rate: 1.0 });
         const voicePatch = {
             availableVoices: { neural: ['VoiceA'], local: [] },
             selectedVoice: 'VoiceA',
@@ -52,7 +52,7 @@ describe('WebviewStore — patchState (#2 regression guard)', () => {
         expect(store.getState()?.selectedVoice).toBe('VoiceA');
         // Un-patched fields are preserved
         expect(store.getState()?.isPlaying).toBe(false);
-        expect(store.getState()?.rate).toBe(0);
+        expect(store.getState()?.rate).toBe(1.0);
     });
 
     it('should notify subscribers whose selected slice changed', () => {

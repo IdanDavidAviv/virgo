@@ -9,6 +9,7 @@ import { PlaybackController } from '../playbackController';
  * Maps incoming extension messages to store updates and engine actions.
  */
 export class CommandDispatcher {
+  private benchmarking: Map<string, number> = new Map();
   private static instance: CommandDispatcher;
 
   private constructor() {}
@@ -47,10 +48,14 @@ export class CommandDispatcher {
    * Dispatches an incoming message to the appropriate handler.
    */
   public async dispatch(command: string, data: any): Promise<void> {
+    // [BRIDGE] 💓 HEARTBEAT
+    console.log(`[BRIDGE] 💓 Message Arrived: command=${command}${command === 'uiSync' ? ' (active=' + data?.activeFileName + ')' : ''}`);
+
     const store = WebviewStore.getInstance();
     const audioEngine = WebviewAudioEngine.getInstance();
     const playback = PlaybackController.getInstance();
 
+    const startTime = performance.now();
     this.logSafeMessage(command, data);
 
     switch (command) {
@@ -59,19 +64,22 @@ export class CommandDispatcher {
         playback.handleSync(data as UISyncPacket);
         break;
 
+      case (IncomingCommand as any).GLOBAL_SITREP:
+        this.handleSitrep();
+        break;
+
       case IncomingCommand.PLAY_AUDIO:
-        // Zombie Guard: Prune late-arriving packets from previous context.
-        const isControllerStopped = playback.getState().intent === 'STOPPED';
-        const isDataPayload = !!data?.data;
-        
-        if (isControllerStopped && isDataPayload) {
-            console.log('[Dispatcher] ✋ Ignoring Zombie Audio Payload (Controller Intent is STOPPED)');
+        // [DECOUPLING] Relaxed Zombie Guard. 
+        // We only ignore if the intentId is strictly older than the active one.
+        // We no longer block based on STOPPED intent to allow auto-recovery.
+        const intentId = data?.intentId ?? data?.sequenceId;
+        const currentActive = audioEngine.activeIntentId;
+
+        if (intentId !== undefined && intentId < currentActive && currentActive !== 0) {
+            console.warn(`[Dispatcher] ✋ Ignoring Stale Audio Payload: ${intentId} < ${currentActive}`);
             playback.releaseLock();
             return;
         }
-
-        // [SOVEREIGNTY] Playback intent handled by PlaybackController
-        const intentId = data?.intentId ?? data?.sequenceId;
 
         if (data?.data) {
           // Extension provided raw data (Synthesis Hit or Extension Cache Hit)
@@ -105,7 +113,12 @@ export class CommandDispatcher {
         break;
 
       case IncomingCommand.DATA_PUSH:
-        console.log('[Dispatcher] 📥 DATA_PUSH Received', { cacheKey: data.cacheKey, intentId: data.intentId });
+        const pushTime = Date.now();
+        console.log(`[Dispatcher] 📥 DATA_PUSH Received at ${pushTime}`, { 
+            cacheKey: data.cacheKey, 
+            intentId: data.intentId,
+            size: data.data?.length 
+        });
         audioEngine.ingestData(data.cacheKey, data.data, data.intentId);
         break;
 
@@ -166,8 +179,7 @@ export class CommandDispatcher {
       case IncomingCommand.CACHE_STATS:
         store.patchState({
             cacheCount: data.count,
-            cacheSizeBytes: data.size !== undefined ? data.size : data.sizeBytes,
-            cacheStats: { count: data.count, size: data.size !== undefined ? data.size : data.sizeBytes }
+            cacheSizeBytes: data.size !== undefined ? data.size : data.sizeBytes
         });
         store.updateUIState({
             neuralBuffer: {
@@ -180,8 +192,7 @@ export class CommandDispatcher {
       case IncomingCommand.CACHE_STATS_UPDATE:
         store.patchState({ 
             cacheSizeBytes: data.sizeBytes, 
-            cacheCount: data.count,
-            cacheStats: { count: data.count, size: data.sizeBytes }
+            cacheCount: data.count
         });
         store.updateUIState({
             neuralBuffer: {
@@ -197,16 +208,55 @@ export class CommandDispatcher {
         const currentState = store.getState();
         if (currentState) {
             store.patchState({
-                currentSentenceIndex: data.index
+                currentSentenceIndex: data.index,
+                // [HARDENING] If text is provided, we treat it as an authoritative injection 
+                // to prevent "Dead UI" during sync race conditions.
+                ...(data.text && { currentChapterIndex: data.chapterIndex ?? currentState.currentChapterIndex }),
+                // We don't store text directly in the state, but this triggers reactivity 
+                // for components listening to the index.
             });
+            
+            // [PARITY] If the dispatcher receives text, we ensure the AudioEngine/PlaybackController 
+            // knows about the upcoming sentence.
+            if (data.text) {
+                console.log(`[Dispatcher] 📝 Auth Sentence Injection: ${data.text.substring(0, 30)}...`);
+            }
         }
         break;
 
 
       default:
-        console.warn(`[Dispatcher] ⚠️ Unhandled command: ${command}`, data);
-        break;
     }
+
+    const duration = performance.now() - startTime;
+    if (duration > 50) {
+        console.warn(`[Dispatcher] 🐌 Slow Command: ${command} took ${duration.toFixed(2)}ms`);
+    }
+  }
+
+  private handleSitrep(): void {
+    const store = WebviewStore.getInstance();
+    const audioEngine = WebviewAudioEngine.getInstance();
+    const playback = PlaybackController.getInstance();
+
+    const report = {
+        timestamp: Date.now(),
+        store: store.getState(),
+        audioEngine: {
+            activeIntentId: audioEngine.activeIntentId,
+            isBusy: audioEngine.isBusy(),
+            instanceId: audioEngine.instanceId
+        },
+        playback: {
+            isLocked: (playback as any)._playbackMutexPromise !== undefined
+        }
+    };
+
+    console.log('[Dispatcher] 🛡️ GLOBAL SITREP DUMP:', report);
+    MessageClient.getInstance().postAction(OutgoingAction.LOG, { 
+        level: 'info', 
+        message: `SITREP: intent=${report.audioEngine.activeIntentId} isPlaying=${report.store.isPlaying}` 
+    });
   }
 
   private handleUiSync(packet: UISyncPacket): void {

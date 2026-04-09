@@ -63,11 +63,11 @@ describe('File Context Integrity (Regression Suite)', () => {
         const postMessage = (relay as any)._view.webview.postMessage;
         const packet = postMessage.mock.calls[0][0];
         
-        expect(packet.state.focusedDocumentUri).toBe(focusedUri);
-        expect(packet.state.activeDocumentUri).toBe(activeUri);
+        expect(packet.focusedDocumentUri).toBe(focusedUri);
+        expect(packet.activeDocumentUri).toBe(activeUri);
         
         // Logical check: Webview derives mismatch from this
-        const isMismatch = (packet.state.activeDocumentUri !== packet.state.focusedDocumentUri);
+        const isMismatch = (packet.activeDocumentUri !== packet.focusedDocumentUri);
         expect(isMismatch).toBe(true);
     });
 
@@ -81,8 +81,8 @@ describe('File Context Integrity (Regression Suite)', () => {
 
         // 3. Assert
         const packet = (relay as any)._view.webview.postMessage.mock.calls[0][0];
-        expect(packet.state.focusedRelativeDir).toBe(deepDir);
-        expect(packet.state.focusedFileName).toBe('File.md');
+        expect(packet.focusedRelativeDir).toBe(deepDir);
+        expect(packet.focusedFileName).toBe('File.md');
     });
 
     it('should maintain Badge Persistence (focusedVersionSalt) in sync packet', () => {
@@ -95,7 +95,7 @@ describe('File Context Integrity (Regression Suite)', () => {
 
         // 3. Assert
         const packet = (relay as any)._view.webview.postMessage.mock.calls[0][0];
-        expect(packet.state.focusedVersionSalt).toBe(salt);
+        expect(packet.focusedVersionSalt).toBe(salt);
     });
 
     it('should correctly flag supported/unsupported files for UI button state', () => {
@@ -107,8 +107,8 @@ describe('File Context Integrity (Regression Suite)', () => {
 
         // 3. Assert
         const packet = (relay as any)._view.webview.postMessage.mock.calls[0][0];
-        expect(packet.state.focusedIsSupported).toBe(false);
-        expect(packet.state.focusedFileName).toBe('image.png');
+        expect(packet.focusedIsSupported).toBe(false);
+        expect(packet.focusedFileName).toBe('image.png');
     });
 
     it('should reset context to "No Selection" when editor focus is lost', () => {
@@ -121,7 +121,7 @@ describe('File Context Integrity (Regression Suite)', () => {
 
         // 3. Assert
         const packet = (relay as any)._view.webview.postMessage.mock.calls[0][0];
-        expect(packet.state.focusedFileName).toBe('No Selection');
-        expect(packet.state.focusedDocumentUri).toBeNull();
+        expect(packet.focusedFileName).toBe('No Selection');
+        expect(packet.focusedDocumentUri).toBeNull();
     });
 });

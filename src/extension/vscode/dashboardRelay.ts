@@ -54,6 +54,14 @@ export class DashboardRelay {
         const currentChapterIndex = s.currentChapterIndex ?? 0;
         const currentSentenceIndex = s.currentSentenceIndex ?? 0;
 
+        // [DOC_PROBE] Trace active editor visibility
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            this._logger(`[RELAY] 🔎 [DOC_PROBE] No active editor found at sync time. Source: ${s.focusedFileName}`);
+        } else {
+            this._logger(`[RELAY] 🔎 [DOC_PROBE] Editor found: ${editor.document.fileName}`);
+        }
+
         const currentChapter = (currentChapterIndex >= 0 && currentChapterIndex < chapters.length) 
             ? chapters[currentChapterIndex] 
             : null;
@@ -91,7 +99,7 @@ export class DashboardRelay {
             isPaused: !!s.isPaused,
             playbackStalled: !!s.playbackStalled,
             volume: s.volume ?? 50,
-            rate: s.rate ?? 0,
+            rate: s.rate ?? 1.0,
             engineMode: s.engineMode || 'local',
             autoPlayMode: s.autoPlayMode || 'auto',
             selectedVoice: s.selectedVoice,
@@ -108,6 +116,7 @@ export class DashboardRelay {
             // Integrity & Cache
             cacheCount: cacheStats.count ?? 0,
             cacheSizeBytes: cacheStats.sizeBytes ?? 0,
+            isHydrated: !!s.isHydrated,
             playbackIntentId: s.playbackIntentId || 1,
             batchIntentId: s.batchIntentId || 1,
             lastLoadType: s.lastLoadType || 'none',
@@ -117,6 +126,8 @@ export class DashboardRelay {
             windowSentences: this._calculateWindowSentences(currentChapterIndex, currentSentenceIndex)
         };
 
+        this._logger(`[RELAY] 📦 Assembled Packet: active=${packet.activeFileName}, focus=${packet.focusedFileName}, chapters=${packet.allChapters.length}, sets=${packet.currentSentences.length}, hydrated=${packet.isHydrated}, intent=${packet.playbackIntentId}`);
+        
         this.postMessage({ command: IncomingCommand.UI_SYNC, ...packet });
     }
 
@@ -144,7 +155,14 @@ export class DashboardRelay {
         const isCritical = criticalCommands.includes(message.command);
 
         if (this._view.visible || isCritical) {
-            this._view.webview.postMessage(message);
+            const result = this._view.webview.postMessage(message);
+            if (!result) {
+                this._logger(`[RELAY] ❌ postMessage returned FALSE for command: ${message.command}`);
+            } else {
+                this._logger(`[RELAY] ✅ postMessage successful: ${message.command}`);
+            }
+        } else {
+            this._logger(`[RELAY] 🚫 postMessage BLOCKED (Hidden & Non-Critical): ${message.command}`);
         }
     }
 

@@ -44,8 +44,7 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
                 this.els.rateSlider.value = String(rate);
             }
             if (this.els.rateVal) {
-                const displayRate = (1 + (rate / 10)).toFixed(1);
-                this.els.rateVal.textContent = `${displayRate}x`;
+                this.els.rateVal.textContent = `${rate.toFixed(1)}x`;
             }
         });
 
@@ -68,8 +67,7 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
         // 5. Global State Debug (V/R Tooltip)
         this.subscribe((state) => ({ vol: state.volume, rate: state.rate }), (stats) => {
             if (this.els.stateDebugTag) {
-                const displayRate = (1 + (stats.rate / 10)).toFixed(1);
-                this.els.stateDebugTag.textContent = `[ V:${stats.vol} | R:${displayRate}x ]`;
+                this.els.stateDebugTag.textContent = `[ V:${stats.vol} | R:${stats.rate.toFixed(1)}x ]`;
             }
         });
     }
@@ -117,8 +115,7 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
                 this.store.updateUIState({ isDraggingSlider: true });
                 const val = parseFloat((e.target as HTMLInputElement).value);
                 if (this.els.rateVal) {
-                    const displayRate = (1 + (val / 10)).toFixed(1);
-                    this.els.rateVal.textContent = `${displayRate}x`;
+                    this.els.rateVal.textContent = `${val.toFixed(1)}x`;
                 }
                 controller.setRate(val);
             });

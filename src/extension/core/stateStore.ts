@@ -53,6 +53,7 @@ export interface StateMetadata {
     autoInjectSITREP: boolean;
     playbackIntentId: number;
     batchIntentId: number;
+    isHydrated: boolean;
 }
 
 export class StateStore extends EventEmitter {
@@ -84,7 +85,7 @@ export class StateStore extends EventEmitter {
             engineMode: 'local',
             autoPlayMode: 'auto',
             availableVoices: { local: [], neural: [] },
-            rate: 0,
+            rate: 1.0,
             volume: 50,
 
             isPreviewing: false,
@@ -97,7 +98,8 @@ export class StateStore extends EventEmitter {
             cacheSizeBytes: 0,
             autoInjectSITREP: true,
             playbackIntentId: 1,
-            batchIntentId: 1
+            batchIntentId: 1,
+            isHydrated: false
         };
     }
 

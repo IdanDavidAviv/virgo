@@ -43,6 +43,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     private _lastHandshakeTime?: number;
     private _debounceTimers: Map<string, NodeJS.Timeout> = new Map();
+    private _isLoadingDocument = false;
+    // [DPG] Dual-Precondition Gate flags
+    private _webviewIsReady = false;
+    private _hasInitialUri = false;
 
 
     constructor(
@@ -237,39 +241,39 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        // [GUARD] Privacy & System Isolation
-        const uriString = uri.toString();
-        const isInternal = uriString.includes('extension-output:') || 
-                         uriString.includes('vscode-vfs:') ||
-                         uriString.toLowerCase().includes('brain') ||
-                         uriString.toLowerCase().includes('antigravity');
+        // Permissive Focus: Track any file, even if restricted or unsupported.
+        // [HARDEN] Use uri.path fallback if fsPath is empty (common for virtual docs)
+        const rawPath = uri.fsPath || uri.path || '';
+        const fileName = path.basename(rawPath) || 'Untitled';
         
-        if (isInternal) {
-            this._logger(`[FOCUS_GUARD] Ignoring internal focus: ${uriString}`);
-            return;
-        }
-
-        const fileName = path.basename(uri.fsPath);
         const isSupported = this._isFormatSupported(fileName);
 
         let relativeDir = '';
         const folder = vscode.workspace.getWorkspaceFolder(uri);
-        if (folder) {
+        if (folder && uri.fsPath) {
             const relPath = path.relative(folder.uri.fsPath, path.dirname(uri.fsPath));
             relativeDir = folder.name + (relPath && relPath !== '.' ? ' / ' + relPath.replace(/\\/g, ' / ') : '');
         } else {
-            relativeDir = path.dirname(uri.fsPath).split(/[\\\/]/).slice(-2).join(' / ');
+            // [HARDEN] Handle virtual paths or external files
+            const dirParts = path.dirname(rawPath).split(/[\\\/]/).filter(p => !!p);
+            relativeDir = dirParts.slice(-2).join(' / ');
         }
 
         const versionSalt = isSupported ? this._docController.getFileVersionSalt(uri) : undefined;
         this._stateStore.setFocusedFile(uri, fileName, relativeDir, isSupported, versionSalt);
-        this._logger(`[FOCUS] ${fileName} | supported: ${isSupported} | salt: ${versionSalt}`);
+        this._logger(`[DEBUG] setActiveEditor | file: ${fileName} | scheme: ${uri.scheme} | supported: ${isSupported} | salt: ${versionSalt}`);
+
+        // [DPG] A real URI is now known. Signal the gate and attempt the initial load.
+        if (!this._hasInitialUri) {
+            this._hasInitialUri = true;
+            this._tryInitialDocumentLoad();
+        }
     }
 
     private _isFormatSupported(fileName: string): boolean {
-        const artifactRegex = /\.(md|markdown|txt|log|resolved\.\d+)$/i;
-        return artifactRegex.test(fileName);
+        return true;
     }
+
 
     public dispose() {
         this._voiceManager?.dispose();
@@ -301,8 +305,19 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 const val = payload[key];
 
                 // DATA: Always redact massive binary/base64 strings
-                if (key === 'data' && typeof val === 'string' && val.length > 1000) {
-                    sanitized[key] = `[BINARY_DATA: ${Math.round(val.length / 1024)}KB]`;
+                if (key === 'data' && typeof val === 'string' && val.length > 500) {
+                    sanitized[key] = `[BIN:${Math.round(val.length / 1024)}KB]`;
+                    continue;
+                }
+
+                if (key === 'text' && typeof val === 'string' && val.length > 100) {
+                    sanitized[key] = val.substring(0, 97) + '...';
+                    continue;
+                }
+
+                // Internal noise reduction
+                if (key === 'availableVoices' || key === 'allChapters') {
+                    sanitized[key] = Array.isArray(val) ? `[CNT:${val.length}]` : '[HIDDEN]';
                     continue;
                 }
 
@@ -367,11 +382,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 }
                 this._lastHandshakeTime = now;
 
+                // [TRIPLE-PULSE] New orchestrated startup protocol
                 await this._sendInitialState();
-
-                if (this._docController.chapters.length > 0) {
-                    this.refreshView();
-                }
                 return;
             }
             if (data.command === 'log') {
@@ -565,19 +577,29 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const payload = sanitized; // For brevity in handlers
         this._logger(`[READALOUD <- ${source.toUpperCase()}] Command: ${cmd}`);
 
+
+        if (payload.intentId !== undefined) {
+            this._stateStore.setPlaybackIntentId(payload.intentId);
+        }
+        if (payload.batchId !== undefined) {
+            this._stateStore.setBatchIntentId(payload.batchId);
+        }
+
+        this._logger(`[READALOUD <- ${source.toUpperCase()}] Command: ${cmd} (Intent: ${payload.intentId}, Batch: ${payload.batchId})`);
         switch (cmd) {
             case OutgoingAction.READY:
-                this._sendInitialState();
-                if (this._docController.chapters.length > 0) {
-                    this.refreshView();
-                }
+                this._sendInitialState(); // Pulse-aware initialization
                 break;
+
             case OutgoingAction.PLAY:
+            case OutgoingAction.CONTINUE:
                 this.continue(payload.intentId, payload.batchId);
                 break;
+
             case OutgoingAction.PAUSE:
                 this.pause(payload.intentId);
                 break;
+
             case OutgoingAction.STOP:
                 this.stop(payload.intentId, payload.batchId);
                 break;
@@ -635,9 +657,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case OutgoingAction.JUMP_TO_SENTENCE:
                 this.jumpToSentence(payload.index, payload.intentId, payload.batchId);
                 break;
-            case OutgoingAction.CONTINUE:
-                this.continue(payload.intentId, payload.batchId);
-                break;
             case OutgoingAction.FETCH_AUDIO:
                 const audioData = this._playbackEngine.getAudioFromCache(payload.cacheKey);
                 if (audioData) {
@@ -668,9 +687,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 }
                 break;
             case OutgoingAction.RESET_CONTEXT: this._resetContext(); break;
-            case OutgoingAction.STOP: this.stop(); break;
-            case OutgoingAction.PAUSE: this.pause(payload.intentId); break;
-            case OutgoingAction.LOAD_DOCUMENT: this.loadCurrentDocument(); break;
+            case OutgoingAction.LOAD_DOCUMENT: 
+                this.loadCurrentDocument(); 
+                break;
             case OutgoingAction.REQUEST_SYNTHESIS:
                 this._audioBridge.synthesize(payload.cacheKey, this._getOptions(), payload.intentId, payload.batchId);
                 break;
@@ -704,7 +723,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     snippetHistory: history
                 });
                 break;
-            
             case OutgoingAction.LOAD_SNIPPET:
                 if (data.path) {
                     this.stop();
@@ -720,7 +738,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                             null // No progress for external snippets for now
                         );
                         this._stateStore.setActiveMode('SNIPPET');
-                                this.refreshView();
+                        this.refreshView();
                     }
                 }
                 break;
@@ -735,6 +753,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             
             case OutgoingAction.REPORT_CACHE_DELTA:
                 this._audioBridge.updateManifest(payload.delta);
+                break;
+
+            case OutgoingAction.PLAYBACK_BLOCKED:
+                // [AUTOPLAY PROPAGATION] Webview browser blocked audio.play().
+                // Align extension StateStore so the next UI_SYNC reflects reality (isPlaying:false).
+                this._logger(`[BRIDGE] 🚫 PLAYBACK_BLOCKED received. Resetting extension playback state. key=${payload.cacheKey || 'n/a'}`);
+                this._playbackEngine.stop();
+                this._stateStore.patchState({ isPlaying: false, isPaused: false });
+                this._syncStatusBars();
                 break;
         }
     }
@@ -769,6 +796,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             const entries = await vscode.workspace.fs.readDirectory(rootUri);
             const allDirs = (await Promise.all(entries.map(async ([name, type]) => {
                 if (type !== vscode.FileType.Directory) { return null; }
+                
+                // [BRAIN_ISOLATION] Filter out system/agent directories from Discovery Sidebar
+                // We keep discovery strictly for user-facing 'read_aloud' sessions.
+                if (name === 'brain') {
+                    return null;
+                }
                 const fullUri = vscode.Uri.joinPath(rootUri, name);
                 try {
                     const stats = await vscode.workspace.fs.stat(fullUri);
@@ -778,19 +811,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             .filter((x): x is { id: string; mtime: number; uri: vscode.Uri } => x !== null)
             .sort((a, b) => b.mtime - a.mtime);
 
-            // 2. Prioritize Active Session
-            const activeId = this._sessionId;
-            let sessions = allDirs.filter(s => s.id !== activeId);
-            
-            const activeSession = allDirs.find(s => s.id === activeId);
-            if (activeSession) {
-                sessions.unshift(activeSession);
-            }
-
-            // 3. Limit to 10 total (Privacy Shield: Explicitly ignore anything with 'brain')
-            sessions = sessions
-                .filter(s => !s.id.toLowerCase().includes('brain'))
-                .slice(0, 10);
+            let sessions = allDirs;
 
             const result: SnippetHistory = [];
 
@@ -813,7 +834,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 const sessionEntries = await vscode.workspace.fs.readDirectory(sessionUri);
                 const files = (await Promise.all(sessionEntries.map(async ([f, type]) => {
                     if (type !== vscode.FileType.File) { return null; }
-                    if (!this._isFormatSupported(f) || f.toLowerCase().includes('brain')) { return null; }
 
                     const fileUri = vscode.Uri.joinPath(sessionUri, f);
                     const stats = await vscode.workspace.fs.stat(fileUri);
@@ -832,7 +852,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 .filter((x): x is { name: string; fsPath: string; uri: string; timestamp: number } => x !== null)
                 .sort((a, b) => b.timestamp - a.timestamp);
 
-                if (files.length > 0 || session.id === activeId) {
+                if (files.length > 0) {
                     result.push({
                         id: session.id,
                         sessionName: displayName || session.id,
@@ -850,78 +870,159 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private async _sendInitialState() {
-        // [DELTA SYNC] Atomic Handshake
-        await this._voiceManager.scanAndSync();
-        const history = await this._getSnippetHistory();
-        this._dashboardRelay.sync(history, this._sessionId, { 
-            local: this._voiceManager.localVoices, 
-            neural: this._voiceManager.neuralVoices 
+        // [TRIPLE-PULSE] Orchestrated Non-Blocking Startup
+        this._logger('[STARTUP] pulse_1_structural_handshake');
+
+        // [DIAG] Snapshot the full STATE at the moment the webview fires 'ready'
+        const snapFocused = this._stateStore.state.focusedDocumentUri?.fsPath ?? 'UNDEFINED';
+        const snapActive = this._stateStore.state.activeDocumentUri?.fsPath ?? 'UNDEFINED';
+        const snapFocusedName = this._stateStore.state.focusedFileName;
+        const snapEditor = vscode.window.activeTextEditor?.document.fileName ?? 'NO_ACTIVE_EDITOR';
+        const snapTab = (() => {
+            const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+            const input = tab?.input as any;
+            return input?.uri?.fsPath || input?.resource?.fsPath || 'NO_TAB';
+        })();
+        this._logger(`[DIAG:PULSE1] focusedUri=${snapFocused} | focusedName=${snapFocusedName} | activeUri=${snapActive} | activeEditor=${snapEditor} | activeTab=${snapTab}`);
+
+        // Pulse 1: Immediate Structural Sync (Unlocks UI Shell)
+        this._stateStore.patchState({
+            currentChapterIndex: 0,
+            currentSentenceIndex: 0,
+            isHydrated: true
+        });
+        this._dashboardRelay.sync();
+
+        // [DPG] Mark webview as ready and attempt the gate
+        this._webviewIsReady = true;
+        this._tryInitialDocumentLoad();
+
+        // Pulse 3: Heavy Data Discovery (Background/Async)
+        this._logger('[STARTUP] pulse_3_background_discovery_initiated');
+        this._voiceManager.scanAndSync().then(async () => {
+             const history = await this._getSnippetHistory();
+             this._dashboardRelay.sync(history, this._sessionId, { 
+                local: this._voiceManager.localVoices, 
+                neural: this._voiceManager.neuralVoices 
+            });
+            this._logger('[STARTUP] pulse_3_complete');
+        }).catch(e => {
+            this._logger(`[STARTUP] pulse_3_failed: ${e}`);
         });
     }
 
+    /**
+     * [DPG] Dual-Precondition Gate.
+     * Only executes document load when BOTH conditions are satisfied:
+     *   1. Webview has fired 'ready' (DOM is live, can receive messages)
+     *   2. A focusedDocumentUri is known (we have a real file to load)
+     * This decouples startup from timing; whichever condition arrives last
+     * will trigger the load — eliminating the Dead UI race condition.
+     */
+    private async _tryInitialDocumentLoad() {
+        if (!this._webviewIsReady) {
+            this._logger('[DPG] Gate blocked: webview not yet ready.');
+            return;
+        }
+        if (!this._hasInitialUri) {
+            this._logger('[DPG] Gate blocked: no focused URI yet. Waiting for setActiveEditor.');
+            return;
+        }
+        this._logger('[DPG] ✅ Both conditions met. Executing Pulse 2: contextual hydration.');
+        // Reset gate so it can't fire twice for same session init
+        this._hasInitialUri = false;
+        // Pulse 2: Contextual Hydration (Active Document)
+        await this.loadCurrentDocument(true);
+        this._dashboardRelay.sync();
+    }
 
     public async loadCurrentDocument(useHydratedProgress: boolean = false): Promise<boolean> {
-        // [REINFORCEMENT] Clear current playback immediately to prevent audio overlap
-        this.stop();
-
-        const success = await this._docController.loadActiveDocument();
-        if (!success) {
-            this._postToAll({
-                command: 'synthesisError',
-                error: 'No active document found to read.',
-                isFallingBack: false
-            });
+        if (this._isLoadingDocument) {
+            this._logger('[DOC_LOAD] Already in progress, skipping redundant call.');
             return false;
         }
 
-        const metadata = this._docController.metadata;
-        const chapters = this._docController.chapters;
+        this._isLoadingDocument = true;
+        try {
+            // [REINFORCEMENT] Clear current playback immediately to prevent audio overlap
+            this.stop();
 
-        // Determine if we should use existing StateStore progress (from persistence rehydration)
-        const initialProgress = useHydratedProgress ? { 
-            chapterIndex: this._stateStore.state.currentChapterIndex, 
-            sentenceIndex: this._stateStore.state.currentSentenceIndex 
-        } : null;
-
-        // Commit to STATE: Update the active context (Loaded File) Atomically
-        this._stateStore.setActiveDocument(
-            metadata.uri,
-            metadata.fileName,
-            metadata.relativeDir,
-            metadata.versionSalt,
-            metadata.contentHash,
-            initialProgress
-        );
-
-        if (metadata.uri && !useHydratedProgress) {
-            // Only probe SettingsManager if we're not already use hydrated context
-            const progress = this._settingsManager.loadProgress(metadata.uri, metadata.versionSalt, metadata.contentHash);
-            if (progress) {
-                this._stateStore.setProgress(progress.chapterIndex, progress.sentenceIndex);
-                this._logger(`[RECOVERY] Resumed ${metadata.uri.path} at C:${progress.chapterIndex} S:${progress.sentenceIndex}`);
+            // [DOC_PROBE FIX] Pass focusedDocumentUri as a hint so loadActiveDocument can
+            // resolve the correct file even when activeTextEditor is null (sidebar has focus).
+            const hintUri = this._stateStore.state.focusedDocumentUri;
+            const activeEditorNow = vscode.window.activeTextEditor?.document.fileName ?? 'null';
+            const tabNow = (() => {
+                const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+                const input = tab?.input as any;
+                return input?.uri?.fsPath || input?.resource?.fsPath || 'null';
+            })();
+            this._logger(`[DOC_LOAD] START | hintUri=${hintUri?.fsPath ?? 'null'} | activeEditor=${activeEditorNow} | activeTab=${tabNow} | useHydrated=${useHydratedProgress}`);
+            const success = await this._docController.loadActiveDocument(hintUri);
+            this._logger(`[DOC_LOAD] loadActiveDocument success: ${success}`);
+            if (!success) {
+                this._logger('[DOC_LOAD] ❌ No active document found. UI will be "Dead".');
+                this._postToAll({
+                    command: 'synthesisError',
+                    error: 'No active document found to read.',
+                    isFallingBack: false
+                });
+                return false;
             }
+            this._logger(`[DOC_LOAD] ✅ Extracted ${this._docController.chapters.length} chapters.`);
+
+            const metadata = this._docController.metadata;
+            const chapters = this._docController.chapters;
+
+            // Determine if we should use existing StateStore progress (from persistence rehydration)
+            const initialProgress = useHydratedProgress ? { 
+                chapterIndex: this._stateStore.state.currentChapterIndex, 
+                sentenceIndex: this._stateStore.state.currentSentenceIndex 
+            } : null;
+
+            // Commit to STATE: Update the active context (Loaded File) Atomically
+            this._stateStore.setActiveDocument(
+                metadata.uri,
+                metadata.fileName,
+                metadata.relativeDir,
+                metadata.versionSalt,
+                metadata.contentHash,
+                initialProgress
+            );
+
+            if (metadata.uri && !useHydratedProgress) {
+                // Only probe SettingsManager if we're not already use hydrated context
+                const progress = this._settingsManager.loadProgress(metadata.uri, metadata.versionSalt, metadata.contentHash);
+                if (progress) {
+                    this._stateStore.setProgress(progress.chapterIndex, progress.sentenceIndex);
+                    this._logger(`[RECOVERY] Resumed ${metadata.uri.path} at C:${progress.chapterIndex} S:${progress.sentenceIndex}`);
+                }
+            }
+
+            this._stateStore.setActiveMode('FILE');
+
+            // [SYNC_HARDENING] Force immediate, exhaustive relay sync to prevent "Dead UI" race conditions.
+            this._syncManager.requestSync(true);
+
+            if (chapters.length > 0) {
+                const currentPos = this._stateStore.state;
+                const currentChapter = chapters[currentPos.currentChapterIndex] || chapters[0];
+                const text = currentChapter.sentences[currentPos.currentSentenceIndex] || currentChapter.sentences[0];
+
+                this._postToAll({
+                    command: 'sentenceChanged',
+                    text: text,
+                    index: currentPos.currentSentenceIndex,
+                    chapterIndex: currentPos.currentChapterIndex
+                });
+            }
+
+            return true;
+        } catch (e) {
+            this._logger(`[DOC_LOAD] FAILED: ${e}`);
+            return false;
+        } finally {
+            this._isLoadingDocument = false;
         }
-
-
-
-
-        this._stateStore.setActiveMode('FILE');
-
-        // UNIFIED SYNC: Propagate the updated state to Dashboard
-
-        if (chapters.length > 0) {
-            const currentPos = this._stateStore.state;
-            const currentChapter = chapters[currentPos.currentChapterIndex] || chapters[0];
-            const text = currentChapter.sentences[currentPos.currentSentenceIndex] || currentChapter.sentences[0];
-
-            this._postToAll({
-                command: 'sentenceChanged',
-                text: text,
-                index: currentPos.currentSentenceIndex
-            });
-        }
-
-        return true;
     }
 
     private _resetContext() {

@@ -261,21 +261,9 @@ export async function activate(context: vscode.ExtensionContext) {
                     uri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
                 }
             }
-
-            // [GUARD] Privacy & System Isolation
-            if (uri) {
-                const uriString = uri.toString();
-                const isInternal = uriString.includes('extension-output:') || 
-                                 uriString.includes('vscode-vfs:') ||
-                                 uriString.toLowerCase().includes('brain') ||
-                                 uriString.toLowerCase().includes('antigravity');
-                
-                if (isInternal) {
-                    // Do not update focus for internal/agent files
-                    return;
-                }
-            }
-
+            
+            log(`[SYNC_SEL] Resolved | uri=${uri?.fsPath ?? 'NONE'} | scheme=${uri?.scheme ?? 'NONE'}`);
+            
             // Always call setActiveEditor so the Focused File slot is updated,
             // even for non-supported files.
             speechProvider.setActiveEditor(uri);

@@ -17,7 +17,7 @@ describe('StateStore', () => {
         expect(state.currentSentenceIndex).toBe(0);
         expect(state.isPreviewing).toBe(false);
         expect(state.volume).toBe(50);
-        expect(state.rate).toBe(0);
+        expect(state.rate).toBe(1.0);
     });
 
     it('should update active document correctly', () => {

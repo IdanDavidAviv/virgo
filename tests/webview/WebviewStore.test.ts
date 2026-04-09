@@ -111,7 +111,7 @@ describe('WebviewStore', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it('should maintain default audio settings (rate: 0, volume: 50) if not provided', () => {
+  it('should maintain default audio settings (rate: 1.0, volume: 50) if not provided', () => {
     const store = WebviewStore.getInstance();
     
     // Trigger sync without rate/volume
@@ -124,7 +124,7 @@ describe('WebviewStore', () => {
     }));
 
     const state = store.getState();
-    expect(state?.rate).toBe(0);
+    expect(state?.rate).toBe(1.0);
     expect(state?.volume).toBe(50);
   });
 });

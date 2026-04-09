@@ -26,11 +26,13 @@ export class PlaybackController {
     private static instance: PlaybackController;
     private watchdog: any = null;
     private intentExpiry: number = 0;
-    private readonly INTENT_TIMEOUT_MS = 5000; // [STABILITY] Grant 5s of sovereignty to user intent
+    private readonly INTENT_TIMEOUT_MS = 1500; // [STABILITY] Grant 1.5s of sovereignty to user intent
     private transitionExpiry: number = 0;
     private readonly TRANSITION_WINDOW_MS = 500; // [UI] 500ms window to ignore index syncs after a jump
     private synthesizingKeys: Set<string> = new Set();
     private readonly MAX_CONCURRENT_SYNTHESIS = 3;
+    /** [AUTOPLAY GUARD] True only after the user has explicitly clicked Play/Jump. */
+    private _userHasInteracted: boolean = false;
     private constructor() {
         this.setupListeners();
         // [PASSIVE BINDING] Controllers bind to the Engine's event stream
@@ -80,7 +82,7 @@ export class PlaybackController {
 
     public clearIntent(): void {
         const store = WebviewStore.getInstance();
-        store.setIntentIds(1, 1);
+        store.setIntentIds(0, 0);
         this.intentExpiry = 0;
         this.transitionExpiry = 0;
         store.updateUIState({ isAwaitingSync: false, playbackIntent: 'STOPPED' });
@@ -114,17 +116,21 @@ export class PlaybackController {
             // 1. [FIFO] Atomic Ingestion
             engine.ingestData(cacheKey, data, intentId);
 
-            // 2. [INTENT GUARD] Prune stale or background data from triggering play
-            const { playbackIntent } = store.getUIState();
+            // 2. [INTENT GUARD] 
             const headKey = store.getSentenceKey();
+            const { playbackIntent } = store.getUIState();
+            const currentPlaybackId = store.getState().playbackIntentId;
 
             // [AUTHORITATIVE PLAYBACK]
-            const currentPlaybackId = store.getState().playbackIntentId;
+            // We only trigger auto-play if we are actively PLAYING, this is the HEAD segment,
+            // AND the user has already interacted (gesture gate for browser autoplay policy).
             if (playbackIntent === 'PLAYING' && cacheKey === headKey && intentId === currentPlaybackId) {
-                console.log(`[PlaybackController] 🚀 AUTHORITATIVE PLAY: ${cacheKey} matches head for intent ${intentId}.`);
-                engine.playFromCache(cacheKey, intentId);
-            } else {
-                console.log(`[PlaybackController] 📥 Ingested ${cacheKey} (Background/Stale). Play inhibited.`);
+                if (this._userHasInteracted) {
+                    console.log(`[PlaybackController] 🚀 HEAD MATCH: ${cacheKey}. Triggering Engine Play.`);
+                    engine.playFromCache(cacheKey, intentId);
+                } else {
+                    console.warn('[PlaybackController] 🚫 HEAD MATCH suppressed — awaiting first user gesture.');
+                }
             }
         });
 
@@ -135,8 +141,7 @@ export class PlaybackController {
 
             store.patchState({
                 cacheCount: data.count,
-                cacheSizeBytes: safeBytes,
-                cacheStats: { count: data.count, size: safeBytes }
+                cacheSizeBytes: safeBytes
             });
 
             const sizeMb = Number((safeBytes / (1024 * 1024)).toFixed(2));
@@ -148,11 +153,10 @@ export class PlaybackController {
         client.onCommand<any>(IncomingCommand.CACHE_STATS, handleCacheStats);
         client.onCommand<any>(IncomingCommand.CACHE_STATS_UPDATE, handleCacheStats);
 
-        client.onCommand<UISyncPacket>(IncomingCommand.UI_SYNC, (data) => {
-            console.log('[PlaybackController] 🔄 Received UI_SYNC');
-            store.updateState(data);
-            this.handleSync(data);
-        });
+        // [FIX] UI_SYNC is routed exclusively by CommandDispatcher.dispatch(),
+        // which already calls both handleUiSync() and playback.handleSync().
+        // Registering a second handler here caused double-firing on every packet,
+        // leading to a cascading !hasChanges guard exit that silenced all UI updates.
 
         client.onCommand(IncomingCommand.CLEAR_CACHE_WIPE, () => {
             console.log('[PlaybackController] 🧹 Cache wipe requested');
@@ -186,6 +190,8 @@ export class PlaybackController {
         const currentState = store.getState();
 
         // 1. [SYNC] Universal Unlocker: Any jump is a gesture that primes the engine.
+        // [AUTOPLAY GUARD] Jump is also a user gesture — unlock the gesture gate.
+        this._userHasInteracted = true;
         WebviewAudioEngine.getInstance().ensureAudioContext();
 
         // 2. [SYNC] Authoritative State Patch
@@ -449,15 +455,11 @@ export class PlaybackController {
             case AudioEngineEventType.ERROR:
                 console.error(`[PlaybackController] 🔴 Engine error: ${event.message}`);
 
-                const { engineMode } = store.getState();
-                if (engineMode === 'neural') {
-                    console.warn('[PlaybackController] ☢️ Neural Error detected. Signaling Extension...');
-                    // We don't force local here anymore; we let the Extension's health-tracker decide on the next segment.
-                }
-
+                // [v2.3.2] Non-Destructive Error Handling
+                // We keep the intent as is; if it's PLAYING, we allow the next segment to attempt recovery.
+                // We only clear the "waiting" states to avoid a permanent spinner.
                 store.patchState({
-                    playbackStalled: false,
-                    playbackIntent: 'STOPPED'
+                    playbackStalled: false
                 });
                 store.updateUIState({
                     isBuffering: false,
@@ -472,6 +474,8 @@ export class PlaybackController {
      */
     public play(currentUri?: string): void {
         console.log('[PlaybackController] 🟢 USER PLAY requested');
+        // [AUTOPLAY GUARD] User has explicitly clicked Play — unlock gesture gate.
+        this._userHasInteracted = true;
         const store = WebviewStore.getInstance();
         const intentId = store.resetPlaybackIntent();
         this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
@@ -694,18 +698,8 @@ export class PlaybackController {
             store.patchState({ isHydrated: true });
         }
 
-        // [SOVEREIGNTY] Respect active user intent over incoming sync packets
-        const now = Date.now();
-
-        // 1. [INTENT GUARD] Check if we are in a sovereign intent window (3.5s)
-        const packetIntentId: number = packet.playbackIntentId ?? 0;
         const currentPlaybackId = store.getState().playbackIntentId;
-
-        if (now < this.intentExpiry && packetIntentId !== currentPlaybackId) {
-            console.log(`[PlaybackController] 🛡️ Protecting active intent (${currentPlaybackId}) from stale sync (${packetIntentId})`);
-            this.releaseLock();
-            return;
-        }
+        const packetIntentId: number = packet.playbackIntentId ?? 0;
 
         // 1. [INTENT ADOPTION] Track authoritative intent IDs from extension
         if (packetIntentId > currentPlaybackId) {
@@ -725,47 +719,32 @@ export class PlaybackController {
             this._processQueue();
         }
 
-        // 2. [INTENT GUARD] Check if we have an active sovereign intent mismatch (Confirmation Gate)
-        // If the packet has caught up to our local intent, or is newer, we proceed.
-        // If it's still older, we drop it.
-        if (packetIntentId < store.getState().playbackIntentId) {
-            console.warn(`[PlaybackController] 🧱 Sync blocked: stale intent ${packetIntentId} < ${store.getState().playbackIntentId}`);
-            return;
-        }
-
-        // 3. [TRANSITION GUARD] Check if we just jumped (500ms).
+        // 2. [FLUID SYNC] Delegate segmented sovereignty to the store
+        // If the packet is stale, patchState will automatically strip disruptive fields
+        // but allow telemetry (Voices, Stats, FileName) to flow through.
+        
+        const now = Date.now();
         const isTransitioning = now < this.transitionExpiry;
 
         // Sync intent with truth
         const modeFromPacket = packet.isPlaying && !packet.isPaused ? 'PLAYING' :
             packet.isPlaying && packet.isPaused ? 'PAUSED' : 'STOPPED';
 
-        const fullPatch: Partial<StoreState> = {
-            playbackIntent: modeFromPacket,
-            isPlaying: packet.isPlaying,
-            isPaused: packet.isPaused ?? false,
-            activeFileName: packet.activeFileName,
-            activeDocumentUri: packet.activeDocumentUri,
-            availableVoices: packet.availableVoices,
-            cacheStats: packet.cacheStats
+        const syncPatch: Partial<StoreState> = {
+            ...packet,
+            playbackIntent: modeFromPacket
         };
 
-        // [STABILITY] If we are transitioning, we PROTECT indices from being overwritten by stale sync.
+        // [STABILITY] If we are transitioning (e.g. just jumped), we PROTECT indices 
+        // with extra urgency beyond the standard intent guard.
         if (isTransitioning) {
             console.log('[PlaybackController] 🧱 Syncing playback state ONLY (Transition Lock Active)');
-            store.patchState({
-                playbackIntent: modeFromPacket,
-                isPlaying: packet.isPlaying,
-                isPaused: packet.isPaused ?? false
-            });
-        } else {
-            // Full Authoritative Sync
-            store.patchState({
-                ...fullPatch,
-                currentSentenceIndex: packet.currentSentenceIndex,
-                currentChapterIndex: packet.currentChapterIndex
-            });
+            delete syncPatch.currentSentenceIndex;
+            delete syncPatch.currentChapterIndex;
         }
+
+        // Apply the patch. WebviewStore.patchState handles the field-level intent filtering.
+        store.patchState(syncPatch);
         
         this.releaseLock();
     }

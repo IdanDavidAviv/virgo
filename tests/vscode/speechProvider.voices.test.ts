@@ -7,7 +7,8 @@ import { StateStore } from '@core/stateStore';
 vi.mock('vscode', () => ({
     Uri: {
         joinPath: vi.fn((uri, ...parts) => ({ fsPath: parts.join('/') })),
-        parse: vi.fn(s => ({ toString: () => s }))
+        parse: vi.fn(s => ({ toString: () => s })),
+        file: vi.fn(s => ({ fsPath: s, toString: () => `file://${s}` }))
     },
     window: {
         createStatusBarItem: vi.fn(() => ({
@@ -53,6 +54,10 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
             extensionUri: { fsPath: '/test' } as any,
             extensionPath: '/test',
             globalState: {
+                get: vi.fn((key, def) => def),
+                update: vi.fn()
+            },
+            workspaceState: {
                 get: vi.fn((key, def) => def),
                 update: vi.fn()
             },

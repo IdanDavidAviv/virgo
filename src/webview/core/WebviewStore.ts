@@ -7,40 +7,42 @@ import { generateCacheKey } from '../../common/cachePolicy';
  * Ensures that all reactive properties have valid defaults before the first UI_SYNC arrives.
  */
 export const DEFAULT_SYNC_PACKET: UISyncPacket = {
-    focusedFileName: '',
-    focusedRelativeDir: '',
-    focusedDocumentUri: null,
-    focusedIsSupported: false,
-    activeFileName: '',
-    activeRelativeDir: '',
-    activeDocumentUri: null,
-    currentChapterIndex: 0,
-    currentSentenceIndex: 0,
-    isRefreshing: false,
-    isPreviewing: false,
-    activeMode: 'FILE',
-    isLooping: false,
-    isPlaying: false,
-    isPaused: true,
-    playbackStalled: false,
-    volume: 50,
-    rate: 0,
-    engineMode: 'local',
-    autoPlayMode: 'auto',
-    currentSentences: [],
-    allChapters: [],
-    cacheCount: 0,
-    cacheSizeBytes: 0,
-    playbackIntentId: 0,
-    batchIntentId: 0,
-    logLevel: LogLevel.STANDARD,
-    availableVoices: {
-        local: [],
-        neural: []
-    },
-    windowSentences: [],
-    selectedVoice: undefined,
-    snippetHistory: []
+  focusedFileName: '',
+  focusedRelativeDir: '',
+  focusedDocumentUri: null,
+  focusedIsSupported: false,
+  activeFileName: '',
+  activeRelativeDir: '',
+  activeDocumentUri: null,
+  currentChapterIndex: 0,
+  currentSentenceIndex: 0,
+  isRefreshing: false,
+  isPreviewing: false,
+  activeMode: 'FILE',
+  isLooping: false,
+  isPlaying: false,
+  isPaused: true,
+  playbackStalled: false,
+  volume: 50,
+  rate: 1.0,
+  activeSessionId: '',
+  engineMode: 'local',
+  autoPlayMode: 'auto',
+  currentSentences: [],
+  allChapters: [],
+  cacheCount: 0,
+  cacheSizeBytes: 0,
+  playbackIntentId: 1,
+  batchIntentId: 1,
+  logLevel: LogLevel.STANDARD,
+  availableVoices: {
+    local: [],
+    neural: []
+  },
+  windowSentences: [],
+  selectedVoice: undefined,
+  snippetHistory: [],
+  isHydrated: false
 };
 
 export type StoreState = UISyncPacket & {
@@ -80,7 +82,6 @@ export class WebviewStore {
   private readonly STALL_GRACE_MS = 300;
   private readonly SYNC_TIMEOUT_MS = 5000;
 
-  private _isHydrated: boolean = false;
 
   private constructor() {
     this.state = {
@@ -130,7 +131,6 @@ export class WebviewStore {
       this.syncTimer = null;
     }
     this.listeners.clear();
-    this._isHydrated = false;
     // Reset to defaults
     this.state = {
       ...DEFAULT_SYNC_PACKET,
@@ -152,8 +152,9 @@ export class WebviewStore {
     };
   }
 
+  /** Accessor for hydration state — used by tests and external callers. */
   public isHydrated(): boolean {
-    return this._isHydrated;
+    return this.state.isHydrated;
   }
 
   public get isSyncing(): boolean {
@@ -174,7 +175,7 @@ export class WebviewStore {
 
   public getSentenceKey(): string {
     const text = (this.state as any).currentText || '';
-    
+
     return generateCacheKey(
       text,
       this.state.selectedVoice || 'default',
@@ -190,7 +191,7 @@ export class WebviewStore {
     const initialValue = selector(this.state);
     const entry = { selector, listener, lastValue: initialValue };
     this.listeners.add(entry);
-    
+
     // [SOVEREIGNTY] Immediately invoke the listener with the current value
     // to ensure the subscribing component is always in sync with reality.
     try {
@@ -210,79 +211,89 @@ export class WebviewStore {
   }
 
   public patchState(patch: Partial<StoreState>): void {
-    // [v2.3.1 OMEGA] Immediate Grounding
-    // Ensure intent baseline is set as soon as a view is available.
-    if (this.state.playbackIntentId === 0 && patch.playbackIntentId === undefined) { patch.playbackIntentId = 1; }
-    if (this.state.batchIntentId === 0 && patch.batchIntentId === undefined) { patch.batchIntentId = 1; }
+    const currentIntentId = this.state.playbackIntentId;
+    const incomingIntentId = patch.playbackIntentId ?? currentIntentId;
 
-    // [SOVEREIGNTY] Monotonic Intent Protection
-    if (patch.playbackIntentId !== undefined && patch.playbackIntentId < this.state.playbackIntentId) {
-      delete patch.playbackIntentId;
-    }
-    if (patch.batchIntentId !== undefined && patch.batchIntentId < this.state.batchIntentId) {
-      delete patch.batchIntentId;
+    // [SOVEREIGNTY] Monotonic Intent Protection / Segmented Sovereignty
+    const isStale = incomingIntentId < currentIntentId;
+
+    if (isStale) {
+      console.warn(`[STORE] 🧟 STALE PACKET DETECTED (${incomingIntentId} < ${currentIntentId}). Continuing with non-disruptive fields.`);
     }
 
-    const wasHydrated = this._isHydrated;
+    const wasHydrated = this.state.isHydrated;
 
-    // Simple hydration check (if it looks like a sync packet)
-    if ((patch.activeFileName || patch.isHydrated === true) && !this._isHydrated) {
-      this._isHydrated = true;
-      patch.isHydrated = true;
+    // 1. Sanitize patch: Remove undefined values to prevent accidental state wiping during spread
+    const activePatch = { ...patch };
+    Object.keys(activePatch).forEach(key => {
+      if ((activePatch as any)[key] === undefined) {
+        delete (activePatch as any)[key];
+      }
+    });
+
+    // 2. Hydration logic: Aggressive Enforcement [DIAGNOSTIC]
+    const hasDocData = (activePatch.allChapters && activePatch.allChapters.length > 0) || activePatch.activeFileName;
+    
+    if (activePatch.isHydrated === true) {
+      console.log('[STORE] 💧 Explicit Hydration Signal Received.');
+      activePatch.isHydrated = true;
+    } else if (hasDocData && !this.state.isHydrated) {
+      console.warn('[STORE] 💧 🏃 FORCE HYDRATION triggered by contextual data arrival.');
+      activePatch.isHydrated = true;
     }
 
-    // [PERFORMANCE] Prevent redundant updates if state is identical,
-    // BUT always allow the first hydration to propagate to ensure UI parity.
-    const hasChanges = Object.entries(patch).some(([key, value]) => !this.isEqual(value, (this.state as any)[key]));
-    if (wasHydrated && !hasChanges) {
+    // [STABILITY] Pulse-aware isRefreshing logic
+    // If we are hydrated but isRefreshing is true, it means we are in Pulse 2 or a settings change.
+    // We should not block the entire UI if we are already hydrated.
+
+    // 3. Change detection
+    const changedKeys = Object.keys(activePatch).filter(key => !this.isEqual((activePatch as any)[key], (this.state as any)[key]));
+    const hasChanges = changedKeys.length > 0;
+    if (!hasChanges && wasHydrated) {
       return;
     }
 
-    const oldState = { ...this.state };
-
-    // [SOVEREIGNTY] Timestamp local stalls
-    const isStartingStall = (patch.isAwaitingSync && !oldState.isAwaitingSync) || (patch.playbackStalled && !oldState.playbackStalled);
-    const isChangingSource = patch.lastStallSource && patch.lastStallSource !== oldState.lastStallSource;
+    // 4. Playback Stall logic
+    const isStartingStall = (activePatch.isAwaitingSync === true || activePatch.playbackStalled === true) &&
+      !(this.state.isAwaitingSync || this.state.playbackStalled);
+    const isChangingSource = activePatch.lastStallSource !== undefined && activePatch.lastStallSource !== this.state.lastStallSource;
 
     if (isStartingStall || isChangingSource) {
-      patch.lastStallAt = Date.now();
-      if (!patch.lastStallSource) {
-        patch.lastStallSource = patch.playbackStalled ? 'AUTO' : 'USER';
+      activePatch.lastStallAt = Date.now();
+      if (!activePatch.lastStallSource) {
+        activePatch.lastStallSource = activePatch.playbackStalled ? 'AUTO' : 'USER';
       }
     }
 
-    // Merge nested objects if they exist in patch
-    if (patch.availableVoices && this.state.availableVoices) {
-      patch.availableVoices = { ...this.state.availableVoices, ...patch.availableVoices };
-    }
-    if (patch.cacheStats && this.state.cacheStats) {
-      patch.cacheStats = { ...this.state.cacheStats, ...patch.cacheStats };
+    // 5. Merge nested objects (Protect availableVoices)
+    if (activePatch.availableVoices && this.state.availableVoices) {
+      activePatch.availableVoices = { ...this.state.availableVoices, ...activePatch.availableVoices };
     }
 
-    this.state = { ...this.state, ...patch };
-    
+    // 6. Apply atomic update
+    this.state = { ...this.state, ...activePatch };
+
     // [DNA] Recalculate and Schedule re-evaluation
     this.refreshSyncingState();
 
     // [HARDENING] Notify listeners
     this.listeners.forEach((entry) => {
       const newValue = entry.selector(this.state);
-      const shouldNotify = (!wasHydrated && this._isHydrated) || !this.isEqual(newValue, entry.lastValue);
+      const shouldNotify = (!wasHydrated && this.state.isHydrated) || !this.isEqual(newValue, entry.lastValue);
 
       if (shouldNotify) {
         entry.lastValue = newValue;
         entry.listener(newValue);
       }
     });
-
-    console.log(`[STORE] 💎 State Updated. isSyncing=${this.state.isSyncing}, awaitingSync=${this.state.isAwaitingSync}`);
+    console.log(`[STORE] 💎 State Updated [${changedKeys.join(', ')}]. isSyncing=${this.state.isSyncing}, awaitingSync=${this.state.isAwaitingSync}`);
+    
   }
 
   public resetCacheStats(): void {
     this.patchState({
       cacheCount: 0,
-      cacheSizeBytes: 0,
-      cacheStats: { count: 0, size: 0 }
+      cacheSizeBytes: 0
     });
   }
 
@@ -326,7 +337,7 @@ export class WebviewStore {
   private refreshSyncingState(): void {
     const wasSyncing = this.state.isSyncing;
     const isSyncing = this.calculateSyncingState();
-    
+
     if (this.syncTimer) {
       clearTimeout(this.syncTimer);
       this.syncTimer = null;
@@ -340,7 +351,7 @@ export class WebviewStore {
 
     // Schedule next re-evaluation if we are in a transient state
     const { isAwaitingSync, playbackStalled, lastStallAt, lastStallSource, playbackIntent } = this.state;
-    if (playbackIntent !== 'PLAYING') {return;}
+    if (playbackIntent !== 'PLAYING') { return; }
 
     if (isAwaitingSync || playbackStalled) {
       const duration = Date.now() - lastStallAt;
@@ -392,6 +403,20 @@ export class WebviewStore {
 
   private isEqual(a: any, b: any): boolean {
     if (a === b) { return true; }
+
+    // URI Comparison: Robust check for VS Code URI-like objects
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+      const isUriA = typeof a.scheme === 'string' && typeof a.path === 'string';
+      const isUriB = typeof b.scheme === 'string' && typeof b.path === 'string';
+
+      if (isUriA && isUriB) {
+        return a.scheme === b.scheme &&
+          a.path === b.path &&
+          a.query === b.query &&
+          a.fragment === b.fragment;
+      }
+    }
+
     if (typeof a !== typeof b) { return false; }
     if (a instanceof Set && b instanceof Set) {
       if (a.size !== b.size) { return false; }
@@ -403,10 +428,11 @@ export class WebviewStore {
       return a.every((val, index) => this.isEqual(val, b[index]));
     }
     if (typeof a === 'object' && a !== null && b !== null) {
+      if (a instanceof Set || b instanceof Set) { return false; }
       const keysA = Object.keys(a);
       const keysB = Object.keys(b);
       if (keysA.length !== keysB.length) { return false; }
-      return keysA.every(key => this.isEqual(a[key], b[key]));
+      return keysA.every(key => this.isEqual((a as any)[key], (b as any)[key]));
     }
     return false;
   }

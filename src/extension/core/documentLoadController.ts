@@ -35,25 +35,30 @@ export class DocumentLoadController {
     /**
      * Orchestrates loading the current document from VS Code.
      */
-    public async loadActiveDocument(): Promise<boolean> {
+    public async loadActiveDocument(hintUri?: vscode.Uri): Promise<boolean> {
         let document = vscode.window.activeTextEditor?.document;
 
         if (!document) {
+            // [GHOST FOCUS] Sidebar stole focus — activeTextEditor is null.
+            // Try the last active tab first, then fall back to the hintUri
+            // (which is the focusedDocumentUri already captured by syncSelection).
             const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
             const input = tab?.input as any;
-            const uri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
-            
-            if (uri) {
+            const tabUri = input?.uri || input?.resource || (input?.sourceUri && vscode.Uri.parse(input.sourceUri));
+            const resolvedUri = tabUri || hintUri;
+
+            if (resolvedUri) {
                 try {
-                    document = await vscode.workspace.openTextDocument(uri);
+                    document = await vscode.workspace.openTextDocument(resolvedUri);
+                    this._logger(`[LOAD] Resolved via ${tabUri ? 'tab' : 'hintUri'}: ${resolvedUri.fsPath}`);
                 } catch (e) {
-                    this._logger(`[LOAD] Failed to load from tab: ${e}`);
+                    this._logger(`[LOAD] Failed to load from tab/hint: ${e}`);
                 }
             }
         }
 
         if (!document) {
-            this._logger('[LOAD] No active document found.');
+            this._logger('[LOAD] No active document found (activeTextEditor=null, tab=null, hintUri=null).');
             return false;
         }
 

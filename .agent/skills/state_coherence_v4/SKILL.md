@@ -57,17 +57,21 @@ if (incomingData.intentId < this.store.getIntentId()) {
 }
 ```
 
-### Time-Based Sovereignty (Fallback)
-Grant a "Window of Immunity" to the user's last action.
-```typescript
-// Controller
-this.intentExpiry = Date.now() + 1000;
+### Segmented Sovereignty (Fluid Handshake)
+The most robust pattern for highly reactive UIs. Instead of discarding entire packets based on stale IDs, the system filters fields by their impact.
 
-// Sync Handler
-if (Date.now() < this.intentExpiry) {
-   // Ignore extension sync, user intent is currently sovereign
-}
-```
+#### Fluid Priority Fields (Always Merged)
+- **Environment**: `availableVoices`, `hasDocuments`, `activeFileName`, `snippetHistory`.
+- **Telemetry**: `cacheCount`, `cacheSizeBytes`, `engineHealth`, `isHydrated`.
+- **Metadata**: `totalChapters`, `activeChapterTitle`.
+
+#### Disruptive Fields (Intent-Locked)
+- **Playback**: `isPlaying`, `isPaused`, `playbackIntent`, `lastLoadType`, `isAwaitingSync`, `isPreviewing`, `isLooping`, `activeMode`.
+- **Position**: `currentChapterIndex`, `currentSentenceIndex`, `activeQueue`.
+- **Health**: `playbackStalled`, `isRefreshing`, `isBuffering`.
+- **Intent**: `playbackIntentId`, `batchIntentId`.
+
+- **Immunity Window**: A shortened sovereignty window (1500ms) that allows the UI to recover faster from failed or slow synthesis.
 
 ## 4. Implementation Checklist
 
@@ -75,4 +79,6 @@ if (Date.now() < this.intentExpiry) {
 - [ ] **Intent Baton**: Use `intentId` as a session baton. Jumps/Stops mint a new ID; continuity (auto-next/pre-fetch) inherits the current ID.
 - [ ] Consolidate overlapping flags into a single "Source of Truth" enum.
 - [ ] Move logic-based derived states (e.g., `isSyncing`) into a single method or a Controller property.
+- [ ] **Fluid Handshake**: Refactor `patchState` to implement segmented sovereignty (Filtering Disruptive vs Telemetry fields).
+- [ ] **Shortened Window**: Ensure `SOVEREIGNTY_WINDOW` is tuned (e.g. 1500ms) for high-performance synthesis.
 - [ ] Ensure all "Optimistic UI" patches are tied to a specific "Sovereignty Lock" that is explicitly released by the Controller.

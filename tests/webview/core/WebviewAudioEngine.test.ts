@@ -112,7 +112,7 @@ describe('WebviewAudioEngine (v2.3.1 - Dumb Player)', () => {
         await engine.speakLocal('Old', undefined, 1999);
         
         // [ASSERT]: Overall we should only have called speak once
-        expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1));
         
         engine.stop();
         await playback;

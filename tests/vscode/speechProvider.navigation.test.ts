@@ -8,7 +8,8 @@ vi.mock('vscode', () => {
     return {
         Uri: {
             joinPath: vi.fn((uri, ...parts) => ({ fsPath: parts.join('/') })),
-            parse: vi.fn(s => ({ toString: () => s }))
+            parse: vi.fn(s => ({ toString: () => s })),
+            file: vi.fn(s => ({ fsPath: s, toString: () => `file://${s}` }))
         },
         window: {
             createStatusBarItem: vi.fn(() => ({
@@ -58,6 +59,10 @@ describe('SpeechProvider (Navigation Commands)', () => {
                 get: vi.fn((key, def) => def),
                 update: vi.fn()
             },
+            workspaceState: {
+                get: vi.fn((key, def) => def),
+                update: vi.fn()
+            },
             extension: {
                 packageJSON: { version: '1.0.0' }
             },
@@ -94,7 +99,7 @@ describe('SpeechProvider (Navigation Commands)', () => {
         await (provider as any)._handleWebviewMessage({ command: 'nextChapter' }, 'webview');
 
         // Expect absolute jump to Chapter 1, Sentence 0
-        expect(startSpy).toHaveBeenCalledWith(1, 0, expect.anything(), false, undefined, undefined);
+        expect(startSpy).toHaveBeenCalledWith(1, 0, expect.anything(), false, 0, 0);
         // CRITICAL: Ensure we DID NOT call the relative next() method (which is the current bug)
         expect(nextSpy).not.toHaveBeenCalled();
     });
@@ -110,7 +115,7 @@ describe('SpeechProvider (Navigation Commands)', () => {
             await (provider as any)._handleWebviewMessage({ command: 'prevChapter' }, 'webview');
 
             // Expect restart of Chapter 1
-            expect(startSpy).toHaveBeenCalledWith(1, 0, expect.anything(), false, undefined, undefined);
+            expect(startSpy).toHaveBeenCalledWith(1, 0, expect.anything(), false, 0, 0);
         });
 
         it('should JUMP TO PREVIOUS chapter if sentenceIndex === 0', async () => {
@@ -123,7 +128,7 @@ describe('SpeechProvider (Navigation Commands)', () => {
             await (provider as any)._handleWebviewMessage({ command: 'prevChapter' }, 'webview');
 
             // Expect jump to Chapter 0
-            expect(startSpy).toHaveBeenCalledWith(0, 0, expect.anything(), false, undefined, undefined);
+            expect(startSpy).toHaveBeenCalledWith(0, 0, expect.anything(), false, 0, 0);
         });
 
         it('should do nothing if already at start of Chapter 0', async () => {
@@ -144,6 +149,6 @@ describe('SpeechProvider (Navigation Commands)', () => {
         
         await (provider as any)._handleWebviewMessage({ command: 'nextSentence' }, 'webview');
 
-        expect(nextSpy).toHaveBeenCalledWith(expect.anything(), true, 'auto', undefined, undefined);
+        expect(nextSpy).toHaveBeenCalledWith(expect.anything(), true, 'auto', 0, 0);
     });
 });

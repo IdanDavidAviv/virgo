@@ -171,7 +171,7 @@ export class MessageClient {
     p.currentChapterIndex = typeof p.currentChapterIndex === 'number' ? p.currentChapterIndex : 0;
     p.currentSentenceIndex = typeof p.currentSentenceIndex === 'number' ? p.currentSentenceIndex : 0;
     p.volume = typeof p.volume === 'number' ? p.volume : 50;
-    p.rate = typeof p.rate === 'number' ? p.rate : 1.0;
+    p.rate = (typeof p.rate === 'number' && p.rate > 0) ? p.rate : 1.0;
     
     // Ensure boolean fields are concrete
     p.isPlaying = !!p.isPlaying;
@@ -183,6 +183,7 @@ export class MessageClient {
     p.currentSentences = p.currentSentences || [];
     p.snippetHistory = p.snippetHistory || [];
     p.playbackIntentId = p.playbackIntentId ?? 0;
+    p.activeSessionId = p.activeSessionId || '';
     
     return p;
   }

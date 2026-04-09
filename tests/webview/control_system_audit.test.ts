@@ -53,7 +53,8 @@ describe('Control System Audit (Reproduction)', () => {
             isPaused: false,
             autoPlayMode: 'auto',
             availableVoices: { local: [], neural: [] },
-            cacheStats: { count: 0, size: 0 },
+            cacheCount: 0,
+            cacheSizeBytes: 0,
             isHydrated: true
         } as any);
     });
@@ -170,15 +171,13 @@ describe('Control System Audit (Reproduction)', () => {
         // [BOOTSTRAP] Hydrate the store first (Regression Guard #2)
         await dispatcher.dispatch(IncomingCommand.UI_SYNC, {
             cacheCount: 0,
-            cacheSizeBytes: 0,
-            cacheStats: { count: 0, size: 0 }
+            cacheSizeBytes: 0
         });
 
         await dispatcher.dispatch(IncomingCommand.CACHE_STATS, stats);
 
         expect((store.getState() as any).cacheCount).toBe(10);
-        // [PARITY] Match the store's internal composite object structure
-        expect((store.getState() as any).cacheStats).toEqual({ count: 10, size: 1024 });
+        expect((store.getState() as any).cacheSizeBytes).toBe(1024);
     });
 
     it('REPRO: Clicking STOP should stop the local audio engine immediately', async () => {

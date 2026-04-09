@@ -19,25 +19,27 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
     constructor(elements: SnippetLookupElements) {
         super(elements);
 
-        this.subscribe((state: StoreState) => ({
-            history: state.snippetHistory || [],
-            activeSessionId: state.activeSessionId,
-            activeDocumentUri: state.activeDocumentUri
-        }), (data: { history: any[], activeSessionId: string | undefined, activeDocumentUri: string | null }) => {
-            const history = data.history || [];
-            const activeSessionId = data.activeSessionId;
-            const activeDocumentUri = data.activeDocumentUri;
+        const update = () => {
+            const state = this.store.getState();
+            const history = state.snippetHistory || [];
+            const activeSessionId = state.activeSessionId;
+            const activeDocumentUri = state.activeDocumentUri;
 
-            // [PRIVACY_SHIELD] redundant filter to ensure 'brain' paths never leak to UI
+            // [PRIVACY_SHIELD] Ensure 'brain' paths never leak to UI and limit to 10 most recent sessions
             const filteredHistory = history
                 .filter((s: SnippetSession) => s && s.id && !s.id.toLowerCase().includes('brain'))
+                .slice(0, 10) // [SSOT] Limit to 10 most recent non-brain sessions
                 .map((s: SnippetSession) => ({
                     ...s,
                     snippets: (s.snippets || []).filter((sn: SnippetEntry) => sn && sn.fsPath && !sn.fsPath.toLowerCase().includes('brain'))
                 }));
             this._lastHistory = filteredHistory;
             this.renderHistory(filteredHistory, activeSessionId, activeDocumentUri);
-        });
+        };
+
+        this.subscribe((state) => state.snippetHistory, update);
+        this.subscribe((state) => state.activeSessionId, update);
+        this.subscribe((state) => state.activeDocumentUri, update);
 
         // 2. Initial request if empty
         const store = WebviewStore.getInstance();

@@ -62,7 +62,6 @@ export interface UISyncPacket {
     // Integrity & Cache
     cacheCount: number;
     cacheSizeBytes: number;
-    cacheStats?: { count: number, size: number };
     playbackIntentId: number;
     batchIntentId: number;
     lastLoadType?: 'cache' | 'synth' | 'none';
@@ -73,6 +72,7 @@ export interface UISyncPacket {
         neural: any[];
     };
     snippetHistory?: SnippetHistory;
+    isHydrated?: boolean;
 }
 
 
@@ -149,7 +149,8 @@ export enum IncomingCommand {
     CLEAR_CACHE_WIPE = 'CLEAR_CACHE_WIPE',
     CACHE_STATS_UPDATE = 'CACHE_STATS_UPDATE',
     CACHE_MANIFEST = 'CACHE_MANIFEST',
-    SPEAK_LOCAL = 'speakLocal'
+    SPEAK_LOCAL = 'speakLocal',
+    GLOBAL_SITREP = 'GLOBAL_SITREP'
 }
 
 
@@ -195,5 +196,6 @@ export enum OutgoingAction {
     LOAD_SNIPPET = 'LOAD_SNIPPET',
     SET_ACTIVE_MODE = 'SET_ACTIVE_MODE',
     REPORT_CACHE_DELTA = 'REPORT_CACHE_DELTA',
-    REPORT_VOICES = 'reportVoices'
+    REPORT_VOICES = 'reportVoices',
+    PLAYBACK_BLOCKED = 'PLAYBACK_BLOCKED'
 }

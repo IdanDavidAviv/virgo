@@ -242,7 +242,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
         it('T1.4 — should update rate display on rate store change', () => {
             mountSettingsDrawer();
             store.patchState({ rate: 5 });
-            expect(document.getElementById('rate-val')!.textContent).toBe('1.5x');
+            expect(document.getElementById('rate-val')!.textContent).toBe('5.0x');
         });
 
         it('T1.5 — should mark engine-neural as active when engineMode is neural', () => {
@@ -781,8 +781,8 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             store.updateState(HYDRATION_PACKET);
         });
 
-        it('T8.1 — After hydration, rate defaults to 0 (normalized by updateState)', () => {
-            expect(store.getState()?.rate).toBe(0);
+        it('T8.1 — After hydration, rate defaults to 1.0 (normalized by updateState)', () => {
+            expect(store.getState()?.rate).toBe(1.0);
         });
 
         it('T8.2 — After hydration, volume defaults to 50 (normalized by updateState)', () => {

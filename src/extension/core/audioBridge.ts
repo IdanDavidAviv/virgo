@@ -107,22 +107,28 @@ export class AudioBridge extends EventEmitter {
      * Start playing a specific chapter and sentence.
      */
     public async start(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions, previewOnly: boolean = false, intentId?: number, batchId?: number) {
-        // [SOVEREIGNTY] Adopt the intent provided from the gesture authority (Webview)
-        if (intentId !== undefined) {
-            this._playbackEngine.adoptIntent(intentId);
-            this._stateStore.setPlaybackIntentId(intentId);
-        }
+        // [SOVEREIGNTY] Generate new IDs if none provided (e.g. extension host calls)
+        const finalIntent = intentId !== undefined ? intentId : this._playbackEngine.playbackIntentId + 1;
+        let finalBatch = batchId !== undefined ? batchId : this._playbackEngine.batchIntentId;
+
+        // [HARDENING] Prevent Batch 0 from escaping the Extension boundary
+        if (finalBatch === 0) { finalBatch = 1; }
+
+        // [SOVEREIGNTY] Adopt the intent provided from the gesture authority
+        this._playbackEngine.adoptIntent(finalIntent);
+        this._stateStore.setPlaybackIntentId(finalIntent);
         
-        if (batchId !== undefined) {
-            this._playbackEngine.adoptBatchIntent(batchId);
-        }
+        // If it's a new manual start from the host (no IDs provided), we tick the batchId.
+        // If it's a resume or webview-driven start, we trust the provided/current batch.
+        const resolutionBatch = (intentId === undefined && batchId === undefined) ? finalBatch + 1 : finalBatch;
+        this._playbackEngine.adoptBatchIntent(resolutionBatch);
+        this._stateStore.setBatchIntentId(resolutionBatch);
 
         // CRITICAL: Stop any in-flight synthesis or sequences before starting a new one.
-        // This ensures that jumps immediately abort previous tasks and clear the lock.
-        this._playbackEngine.stop(intentId);
+        this._playbackEngine.stop(finalIntent);
 
         // Use the Engine as the source of truth for playing status
-        this._playbackEngine.setPlaying(!previewOnly, intentId);
+        this._playbackEngine.setPlaying(!previewOnly, finalIntent);
 
         this._stateStore.setOptions({
             engineMode: options.mode,
@@ -224,10 +230,17 @@ export class AudioBridge extends EventEmitter {
      */
     public async synthesize(cacheKey: string, options: PlaybackOptions, intentId?: number, batchId?: number) {
         // [PROTOCOL_REPAIR] If the intentId is 0, it means the Webview is likely in an uninitialized state.
-        // We adopt the extension's current intent to bridge the gap.
+        // We adopt the extension's current intent (or generate one if everything is 0) to bridge the gap.
         if (intentId === 0) {
-            this._logger(`[BRIDGE] [PROTOCOL_REPAIR] Synthesis request with Intent 0. Adopted: ${this._playbackEngine.playbackIntentId}`);
-            intentId = this._playbackEngine.playbackIntentId;
+            const currentIntent = this._playbackEngine.playbackIntentId;
+            intentId = currentIntent > 0 ? currentIntent : 1;
+            this._logger(`[BRIDGE] [PROTOCOL_REPAIR] Synthesis request with Intent 0. Adopted: ${intentId}`);
+        }
+
+        if (batchId === 0) {
+            const currentBatch = this._playbackEngine.batchIntentId;
+            batchId = currentBatch > 0 ? currentBatch : 1;
+            this._logger(`[BRIDGE] [PROTOCOL_REPAIR] Synthesis request with Batch 0. Adopted: ${batchId}`);
         }
 
         const state = this._stateStore.state;
@@ -279,13 +292,20 @@ export class AudioBridge extends EventEmitter {
     }
 
     public next(options: PlaybackOptions, manual: boolean = false, autoPlayMode: 'auto' | 'chapter' | 'row' = 'auto', intentId?: number, batchId?: number) {
-        if (intentId !== undefined) {
-            this._playbackEngine.adoptIntent(intentId);
-            this._stateStore.setPlaybackIntentId(intentId);
-        }
-        if (batchId !== undefined) {
-            this._playbackEngine.adoptBatchIntent(batchId);
-        }
+        const finalIntent = intentId !== undefined ? intentId : this._playbackEngine.playbackIntentId + 1;
+        let finalBatch = batchId !== undefined ? batchId : this._playbackEngine.batchIntentId;
+
+        // [HARDENING] Prevent Batch 0 leakage
+        if (finalBatch === 0) { finalBatch = 1; }
+        
+        this._playbackEngine.adoptIntent(finalIntent);
+        this._stateStore.setPlaybackIntentId(finalIntent);
+
+        // [SOVEREIGNTY] Auto-tick batch ONLY if this is a MANUAL host-triggered gesture.
+        // Auto-advances (manual=false) must persist the batchId to maintain sequence continuity.
+        const resolutionBatch = (manual && intentId === undefined && batchId === undefined) ? finalBatch + 1 : finalBatch;
+        this._playbackEngine.adoptBatchIntent(resolutionBatch);
+        this._stateStore.setBatchIntentId(resolutionBatch);
         if (this._stateStore.state.isPreviewing) {
             this._stateStore.setPreviewing(false);
             this._logger(`[BRIDGE] Preview finished. Waiting for user Play.`);

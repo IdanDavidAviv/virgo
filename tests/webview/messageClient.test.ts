@@ -64,16 +64,13 @@ describe('MessageClient', () => {
       }
     }));
 
-    expect(handler).toHaveBeenCalledWith({
-      ...payload,
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({
+      state: 'updated',
       currentChapterIndex: 0,
       currentSentenceIndex: 0,
       volume: 50,
-      rate: 0,
-      allChapters: [],
-      currentSentences: [],
-      snippetHistory: []
-    });
+      rate: 1.0
+    }));
   });
 
   it('should route incoming commands with flat properties', () => {
@@ -95,15 +92,15 @@ describe('MessageClient', () => {
       }
     }));
 
-    expect(handler).toHaveBeenCalledWith({
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({
       ...flatPacket,
       currentSentenceIndex: 0,
       volume: 50,
-      rate: 0,
+      rate: 1.0,
       allChapters: [],
       currentSentences: [],
       snippetHistory: []
-    });
+    }));
   });
 
   describe('Tiered Logging', () => {

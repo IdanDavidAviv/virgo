@@ -6,6 +6,7 @@ import { InteractionManager } from './core/InteractionManager';
 import { LayoutManager } from './core/LayoutManager';
 import { IncomingCommand, OutgoingAction } from '../common/types';
 import { CacheManager } from './cacheManager';
+import { PlaybackController } from './playbackController';
 
 // Global Stylesheet — essential for bundling
 import './style.css';
@@ -49,6 +50,10 @@ export function bootstrap() {
     const client = MessageClient.getInstance();
     const store = WebviewStore.getInstance();
     const audioEngine = WebviewAudioEngine.getInstance();
+    // [FIX] PlaybackController must be eager-initialized BEFORE dispatcher.mount().
+    // If lazy (first instantiation inside dispatch()), setupListeners() runs after mount()
+    // already registered all catch-all handlers — creating a permanent duplicate subscription.
+    const playback = PlaybackController.getInstance();
     const dispatcher = CommandDispatcher.getInstance();
     const interaction = InteractionManager.getInstance();
     const cache = CacheManager.getInstance();
@@ -174,8 +179,9 @@ export function bootstrap() {
 
     console.log('[BOOT] Mapping Elements...');
 
-    // Mount all components to attach event listeners
-    registry.forEach((c) => c.unmount()); // Safety first: call unmount before mount if re-bootstrapping
+    // Mount all components to attach event listeners.
+    // [FIX] Removed premature unmount() call: calling unmount before any component has mounted
+    // destroys subscriptions before they are established, causing a permanently silent UI.
     registry.forEach((c) => (c as any).mount());
     
     interaction.mount();
