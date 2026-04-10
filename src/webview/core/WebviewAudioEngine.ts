@@ -428,7 +428,12 @@ export class WebviewAudioEngine {
 
   private stopLocal(): void {
     this._speechSynth.cancel();
-    this._utterance = null;
+    if (this._utterance) {
+      this._utterance.onstart = null;
+      this._utterance.onend = null;
+      this._utterance.onerror = null;
+      this._utterance = null;
+    }
   }
 
   public setVolume(val: number): void {
@@ -453,7 +458,7 @@ export class WebviewAudioEngine {
         return;
     }
 
-    // [NEURAL RELATIVE] Neural audio is baked with a specific rate.
+    // [NEURAL RELATIVE] Neural audio is baked with a specific rate (standardized to 1.0 in v2.3.2).
     // We adjust playbackRate relative to that baked reference to reach the UI target.
     const effectiveRate = rate / this.bakedRate;
     
@@ -461,8 +466,10 @@ export class WebviewAudioEngine {
     const clampedRate = Math.max(0.06, Math.min(16.0, effectiveRate));
     
     if (this._audio.playbackRate !== clampedRate) {
-        console.log(`[RATE_TRACE] 🎯 Relative Patch | UI=${rate} / Baked=${this.bakedRate} → PlaybackRate=${clampedRate.toFixed(2)}`);
+        console.log(`[NEURAL_RATE] 🎯 Scale Calculation: UI=${rate.toFixed(2)}x / Baked=${this.bakedRate.toFixed(2)}x → Effective=${clampedRate.toFixed(2)}x`);
         this._audio.playbackRate = clampedRate;
+    } else {
+        console.log(`[NEURAL_RATE] ⚖️ No change needed: Effective=${clampedRate.toFixed(2)}x (UI=${rate.toFixed(2)}x)`);
     }
   }
 

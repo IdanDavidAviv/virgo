@@ -32,6 +32,7 @@ const CDP_URL = 'http://localhost:9222';
 const DIAG_LOG = resolve(__dirname, '..', 'diagnostics.log');
 const SHELL_LOCK = resolve(__dirname, '..', '.cdp_shell.lock');
 const action = process.argv[2];
+let cachedWebviewFrame = null;
 
 
 // Parse optional flags: --duration <ms>, --eval <expr>
@@ -88,10 +89,21 @@ async function getAllPages(browser) {
 async function findWorkbenchPage(browser) {
   const pages = await getAllPages(browser);
   for (const { page, title, url } of pages) {
-    const isDevHost = title.includes('Extension Development Host');
+    const isWorkbench = url.includes('workbench.html');
+    const isDevHost = url.includes('extensionDevelopmentPath') || title.includes('Extension Development Host');
     const isWebview = url.includes('vscode-webview');
-    const isRealShell = url.includes('workbench.html');
-    if (isRealShell && !isDevHost && !isWebview) { return page; }
+    const hasAntigravity = title.includes('Antigravity');
+
+    // [SOVEREIGNTY] Real workbench: workbench.html, NOT dev host, and usually has Antigravity title
+    if (isWorkbench && !isDevHost && !isWebview && hasAntigravity) {
+      return page;
+    }
+  }
+  // Fallback: first workbench.html that isn't dev host
+  for (const { page, title, url } of pages) {
+    if (url.includes('workbench.html') && !(url.includes('extensionDevelopmentPath') || title.includes('Extension Development Host'))) {
+      return page;
+    }
   }
   return null;
 }
@@ -102,58 +114,124 @@ async function findWorkbenchPage(browser) {
  */
 async function findDevHostPage(browser) {
   const pages = await getAllPages(browser);
-  for (const { page, title } of pages) {
-    if (title.includes('Extension Development Host')) { return page; }
+  for (const { page, title, url } of pages) {
+    // [SOVEREIGNTY] Dev host is identified by either flag in URL or title
+    const isDevHost = url.includes('extensionDevelopmentPath') || title.includes('Extension Development Host');
+    if (isDevHost && url.includes('workbench.html')) {
+      return page;
+    }
   }
   return null;
 }
 
 /**
- * Finds the Read Aloud webview FRAME inside the dev host page.
- * VS Code webviews are sandboxed iframes within the workbench renderer process.
- * They do NOT appear as separate CDP top-level targets.
- *
- * VS Code uses a two-frame webview architecture:
- *   - index.html  → outer shell / service worker wrapper (no user content)
- *   - fake.html   → inner content frame (this is where our bootstrap code runs)
- *
- * Strategy:
- *  1. Get the dev host page.
- *  2. Find vscode-webview:// frames.
- *  3. Prefer the one with fake.html (inner content frame).
- *  4. Fallback: first non-main vscode-webview frame.
- *  5. Last resort: any frame that has __BOOTSTRAP_CONFIG__ defined.
+ * Finds the Read Aloud webview FRAME using a multi-layered discovery strategy.
+ * VS Code webviews can reside in:
+ *   1. A child frame of the main workbench page.
+ *   2. A separate top-level page (if in certain panel/mode states).
  */
-async function findWebviewFrame(browser) {
-  const devHostPage = await findDevHostPage(browser);
-  if (!devHostPage) { return null; }
+async function findWebviewFrame(browser, verbose = false) {
+  if (cachedWebviewFrame && !cachedWebviewFrame.isDetached()) return cachedWebviewFrame;
 
-  const frames = devHostPage.frames();
-  const webviewFrames = frames.filter(f => f.url().startsWith('vscode-webview://'));
+  const allPages = await getAllPages(browser);
+  
+  // [SOVEREIGNTY] Prioritize Dev Host targets in the discovery pass.
+  // We want to avoid accidentally talking to the main editor's webview.
+  allPages.sort((a, b) => {
+    const isADev = a.url.includes('extensionDevelopmentPath') || a.title.includes('Extension Development Host');
+    const isBDev = b.url.includes('extensionDevelopmentPath') || b.title.includes('Extension Development Host');
+    if (isADev && !isBDev) return -1;
+    if (!isADev && isBDev) return 1;
+    return 0;
+  });
 
-  // Pass 1: prefer fake.html — this is the actual webview content frame
-  const fakeFrame = webviewFrames.find(f => f.url().includes('/fake.html'));
-  if (fakeFrame) { return fakeFrame; }
+  if (verbose) console.log(`[CDP] 🔍 Scanning ${allPages.length} top-level targets for Read Aloud webview (Dev-First)...`);
 
-  // Pass 2: any non-index vscode-webview frame
-  const contentFrame = webviewFrames.find(f => !f.url().includes('/index.html'));
-  if (contentFrame) { return contentFrame; }
+  // [v2.3.2] Multi-Pass Discovery with recursive frame scanning
+  for (const { page, title } of allPages) {
+    const frames = page.frames();
+    if (verbose) console.log(`  [Page] "${title}" (${frames.length} frames)`);
+    for (const f of frames) {
+      if (f.isDetached()) continue;
+      try {
+        const url = f.url();
+        if (verbose) console.log(`    [Frame] ${url.substring(0, 80)}...`);
 
-  // Pass 3: any vscode-webview frame (index.html or whatever is there)
-  if (webviewFrames.length > 0) { return webviewFrames[0]; }
+        // [SOVEREIGNTY] Exclude system webviews (Media Preview, Markdown Preview, etc.)
+        const isSystem = url.includes('extensionId=vscode.') || url.includes('extensionId=ms-vscode.');
+        if (isSystem) {
+          if (verbose) console.log(`      ⏭ Skipping System Webview`);
+          continue;
+        }
 
-  // Pass 4: scan all non-main frames for __BOOTSTRAP_CONFIG__
-  for (const frame of frames) {
-    if (frame === devHostPage.mainFrame()) { continue; }
-    try {
-      const hasConfig = await frame.evaluate(() =>
-        typeof (window).__BOOTSTRAP_CONFIG__ !== 'undefined'
-      ).catch(() => false);
-      if (hasConfig) { return frame; }
-    } catch (_) { /* sandboxed frames may throw — skip */ }
+        // [SOVEREIGNTY] The debug store is the most authoritative marker
+        const hasStore = await f.evaluate(() => typeof window.__debug?.store?.getState === 'function').catch(() => false);
+        if (hasStore) {
+          if (verbose) console.log(`      🎯 MATCH! Pass 1 (Debug Store)`);
+          cachedWebviewFrame = f;
+          return f;
+        }
+
+        // [SOVEREIGNTY] Fallback to bootstrap config
+        const hasConfig = await f.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__ === 'object').catch(() => false);
+        if (hasConfig) {
+          if (verbose) console.log(`      🎯 MATCH! Pass 2 (Config Probe)`);
+          cachedWebviewFrame = f;
+          return f;
+        }
+
+        // [SOVEREIGNTY] Final fallback: URL heuristic (ONLY for webviews)
+        if (url.startsWith('vscode-webview://') && (title.includes('readme-preview-read-aloud') || url.includes('readme-preview-read-aloud'))) {
+          if (verbose) console.log(`      📍 MATCH! Pass 4 (URL Heuristic: "${url}")`);
+          cachedWebviewFrame = f;
+          return f;
+        }
+      } catch (e) {
+        if (verbose) console.log(`    [Frame] ⚠ Probe error: ${e.message}`);
+      }
+    }
   }
 
+  if (verbose) console.log('[CDP] ✗ No matching webview frame found across all targets.');
   return null;
+}
+
+/** 
+ * [v2.3.2] Sovereign RPC Bridge: Dispatch commands directly via Webview -> Extension RPC 
+ * Bypasses the Command Palette (Ctrl+Shift+P) for high-integrity automation.
+ */
+async function shellExecDirect(browser, cmdId, args = []) {
+  let frame = null;
+  let attempts = 0;
+  const maxAttempts = 5;
+
+  // [v2.3.2] Bridge Hydration Retry Loop
+  while (attempts < maxAttempts) {
+    try {
+      frame = await findWebviewFrame(browser);
+      if (frame) {
+        return await frame.evaluate(async ({ id, a }) => {
+          if (!window.__SOVEREIGN_RPC__) {
+            throw new Error('PENDING_HYDRATION');
+          }
+          return await window.__SOVEREIGN_RPC__(id, a);
+        }, { id: cmdId, a: args });
+      }
+    } catch (err) {
+      if (err.message.includes('PENDING_HYDRATION') || err.message.includes('Target page, context or browser has been closed')) {
+        attempts++;
+        if (attempts < maxAttempts) {
+          await new Promise(r => setTimeout(r, 600));
+          continue;
+        }
+      }
+      throw err;
+    }
+    attempts++;
+    await new Promise(r => setTimeout(r, 600));
+  }
+
+  throw new Error('Webview frame or Sovereign Bridge not found after retries.');
 }
 
 
@@ -302,13 +380,23 @@ async function politeCloseViaEval(browser) {
 /**
  * Tier 3: Surgical PID kill — only the dev host PIDs, never the main editor.
  */
-function surgicalPidKill(devHostPids) {
+function surgicalPidKill(devHostPids, protectedPids = new Set()) {
   if (!devHostPids || devHostPids.length === 0) {
     console.log('[CDP] No dev host PIDs to kill.');
     return;
   }
-  console.log(`[CDP] 💀 Tier 3: Surgical PID kill (${devHostPids.length} process[es])...`);
-  for (const pid of devHostPids) {
+
+  const safeToKill = devHostPids.filter(pid => !protectedPids.has(pid));
+  const blocked = devHostPids.filter(pid => protectedPids.has(pid));
+
+  if (blocked.length > 0) {
+    console.warn(`[CDP] 🛡️ PROTECTION BLOCKED kill of PIDs: ${blocked.join(', ')} (Protected/Main Host)`);
+  }
+
+  if (safeToKill.length === 0) return;
+
+  console.log(`[CDP] 💀 Tier 3: Surgical PID kill (${safeToKill.length} process[es])...`);
+  for (const pid of safeToKill) {
     try {
       execSync(
         `powershell -NoProfile -Command "Stop-Process -Id ${pid} -Force -ErrorAction SilentlyContinue"`,
@@ -334,7 +422,7 @@ function arePidsAlive(pids) {
  * Main graceful shutdown: 3-tier ladder.
  * Tries polite → harder polite → surgical kill.
  */
-async function gracefulClose(devHostPids) {
+async function gracefulClose(devHostPids, protectedPids = new Set()) {
   console.log('[CDP] 🔻 Initiating graceful dev host shutdown...');
 
   const browser = await connectToCDP().catch(() => null);
@@ -362,7 +450,7 @@ async function gracefulClose(devHostPids) {
   }
 
   // Tier 3: Surgical kill
-  surgicalPidKill(devHostPids);
+  surgicalPidKill(devHostPids, protectedPids);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -403,6 +491,19 @@ async function execVSCodeCommand(commandName) {
   console.log(`[CDP] Target: "${pageTitle}"`);
   console.log(`[CDP] Executing: "${commandName}"`);
 
+  // [v2.3.2] Hybrid Sovereignty: Direct RPC vs. UI Simulation
+  if (commandName.startsWith('readme-preview-read-aloud.')) {
+    console.log(`[CDP] ⚡ Direct RPC detected...`);
+    try {
+      const result = await shellExecDirect(browser, commandName);
+      console.log(`[CDP] ✓ RPC Success${result ? ': ' + JSON.stringify(result) : ''}`);
+      await browser.close();
+      return;
+    } catch (err) {
+      console.warn(`[CDP] ⚠ RPC Bridge failed: ${err.message}. Falling back to UI simulation...`);
+    }
+  }
+
   await page.bringToFront();
   await page.keyboard.press('Escape');
   await delay(150);
@@ -417,15 +518,15 @@ async function execVSCodeCommand(commandName) {
 }
 
 /** launch-dev-host — F5 equivalent */
-async function launchDevHost() {
+async function launchDevHost(passedBrowser = null) {
   console.log('[CDP] Triggering Extension Development Host (F5)...');
-  const browser = await connectToCDP();
+  const browser = passedBrowser || await connectToCDP();
   const page = await findWorkbenchPage(browser);
 
   if (!page) {
     console.error('[CDP] ✗ Workbench shell not found.');
-    await browser.close();
-    process.exit(1);
+    if (!passedBrowser) await browser.close();
+    return false;
   }
 
   const pageTitle = await page.title().catch(() => '(unknown)');
@@ -463,17 +564,29 @@ async function waitForDevHostAction() {
 /** close-dev-host — polite 3-tier graceful shutdown */
 async function closeDevHostAction() {
   console.log('[CDP] 🔻 close-dev-host: graceful shutdown requested...');
-  // We don't know the PIDs here, collect them as "all non-main" processes
+
+  const browser = await connectToCDP().catch(() => null);
+  if (!browser) {
+    console.error('[CDP] ✗ Cannot connect to CDP to close host.');
+    process.exit(1);
+  }
+
+  // [SAFETY] Determine which PIDs are "Dev Host" vs "Main Agent Host"
   const allPids = snapshotAntigravityPids();
-  const mainPid = (() => {
-    try {
-      return parseInt(
-        execSync("powershell -NoProfile -Command \"(Get-Process -Name 'Antigravity' | Where-Object { $_.MainWindowTitle -ne '' } | Sort-Object CPU -Descending | Select-Object -First 1).Id\"", { encoding: 'utf8' }).trim(),
-        10
-      );
-    } catch { return null; }
-  })();
-  const devPids = [...allPids].filter(pid => pid !== mainPid);
+
+  // We identify the Main Host by finding the workbench that IS NOT an Extension Development Host
+  const devHostPage = await findDevHostPage(browser);
+  if (!devHostPage) {
+    console.log('[CDP] ℹ️ No Extension Development Host found. Nothing to close.');
+    await browser.close();
+    return;
+  }
+
+  const mainPids = snapshotAntigravityPids();
+  const devPids = [...allPids].filter(pid => !mainPids.has(pid));
+
+  // If we can't find specific PIDs (e.g. they share the same base PID), 
+  // we rely on the 3-tier polite close ladder which targets the specific CDP page.
   await gracefulClose(devPids);
 }
 
@@ -670,11 +783,12 @@ async function runShell() {
         // Check if the old PID is still alive
         process.kill(oldPid, 0);
         console.error('╔══════════════════════════════════════════════════════════════╗');
-        console.error(`║  [SHELL] ✗ Another shell instance is active (PID: ${oldPid})   ║`);
+        console.error(`║  [SHELL] ✗ Another shell instance is active (PID: ${oldPid})    ║`);
         console.error('║  Aborting to prevent parallel CDP connection leakage.        ║');
         console.error('╚══════════════════════════════════════════════════════════════╝');
         process.exit(1);
       } catch (e) {
+
         // Process is dead, cleanup stale lock
         unlinkSync(SHELL_LOCK);
       }
@@ -689,6 +803,7 @@ async function runShell() {
     if (existsSync(SHELL_LOCK)) unlinkSync(SHELL_LOCK);
     process.exit(0);
   };
+
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
@@ -730,18 +845,40 @@ async function runShell() {
   };
 
   /** Ensure browser is still connected; reconnect if not. */
-  const getbrowser = async () => {
+  const getbrowser = async (forceRefresh = false) => {
     try {
+      if (forceRefresh) throw new Error('Force refresh');
       // Ping: list contexts — throws if disconnected
-      browser.contexts();
+      const ctxs = browser.contexts();
+      if (ctxs.length === 0) {
+        console.log('[SHELL] ⚠ 0 contexts detected. Attempting connection refresh...');
+        throw new Error('Stale Contexts');
+      }
       return browser;
     } catch {
-      console.log('[SHELL] ⚡ Reconnecting to CDP...');
+      console.log('[SHELL] ⚡ Refreshing CDP connection...');
+      try { await browser.close(); } catch { }
       browser = await connectToCDP();
-      console.log('[SHELL] ✅ Reconnected.');
+      console.log('[SHELL] ✅ Connection refreshed.');
       return browser;
     }
   };
+
+  const getAllPages = async () => {
+    const b = await getbrowser();
+    const all = [];
+    for (const ctx of b.contexts()) {
+      for (const page of ctx.pages()) {
+        const title = await page.title().catch(() => 'Untitled');
+        all.push({ page, title, url: page.url() });
+      }
+    }
+    return all;
+  };
+
+  // Snapshot current PIDs at startup to PROTECT them
+  const mainPids = snapshotAntigravityPids();
+  console.log(`[SHELL] 🛡 Protected PIDs: ${[...mainPids].join(', ')}`);
 
   // Dev host PID tracking (set by 'launch' command)
   let devHostPids = [];
@@ -756,32 +893,134 @@ async function runShell() {
     console.log('  show read-aloud     — focus the sidebar and wake the extension');
     console.log('  find read-aloud     — verify the webview is present/detected');
     console.log('  targets             — list all CDP page targets');
+    console.log('  pages               — list high-level workbench targets');
+    console.log('  refresh             — force-reconnect the CDP bridge');
     console.log('  eval <expr>         — evaluate JS in Read Aloud webview');
     console.log('  exec <vs-cmd>       — execute a VS Code command');
+    console.log('  sitrep              — [v2.3.2] Situation Report: Vitals & Hydration');
     console.log('  log [n]             — last n lines of diagnostics.log (default 30)');
     console.log('  tail                — toggle live log tail on/off');
     console.log('  exit | quit         — close shell');
     console.log('');
   };
 
-  const shellTargets = async () => {
-    const b = await getbrowser();
-    const pages = await getAllPages(b);
+  const shellPages = async () => {
+    const pages = await getAllPages();
     console.log(`\n[SHELL] ${pages.length} CDP page(s):`);
-    for (const { title, url } of pages) {
-      const tag = title.includes('Extension Development Host') ? '[DEV HOST]'
-        : url.includes('workbench.html') ? '[WORKBENCH]'
-          : url.includes('vscode-webview') ? '[WEBVIEW]  '
-            : '[OTHER]    ';
-      console.log(`  ${tag}  "${title}"`);
-      console.log(`             ${url}`);
+    for (let i = 0; i < pages.length; i++) {
+      const p = pages[i];
+      const url = p.url;
+      const title = p.title;
+      let type = '[OTHER]     ';
+      if (url.includes('workbench.html')) type = '[WORKBENCH] ';
+      if (title.includes('Extension Development Host')) type = '[DEV HOST]  ';
+      console.log(`  [${i}] ${type} "${title}"\n             ${url}`);
     }
     console.log('');
   };
 
+  const shellTargets = async () => {
+    const b = await getbrowser();
+    console.log(`\n[SHELL] Active Contexts: ${b.contexts().length}`);
+    for (const [i, ctx] of b.contexts().entries()) {
+      const pCount = ctx.pages().length;
+      console.log(`  Context [${i}]: ${pCount} pages`);
+      for (const [j, p] of ctx.pages().entries()) {
+        const title = await p.title().catch(() => 'Untitled');
+        console.log(`    Page [${j}]: "${title}" -> ${p.url().slice(0, 100)}`);
+      }
+    }
+    console.log('');
+  };
+
+  const shellCheckHost = async () => {
+    const b = await getbrowser();
+    const workbench = await findWorkbenchPage(b);
+    const devHost = await findDevHostPage(b);
+    const webview = await findWebviewFrame(b, true); // Verbose discovery in check-host
+
+    console.log('\n[SHELL] 🔍 Connection SitRep:');
+    console.log(`  Main Workbench: ${workbench ? '✅ Detected' : '❌ NOT FOUND'}`);
+    console.log(`  Dev Host:       ${devHost ? '✅ Detected' : '❌ NOT FOUND (Launch required)'}`);
+    console.log(`  Read Aloud UI:  ${webview ? '✅ Detected' : '❌ NOT FOUND (Show sidebar required)'}`);
+
+    if (webview) {
+      try {
+        const hydration = await webview.evaluate(() => ({
+          store: typeof window.__debug?.store?.getState === 'function',
+          config: typeof window.__BOOTSTRAP_CONFIG__ === 'object',
+          title: document.title
+        }));
+        console.log(`  UI Hydration:   ${hydration.store ? '✅ store' : '❌ NO STORE'} | ${hydration.config ? '✅ config' : '❌ NO CONFIG'}`);
+      } catch (e) {
+        console.log(`  UI Hydration:   ⚠ ERROR: ${e.message}`);
+      }
+    }
+
+    if (workbench) {
+      const title = await workbench.title().catch(() => 'Unknown');
+      console.log(`  Active Editor:  "${title}"`);
+    }
+    console.log('');
+  };
+
+  const shellSitrep = async () => {
+    console.log('\n╔══════════════════════════════════════════════════════════════╗');
+    console.log('║  SITUATION REPORT (v2.3.2 Hardening)                         ║');
+    console.log('╚══════════════════════════════════════════════════════════════╝');
+
+    const b = await getbrowser(true); // Force refresh context
+    const workbench = await findWorkbenchPage(b);
+    const devHost = await findDevHostPage(b);
+    const frame = await findWebviewFrame(b);
+
+    console.log(`  [HOSTS]`);
+    console.log(`    Workbench:    ${workbench ? '✅ (READY)' : '❌ (NOT FOUND)'}`);
+    console.log(`    Dev Host:     ${devHost ? '✅ (LIVE)' : '❌ (LAUNCH REQ)'}`);
+
+    if (frame) {
+      console.log(`  [WEBVIEW]`);
+      try {
+        const vitals = await frame.evaluate(() => {
+          const s = window.__debug?.store?.getState();
+          return {
+            isHydrated: !!s?.activeDocumentUri,
+            isPlaying: !!s?.isPlaying,
+            isPaused: !!s?.isPaused,
+            file: s?.activeDocumentFileName || 'None',
+            chapters: s?.allChapters?.length || 0
+          };
+        });
+        console.log(`    Visibility:   ✅ (VISIBLE)`);
+        console.log(`    Document:     "${vitals.file}"`);
+        console.log(`    Hydration:    ${vitals.isHydrated ? `✅ (${vitals.chapters} chapters)` : '❌ (EMPTY)'}`);
+        console.log(`    State:        ${vitals.isPlaying ? (vitals.isPaused ? '⏸️ PAUSED' : '▶️ PLAYING') : '⏹️ STOPPED'}`);
+      } catch (e) {
+        console.log(`    Visibility:   ⚠️ DETECTED BUT UNRESPONSIVE (${e.message})`);
+      }
+    } else {
+      console.log(`  [WEBVIEW]       ❌ NOT DETECTED (Try "show read-aloud")`);
+    }
+
+    console.log(`  [DIAGNOSTICS]`);
+    try {
+      const content = readFileSync(DIAG_LOG, 'utf8');
+      const lastLines = content.trim().split('\n').slice(-3);
+      for (const line of lastLines) {
+        console.log(`    > ${line.substring(0, 100)}`);
+      }
+    } catch {
+      console.log(`    > No log entries found.`);
+    }
+    console.log('────────────────────────────────────────────────────────────────\n');
+  };
+
   const shellLaunch = async () => {
     const before = snapshotAntigravityPids();
-    await launchDevHost();
+    const b = await getbrowser();
+    const success = await launchDevHost(b);
+    if (!success) return;
+
     console.log('[SHELL] Waiting for dev host PIDs...');
     devHostPids = await waitForNewPids(before, 30000);
     console.log(`[SHELL] ✅ Dev host live — PIDs: ${devHostPids.join(', ')}`);
@@ -798,46 +1037,179 @@ async function runShell() {
   };
 
   const shellKill = async () => {
-    const allPids = [...snapshotAntigravityPids()];
+    const allPids = snapshotAntigravityPids();
     if (devHostPids.length > 0) {
-      surgicalPidKill(devHostPids);
+      console.log(`[SHELL] ⚔ Killing tracked dev host PIDs...`);
+      surgicalPidKill(devHostPids, mainPids);
       devHostPids = [];
     } else {
-      console.log('[SHELL] ⚠ No tracked PIDs. Killing all non-main Antigravity processes...');
-      surgicalPidKill(allPids);
+      console.log('[SHELL] 🛡 Filtering protected PIDs before surgical kill...');
+      const targetPids = [...allPids].filter(pid => !mainPids.has(pid));
+      if (targetPids.length === 0) {
+        console.log('[SHELL] ✓ No stray Antigravity processes found. Main editor is safe.');
+      } else {
+        console.log(`[SHELL] ⚔ Killing ${targetPids.length} stray process(es)...`);
+        surgicalPidKill(targetPids, mainPids);
+      }
+    }
+  };
+
+  /** 
+  /** 
+   * [v2.3.2] Sovereign RPC Bridge: Dispatch commands directly via Webview -> Extension RPC 
+   * Bypasses the Command Palette (Ctrl+Shift+P) for high-integrity automation.
+   */
+  const shellExecDirectBound = async (cmdId, args = []) => {
+    const b = await getbrowser();
+    return await shellExecDirect(b, cmdId, args);
+  };
+
+  const shellExec = async (cmd) => {
+    if (!cmd) { console.log('[SHELL] Usage: exec <vscode-command>'); return; }
+    const b = await getbrowser();
+
+    // [v2.3.2] Hybrid Sovereignty: Direct RPC vs. UI Simulation
+    if (cmd.startsWith('readme-preview-read-aloud.')) {
+      console.log(`[SHELL] ⚡ Direct RPC: ${cmd}`);
+      try {
+        const result = await shellExecDirectBound(cmd);
+        console.log(`[SHELL] ✓ RPC Success${result ? ': ' + JSON.stringify(result) : ''}`);
+        return;
+      } catch (err) {
+        console.warn(`[SHELL] ⚠ RPC Bridge failed: ${err.message}. Falling back to UI simulation...`);
+      }
+    }
+
+    
+    const devPage = await findDevHostPage(b);
+    const mainPage = await findWorkbenchPage(b);
+
+    const isReadAloudCmd = cmd.includes('readme-preview-read-aloud');
+    let page = devPage;
+    let context = '[DEV HOST]';
+
+    if (!page) {
+      page = mainPage;
+      context = '[MAIN EDITOR]';
+    }
+
+    if (!page) {
+      console.log('[SHELL] ✗ No active project window found (Main or Dev Host).');
+      return;
+    }
+
+    // [v2.3.2] Offset-based response audit
+    let initialOffset = 0;
+    try { initialOffset = fs.statSync(DIAG_LOG).size; } catch (e) { }
+
+    console.log(`[SHELL] ${context} exec: "${cmd}"`);
+
+    await page.bringToFront().catch(() => { });
+    await page.keyboard.press('Escape').catch(() => { });
+    await delay(300); // Wait for modal context to clear
+    await page.keyboard.press('Control+Shift+P').catch(() => { });
+    await delay(600); // Wait for command palette animation
+
+    // Clear palette before typing [v2.3.2]
+    await page.keyboard.down('Control').catch(() => { });
+    await page.keyboard.press('KeyA').catch(() => { });
+    await page.keyboard.up('Control').catch(() => { });
+    await page.keyboard.press('Backspace').catch(() => { });
+    await delay(100);
+
+    await page.keyboard.type(`>${cmd}`, { delay: 30 }).catch(() => { });
+    await delay(1500); // Increased wait for results to filter and match [v2.3.2]
+
+    // [v2.3.2] Hardened Enter: Ensure the command is submitted
+    await page.keyboard.press('Enter').catch(() => { });
+    await delay(200);
+    await page.keyboard.press('Enter').catch(() => { }); // Double-tap for persistence
+
+    console.log('[SHELL] ✓ Command dispatched. Waiting for IDE response...');
+
+    // Poll for new logs for up to 10 seconds [v2.3.2]
+    const start = Date.now();
+    let responseFound = false;
+    while (Date.now() - start < 10000) {
+      await delay(500);
+      try {
+        const logs = fs.readFileSync(DIAG_LOG, 'utf8').substring(initialOffset);
+        if (logs.includes('Command OK') || logs.includes('Sovereign Bridge') || logs.includes('Synthesis started')) {
+          console.log('[SHELL] ✓ Verification confirmed via logs.');
+          responseFound = true;
+          break;
+        }
+      } catch (e) { }
+    }
+
+    if (!responseFound) {
+      console.warn('[SHELL] ⚠ NoIDE response detected in logs within 10s.');
     }
   };
 
   const shellShowReadAloud = async () => {
     console.log('[SHELL] 👁 Waking Read Aloud sidebar...');
     await shellExec('readme-preview-read-aloud.show-dashboard');
+    console.log('[SHELL] ⏳ Waiting for hydration...');
+    await delay(3000);
+    cachedWebviewFrame = null;
+    await findWebviewFrame(await getbrowser());
   };
 
   const shellFindReadAloud = async () => {
     const b = await getbrowser();
-    const frame = await findWebviewFrame(b);
+    const frame = await findWebviewFrame(b, true); // Verbose
     if (frame) {
       console.log(`[SHELL] ✓ Found Read Aloud webview frame: ${frame.url()}`);
     } else {
       console.log('[SHELL] ✗ No Read Aloud webview frame found. Try "show read-aloud" first.');
+      console.log('[SHELL]   Tip: Run "find-all" to see all candidate frames.');
     }
+  };
+
+  /** Exhaustive frame metadata dump */
+  const shellFindAll = async () => {
+    const b = await getbrowser();
+    const pages = await getAllPages(b);
+    console.log(`\n[SHELL] 🛡️ EXHAUSTIVE TARGET AUDIT (${pages.length} pages):`);
+    for (const { page, title } of pages) {
+      const frames = page.frames();
+      console.log(`\n  Page: "${title}" [${page.url().substring(0, 60)}...]`);
+      for (const f of frames) {
+        const url = f.url();
+        const info = await f.evaluate(() => ({
+          store: typeof window.__debug?.store !== 'undefined',
+          config: typeof window.__BOOTSTRAP_CONFIG__ !== 'undefined',
+          scripts: Array.from(document.scripts).map(s => s.src.split('/').pop()).filter(Boolean).slice(0, 3)
+        })).catch(() => ({ error: true }));
+
+        const prefix = f.parentFrame() ? '    └─' : '  ';
+        const storeTag = info.store ? '[STORE] ' : '';
+        const configTag = info.config ? '[CONFIG] ' : '';
+        console.log(`${prefix} Frame: ${url.substring(0, 80)}...`);
+        if (info.scripts && info.scripts.length > 0) {
+          console.log(`       ${storeTag}${configTag}Scripts: ${info.scripts.join(', ')}`);
+        }
+      }
+    }
+    console.log('');
   };
 
   const shellFrames = async () => {
     const b = await getbrowser();
-    const devPage = await findDevHostPage(b);
-    if (!devPage) {
-      console.log('[SHELL] ⚠ No dev host page found. Launch first.');
-      return;
+    const pages = await getAllPages(b);
+    console.log(`\n[SHELL] 📦 Recursive Frame Scan:`);
+    for (const { page, title } of pages) {
+      const frames = page.frames();
+      console.log(`  Page: "${title}" (${frames.length} frames)`);
+      for (let i = 0; i < frames.length; i++) {
+        const f = frames[i];
+        const url = f.url();
+        const prefix = f.parentFrame() ? '  └─' : '  ';
+        console.log(`${prefix} [${i}] ${url.substring(0, 100)}`);
+      }
     }
-    const frames = devPage.frames();
-    console.log(`[SHELL] 📦 ${frames.length} frame(s) in dev host:`);
-    for (let i = 0; i < frames.length; i++) {
-      const f = frames[i];
-      const url = f.url();
-      const isMain = f === devPage.mainFrame();
-      console.log(`  [${i}] ${isMain ? '(main)' : '      '} ${url.substring(0, 100)}`);
-    }
+    console.log('');
   };
 
   const shellEval = async (expr) => {
@@ -862,34 +1234,6 @@ async function runShell() {
     }
   };
 
-  const shellExec = async (cmd) => {
-    if (!cmd) { console.log('[SHELL] Usage: exec <vscode-command>'); return; }
-    const b = await getbrowser();
-
-    // When a dev host is live, prefer it as the command target.
-    // Fall back to the main workbench if no dev host page is found.
-    const devPage = await findDevHostPage(b);
-    const mainPage = devPage ? null : await findWorkbenchPage(b);
-    const page = devPage || mainPage;
-
-    if (!page) {
-      console.log('[SHELL] ✗ No workbench page found to dispatch command.');
-      return;
-    }
-
-    const context = devPage ? '[DEV HOST]' : '[MAIN]';
-    console.log(`[SHELL] ${context} exec: "${cmd}"`);
-
-    await page.bringToFront();
-    await page.keyboard.press('Escape');
-    await delay(150);
-    await page.keyboard.press('Control+Shift+P');
-    await delay(350);
-    await page.keyboard.type(cmd, { delay: 25 });
-    await delay(1000);
-    await page.keyboard.press('Enter');
-    console.log('[SHELL] ✓ Command dispatched.');
-  };
 
   const shellLog = (nStr) => {
     const n = parseInt(nStr, 10) || 30;
@@ -911,55 +1255,64 @@ async function runShell() {
 
   rl.prompt();
 
-  rl.on('line', async (raw) => {
+  let commandQueue = Promise.resolve();
 
-    const line = raw.trim();
-    if (!line) { rl.prompt(); return; }
+  rl.on('line', (raw) => {
+    commandQueue = commandQueue.then(async () => {
+      const line = raw.trim();
+      if (!line) { rl.prompt(); return; }
 
-    const lower = line.toLowerCase();
-    if (lower === 'show read-aloud') { await shellShowReadAloud(); rl.prompt(); return; }
-    if (lower === 'find read-aloud') { await shellFindReadAloud(); rl.prompt(); return; }
+      const lower = line.toLowerCase();
+      if (lower === 'show read-aloud') { await shellShowReadAloud(); rl.prompt(); return; }
+      if (lower === 'find read-aloud') { await shellFindReadAloud(); rl.prompt(); return; }
 
-    // Support JSON-wrapped commands (e.g. from agent tools)
-    let finalCmd = line;
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed.terminate) { finalCmd = 'exit'; }
-      else if (parsed.command) { finalCmd = parsed.command; }
-    } catch { /* not JSON, proceed normally */ }
+      // Support JSON-wrapped commands (e.g. from agent tools)
+      let finalCmd = line;
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.terminate) { finalCmd = 'exit'; }
+        else if (parsed.command) { finalCmd = parsed.command; }
+      } catch { /* not JSON, proceed normally */ }
 
-    const [cmd, ...rest] = finalCmd.split(/\s+/);
-    const arg = rest.join(' ');
+      const [cmd, ...rest] = finalCmd.split(/\s+/);
+      const arg = rest.join(' ');
 
-    try {
-      switch (cmd.toLowerCase()) {
-        case '': break;
-        case 'help': shellHelp(); break;
-        case 'targets': await shellTargets(); break;
-        case 'frames': await shellFrames(); break;
-        case 'launch': await shellLaunch(); break;
-        case 'close': await shellClose(); break;
-        case 'kill': await shellKill(); break;
-        case 'eval': await shellEval(arg); break;
-        case 'exec': await shellExec(arg); break;
-        case 'log': shellLog(arg); break;
-        case 'tail': shellTail(); break;
-        case 'exit':
-        case 'quit':
-          console.log('[SHELL] Closing...');
-          stopTail();
-          await browser.close().catch(() => { });
-          rl.close();
-          process.exit(0);
-          return;
-        default:
-          console.log(`[SHELL] Unknown command: "${cmd}". Type "help" for commands.`);
+      try {
+        switch (cmd.toLowerCase()) {
+          case '': break;
+          case 'help': shellHelp(); break;
+          case 'targets': await shellTargets(); break;
+          case 'pages': await shellPages(); break;
+          case 'find': await shellFindReadAloud(); break;
+          case 'find-all': await shellFindAll(); break;
+          case 'frames': await shellFrames(); break;
+          case 'launch': await shellLaunch(); break;
+          case 'refresh': await getbrowser(true); break;
+          case 'check-host': await shellCheckHost(); break;
+          case 'sitrep': await shellSitrep(); break;
+          case 'close': await shellClose(); break;
+          case 'kill': await shellKill(); break;
+          case 'eval': await shellEval(arg); break;
+          case 'exec': await shellExec(arg); break;
+          case 'log': shellLog(arg); break;
+          case 'tail': shellTail(); break;
+          case 'exit':
+          case 'quit':
+            console.log('[SHELL] Closing...');
+            stopTail();
+            await browser.close().catch(() => { });
+            rl.close();
+            process.exit(0);
+            return;
+          default:
+            console.log(`[SHELL] Unknown command: "${cmd}". Type "help" for commands.`);
+        }
+      } catch (err) {
+        console.log(`[SHELL] ✗ Error: ${err.message}`);
       }
-    } catch (err) {
-      console.log(`[SHELL] ✗ Error: ${err.message}`);
-    }
 
-    rl.prompt();
+      rl.prompt();
+    });
   });
 
   rl.on('close', () => {
@@ -993,8 +1346,31 @@ if (!action) { printUsage(); process.exit(1); }
 
 switch (action) {
   case 'shell':
-  default:
     runShell();
+    break;
+
+  case 'launch-dev-host':
+    launchDevHost();
+    break;
+
+  case 'wait-for-devhost':
+    waitForDevHostAction();
+    break;
+
+  case 'close-dev-host':
+    closeDevHostAction();
+    break;
+
+  case 'kill-dev-host':
+    killDevHostLegacy();
+    break;
+
+  case 'exec-command':
+    if (!actionArg) {
+      console.error('[CDP] ERROR: command name required.');
+      process.exit(1);
+    }
+    execVSCodeCommand(actionArg);
     break;
 
   case 'observe-cycle':
@@ -1010,10 +1386,17 @@ switch (action) {
     break;
 
   case 'eval':
-    if (!flags.eval) {
-      console.error('[CDP] ERROR: --eval flag is required for "eval" action.');
+  case 'eval-webview':
+    const expr = flags.eval || actionArg;
+    if (!expr) {
+      console.error('[CDP] ERROR: JS expression required.');
       process.exit(1);
     }
-    evalWebview(flags.eval);
+    evalWebview(expr);
     break;
+
+  default:
+    console.log(`[CDP] Unknown action: ${action}`);
+    printUsage();
+    process.exit(1);
 }
