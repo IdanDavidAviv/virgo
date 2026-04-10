@@ -41,7 +41,10 @@ export class FileContext extends BaseComponent<FileContextElements> {
             }
 
             if (this.els.activeFilename) {
-                this.els.activeFilename.textContent = info.name || 'No Document Focused';
+                // [FIX] Use innerHTML to render the version salt badge — textContent strips HTML
+                const name = escapeHtml(info.name || 'No Document Focused');
+                const saltHtml = info.version ? `<span class="version-badge">${escapeHtml(info.version)}</span>` : '';
+                this.els.activeFilename.innerHTML = `${name}${saltHtml}`;
             }
             if (this.els.activeDir) {
                 // [DE-RESTRICT] Never show restriction warnings.

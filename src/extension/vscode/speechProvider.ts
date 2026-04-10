@@ -936,10 +936,21 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger('[DPG] ✅ Both conditions met. Executing Pulse 2: contextual hydration.');
         // Reset gate so it can't fire twice for same session init
         this._hasInitialUri = false;
-        // Pulse 2: Contextual Hydration (Active Document)
+
+        // [Law F.1 — Persistence Yield] If PersistenceManager already restored an activeDocumentUri,
+        // the user explicitly chose that document last session. Do NOT overwrite it with the currently
+        // focused editor tab. Just sync the UI to reflect the restored state.
+        if (this._stateStore.state.activeDocumentUri) {
+            this._logger(`[DPG] Persisted activeDoc exists (${this._stateStore.state.activeFileName}). Yielding — skipping auto-load. Syncing only.`);
+            this._dashboardRelay.sync();
+            return;
+        }
+
+        // Pulse 2: Contextual Hydration (Active Document) — only when no persisted doc exists
         await this.loadCurrentDocument(true);
         this._dashboardRelay.sync();
     }
+
 
     public async loadCurrentDocument(useHydratedProgress: boolean = false): Promise<boolean> {
         if (this._isLoadingDocument) {

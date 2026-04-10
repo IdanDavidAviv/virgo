@@ -91,10 +91,16 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
         if (!container) { return; }
 
         if (history.length === 0) {
+            const state = this.store.getState();
+            const sessionId = state.activeSessionId ? state.activeSessionId.split('-')[0] + '...' : 'current';
             container.innerHTML = `
                 <div class="snippet-empty-container">
                     <div class="snippet-empty-icon">🛰️</div>
-                    <div class="snippet-empty">No snippets found in this session.</div>
+                    <div class="snippet-empty">No injected snippets found.</div>
+                    <div class="snippet-empty-hint">
+                        Snippets appear here when the MCP agent injects content into this session.
+                        <br/>Session: <code>${sessionId}</code>
+                    </div>
                 </div>
             `;
             return;
