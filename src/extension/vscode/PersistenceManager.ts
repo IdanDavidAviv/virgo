@@ -43,7 +43,7 @@ export class PersistenceManager {
             currentSentenceIndex: saved.sentenceIndex ?? 0,
             engineMode: saved.options?.engineMode ?? 'local',
             selectedVoice: saved.options?.voice ?? '',
-            rate: saved.options?.rate ?? 1.5,
+            rate: saved.options?.rate ?? 1.0,
             volume: saved.options?.volume ?? 1,
             autoPlayMode: saved.options?.autoPlayMode ?? 'auto'
         });

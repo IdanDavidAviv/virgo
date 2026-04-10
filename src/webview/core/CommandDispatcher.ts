@@ -280,9 +280,9 @@ export class CommandDispatcher {
     if (packet.volume !== undefined && packet.volume !== null) {
       audioEngine.setVolume(packet.volume);
     }
-    if (packet.rate !== undefined && packet.rate !== null) {
-      audioEngine.setRate(packet.rate);
-    }
+    // [RATE_HARDENING] Rate is applied reactively via WebviewAudioEngine.setupStoreListeners()
+    // which subscribes to store.rate. Do NOT call audioEngine.setRate() here — store.updateState()
+    // above already triggers the subscription, preventing double application on every UI_SYNC.
 
     // 3. Clear UI-specific sync lock and watchdog timer
     // audioEngine.releaseLock(); // DEPRECATED in v1.5.3: Heartbeats should not release the playback intent lock.

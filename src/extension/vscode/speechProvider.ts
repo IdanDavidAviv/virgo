@@ -613,9 +613,18 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this.prevChapter(payload.intentId, payload.batchId);
                 break;
 
-            case 'SET_SPEED':
-                this._settingsManager.saveSetting('rate', data.value);
+            case OutgoingAction.RATE_CHANGED:
+                // [RATE_HARDENING] Previously unhandled — extension was silently dropping every
+                // rate change from the webview, causing the next UI_SYNC to snap the slider back.
+                // Now we persist the rate AND update the live StateStore so the cache key stays correct.
+                if (typeof data.rate === 'number' && data.rate > 0) {
+                    this._settingsManager.saveSetting('rate', data.rate);
+                    this._stateStore.setOptions({ rate: data.rate });
+                    this._logger(`[RATE] User rate committed: ${data.rate}x`);
+                }
                 break;
+            // case 'SET_SPEED': [DECOMMISSIONED v2.3.2] — was reading data.value but webview sends data.rate. Replaced by OutgoingAction.RATE_CHANGED.
+
             case 'SET_VOLUME':
                 this._settingsManager.saveSetting('volume', data.value);
                 break;
@@ -719,7 +728,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case OutgoingAction.GET_ALL_SNIPPET_HISTORY:
                 const history = await this._getSnippetHistory();
                 this._dashboardRelay.postMessage({
-                    command: IncomingCommand.UI_SYNC, // Or a dedicated history command? UISyncPacket has snippetHistory
+                    command: IncomingCommand.UI_SYNC,
                     snippetHistory: history
                 });
                 break;

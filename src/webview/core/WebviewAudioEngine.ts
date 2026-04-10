@@ -83,8 +83,14 @@ export class WebviewAudioEngine {
 
   private setupStoreListeners(): void {
     const store = WebviewStore.getInstance();
-    store.subscribe((s) => s.volume, (v) => this.setVolume(v));
-    store.subscribe((s) => s.rate, (v) => this.setRate(v));
+    store.subscribe((s) => s.volume, (v) => {
+      console.log(`[VOL_TRACE] 📡 Store→Engine subscription fired | val=${v} | mode=${store.getState().engineMode}`);
+      this.setVolume(v);
+    });
+    store.subscribe((s) => s.rate, (v) => {
+      console.log(`[RATE_TRACE] 📡 Store→Engine subscription fired | val=${v} | mode=${store.getState().engineMode}`);
+      this.setRate(v);
+    });
     store.subscribe((s) => s.isPaused, (p) => p ? this.pause() : this.resume());
 
     let lastPlaying = store.getState().isPlaying;
@@ -200,6 +206,8 @@ export class WebviewAudioEngine {
             };
 
             const onCanPlay = () => {
+                const state = WebviewStore.getInstance().getState();
+                console.log(`[RATE_TRACE] 🔊 Neural canplay | playbackRate=${this._audio.playbackRate} | store.rate=${state.rate} | vol=${this._audio.volume} | mode=${state.engineMode}`);
                 this._audio.play().catch(e => {
                     if (e.name === 'NotAllowedError') {
                         // [AUTOPLAY GUARD] Browser blocked play() — no user gesture yet.
@@ -297,6 +305,8 @@ export class WebviewAudioEngine {
             const state = WebviewStore.getInstance().getState();
             this._utterance.rate = state.rate;
             this._utterance.volume = state.volume / 100;
+            console.log(`[RATE_TRACE] 🗣️ speakLocal utterance baked | rate=${state.rate} | vol=${state.volume} | voice=${voiceId ?? 'default'}`);
+            console.log(`[VOL_TRACE] 🗣️ speakLocal utterance baked | vol=${state.volume} → utterance.volume=${this._utterance.volume.toFixed(2)}`);
 
             const onEnd = () => {
                 if (this._utterance) {
@@ -419,9 +429,15 @@ export class WebviewAudioEngine {
     // playbackRate is only valid for local SpeechSynthesis (browser TTS) mode.
     const engineMode = WebviewStore.getInstance().getState().engineMode;
     if (engineMode !== 'neural') {
+      console.log(`[RATE_TRACE] ✅ setRate applied | val=${val} | audio.playbackRate=${this._audio.playbackRate}→${val}`);
       this._audio.playbackRate = val;
+    } else {
+      console.log(`[RATE_TRACE] 🛡️ setRate SUPPRESSED (neural guard) | val=${val} | audio.playbackRate unchanged (${this._audio.playbackRate})`);
     }
-    if (this._utterance) { this._utterance.rate = val; }
+    if (this._utterance) {
+      console.log(`[RATE_TRACE] 🔄 Live utterance rate patch | ${this._utterance.rate}→${val}`);
+      this._utterance.rate = val;
+    }
   }
 
   public dispose(): void {

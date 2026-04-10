@@ -16,18 +16,20 @@ import { execSync, spawn } from 'child_process';
 
 const LOG_FILE = 'c:\\Users\\Idan4\\Desktop\\readme-preview-read-aloud\\diagnostics.log';
 
+// Backoff state for reconnect loop
+let _reconnectAttempts = 0;
+
 function logTraffic(direction, payload) {
     try {
         const timestamp = new Date().toISOString();
         if (payload?.method === 'notifications/initialized' || payload?.method === 'ping') { return; }
-        
         const msg = payload !== undefined ? `[${direction}] ${JSON.stringify(payload)}` : direction;
         const entry = `[${timestamp}] ${msg}\n`;
         fs.appendFileSync(LOG_FILE, entry);
-        // Fallback to stderr so it shows up in VS Code's extension logs if the file write fails
-        console.error(entry.trim());
-    } catch (err) {
-        // Silently fail to avoid crashing the proxy
+        // NOTE: Do NOT write to console.error here — the pipe may be broken after dev host teardown,
+        // which causes an EPIPE that crashes the proxy via uncaughtException.
+    } catch (_) {
+        // Silently fail — we never crash on a log write failure.
     }
 }
 
@@ -157,10 +159,12 @@ async function main() {
 
             clientTransport.onclose = () => {
                 logTraffic("[PROXY] Bridge connection LOST. Initiating Re-Discovery...");
+                _reconnectAttempts = 0; // reset backoff on a fresh loss
                 setTimeout(reconnect, 5000 + Math.floor(Math.random() * 2000));
             };
 
             await client.connect(clientTransport);
+            _reconnectAttempts = 0; // successful connect — reset backoff
 
             // [NOTIFICATION RELAY] Forward bridge notifications (e.g., list_changed) to the Agent
             client.onnotification = (notification) => {
@@ -170,8 +174,13 @@ async function main() {
             const transportSid = clientTransport.sessionId || clientTransport._sessionId;
             logTraffic(`[PROXY] Bridge Handshake: SUCCESS (Session: ${transportSid}, Proxy PID: ${process.pid})`);
         } catch (err) {
-            logTraffic(`[PROXY] Connection Error: ${err.message}. Retrying in 5s...`);
-            setTimeout(reconnect, 5000 + Math.floor(Math.random() * 2000));
+            // Exponential backoff with jitter: 5s → 10s → 20s → 40s → 60s (cap)
+            _reconnectAttempts++;
+            const base = Math.min(5000 * Math.pow(2, _reconnectAttempts - 1), 60000);
+            const jitter = Math.floor(Math.random() * 3000);
+            const delay = base + jitter;
+            logTraffic(`[PROXY] Connection Error: ${err.message}. Retrying in ${Math.round(delay / 1000)}s (attempt ${_reconnectAttempts})...`);
+            setTimeout(reconnect, delay);
         }
     };
 
@@ -192,8 +201,9 @@ async function main() {
             if (nextInstance) {
                 await connectToBridge(nextInstance.url);
             } else {
-                logTraffic("[PROXY] Re-Discovery failed. Host Registry Empty. Retrying in 10s...");
-                setTimeout(reconnect, 10000);
+                // Registry empty — dev host likely just closed. Back off 30s before next probe.
+                logTraffic("[PROXY] Re-Discovery failed. Host Registry Empty. Retrying in 30s...");
+                setTimeout(reconnect, 30000);
             }
         } catch (e) {
             logTraffic(`[PROXY] Internal Reconnection Error: ${e.message}`);
@@ -201,8 +211,16 @@ async function main() {
         }
     };
 
-    // Global Error Guard - Log everything to diagnostics.log
+    // ── EPIPE guard ───────────────────────────────────────────────────────────
+    // When the dev host tears down, the extension's stdout/stderr pipe breaks.
+    // EPIPE on stdout/stderr is not a fatal error for a proxy — it means the
+    // consumer is gone. We silence it rather than crashing.
+    process.stdout.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
+    process.stderr.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
+
+    // Global Error Guard - Log everything to diagnostics.log (file only, no stderr)
     process.on("uncaughtException", (err) => {
+        if (err.code === 'EPIPE') return; // EPIPE is always safe to ignore in a proxy
         logTraffic(`[PROXY_FATAL] Uncaught Exception: ${err.message}\n${err.stack}`);
         process.exit(1);
     });

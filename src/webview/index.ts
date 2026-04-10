@@ -86,6 +86,13 @@ export function bootstrap() {
 
     console.log('[BOOT] Infrastructure OK');
 
+    // [CDP DEBUG] Expose singletons on window for live CDP eval sessions.
+    // Only active when debugMode is set (dev builds via __BOOTSTRAP_CONFIG__).
+    // Usage from cdp:shell: eval window.__debug.store.getState()
+    if ((window as any).__BOOTSTRAP_CONFIG__?.debugMode) {
+      (window as any).__debug = { store, audioEngine, playback, dispatcher };
+    }
+
     // [SOVEREIGNTY] Component Registry for Lifecycle Management
     const registry: { unmount: () => void }[] = [];
 

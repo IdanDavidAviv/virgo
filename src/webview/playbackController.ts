@@ -317,7 +317,7 @@ export class PlaybackController {
             volume,
             intentId: WebviewStore.getInstance().getState().playbackIntentId
         });
-    }, 150);
+    }, 300);
 
     public setVolume(volume: number): void {
         const store = WebviewStore.getInstance();
@@ -338,7 +338,7 @@ export class PlaybackController {
             rate,
             intentId: WebviewStore.getInstance().getState().playbackIntentId
         });
-    }, 150);
+    }, 300);
 
     public setRate(rate: number): void {
         const store = WebviewStore.getInstance();

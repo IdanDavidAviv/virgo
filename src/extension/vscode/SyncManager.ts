@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { StateStore } from '@core/stateStore';
 import { DashboardRelay } from './dashboardRelay';
+import { SnippetHistory } from '../../common/types';
 
 export class SyncManager implements vscode.Disposable {
     private _disposables: vscode.Disposable[] = [];
@@ -8,7 +9,7 @@ export class SyncManager implements vscode.Disposable {
     private _needsSync: boolean = false;
     private _view?: vscode.WebviewView;
     private _activeSessionId: string = 'SESSION-ID-MISSING';
-    private _pendingSnippetHistory: any | null = null;
+    private _pendingSnippetHistory: SnippetHistory | null = null;
     // [Gate 1] Startup Orchestration — relay must be attached before any flush can proceed.
     // Syncs arriving before setView() are buffered in _needsSync and flushed on first attach.
     private _isRelayAttached: boolean = false;
@@ -63,7 +64,7 @@ export class SyncManager implements vscode.Disposable {
      * @param immediate If true, bypasses the throttle timer.
      * @param snippetHistory Optional history to include in the packet.
      */
-    public requestSync(immediate: boolean = false, snippetHistory?: any) {
+    public requestSync(immediate: boolean = false, snippetHistory?: SnippetHistory) {
         // Buffer history if provided
         if (snippetHistory) {
             this._pendingSnippetHistory = snippetHistory;
@@ -131,7 +132,7 @@ export class SyncManager implements vscode.Disposable {
         this._pendingSnippetHistory = null;
 
         this._needsSync = false;
-        this._dashboardRelay.sync(historyToSync, this._activeSessionId);
+        this._dashboardRelay.sync(historyToSync ?? undefined, this._activeSessionId);
     }
 
     public dispose() {
