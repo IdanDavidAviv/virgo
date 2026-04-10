@@ -300,9 +300,24 @@ export class PlaybackController {
     public selectVoice(voiceId: string): void {
         console.log(`[PlaybackController] selectVoice(${voiceId}) requested`);
         const store = WebviewStore.getInstance();
+        const state = store.getState();
 
-        // [SOVEREIGNTY] Authoritative update
-        store.patchState({ selectedVoice: voiceId });
+        // 1. [SOVEREIGNTY] Authoritative update + Sampling Flag
+        store.patchState({ 
+            selectedVoice: voiceId,
+            isSelectingVoice: true // Enter sampling mode
+        });
+
+        // 2. [INTERRUPT] Stop current engine activities
+        WebviewAudioEngine.getInstance().stop();
+
+        // 3. [SAMPLING] Synthesize current sentence for immediate feedback
+        const currentSentence = state.currentSentences[state.currentSentenceIndex];
+        if (currentSentence) {
+            const intentId = store.resetPlaybackIntent();
+            console.log(`[PlaybackController] 🧪 Sampling feedback for voice: ${voiceId}`);
+            WebviewAudioEngine.getInstance().speakLocal(currentSentence, voiceId, intentId);
+        }
 
         console.log(`[IPC:OUT] VOICE_CHANGED -> ${voiceId}`);
         MessageClient.getInstance().postAction(OutgoingAction.VOICE_CHANGED, {
@@ -448,7 +463,11 @@ export class PlaybackController {
                 store.updateUIState({
                     isAwaitingSync: false
                 });
-                MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: event.intentId });
+                if (!store.getState().isSelectingVoice) {
+                    MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: event.intentId });
+                } else {
+                    console.log('[PlaybackController] ⏸️ Suppression: Audio ended during voice selection. Auto-advance suppressed.');
+                }
                 break;
 
             case AudioEngineEventType.STALLED:
@@ -481,6 +500,14 @@ export class PlaybackController {
         // [AUTOPLAY GUARD] User has explicitly clicked Play — unlock gesture gate.
         this._userHasInteracted = true;
         const store = WebviewStore.getInstance();
+
+        // [v2.3.2] Voice Committal
+        if (store.getState().isSelectingVoice) {
+            console.log('[PlaybackController] 🗳️ Committing to new voice selection. Invalidating old cache.');
+            store.resetBatchIntent(); // Invalidate old session cache (increment batchId)
+            store.patchState({ isSelectingVoice: false });
+        }
+
         const intentId = store.resetPlaybackIntent();
         this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
 
@@ -576,14 +603,16 @@ export class PlaybackController {
         // [RECOVERY] Clear any previous persistent stall logic
         store.resetLoadingStates();
 
-        // [SOVEREIGNTY] Update Store explicitly
+        // [SOVEREIGNTY] Optimistic State Flip for immediate reactive feedback
         store.updateUIState({ 
+            playbackIntent: 'STOPPED', 
             isPlaying: false, 
-            isPaused: false, 
-            playbackIntent: 'STOPPED',
-            isAwaitingSync: true,
-            lastStallSource: 'USER'
+            isPaused: false,
+            isAwaitingSync: true
         });
+
+        // [SOVEREIGNTY] Clear sampling mode on stop
+        store.patchState({ isSelectingVoice: false });
 
         this.startWatchdog();
 

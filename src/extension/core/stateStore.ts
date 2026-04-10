@@ -44,6 +44,7 @@ export interface StateMetadata {
     activeMode: 'FILE' | 'SNIPPET';
     isLooping: boolean;
     autoPlayOnInjection: boolean;
+    isSelectingVoice: boolean; // [v2.4.0] Sampling mode for voice changes
 
     // Cache Stats [ISSUE 26]
     cacheCount: number;
@@ -99,7 +100,8 @@ export class StateStore extends EventEmitter {
             autoInjectSITREP: true,
             playbackIntentId: 1,
             batchIntentId: 1,
-            isHydrated: false
+            isHydrated: false,
+            isSelectingVoice: false
         };
     }
 

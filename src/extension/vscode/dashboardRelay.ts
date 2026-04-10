@@ -87,6 +87,7 @@ export class DashboardRelay {
             // UI Flags
             isRefreshing: !!s.isRefreshing,
             isPreviewing: !!s.isPreviewing,
+            isSelectingVoice: !!s.isSelectingVoice,
             activeMode: s.activeMode || 'FILE',
             isLooping: !!s.isLooping,
 

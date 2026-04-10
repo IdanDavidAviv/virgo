@@ -18,6 +18,7 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
   currentSentenceIndex: 0,
   isRefreshing: false,
   isPreviewing: false,
+  isSelectingVoice: false,
   activeMode: 'FILE',
   isLooping: false,
   isPlaying: false,

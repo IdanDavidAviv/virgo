@@ -41,6 +41,7 @@ export interface UISyncPacket {
     // UI Flags
     isRefreshing: boolean;
     isPreviewing: boolean;
+    isSelectingVoice: boolean; // [NEW] Sampling mode for voice changes
     activeMode: 'FILE' | 'SNIPPET';
     isLooping: boolean;
 
@@ -149,8 +150,9 @@ export enum IncomingCommand {
     CLEAR_CACHE_WIPE = 'CLEAR_CACHE_WIPE',
     CACHE_STATS_UPDATE = 'CACHE_STATS_UPDATE',
     CACHE_MANIFEST = 'CACHE_MANIFEST',
-    SPEAK_LOCAL = 'speakLocal',
-    GLOBAL_SITREP = 'GLOBAL_SITREP'
+    GLOBAL_SITREP = 'GLOBAL_SITREP',
+    COMMAND_RESULT = 'COMMAND_RESULT',
+    SPEAK_LOCAL = 'SPEAK_LOCAL'
 }
 
 
@@ -198,6 +200,7 @@ export enum OutgoingAction {
     REPORT_CACHE_DELTA = 'REPORT_CACHE_DELTA',
     REPORT_VOICES = 'reportVoices',
     PLAYBACK_BLOCKED = 'PLAYBACK_BLOCKED',
-    SET_AUTOPLAY_INJECTION = 'SET_AUTOPLAY_INJECTION',
-    SET_AUTO_INJECT_SITREP = 'SET_AUTO_INJECT_SITREP'
+    SET_AUTO_INJECT_SITREP = 'SET_AUTO_INJECT_SITREP',
+    EXECUTE_COMMAND = 'EXECUTE_COMMAND',
+    SET_AUTOPLAY_INJECTION = 'SET_AUTOPLAY_INJECTION'
 }

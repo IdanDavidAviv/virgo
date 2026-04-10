@@ -791,6 +791,35 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._stateStore.patchState({ isPlaying: false, isPaused: false });
                 this._syncStatusBars();
                 break;
+
+            case OutgoingAction.EXECUTE_COMMAND:
+                if (payload.commandId) {
+                    this._logger(`[RPC] Executing: ${payload.commandId}`);
+                    Promise.resolve(vscode.commands.executeCommand(payload.commandId, ...(payload.args || [])))
+                        .then(result => {
+                            this._logger(`[RPC] Success: ${payload.commandId}`);
+                            if (payload.requestId) {
+                                this._dashboardRelay.postMessage({
+                                    command: IncomingCommand.COMMAND_RESULT,
+                                    requestId: payload.requestId,
+                                    success: true,
+                                    result
+                                });
+                            }
+                        })
+                        .catch(err => {
+                            this._logger(`[RPC] Error: ${payload.commandId} | ${err.message}`);
+                            if (payload.requestId) {
+                                this._dashboardRelay.postMessage({
+                                    command: IncomingCommand.COMMAND_RESULT,
+                                    requestId: payload.requestId,
+                                    success: false,
+                                    error: err.message
+                                });
+                            }
+                        });
+                }
+                break;
         }
     }
 
@@ -1080,12 +1109,22 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
+        this._logger(`[SPEECH_PROVIDER] action:play | file: ${fileName} | start: ${startFromChapter}`);
         this._stateStore.setProgress(startFromChapter, 0);
         this._playbackEngine.setPlaying(true);
         this._audioBridge.start(startFromChapter, 0, this._getOptions());
     }
 
+    /**
+     * [v2.3.2] Check if the player is currently hydrated with valid document content.
+     * Allows naive play/resume commands when no active editor is focused.
+     */
+    public isHydrated(): boolean {
+        return !!this._stateStore.state.activeDocumentUri && this._docController.chapters.length > 0;
+    }
+
     public pause(intentId?: string) {
+        this._logger(`[SPEECH_PROVIDER] action:pause | intent: ${intentId}`);
         this._audioBridge.pause(intentId as any);
         this._playbackEngine.setPaused(true, intentId as any);
     }
@@ -1103,6 +1142,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public stop(intentId?: string, batchId?: string) {
+        this._logger(`[SPEECH_PROVIDER] action:stop | intent: ${intentId} | batch: ${batchId}`);
         this._audioBridge.stop(intentId as any, batchId as any);
         this._playbackEngine.setPlaying(false, intentId as any);
         this._playbackEngine.setPaused(false, intentId as any);
@@ -1110,6 +1150,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public continue(intentId?: string, batchId?: string) {
+        this._logger(`[SPEECH_PROVIDER] action:continue | intent: ${intentId} | batch: ${batchId} | hydrated: ${this.isHydrated()}`);
         this._stateStore.setPreviewing(false); // Commit to full playback
         this._playbackEngine.setPlaying(true, intentId as any);
         this._playbackEngine.setPaused(false, intentId as any);
