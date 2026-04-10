@@ -392,3 +392,26 @@ For agents monitoring the startup sequence from the outside (CDP Shell), the seq
 
 > [!WARNING]
 > Never attempt an `eval` or `exec` before Phase 0 confirms a healthy `Dev Host` target. Attempting to execute commands against a half-booted editor leads to process corruption or zombie windows.
+
+---
+
+## 7. CDP Discovery & Sovereign Lifecycle (v2.4.0) ⭐
+
+### 7.1 Heuristic Frame Discovery
+The `cdp-controller.mjs` implements a tiered discovery protocol to identify the correct target for `eval` commands:
+1.  **Filter**: Targets MUST be children of the primary "Extension Development Host" window.
+2.  **Priority**: The system prioritizes frames containing `fake.html` (the standard VS Code webview sandbox) over the main workbench frame.
+3.  **Validation**: A frame is only considered "Hydrated" if `window.__debug.store` is accessible via CDP.
+
+### 7.2 The Sovereign Command Queue
+To prevent race conditions during rapid automation (e.g., `launch` followed immediately by `exec`), the CDP controller uses a **Sequential Promise Queue**:
+- All CDP commands (`exec`, `type`, `eval`) are wrapped in a serialized queue.
+- A command MUST resolve its CDP `Response` before the next command in the queue is dispatched.
+- **Retry Logic**: If a frame is not found during `eval`, the system retries with exponential backoff (up to 5s) before failing, allowing for lazy-loaded webview hydration.
+
+### 7.3 Graceful Shutdown Tiers
+The `close` command enforces a 3-tier sovereign exit:
+1.  **Polite**: Attempt `window.close()` via CDP.
+2.  **Sovereign**: Dispatch the VS Code `workbench.action.closeWindow` command.
+3.  **Surgical**: If the PID remains active after 3s, perform an authoritative OS-level process kill.
+

@@ -28,7 +28,13 @@ The execution pipeline is a deterministic process that burns the primed changelo
 ### 2.2 Internal Order of Operations (The Orchestrated Chain)
 The `npm run release` script is a high-integrity sequence that automates the following chain:
 1.  **Consistency Gate**: `npm run release:verify` (ensures 1:1 parity between package and changelog version strings).
-2.  **Quality Gates**: `npm run lint`, `npm run typecheck`, and `npm run test` (Ensuring zero static or runtime regressions).
+2.  **Quality Gates**:
+    | Step | Gate | Command | v2.4.0 Requirement |
+    | :--- | :--- | :--- | :--- |
+    | 2.1 | Linting | `npm run lint` | Ensures static analysis parity (Restored: .eslintrc.json) |
+    | 2.2 | Type Safety | `tsc --noEmit` | Resolves `executeCommand().catch` Thenable regressions |
+    | 2.3 | Build Integrity | `npm run build` | Verifies `dist/mcp-standalone.mjs` artifact generation |
+    | 2.4 | Test Suite | `npm run test` | 100% pass rate for unit and bridge tests |
 3.  **Production Compile**: `npm run build` (Production mode bundling).
 4.  **Packaging**: `npm run package` (vsce artifact generation).
 5.  **Prestige Audit**: `verify_artifact.js` (Signature check for VSIX creation).

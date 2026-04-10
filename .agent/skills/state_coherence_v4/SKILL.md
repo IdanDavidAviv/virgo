@@ -66,7 +66,7 @@ The most robust pattern for highly reactive UIs. Instead of discarding entire pa
 - **Metadata**: `totalChapters`, `activeChapterTitle`.
 
 #### Disruptive Fields (Intent-Locked)
-- **Playback**: `isPlaying`, `isPaused`, `playbackIntent`, `lastLoadType`, `isAwaitingSync`, `isPreviewing`, `isLooping`, `activeMode`.
+- **Playback**: `isPlaying`, `isPaused`, `isSelectingVoice`, `playbackIntent`, `lastLoadType`, `isAwaitingSync`, `isPreviewing`, `isLooping`, `activeMode`.
 - **Position**: `currentChapterIndex`, `currentSentenceIndex`, `activeQueue`.
 - **Health**: `playbackStalled`, `isRefreshing`, `isBuffering`.
 - **Intent**: `playbackIntentId`, `batchIntentId`.

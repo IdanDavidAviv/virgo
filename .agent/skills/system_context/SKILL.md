@@ -37,7 +37,7 @@ description: Architectural map and development guidelines for the Read Aloud ext
 ## 1. Architectural Map (Snapshot: 2026-04-09)
 
 ### 1.1 Core Backend (VS Code Extension)
-- **`StateStore.ts`**: The central, reactive **EventEmitter** storing all document and playback status.
+- **`StateStore.ts`**: The central, reactive **EventEmitter** storing all document and playback status. Tracks `isSelectingVoice` for sampling mode.
 - **`SyncManager.ts`**: The **Observer** service. It listens to `StateStore`, applies 100ms throttling, session parity checks, and visibility-aware flushing to the UI.
 - **`PlaybackEngine.ts`**: Orchestrates synthesis. Handles the transition between **Local** (SAPI/macOS) and **Neural** (Edge TTS) audio streams. Implements **Authoritative Stop** via unified AbortController hierarchy.
 - **`DocController.ts`**: Document intelligence. Manages chunking, metadata extraction, and position tracking.
@@ -46,7 +46,7 @@ description: Architectural map and development guidelines for the Read Aloud ext
 - **`McpWatcher.ts` / `McpBridge.ts`**: High-integrity integration with the agent's brain environment for real-time SITREP and command mirroring.
 
 ### 1.2 Frontend (Webview Sidebar)
-- **`WebviewStore.ts`**: Global reactive store (Redux-lite). Maintained by `UI_SYNC` packets from `SyncManager`.
+- **`WebviewStore.ts`**: Global reactive store (Redux-lite). Maintained by `UI_SYNC` packets from `SyncManager`. Includes `isSelectingVoice` flag.
 - **`CommandDispatcher.ts`**: Entry point for all incoming VS Code messages. Dispatches actions to the store or local services.
 - **`MessageClient.ts`**: Outbound IPC wrapper. Used to send user commands (Play, Pause, Stop) back to VS Code.
 - **`WebviewAudioEngine.ts`**: The "Dumb Player" (Stateless worker). Executes single-threaded audio playback using a single HTMLAudioElement for all strategies.
@@ -128,6 +128,18 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
     - **Focus Sovereignty**: Focus state is the ultimate authority. If an agent artifact (e.g., `task.md`, `diag.log`) is focused in the VS Code editor, the system MUST load the document and allow synthesis. 
     - **Discovery-only Isolation (The Brain Exception)**: The Webview Sidebar (Snippet Lookup) MUST filter ONLY the `brain/` directory. Directories like `knowledge/` and `protocols/` are permissible for discovery. This ensures UI history hygiene while maintaining permissive authoritative focus.
     - **Limit**: Snippet history is strictly limited to the **10 most recent** non-system sessions to prevent performance degradation.
+
+### 2.7 Sampling Neutrality (Law S.1)
+When the user changes a voice, the system enters "Sampling Mode" (`isSelectingVoice: true`).
+- **Isolation**: Only the current sentence is synthesized and played.
+- **Suppression**: The `SENTENCE_ENDED` event from the audio engine is caught by the `PlaybackEngine` but **not** processed for auto-advance.
+- **Intent**: Changing voice triggers an authoritative stop but *does not* increment the `batchIntentId` (which is reserved for manual playback jumps or explicit user "Commit" to play).
+
+### 2.8 CDP Command Prefixing (PowerShell Protocol)
+When simulating command palette interaction via CDP:
+- **Prefix Requirement**: All commands sent via `type` to the VS Code command palette MUST be prefixed with `>`. 
+- **Reason**: On Windows (and some Antigravity versions), the command palette may open as a "File Search" by default. The `>` prefix forces it into "Command Mode".
+- **Implementation**: Handled by the `exec` command in `cdp-controller.mjs`.
 
 ## 3. Hook Protocol (Development Guide)
 
@@ -230,7 +242,7 @@ A long-running Node.js process that maintains a single CDP connection to the run
 | Command | Action |
 |---|---|
 | `launch` | Triggers F5 in the main editor, waits for `VOICE_SCAN` activation signal |
-| `exec <cmd>` | Dispatches a VS Code command palette action to the **Dev Host** workbench |
+| `exec <cmd>` | Dispatches a VS Code command palette action (prefixed with `>`) to the **Dev Host** workbench |
 | `frames` | Lists all CDP frames in the dev host (diagnostic — identifies webview targets) |
 | `eval <expr>` | Executes JS in the live Read Aloud webview (`fake.html`) frame |
 | `close` | 3-tier graceful shutdown: Polite → `window.close()` → Surgical PID kill |

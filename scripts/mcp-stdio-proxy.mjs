@@ -100,7 +100,7 @@ async function main() {
         // Resolve path to mcp-standalone.js in the dist folder
         const scriptDir = path.dirname(new URL(import.meta.url).pathname);
         const projectRoot = path.join(scriptDir, '..');
-        const standalonePath = path.join(projectRoot, 'dist', 'mcp-standalone.js');
+        const standalonePath = path.join(projectRoot, 'dist', 'mcp-standalone.mjs');
         // Fix Windows path (remove leading slash if present from URL pathname)
         const normalizedPath = standalonePath.replace(/^\/([A-Z]:)/, '$1');
 

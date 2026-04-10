@@ -1,6 +1,7 @@
 ---
 name: dev_cycle
 description: # Dev Cycle Protocol: Extension Sovereignty
+---
 
 > [!IMPORTANT]
 > **THE PRIME DIRECTIVE**
@@ -15,6 +16,7 @@ To prevent character interleaving and race conditions during UI simulation (v2.3
 1. **Serial Execution:** Always send commands to the CDP shell one at a time, or ensure the shell implementation serializes them.
 2. **Standard Interface:** Exclusively use the `exec <command>` interface for UI automation.
 3. **Activation First:** Before sending extension-specific commands, ensure the extension is activated (e.g., by ensuring a Markdown file is open and focused in the Dev Host).
+4. **Command Prefixing (Antigravity)**: All commands sent via the terminal to the Command Palette MUST be prefixed with `>` (e.g., `exec >Readme Preview: Play`). This is a v2.4.0 safety requirement for Antigravity compatibility.
 
 ## 3. Persistent CDP Shell Workflow
 1. **Launch:** `npm run cdp:shell` (Ensure only ONE instance is running).
@@ -40,6 +42,7 @@ To prevent character interleaving and race conditions during UI simulation (v2.3
 | **Integrity Rule** | **Shell-First**: Prefer shell commands over raw `eval` if possible. |
 | **Safety Rule** | **Validation**: Never `close` or `kill` without verifying Target via CDP. |
 | **Sovereignty** | **Dev-First**: All verification MUST target the Extension Development Host. |
+| **Antigravity Rule** | **Prefixing**: Mandatory `>` prefix for all Command Palette simulations. |
 
 ---
 
@@ -88,7 +91,7 @@ Verification must be **observable**. Never assume the extension is functional be
     -   Run `find read-aloud` or `check-host` to verify the webview is detected.
     -   **CRITICAL**: If discovery fails, run `find-all` to inspect the frame tree and identify if hydration is stuck or if the target is mismatched.
     -   NEVER proceed to `eval` or state verification if the webview is `❌ NOT FOUND`.
-3.  **Trigger Action (Exec-First)**: Instead of manually patching state, use `exec <cmd>` (e.g., `readme-preview-read-aloud.play`) to trigger the extension's logic through the official command pipeline.
+3.  **Trigger Action (Exec-First)**: Instead of manually patching state, use `exec >Readme Preview: Play` (note the `>` prefix) to trigger the extension's logic through the official command pipeline.
 3.  **Cross-Verify**:
     -   **Visual**: Use `find read-aloud` to confirm the webview exists.
     -   **State**: Use `eval window.__READ_ALOUD_STORE__.getState()` to confirm the side-effect.
@@ -161,3 +164,8 @@ Sidebar webviews in VS Code are **lazy-loaded**. They do not appear in the CDP t
 
 > [!TIP]
 > **Checkbox Sovereignty**: Always verify build success in the "Tasks" terminal before running `reloadWindow`. If the builder is red, the reload will serve stale code.
+
+### Command Simulation Requirement (Antigravity)
+**CRITICAL**: When using `exec` to simulate a command palette entry, you MUST include the `>` prefix. 
+*   **Correct**: `exec >Readme Preview: Play`
+*   **Incorrect**: `exec Readme Preview: Play` (Will search files instead of commands).
