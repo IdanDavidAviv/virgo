@@ -54,3 +54,32 @@ To verify the installation experience manually:
     -   [ ] **Dashboard**: Ensure Glassmorphism UI is perfectly rendered.
     -   [ ] **Playback**: Test `Alt+R` on a valid Markdown file.
     -   [ ] **Constraint**: Ensure "LOAD FILE" button is disabled for non-markdown types.
+
+---
+
+## 5. Packaging Law — `vsce` SemVer Enforcement (observed: 2026-04-10)
+
+> [!IMPORTANT]
+> `vsce` enforces strict SemVer. Non-compliant version strings abort packaging with exit code 1.
+
+**Problem:** When marking a build as a non-standard artifact (e.g., post-war, hotfix, experimental), version strings with **dot-separated** suffixes are rejected by `vsce`:
+
+```
+ERROR  Invalid extension "version": "2.2.2.post_war"
+ERROR  Invalid extension "version": "2.2.2-post_war"  ← underscore also rejected
+```
+
+**Law:** All pre-release version labels MUST use a **hyphen** as the separator and MUST contain only alphanumeric characters (no underscores):
+
+```json
+// ✅ VALID — vsce accepts hyphen-separated alphanumeric pre-release labels:
+"version": "2.2.2-post-war"
+"version": "2.3.0-rc1"
+"version": "2.3.0-beta"
+
+// ❌ INVALID — dot or underscore suffix causes exit code 1:
+"version": "2.2.2.post_war"
+"version": "2.2.2-post_war"
+```
+
+**Rule:** Before calling `npm run package`, always verify `package.json` version matches the pattern `MAJOR.MINOR.PATCH` or `MAJOR.MINOR.PATCH-<alphanumeric-hyphen-label>`.

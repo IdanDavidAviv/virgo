@@ -275,6 +275,42 @@ is the sole authoritative driver for first-play after a fresh load. (Commit: `6b
 
 ---
 
+### Known Open Anomaly — `isBuffering` Stuck After STOP (observed: 2026-04-10)
+
+> [!IMPORTANT]
+> **Status**: Not yet fixed. Deferred to next session. Do NOT mark closed without reproducing via CDP.
+
+**Problem:** After a STOP command is dispatched, `isBuffering` remains `true` in `WebviewStore` state.
+The store enters an idle/stopped state but the buffering flag is not cleared. This causes the UI to
+display a spinner or buffering indicator indefinitely until the next playback cycle resets it.
+
+**Diagnostic Signature (confirm bug is live):**
+```
+[PlaybackController] ⏹️ USER STOP requested
+[STORE] 💎 State Updated [playbackIntentId]. isSyncing=false, awaitingSync=false
+# Expected next: isBuffering=false
+# Actual: isBuffering remains true — no reset emitted
+```
+
+**CDP Investigation Path:**
+```js
+// In cdp:shell — after dispatching STOP:
+window.__debug.store.getState().isBuffering   // Should be false. If true, bug is live.
+window.__debug.dispatcher.dispatch('stop')    // Re-trigger and observe
+```
+
+**Suspected Root Cause:** `CommandDispatcher.ts` STOP handler does not call `resetBufferingState()`
+or equivalent. The `isBuffering` reset likely lives in the audio engine's `ended`/`stopped` event
+path — which may not fire when STOP is synchronous.
+
+**Fix Scope (when scheduled):**
+1. Trace `CommandDispatcher.ts` STOP case — ensure it emits `patchState({ isBuffering: false })`.
+2. Alternatively, ensure `WebviewAudioEngine.stopAll()` synchronously clears the flag.
+3. Add regression test: dispatch STOP, assert `store.getState().isBuffering === false`.
+
+
+---
+
 ### Issue #26 — Ghost Focus Auto-Load (Pending Fix)
 
 > [!IMPORTANT]

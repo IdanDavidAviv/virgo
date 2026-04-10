@@ -39,3 +39,29 @@ To ensure the "Readme Preview Read Aloud" extension maintains a professional, pr
 - **Format**: Follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Staging**: Maintain an `## [Unreleased]` section.
 - **Finalization**: Handled automatically by the bumping script.
+
+---
+
+## 7. `vsce` Version Format Enforcement (observed: 2026-04-10)
+
+> [!IMPORTANT]
+> `vsce` validates `package.json` version before packaging. Non-compliant strings abort with exit code 1.
+
+**Rule:** Version strings MUST follow SemVer: `MAJOR.MINOR.PATCH` or `MAJOR.MINOR.PATCH-<label>` where `<label>` contains only alphanumeric characters and hyphens (NO dots, NO underscores).
+
+```
+✅  2.3.0          — standard release
+✅  2.3.0-rc1      — pre-release candidate
+✅  2.3.0-post-war — non-standard post-release marker
+
+❌  2.3.0.post_war — dot separator rejected
+❌  2.3.0-post_war — underscore in label rejected
+```
+
+**Verification:** Before any `npm run package` call, run:
+```powershell
+node -e "const v = require('./package.json').version; console.log(/^\d+\.\d+\.\d+(-[a-z0-9-]+)?$/.test(v) ? '✅ Valid: ' + v : '❌ Invalid: ' + v)"
+```
+
+See also: [release_prestige §5](../release_prestige/SKILL.md#5-packaging-law--vsce-semver-enforcement-observed-2026-04-10)
+

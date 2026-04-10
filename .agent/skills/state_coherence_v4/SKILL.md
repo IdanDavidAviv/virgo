@@ -82,3 +82,31 @@ The most robust pattern for highly reactive UIs. Instead of discarding entire pa
 - [ ] **Fluid Handshake**: Refactor `patchState` to implement segmented sovereignty (Filtering Disruptive vs Telemetry fields).
 - [ ] **Shortened Window**: Ensure `SOVEREIGNTY_WINDOW` is tuned (e.g. 1500ms) for high-performance synthesis.
 - [ ] Ensure all "Optimistic UI" patches are tied to a specific "Sovereignty Lock" that is explicitly released by the Controller.
+
+---
+
+## 5. Sovereign Type Contracts
+
+### Law 5.1 — `null` vs `undefined` at API Boundaries (observed: 2026-04-10)
+
+**Problem:** Internal service state fields (e.g., `SyncManager._pendingSnippetHistory`) legitimately use `null` to represent "no data yet loaded" — a meaningful sentinel distinct from `undefined`. However, API call sites (e.g., `DashboardRelay.sync()`) accept `SnippetHistory | undefined`, NOT `null`. Passing `null` directly produces a TypeScript type error and may cause unexpected runtime behavior in callers that check `if (data)` vs `if (data !== undefined)`.
+
+**Law:** Internal service state fields that can be absent MUST use `T | null`. At every API call site crossing a module boundary, `null` MUST be coerced to `undefined` using the null-coalescing operator:
+
+```typescript
+// REQUIRED pattern — SyncManager.ts calling DashboardRelay.sync()
+this._dashboardRelay.sync(historyToSync ?? undefined, this._activeSessionId);
+//                                      ^^^^^^^^^
+//                    null stays internal; undefined crosses the API boundary
+```
+
+**Rule:** Never widen an internal field to `T | null | undefined` just to match a call site. Keep types precise internally; coerce at the boundary.
+
+**Test Expectation Corollary:** When the internal field value is `null` at flush time (no history loaded), the spy expectation MUST assert `undefined`, not `null`:
+```typescript
+// CORRECT — matches the null→undefined coercion at the boundary:
+expect(mockDashboardRelay.sync).toHaveBeenCalledWith(undefined, 'SESSION-ID');
+
+// WRONG — null never crosses the boundary:
+expect(mockDashboardRelay.sync).toHaveBeenCalledWith(null, 'SESSION-ID');
+```
