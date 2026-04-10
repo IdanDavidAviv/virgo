@@ -93,17 +93,30 @@ async function build() {
         },
     };
 
+    const watchPlugin = {
+        name: 'watch-plugin',
+        setup(build) {
+            build.onEnd(result => {
+                if (result.errors.length > 0) {
+                    console.log(`❌ [watch] build failed: ${result.errors.length} errors`);
+                } else {
+                    console.log(`✅ [watch] build finished`);
+                }
+            });
+        },
+    };
+
     if (watch) {
-        const nodeCtx = await esbuild.context(nodeConfig);
-        const browserCtx = await esbuild.context(browserConfig);
-        const mcpCtx = await esbuild.context(mcpConfig);
+        const nodeCtx = await esbuild.context({ ...nodeConfig, plugins: [watchPlugin] });
+        const browserCtx = await esbuild.context({ ...browserConfig, plugins: [watchPlugin] });
+        const mcpCtx = await esbuild.context({ ...mcpConfig, plugins: [watchPlugin] });
         await Promise.all([nodeCtx.watch(), browserCtx.watch(), mcpCtx.watch()]);
         console.log('👀 Watching for changes in development mode...');
     } else {
         await Promise.all([
-            esbuild.build(nodeConfig),
-            esbuild.build(browserConfig),
-            esbuild.build(mcpConfig)
+            esbuild.build({ ...nodeConfig, plugins: [watchPlugin] }),
+            esbuild.build({ ...browserConfig, plugins: [watchPlugin] }),
+            esbuild.build({ ...mcpConfig, plugins: [watchPlugin] })
         ]);
         console.log(`🚀 ${mode.charAt(0).toUpperCase() + mode.slice(1)} build complete!`);
     }

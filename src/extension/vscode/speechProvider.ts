@@ -46,7 +46,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _isLoadingDocument = false;
     // [DPG] Dual-Precondition Gate flags
     private _webviewIsReady = false;
-    private _hasInitialUri = false;
+    private _initialLoadExecuted = false;
 
 
     constructor(
@@ -263,9 +263,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._stateStore.setFocusedFile(uri, fileName, relativeDir, isSupported, versionSalt);
         this._logger(`[DEBUG] setActiveEditor | file: ${fileName} | scheme: ${uri.scheme} | supported: ${isSupported} | salt: ${versionSalt}`);
 
-        // [DPG] A real URI is now known. Signal the gate and attempt the initial load.
-        if (!this._hasInitialUri) {
-            this._hasInitialUri = true;
+        // [DPG] A real URI is now known. Attempt the initial load pulse.
+        // This will only execute once per webview lifecycle.
+        if (!this._initialLoadExecuted) {
             this._tryInitialDocumentLoad();
         }
     }
@@ -938,13 +938,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._logger('[DPG] Gate blocked: webview not yet ready.');
             return;
         }
-        if (!this._hasInitialUri) {
+        // [v2.3.2] Check if we have a valid URI in the State Store
+        const hasUri = !!this._stateStore.state.focusedDocumentUri;
+        if (!hasUri) {
             this._logger('[DPG] Gate blocked: no focused URI yet. Waiting for setActiveEditor.');
             return;
         }
         this._logger('[DPG] ✅ Both conditions met. Executing Pulse 2: contextual hydration.');
-        // Reset gate so it can't fire twice for same session init
-        this._hasInitialUri = false;
+        // Lock the gate permanently to prevent "Ghost Focus" auto-loads on tab switches (Issue #26)
+        this._initialLoadExecuted = true;
 
         // [Law F.1 — Persistence Yield] If PersistenceManager already restored an activeDocumentUri,
         // the user explicitly chose that document last session. Do NOT overwrite it with the currently

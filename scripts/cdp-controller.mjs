@@ -504,7 +504,7 @@ async function evalWebview(expression) {
     process.exit(1);
   }
   const browser = await connectToCDP();
-  const wv = await findWebviewPage(browser);
+  const wv = await findWebviewFrame(browser);
   if (!wv) {
     console.error('[CDP] ✗ No webview page found (about:blank). Is the Read Aloud panel open?');
     await browser.close();
@@ -567,7 +567,7 @@ async function observeCycle() {
     console.log(`[CDP] 🔬 Evaluating expression: ${evalExpr}`);
     try {
       const browser = await connectToCDP();
-      const wv = await findWebviewPage(browser);
+      const wv = await findWebviewFrame(browser);
       if (wv) {
         const result = await wv.evaluate(expr => {
           try { return JSON.stringify(eval(expr)); } catch (e) { return `ERROR: ${e.message}`; }
@@ -682,7 +682,7 @@ async function runShell() {
         const content = readFileSync(DIAG_LOG, 'utf8');
         if (content.length > tailLastSize) {
           const newLines = content.slice(tailLastSize).split('\n').filter(Boolean);
-          for (const line of newLines) console.log('[LOG]', line);
+          for (const line of newLines) {console.log('[LOG]', line);}
           tailLastSize = content.length;
         }
       } catch {}

@@ -125,6 +125,7 @@ export class CommandDispatcher {
       case IncomingCommand.STOP:
         audioEngine.stop();
         playback.releaseLock();
+        store.resetLoadingStates();
         store.patchState({ isPlaying: false, isPaused: false });
         break;
 

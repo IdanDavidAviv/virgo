@@ -7,6 +7,13 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.3.2] - 2026-04-10
+
+### Hardened
+- **State Reset Logic**: Fixed a regression where the `isBuffering` state remained stuck after stopping playback. `CommandDispatcher` now atomically resets all loading states on `STOP`.
+- **Initialization Gate (Ghost Focus)**: Implemented a "Dual-Precondition Gate" in `SpeechProvider` to prevent redundant document extraction calls during passive tab switching.
+- **Diagnostic Infrastructure**: Fixed reference errors in `cdp-controller.mjs` to enable reliable webview state verification via CDP.
+
 ## [2.2.2] - 2026-04-07
 
 ### Stabilized
