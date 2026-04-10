@@ -9,10 +9,16 @@ description: Protocol for local session metadata persistence in the Read Aloud e
 To ensure human-readable session titles and turn metadata are correctly resolved in the UI without relying on central agent memory, all session-specific state must be persisted locally.
 
 ## 2. Storage Architecture
-- **Root Directory**: `[ANTIGRAVITY_ROOT]/read_aloud/`
-- **Session Folder**: `<sessionId>/`
-- **State File**: `extension_state.json`
-- **Location**: `.../read_aloud/<sessionId>/extension_state.json`
+
+- **Antigravity Root**: `~/.gemini/antigravity/` (absolute, OS-normalized)
+- **Snippet Root**: `~/.gemini/antigravity/read_aloud/`
+- **Session Folder**: `~/.gemini/antigravity/read_aloud/<sessionId>/`
+- **State File**: `~/.gemini/antigravity/read_aloud/<sessionId>/extension_state.json`
+- **Snippet Files**: `~/.gemini/antigravity/read_aloud/<sessionId>/<timestamp>_<name>.md`
+
+> [!IMPORTANT]
+> The `_antigravityRoot` field in `SpeechProvider` is set to `path.join(root, 'read_aloud')` — NOT the bare `antigravity/` root.
+> `_getSnippetHistory()` scans `_antigravityRoot` directly. Session directories are immediate children of this path.
 
 ## 3. Metadata Schema (`extension_state.json`)
 ```json
@@ -71,3 +77,29 @@ These are filtered automatically by the `type !== FileType.Directory` check:
 - `active_servers.json`
 - `mcp_discovery.json`
 - Any future flat files added to the root
+
+---
+
+## 7. Dual-Path Architecture — Agent Artifacts vs. Snippets
+
+> [!IMPORTANT]
+> There are TWO distinct storage paths used by the system. Conflating them will cause the Snippet Discovery sidebar to show empty.
+
+| Path | Purpose | Scanner Reads It? |
+|---|---|---|
+| `brain/<sessionId>/` | Agent artifacts (`task.md`, `implementation_plan.md`, media, scratch) | ❌ NOT scanned by `_getSnippetHistory()` |
+| `read_aloud/<sessionId>/` | User-playable snippet `.md` files injected via MCP `inject_markdown` | ✅ YES — this is where `_getSnippetHistory()` reads from |
+
+### Implication for MCP Injection
+
+When `inject_markdown` is called by the AI agent (via `mcp_read-aloud_inject_markdown`):
+- The `.md` file MUST be written to `read_aloud/<sessionId>/<timestamp>_<snippet_name>.md`
+- If instead it is written to `brain/<sessionId>/`, it will NEVER appear in the Snippet Discovery UI
+
+### Symptom: Empty Snippet Discovery
+
+If the Snippet tab shows "No injected snippets found" for the **current session**, the most likely cause is:
+1. The MCP injection tool wrote the file to `brain/<sessionId>/` instead of `read_aloud/<sessionId>/`
+2. The session directory exists in `read_aloud/` but contains only `extension_state.json` (no `.md` files)
+
+**Remedy:** Verify that `inject_markdown` writes to the correct `read_aloud/` path before troubleshooting the scanner.

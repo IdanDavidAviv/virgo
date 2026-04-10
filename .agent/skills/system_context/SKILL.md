@@ -25,12 +25,14 @@ description: Architectural map and development guidelines for the Read Aloud ext
 | [`state_coherence_v4`](../state_coherence_v4/SKILL.md) | State sovereignty, split-brain detection, fluid handshake | 2026-04-09 |
 | [`state_auditor`](../state_auditor/SKILL.md) | Multi-layer state conflict detection and audit methodology | 2026-04-09 |
 | [`read_aloud_injection_guard`](../read_aloud_injection_guard/SKILL.md) | MCP injection, dedup guards, sensory parity, verbatim rules | 2026-04-09 |
-| [`session_persistence`](../session_persistence/SKILL.md) | `extension_state.json`, turn indexing, session metadata | 2026-04-09 |
+| [`session_persistence`](../session_persistence/SKILL.md) | `extension_state.json`, turn indexing, session metadata, snippet paths | 2026-04-10 |
 | [`lifecycle_guard`](../lifecycle_guard/SKILL.md) | Memory leaks, event listener cleanup, webview disposal | 2026-04-09 |
 | [`log_sanitization_v3`](../log_sanitization_v3/SKILL.md) | Log density, shorthand formats, symmetrical prefixes | 2026-04-09 |
 | [`release_prestige`](../release_prestige/SKILL.md) | Extension packaging, installation testing, VSIX integrity | 2026-04-09 |
 | [`version_sentinel`](../version_sentinel/SKILL.md) | Semantic versioning, changelog, release protocol | 2026-04-09 |
+| [`startup_orchestration`](../startup_orchestration/SKILL.md) | Boot sequence, Pulse graph, DPG, Phase 1–3, Persistence Yield | 2026-04-10 |
 | [`skill_coherence_loop`](../skill_coherence_loop/SKILL.md) | Skill lifecycle, bidirectional read/write protocol, harvest gate | 2026-04-10 |
+| [`dev_cycle`](../dev_cycle/SKILL.md) | Build, package, VSIX install, process kill/restart for Antigravity editor | 2026-04-10 |
 
 ## 1. Architectural Map (Snapshot: 2026-04-09)
 
@@ -56,19 +58,30 @@ description: Architectural map and development guidelines for the Read Aloud ext
 
 ## 2. Advanced Architectural Patterns
 
-### 2.1 The "Ghost Focus" Multiplexer
+### 2.1 The "Ghost Focus" Multiplexer & Focused/Loaded Duality (Law F.1)
+
 Located in `extension.ts`, the `syncSelection()` function tracks document focus across tab changes, editor switches, and sidebar interactions. If no active editor exists (e.g., the webview has focus), it falls back to the last active tab or visible editor.
 
 > [!IMPORTANT]
-> **`focusedFileName` (passive) ≠ `activeDocumentFileName` (explicit load)**
+> **Law F.1 — Focused/Loaded Duality (BINDING)**
 >
-> `syncSelection()` calls `setActiveEditor()` on EVERY tab change, which updates `focusedDocumentUri`
-> and `focusedFileName` in `StateStore`. This is passive tracking only.
+> These are two **legally separate** concepts. Any code that conflates them is a violation:
 >
-> `activeDocumentFileName` is set exclusively by `loadCurrentDocument()` — only when the user
-> explicitly loads a file. Any webview UI component displaying **"Loaded File"** or **"Current Document"**
-> MUST bind to `activeDocumentFileName`, not `focusedFileName`. Binding to `focusedFileName` causes
-> the display to overwrite on every tab switch, bypassing the explicit Load File button mechanism.
+> | Slot | State Field | Updated By | Update Trigger |
+> |---|---|---|---|
+> | **FOCUSED FILE** (passive) | `focusedDocumentUri` / `focusedFileName` | `syncSelection()` → `setActiveEditor()` | Every tab/editor change |
+> | **LOADED FILE** (explicit) | `activeDocumentUri` / `activeDocumentFileName` | `loadCurrentDocument()` → `setActiveDocument()` | Explicit "Load File" button only |
+>
+> **Invariants:**
+> - `syncSelection()` MUST NEVER call `loadCurrentDocument()` or `setActiveDocument()`.
+> - `DocController` chapter loading MUST ONLY be invoked from the `LOAD_DOCUMENT` IPC path.
+> - Webview UI components showing "Loaded File" MUST bind to `activeDocumentFileName` exclusively.
+> - **`focusedVersionSalt` MUST be rendered as HTML** (not `textContent`) to show the `<span class="version-badge">` in the FOCUSED FILE slot. Using `textContent` silently strips the badge.
+>
+> **Status:** ✅ Issue #26 RESOLVED (2026-04-10)
+> - DPG persistence yield guard added to `_tryInitialDocumentLoad()` in `speechProvider.ts`.
+> - Focused file version salt now renders correctly via `innerHTML`.
+
 
 ### 2.2 Brain Sensitivity Protocol
 The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When a new directory is created, it automatically pivots its internal session context to maintain parity with the active agent session.
@@ -128,6 +141,46 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
 ### 3.3 Adding an IPC Command
 - **Frontend**: Use `MessageClient.postMessage({ command: 'myCommand', ... })`.
 - **Backend**: Update the `CommandDispatcher` on the backend (usually delegated to `SpeechProvider.onDidReceiveMessage`) to handle the incoming request.
+
+### 3.4 Test Infrastructure Known Constraints
+
+> [!WARNING]
+> These are structural jsdom/vitest limitations — not production bugs. They affect test file setup only.
+
+#### jsdom `HTMLAudioElement` Stub (canplay Contract)
+`WebviewAudioEngine.playBlob()` sets `audio.src`, calls `audio.load()`, then awaits either `canplay`, `ended`, or `error` events before calling `audio.play()`. In jsdom, `audio.load()` is a no-op stub — **media events never fire automatically**.
+
+Any test that calls `playBlob()` directly **MUST** mock `load()` to dispatch `canplay` synchronously:
+
+```typescript
+// Instance-level (RaceCondition.test.ts — spy on specific engine.audioElement):
+vi.spyOn(audio, 'load').mockImplementation(function(this: HTMLAudioElement) {
+    this.dispatchEvent(new Event('canplay'));
+});
+
+// Prototype-level (WebviewAudioEngine.test.ts — affects all HTMLAudioElement instances):
+vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(function(this: HTMLAudioElement) {
+    this.dispatchEvent(new Event('canplay'));
+});
+```
+
+Without this, the inner Promise in `playBlob()` hangs permanently, causing a 5000ms watchdog timeout and a Vitest global timeout failure.
+
+**Known affected tests (pre-fix):**
+- `tests/webview/core/RaceCondition.test.ts:47` — "SHOULD allow audio packets that match the current intent"
+- `tests/webview/core/WebviewAudioEngine.test.ts:49` — "should acquire lock for playBlob and release it on completion"
+
+#### `vscode.window.tabGroups` Mock Requirement
+Any test file that triggers `SpeechProvider._sendInitialState()` (via `resolveWebviewView()` + a `ready` message) must include `tabGroups.activeTabGroup.activeTab` in the `vscode.window` mock — otherwise a `TypeError` crashes the test:
+```typescript
+window: {
+    createStatusBarItem: vi.fn(...),
+    activeTextEditor: undefined,
+    tabGroups: { activeTabGroup: { activeTab: undefined } }
+}
+```
+
+**Known affected test files:** `speechProvider.voices.test.ts`, `speechProvider.sync.test.ts`.
 
 ## 4. Execution Trace: The "Play" Request
 1. **Trigger**: User clicks Play in Webview.

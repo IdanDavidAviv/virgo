@@ -82,6 +82,24 @@ the field to update silently on every tab switch, overriding the user's explicit
 focused URI to active. After this promotion, `focusedFileName` continues to track tab switches
 independently — it must never again feed the "Loaded File" display slot.
 
+**DPG Persistence Yield (Law F.1 — Issue #26):**
+
+> [!IMPORTANT]
+> If `PersistenceManager.hydrate()` has already restored an `activeDocumentUri` before `_tryInitialDocumentLoad()` fires,
+> the DPG MUST NOT call `loadCurrentDocument()`. The persisted document represents the user's **explicit last-session choice**.
+> Overwriting it with the currently focused editor tab is a silent auto-load violation.
+
+```typescript
+// REQUIRED guard in _tryInitialDocumentLoad():
+if (this._stateStore.state.activeDocumentUri) {
+    // Persisted doc exists — yield. Sync only.
+    this._dashboardRelay.sync();
+    return;
+}
+// Only reach loadCurrentDocument() if NO persisted doc exists:
+await this.loadCurrentDocument(true);
+```
+
 **LOAD_DOCUMENT vs LOAD_AND_PLAY:**
 - `LOAD_DOCUMENT` → `loadCurrentDocument()` → sets `activeDocumentUri` — does NOT prime audio bridge.
 - `LOAD_AND_PLAY` → `loadCurrentDocument()` + `continue()` — atomic. Play button after Load File MUST use this or guard `continue()` with a `start()` fallback.

@@ -266,3 +266,43 @@ The `LOAD_AND_PLAY` action is the correct atomic path for load + immediate playb
 Any "Play after Load" UX flow MUST either:
 1. Use `LOAD_AND_PLAY` directly, OR
 2. Guard `continue()` with a fallback to `start(0, 0, options)` when no active intent exists.
+
+**Webview-Side Enforcement (playbackController.ts):**
+The `play()` method in `playbackController.ts` contains a **Law 7.3 Play Guard**: if `resolvedUri`
+is empty (which occurs immediately after `LOAD_DOCUMENT` before any synthesis has run),
+`REQUEST_SYNTHESIS` is suppressed. The extension's `PLAY → continue() → audioBridge.start()` path
+is the sole authoritative driver for first-play after a fresh load. (Commit: `6b341ee`, 2026-04-10)
+
+---
+
+### Issue #26 — Ghost Focus Auto-Load (Pending Fix)
+
+> [!IMPORTANT]
+> **Status**: Confirmed architectural violation. Fix scheduled. Do NOT ship without resolving.
+
+**Problem:** When the user switches to a new file in the VS Code editor (passive tab change),
+`extension.ts:syncSelection()` calls `setActiveEditor()`, which updates `focusedDocumentUri`
+and `focusedFileName` in `StateStore`. However, there is a code path that also triggers
+`loadCurrentDocument()` (or sets chapter state) on focus change, which overwrites the
+**Loaded File** slot in the UI — bypassing the explicit **Load File** button mechanism entirely.
+
+**Architectural Contract (BINDING):**
+```
+focusedDocumentUri   → Updated by syncSelection() on EVERY tab/editor change. Passive only.
+activeDocumentUri    → Updated EXCLUSIVELY by loadCurrentDocument(). Explicit user intent only.
+```
+
+The `DocController`, `StateStore.setActiveDocument()`, and any chapter-loading logic MUST
+only be invoked from the `LOAD_DOCUMENT` IPC path — never from `syncSelection()` or any
+passive focus tracker.
+
+**Diagnostic Signature (confirm bug is live):**
+- User opens File A → clicks **Load File** → chapter headers show File A.
+- User switches to File B in editor (no Load File action).
+- Chapter headers update to File B — **this is the violation**.
+
+**Fix Scope (when scheduled):**
+1. Audit `extension.ts:syncSelection()` — ensure it calls ONLY `setActiveEditor()` / `setFocusedDocument()`, never `loadCurrentDocument()`.
+2. Audit `speechProvider.ts` message handler for any `case` that calls `loadCurrentDocument()` on a focus event.
+3. Add a regression test: switch tabs, assert `activeDocumentUri` in `StateStore` is unchanged.
+4. Update `system_context § 2.1` to formalize the Focused/Loaded duality as a named invariant.
