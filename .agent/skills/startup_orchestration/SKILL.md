@@ -377,3 +377,18 @@ Before marking any startup-related task complete, confirm:
 - [ ] **Voices** — exactly **1** `postMessage successful: voices` per cold boot
 - [ ] **Phase 1** completes in < 100ms (check `[ReadAloud] ✅ Webview Handshake Complete` timestamp)
 - [ ] **Phase 3** does NOT block Phase 1 (voices arrive after `isHydrated: true` is sent)
+
+---
+
+## 6. External SitRep Protocol (CDP Visibility) ⭐
+
+For agents monitoring the startup sequence from the outside (CDP Shell), the sequence begins *before* Phase 1.
+
+### Phase 0: External Initialization
+
+1.  **Connection Audit**: Before assume-launching, run `check-host` via the CDP shell.
+2.  **Activation Signal**: Monitor `diagnostics.log` for `[VOICE_SCAN] SUCCESS`. This is the definitive "UI is ready for audit" signal.
+3.  **Hydration Check**: Once `[VOICE_SCAN]` appears, run `check-host` again to confirm the Webview target is registered and hydrated (checked via `window.__debug.store`).
+
+> [!WARNING]
+> Never attempt an `eval` or `exec` before Phase 0 confirms a healthy `Dev Host` target. Attempting to execute commands against a half-booted editor leads to process corruption or zombie windows.

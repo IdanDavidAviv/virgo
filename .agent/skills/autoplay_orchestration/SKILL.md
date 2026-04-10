@@ -12,8 +12,17 @@ This skill defines the authoritative architecture for the Read Aloud playback en
 The system revolves around the **Sovereign Intent Baton**. 
 - **Acquire**: The user (or auto-next) initiates an action. A new `intentId` (Baton) is minted **only** for disruptive actions (Stop, Jump, Manual Play). 
 - **Batch Sovereignty**: `batchId` is incremented for every **manual gesture** where a commitment threshold is crossed (e.g. Chapter Jump, or Play after a Voice Change).
-- **The Commitment Threshold**: State changes like `voice` or `rate` are cached in the Store but do **not** disrupt playback until the user hits **PLAY**. On Play, if `Store.selectedVoice !== Engine.latchedVoice`, a new `batchId` is minted to flush the old context.
-- **Continuity**: Seamless transitions (auto-next/pre-fetch) **inherit** the current `batchId` to maintain sequence continuity, while disruptive jumps reset the context.
+- **The Sampling State (`isSelectingVoice`)**:
+    - **Trigger**: Changing the voice in the UI.
+    - **Action**:
+        1. Immediate abort of active playback (`engine.stop()`).
+        2. Set `isSelectingVoice = true` in WebviewStore.
+        3. Synthesize and play **only the currently focused sentence** with the new voice.
+    - **Suppression**: While `isSelectingVoice` is true, the `SENTENCE_ENDED` engine event is trapped and suppressed. No auto-advance occurs.
+- **The Commitment Gate**: Pressing the main **PLAY** button while in sampling mode:
+    1. Clear `isSelectingVoice`.
+    2. Increment `batchId` (The authoritative commitment).
+    3. Resynthesize the entire sequence (invalidating cache) and begin normal continuous playback.
 - **Execution Phases**:
     - **Call**: Extension is notified of the intent.
     - **Synthesis**: Extension prepares the audio.
@@ -27,6 +36,10 @@ graph TD
     SM --> Intent{Intent Latched?}
     Intent -- YES --> Ext[Extension Play Command]
     Intent -- NO --> Error[Transition Rejected]
+    
+    UserV[Voice Selection] --> Stop[Engine: stop]
+    Stop --> Sample[Synthesis: Current Sentence Only]
+    Sample --> PB_Sample[Playback: Single Sentence]
     
     Ext --> Synth[Synthesis Engine]
     Synth --> Notify[SYNTHESIS_READY]

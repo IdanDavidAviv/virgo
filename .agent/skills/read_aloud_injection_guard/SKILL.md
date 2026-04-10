@@ -48,3 +48,10 @@ While `log_sanitization_v3` is active for internal diagnostic loops, it MUST res
 
 - **Rule 5.1**: Conversational markdown strings MUST NOT be truncated in the terminal audit trail.
 - **Rule 5.2**: Only internal system telemetry (`heartbeat`, `ack`, `status`) should be summarized or shorthand-formatted.
+
+## 6. Command-Driven Verification (Sovereignty) ⭐
+Verification of an injection is only valid if it survives the "Visible Audit".
+
+- **Rule 6.1: The Opening**: Run `show read-aloud` (dispatches `readme-preview-read-aloud.show-dashboard`) to ensure the webview is active.
+- **Rule 6.2: The Pivot**: Use `exec readme-preview-read-aloud.play` to confirm the injection triggers the playback pipeline.
+- **Rule 6.3: State Integrity**: Audit `isSelectingVoice` to ensure the sampling protocol is not violated by the injection event.
