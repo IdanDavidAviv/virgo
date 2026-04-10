@@ -25,6 +25,8 @@ describe('WebviewAudioEngine (v2.3.1 - Dumb Player)', () => {
         vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
         vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
         vi.spyOn(HTMLMediaElement.prototype, 'addEventListener');
+        // [jsdom CONTRACT] vitest.setup.ts Audio stub handles canplay dispatch via load().
+        // No prototype-level load() override needed here.
 
         // [v2.3.1] Synchronous synthesis mock: prevents event loop delays and race conditions
         vi.spyOn(window.speechSynthesis, 'speak').mockImplementation((utterance: any) => {
@@ -49,26 +51,25 @@ describe('WebviewAudioEngine (v2.3.1 - Dumb Player)', () => {
     it('should acquire lock for playBlob and release it on completion', async () => {
         const intentId = 67890;
         const blob = new Blob(['audio'], { type: 'audio/mp3' });
+        const audio = engine.audioElement;
 
         const playPromise = engine.playBlob(blob, 'test-key', intentId);
-        
-        // Give it a microtick to set up listeners
-        await new Promise(r => setTimeout(r, 0));
-        
-        const audio = engine.audioElement;
-        
-        // Find the 'ended' listener and trigger it
-        const endedCall = vi.mocked(audio.addEventListener).mock.calls.find(call => call[0] === 'ended');
-        
-        expect(endedCall).toBeDefined();
-        const listener = endedCall![1] as Function;
-        
-        // Trigger fulfillment
-        listener();
+
+        // Flush: acquireLock -> mutex race -> inner Promise body (registers listeners + calls load)
+        await Promise.resolve();
+        await Promise.resolve();
+        // Flush: canplay microtask -> onCanPlay -> play() fires (fire-and-forget)
+        await Promise.resolve();
+
+        // [jsdom CONTRACT] 'ended' is dispatched natively on the element.
+        // The stub's dispatchEvent calls all registered listeners, matching browser semantics.
+        audio.dispatchEvent(new Event('ended'));
 
         await playPromise;
         expect(engine.isBusy()).toBe(false);
     });
+
+
 
     it('stop() should kill all active playback and release locks', async () => {
         // Start a speak action but don't finish it

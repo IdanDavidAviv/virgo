@@ -32,6 +32,10 @@ if (typeof window !== 'undefined') {
         onvoiceschanged: null
     };
 
+    // [jsdom CONTRACT] Full EventTarget-compatible Audio stub.
+    // The minimal stub (vi.fn() for everything) has no dispatchEvent(), which breaks any
+    // test that calls audio.dispatchEvent() or relies on event propagation (e.g. playBlob()).
+    // This stub stores listeners by type and correctly dispatches events, matching browser behavior.
     (window as any).Audio = class {
         volume = 1;
         playbackRate = 1;
@@ -44,10 +48,33 @@ if (typeof window !== 'undefined') {
         onerror = null;
         onwaiting = null;
         onplaying = null;
+
+        private _listeners: Map<string, Function[]> = new Map();
+
         play = vi.fn().mockResolvedValue(undefined);
         pause = vi.fn();
-        load = vi.fn();
-        addEventListener = vi.fn();
-        removeEventListener = vi.fn();
+        removeAttribute = vi.fn();
+
+        load = vi.fn().mockImplementation(() => {
+            // [jsdom CONTRACT] Dispatch 'canplay' via microtask, matching real browser timing.
+            // WebviewAudioEngine.playBlob() awaits the 'canplay' event before calling play().
+            queueMicrotask(() => this.dispatchEvent(new Event('canplay')));
+        });
+
+        addEventListener = vi.fn().mockImplementation((type: string, listener: Function) => {
+            if (!this._listeners.has(type)) { this._listeners.set(type, []); }
+            this._listeners.get(type)!.push(listener);
+        });
+
+        removeEventListener = vi.fn().mockImplementation((type: string, listener: Function) => {
+            const arr = this._listeners.get(type) ?? [];
+            this._listeners.set(type, arr.filter(l => l !== listener));
+        });
+
+        dispatchEvent(event: Event): boolean {
+            const listeners = this._listeners.get(event.type) ?? [];
+            listeners.forEach(l => l(event));
+            return true;
+        }
     };
 }

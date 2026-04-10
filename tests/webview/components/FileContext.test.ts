@@ -111,4 +111,40 @@ describe('FileContext (Optimistic UI)', () => {
         });
         expect(elements.btnLoadFile.disabled).toBe(false);
     });
+
+    it('should render focusedVersionSalt as a .version-badge span in the focused file slot', () => {
+        // Law F.1 — focusedVersionSalt MUST be rendered via innerHTML, not textContent
+        ctrl = new FileContext(elements);
+        ctrl.mount();
+
+        WebviewStore.getInstance().updateState({
+            focusedDocumentUri: 'file:///readme.md',
+            focusedFileName: 'readme.md',
+            focusedIsSupported: true,
+            focusedVersionSalt: 'V3'
+        } as any);
+
+        // The filename element must contain a <span class="version-badge"> with the salt
+        const badge = elements.activeFilename.querySelector('.version-badge');
+        expect(badge).not.toBeNull();
+        expect(badge.textContent).toBe('V3');
+        // The visible text must contain the filename too
+        expect(elements.activeFilename.textContent).toContain('readme.md');
+    });
+
+    it('should NOT render a .version-badge in the focused slot when salt is absent', () => {
+        ctrl = new FileContext(elements);
+        ctrl.mount();
+
+        WebviewStore.getInstance().updateState({
+            focusedDocumentUri: 'file:///plain.md',
+            focusedFileName: 'plain.md',
+            focusedIsSupported: true,
+            focusedVersionSalt: undefined
+        } as any);
+
+        const badge = elements.activeFilename.querySelector('.version-badge');
+        expect(badge).toBeNull();
+        expect(elements.activeFilename.textContent).toBe('plain.md');
+    });
 });

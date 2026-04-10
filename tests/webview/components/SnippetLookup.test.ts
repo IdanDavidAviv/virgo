@@ -40,8 +40,9 @@ describe('SnippetLookup', () => {
 
         sendSync({ snippetHistory: [] });
 
-        expect(elements.container.innerHTML).toContain('No snippets found');
+        expect(elements.container.innerHTML).toContain('No injected snippets found');
         expect(elements.container.querySelector('.snippet-empty-icon')).not.toBeNull();
+        expect(elements.container.querySelector('.snippet-empty-hint')).not.toBeNull();
     });
 
     it('should render session cards when multiple sessions exist', () => {

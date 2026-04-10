@@ -21,7 +21,8 @@ describe('Resilience: RaceCondition (v2.3.1 - Mutex Guard)', () => {
         const audio = engine.audioElement;
         playSpy = vi.spyOn(audio, 'play').mockImplementation(() => Promise.resolve());
         vi.spyOn(audio, 'pause');
-        vi.spyOn(audio, 'addEventListener');
+        // [jsdom CONTRACT] vitest.setup.ts Audio stub handles canplay dispatch via load()
+        // and stores listeners via addEventListener. No per-test overrides needed.
 
         WebviewStore.getInstance().updateState({ isHydrated: true }, 'local');
         
@@ -47,29 +48,30 @@ describe('Resilience: RaceCondition (v2.3.1 - Mutex Guard)', () => {
     it('SHOULD allow audio packets that match the current intent', async () => {
         // 1. Current intent is 200
         const blob = new Blob(['valid'], { type: 'audio/mp3' });
+        const audio = engine.audioElement;
         
         // 2. Start playback
         const playPromise = engine.playBlob(blob, 'key', 200);
         
-        // Use multiple flushes to ensure we reach the promise wait
+        // Flush the microtask/promise chain:
+        // 1: acquireLock enters, stop() calls load() -> microtask A (dead canplay, no listener yet)
         await Promise.resolve();
+        // 2: Promise.race([Promise.resolve(),...]) continuation (acquireLock body after race)
         await Promise.resolve();
+        // 3: inner Promise body: registers listeners, sets src, calls load() -> microtask B (live canplay)
         await Promise.resolve();
-        
-        const audio = engine.audioElement;
-        // Wait for the engine to add the 'ended' listener
-        await vi.waitFor(() => {
-            const calls = vi.mocked(audio.addEventListener).mock.calls;
-            return calls.some(call => call[0] === 'ended');
-        });
+        // 4: microtask B fires: dispatchEvent('canplay') -> onCanPlay() -> audio.play().catch()
+        await Promise.resolve();
+        // 5: safety margin for play()'s Promise chain
+        await Promise.resolve();
 
-        const endedCall = vi.mocked(audio.addEventListener).mock.calls.find(call => call[0] === 'ended');
-        const listener = endedCall![1] as any;
-        listener(new Event('ended'));
+        // [jsdom CONTRACT] Dispatch 'ended' natively on the element using the stub's dispatchEvent.
+        // The stub's dispatchEvent fires all registered listeners, matching browser semantics.
+        audio.dispatchEvent(new Event('ended'));
 
         await playPromise;
         
-        // [ASSERT]: Use should be allowed
+        // [ASSERT]: Play was allowed (canplay fired -> onCanPlay ran -> play() called)
         expect(playSpy).toHaveBeenCalled();
     });
 
