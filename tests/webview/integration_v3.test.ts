@@ -956,21 +956,26 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             expect(writtenValues).toContain(2.0);
         });
 
-        it('T9.2 — neural mode: setRate() does NOT write to audio.playbackRate', () => {
+        it('T9.2 — neural mode: setRate() writes relative playbackRate (rate / bakedRate)', () => {
             store.patchState({ engineMode: 'neural' });
             const engine = WebviewAudioEngine.getInstance();
-            engine.setRate(3.0);
-            expect(writtenValues).toHaveLength(0);
+            (engine as any).bakedRate = 1.0; // Synth rate 1.0
+            
+            engine.setRate(2.0); // User wants 2.0
+            // [ASSERT] 2.0 / 1.0 = 2.0
+            expect(writtenValues).toContain(2.0);
         });
 
-        it('T9.3 — switching from neural to local re-enables playbackRate writes', () => {
+        it('T9.3 — switching from neural to local maintains rate responsiveness', () => {
             const engine = WebviewAudioEngine.getInstance();
-            // Neural — must be suppressed
+            (engine as any).bakedRate = 1.0;
+            
+            // Neural — should set relative rate
             store.patchState({ engineMode: 'neural' });
             engine.setRate(3.0);
-            expect(writtenValues).toHaveLength(0);
+            expect(writtenValues).toContain(3.0);
 
-            // Local — must be written
+            // Local — should set absolute rate
             store.patchState({ engineMode: 'local' });
             engine.setRate(1.5);
             expect(writtenValues).toContain(1.5);
@@ -1025,8 +1030,9 @@ describe('Suite 10 — Rate/Volume Application Trace', () => {
         expect(written).toContain(1.75);
     });
 
-    it('T10.3 — neural mode: store patchState(rate) does NOT mutate audio.playbackRate', () => {
+    it('T10.3 — neural mode: store patchState(rate) applies relative playbackRate', () => {
         s10store().patchState({ engineMode: 'neural' });
+        (engine as any).bakedRate = 1.0;
 
         const audio = (engine as any)._audio as HTMLAudioElement;
         const written: number[] = [];
@@ -1037,7 +1043,7 @@ describe('Suite 10 — Rate/Volume Application Trace', () => {
         });
 
         s10store().patchState({ rate: 1.5 });
-        expect(written).toHaveLength(0); // Neural guard suppressed write
+        expect(written).toContain(1.5); // Neural mode now responsive via relative rate
     });
 
     it('T10.4 — store.rate flows correctly: getState() returns patched rate for baking', () => {

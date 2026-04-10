@@ -10,7 +10,9 @@ This skill defines the authoritative architecture for the Read Aloud playback en
 ## 1. System Dynamics
 
 The system revolves around the **Sovereign Intent Baton**. 
-- **Acquire**: The user (or auto-next) initiates an action. A new `intentId` (Baton) is minted **only** for disruptive actions (Stop, Jump, Manual Play). `batchId` is incremented for every **manual gesture**.
+- **Acquire**: The user (or auto-next) initiates an action. A new `intentId` (Baton) is minted **only** for disruptive actions (Stop, Jump, Manual Play). 
+- **Batch Sovereignty**: `batchId` is incremented for every **manual gesture** where a commitment threshold is crossed (e.g. Chapter Jump, or Play after a Voice Change).
+- **The Commitment Threshold**: State changes like `voice` or `rate` are cached in the Store but do **not** disrupt playback until the user hits **PLAY**. On Play, if `Store.selectedVoice !== Engine.latchedVoice`, a new `batchId` is minted to flush the old context.
 - **Continuity**: Seamless transitions (auto-next/pre-fetch) **inherit** the current `batchId` to maintain sequence continuity, while disruptive jumps reset the context.
 - **Execution Phases**:
     - **Call**: Extension is notified of the intent.
@@ -275,10 +277,9 @@ is the sole authoritative driver for first-play after a fresh load. (Commit: `6b
 
 ---
 
-### Known Open Anomaly — `isBuffering` Stuck After STOP (observed: 2026-04-10)
-
-> [!IMPORTANT]
-> **Status**: Not yet fixed. Deferred to next session. Do NOT mark closed without reproducing via CDP.
+### Anomaly — `isBuffering` Stuck After STOP
+**Status**: ✅ REMEDIATED (2026-04-10).
+**Resolution**: Resolved via **Segmented Sovereignty** in `WebviewStore.ts`. By adding `isBuffering` and `playbackStalled` to the `SOVEREIGN_FIELDS` list, stale re-broadcasts from the extension are now correctly filtered if the webview intent has already moved to a STOP or IDLE state.
 
 **Problem:** After a STOP command is dispatched, `isBuffering` remains `true` in `WebviewStore` state.
 The store enters an idle/stopped state but the buffering flag is not cleared. This causes the UI to
@@ -299,14 +300,26 @@ window.__debug.store.getState().isBuffering   // Should be false. If true, bug i
 window.__debug.dispatcher.dispatch('stop')    // Re-trigger and observe
 ```
 
-**Suspected Root Cause:** `CommandDispatcher.ts` STOP handler does not call `resetBufferingState()`
-or equivalent. The `isBuffering` reset likely lives in the audio engine's `ended`/`stopped` event
-path — which may not fire when STOP is synchronous.
 
-**Fix Scope (when scheduled):**
-1. Trace `CommandDispatcher.ts` STOP case — ensure it emits `patchState({ isBuffering: false })`.
-2. Alternatively, ensure `WebviewAudioEngine.stopAll()` synchronously clears the flag.
-3. Add regression test: dispatch STOP, assert `store.getState().isBuffering === false`.
+---
+
+## 8. Relative Rate Architecture 🎯
+
+Neural audio streams are pre-rendered at a fixed synthesis rate (`bakedRate`). To allow seamless speed adjustments without re-synthesizing or restarting the engine, the system implements a mathematical transform.
+
+### 8.1 The Relative Formula
+The `WebviewAudioEngine` calculates the effective playback rate for the underlying `HTMLAudioElement` descriptor using:
+`effectiveRate = targetRate / bakedRate`
+
+- **targetRate**: The user's desired speed from the UI (e.g., 2.0).
+- **bakedRate**: The original speed used during neural synthesis (e.g., 1.0).
+- **clampedRange**: effectiveRate is clamped between `0.06` and `16.0` (browser standard).
+
+### 8.2 Seamless Control Directive
+Volume and Rate adjustments MUST be handled as **Non-Disruptive Patches**:
+1.  Directly update the descriptor: `this._audio.playbackRate = effectiveRate`.
+2.  Do NOT trigger `audio.pause()`, `audio.load()`, or any engine-level reset.
+3.  Propagate `bakedRate` through the extension bridge (`playAudio` event) to ensure the webview has the correct denominator for the transform.
 
 
 ---

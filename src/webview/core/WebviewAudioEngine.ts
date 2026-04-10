@@ -15,6 +15,11 @@ export class WebviewAudioEngine {
   private _utterance: SpeechSynthesisUtterance | null = null;
   private _isPrimed: boolean = false;
   
+  // [RATE_SOVEREIGNTY] 🎯 v2.3.2
+  // Stores the original synthesis rate of the neural audio segment.
+  // Used to calculate: effectiveRate = targetRate / bakedRate.
+  private bakedRate: number = 1.0;
+  
   public onEvent?: (event: AudioEngineEvent) => void;
   public instanceId: number = Math.random();
   
@@ -177,9 +182,14 @@ export class WebviewAudioEngine {
     }).catch(() => {});
   }
 
-  public async playBlob(blob: Blob, key: string, intentId?: number): Promise<void> {
+  public async playBlob(blob: Blob, key: string, intentId?: number, bakedRate?: number): Promise<void> {
     const release = await this.acquireLock(intentId);
     if (release === null) { return; }
+
+    // [RATE_TRACKING] Capture segment synthesis rate for relative adjustments.
+    if (bakedRate !== undefined) {
+        this.bakedRate = bakedRate;
+    }
 
     const signal = this._abortController?.signal;
 
@@ -207,7 +217,11 @@ export class WebviewAudioEngine {
 
             const onCanPlay = () => {
                 const state = WebviewStore.getInstance().getState();
-                console.log(`[RATE_TRACE] 🔊 Neural canplay | playbackRate=${this._audio.playbackRate} | store.rate=${state.rate} | vol=${this._audio.volume} | mode=${state.engineMode}`);
+                
+                // [SEAMLESS_RATE] Apply relative rate before starting playback.
+                this._applyPlaybackRate();
+
+                console.log(`[RATE_TRACE] 🔊 Neural canplay | playbackRate=${this._audio.playbackRate.toFixed(2)} | store.rate=${state.rate} | baked=${this.bakedRate} | vol=${this._audio.volume} | mode=${state.engineMode}`);
                 this._audio.play().catch(e => {
                     if (e.name === 'NotAllowedError') {
                         // [AUTOPLAY GUARD] Browser blocked play() — no user gesture yet.
@@ -248,16 +262,16 @@ export class WebviewAudioEngine {
     }
   }
 
-  public async playFromBase64(base64: string, cacheKey: string, intentId: number): Promise<void> {
+  public async playFromBase64(base64: string, cacheKey: string, intentId: number, bakedRate?: number): Promise<void> {
       const buffer = this._base64ToBuffer(base64);
       const blob = new Blob([buffer.buffer as ArrayBuffer], { type: 'audio/mpeg' });
-      await this.playBlob(blob, cacheKey, intentId);
+      await this.playBlob(blob, cacheKey, intentId, bakedRate);
   }
 
-  public async playFromCache(cacheKey: string, intentId?: number): Promise<boolean> {
+  public async playFromCache(cacheKey: string, intentId?: number, bakedRate?: number): Promise<boolean> {
       const blob = await CacheManager.getInstance().get(cacheKey);
       if (blob) {
-          await this.playBlob(blob, cacheKey, intentId);
+          await this.playBlob(blob, cacheKey, intentId, bakedRate);
           return true;
       }
       return false;
@@ -418,24 +432,46 @@ export class WebviewAudioEngine {
   }
 
   public setVolume(val: number): void {
+    // [SEAMLESS] Directly update the underlying audio element volume.
+    // This does NOT trigger an engine reset or playback interruption.
     this._audio.volume = Math.max(0, Math.min(1, val / 100));
     if (this._utterance) {this._utterance.volume = val / 100;}
   }
 
-  public setRate(val: number): void {
-    // [NEURAL GUARD] Neural audio (Edge TTS MP3) is already synthesized at the target
-    // rate via SSML <prosody rate=...>. Applying playbackRate on top would compound the
-    // speed (e.g. 4x baked × 4x playbackRate = 16x effective), destroying pitch.
-    // playbackRate is only valid for local SpeechSynthesis (browser TTS) mode.
-    const engineMode = WebviewStore.getInstance().getState().engineMode;
+  /**
+   * _applyPlaybackRate(): Calculates and applies the relative playback rate.
+   * Total Rate = (Requested UI Rate) / (Original Synthesis Rate)
+   */
+  private _applyPlaybackRate(requestedRate?: number): void {
+    const state = WebviewStore.getInstance().getState();
+    const rate = requestedRate ?? state.rate;
+    const engineMode = state.engineMode;
+    
+    // [LOCAL SYNTH] Browsers handle absolute rate for speechSynthesis natively.
     if (engineMode !== 'neural') {
-      console.log(`[RATE_TRACE] ✅ setRate applied | val=${val} | audio.playbackRate=${this._audio.playbackRate}→${val}`);
-      this._audio.playbackRate = val;
-    } else {
-      console.log(`[RATE_TRACE] 🛡️ setRate SUPPRESSED (neural guard) | val=${val} | audio.playbackRate unchanged (${this._audio.playbackRate})`);
+        this._audio.playbackRate = rate;
+        return;
     }
+
+    // [NEURAL RELATIVE] Neural audio is baked with a specific rate.
+    // We adjust playbackRate relative to that baked reference to reach the UI target.
+    const effectiveRate = rate / this.bakedRate;
+    
+    // [SAUCY RANGES] Most browsers clamp playbackRate between 0.06 and 16.0.
+    const clampedRate = Math.max(0.06, Math.min(16.0, effectiveRate));
+    
+    if (this._audio.playbackRate !== clampedRate) {
+        console.log(`[RATE_TRACE] 🎯 Relative Patch | UI=${rate} / Baked=${this.bakedRate} → PlaybackRate=${clampedRate.toFixed(2)}`);
+        this._audio.playbackRate = clampedRate;
+    }
+  }
+
+  public setRate(val: number): void {
+    // [SEAMLESS] Update the rate using relative calculation, passing the explicit target rate.
+    this._applyPlaybackRate(val);
+
     if (this._utterance) {
-      console.log(`[RATE_TRACE] 🔄 Live utterance rate patch | ${this._utterance.rate}→${val}`);
+      console.log(`[RATE_TRACE] 🗣️ Live Utterance Rate Patch | ${this._utterance.rate}→${val}`);
       this._utterance.rate = val;
     }
   }

@@ -22,15 +22,16 @@
 
 import { chromium } from 'playwright-core';
 import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createInterface } from 'readline';
 
-const __dirname  = dirname(fileURLToPath(import.meta.url));
-const CDP_URL    = 'http://localhost:9222';
-const DIAG_LOG   = resolve(__dirname, '..', 'diagnostics.log');
-const action     = process.argv[2];
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const CDP_URL = 'http://localhost:9222';
+const DIAG_LOG = resolve(__dirname, '..', 'diagnostics.log');
+const SHELL_LOCK = resolve(__dirname, '..', '.cdp_shell.lock');
+const action = process.argv[2];
 
 
 // Parse optional flags: --duration <ms>, --eval <expr>
@@ -87,8 +88,8 @@ async function getAllPages(browser) {
 async function findWorkbenchPage(browser) {
   const pages = await getAllPages(browser);
   for (const { page, title, url } of pages) {
-    const isDevHost   = title.includes('Extension Development Host');
-    const isWebview   = url.includes('vscode-webview');
+    const isDevHost = title.includes('Extension Development Host');
+    const isWebview = url.includes('vscode-webview');
     const isRealShell = url.includes('workbench.html');
     if (isRealShell && !isDevHost && !isWebview) { return page; }
   }
@@ -178,8 +179,8 @@ async function waitForNewPids(beforePids, timeoutMs = 30000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const current = snapshotAntigravityPids();
-    const newPids  = [...current].filter(pid => !beforePids.has(pid));
-    if (newPids.length > 0) {return newPids;}
+    const newPids = [...current].filter(pid => !beforePids.has(pid));
+    if (newPids.length > 0) { return newPids; }
     await delay(1000);
   }
   throw new Error('[CDP] ✗ Timed out waiting for Extension Development Host PIDs.');
@@ -227,7 +228,7 @@ async function waitForActivationSignal(timeoutMs = 15000) {
 function startLiveLogTail() {
   console.log('[OBSERVE] 📡 Live tailing diagnostics.log...');
   let lastSize = 0;
-  try { lastSize = readFileSync(DIAG_LOG, 'utf8').length; } catch {}
+  try { lastSize = readFileSync(DIAG_LOG, 'utf8').length; } catch { }
 
   const interval = setInterval(() => {
     try {
@@ -239,7 +240,7 @@ function startLiveLogTail() {
         }
         lastSize = content.length;
       }
-    } catch {}
+    } catch { }
   }, 300);
 
   return () => clearInterval(interval);
@@ -344,7 +345,7 @@ async function gracefulClose(devHostPids) {
     await delay(3000);
     if (!arePidsAlive(devHostPids)) {
       console.log('[CDP] ✅ Dev host closed cleanly (Tier 1).');
-      await browser.close().catch(() => {});
+      await browser.close().catch(() => { });
       return;
     }
 
@@ -353,11 +354,11 @@ async function gracefulClose(devHostPids) {
     await delay(2000);
     if (!arePidsAlive(devHostPids)) {
       console.log('[CDP] ✅ Dev host closed cleanly (Tier 2).');
-      await browser.close().catch(() => {});
+      await browser.close().catch(() => { });
       return;
     }
 
-    await browser.close().catch(() => {});
+    await browser.close().catch(() => { });
   }
 
   // Tier 3: Surgical kill
@@ -371,15 +372,15 @@ async function gracefulClose(devHostPids) {
 /** list-targets — debug: print all CDP page targets */
 async function listTargets() {
   const browser = await connectToCDP();
-  const pages   = await getAllPages(browser);
+  const pages = await getAllPages(browser);
 
   console.log(`[CDP] Connected to ${CDP_URL}`);
   console.log(`[CDP] Found ${pages.length} page target(s):\n`);
   for (const { title, url } of pages) {
     const tag = title.includes('Extension Development Host') ? '[DEV HOST] '
-               : url.includes('workbench.html')              ? '[WORKBENCH]'
-               : url.includes('vscode-webview')              ? '[WEBVIEW]  '
-               : '[OTHER]    ';
+      : url.includes('workbench.html') ? '[WORKBENCH]'
+        : url.includes('vscode-webview') ? '[WEBVIEW]  '
+          : '[OTHER]    ';
     console.log(`  ${tag} "${title}"`);
     console.log(`             ${url}\n`);
   }
@@ -389,7 +390,7 @@ async function listTargets() {
 /** exec-command — trigger any VS Code command via the command palette */
 async function execVSCodeCommand(commandName) {
   const browser = await connectToCDP();
-  const page    = await findWorkbenchPage(browser);
+  const page = await findWorkbenchPage(browser);
 
   if (!page) {
     console.error('[CDP] ✗ Workbench shell not found (workbench.html).');
@@ -419,7 +420,7 @@ async function execVSCodeCommand(commandName) {
 async function launchDevHost() {
   console.log('[CDP] Triggering Extension Development Host (F5)...');
   const browser = await connectToCDP();
-  const page    = await findWorkbenchPage(browser);
+  const page = await findWorkbenchPage(browser);
 
   if (!page) {
     console.error('[CDP] ✗ Workbench shell not found.');
@@ -463,8 +464,8 @@ async function waitForDevHostAction() {
 async function closeDevHostAction() {
   console.log('[CDP] 🔻 close-dev-host: graceful shutdown requested...');
   // We don't know the PIDs here, collect them as "all non-main" processes
-  const allPids   = snapshotAntigravityPids();
-  const mainPid   = (() => {
+  const allPids = snapshotAntigravityPids();
+  const mainPid = (() => {
     try {
       return parseInt(
         execSync("powershell -NoProfile -Command \"(Get-Process -Name 'Antigravity' | Where-Object { $_.MainWindowTitle -ne '' } | Sort-Object CPU -Descending | Select-Object -First 1).Id\"", { encoding: 'utf8' }).trim(),
@@ -486,7 +487,7 @@ function readDiagnosticsLog(lines = 30) {
   console.log(`\n[CDP] ── diagnostics.log (last ${lines} lines) ────────────────────`);
   try {
     const content = readFileSync(DIAG_LOG, 'utf8');
-    const tail    = content.trimEnd().split('\n').slice(-lines).join('\n');
+    const tail = content.trimEnd().split('\n').slice(-lines).join('\n');
     console.log(tail);
   } catch {
     console.error('[CDP] ✗ Could not read diagnostics.log — file missing or unreadable.');
@@ -537,7 +538,7 @@ async function evalWebview(expression) {
  */
 async function observeCycle() {
   const observeDurationMs = flags.duration ?? 8000;
-  const evalExpr          = flags.eval ?? actionArg ?? null;
+  const evalExpr = flags.eval ?? actionArg ?? null;
 
   console.log('[CDP] ══ OBSERVE CYCLE START ═════════════════════════════════════');
   console.log(`[CDP] Observe window: ${observeDurationMs}ms${evalExpr ? ` | eval: ${evalExpr}` : ''}`);
@@ -655,14 +656,45 @@ function delay(ms) {
  *   eval <expr>         — evaluate JS expression in the Read Aloud webview
  *   exec <vs-cmd>       — execute a VS Code command via command palette
  *   log [n]             — print last n lines of diagnostics.log (default: 30)
- *   tail                — toggle live log tail on/off
- *   help                — print command list
+ *   show read-aloud     — focus the sidebar and wake the extension
+ *   find read-aloud     — verify the webview is present/detected
  *   exit / quit         — close everything and exit
  */
 async function runShell() {
+  // ── Shell Sovereignty ──
+  if (existsSync(SHELL_LOCK)) {
+    const oldPidStr = readFileSync(SHELL_LOCK, 'utf8').trim();
+    const oldPid = parseInt(oldPidStr, 10);
+    if (!isNaN(oldPid)) {
+      try {
+        // Check if the old PID is still alive
+        process.kill(oldPid, 0);
+        console.error('╔══════════════════════════════════════════════════════════════╗');
+        console.error(`║  [SHELL] ✗ Another shell instance is active (PID: ${oldPid})   ║`);
+        console.error('║  Aborting to prevent parallel CDP connection leakage.        ║');
+        console.error('╚══════════════════════════════════════════════════════════════╝');
+        process.exit(1);
+      } catch (e) {
+        // Process is dead, cleanup stale lock
+        unlinkSync(SHELL_LOCK);
+      }
+    }
+  }
+
+  // Create lock
+  writeFileSync(SHELL_LOCK, process.pid.toString());
+
+  // Signal handlers for reliable lock cleanup
+  const cleanup = () => {
+    if (existsSync(SHELL_LOCK)) unlinkSync(SHELL_LOCK);
+    process.exit(0);
+  };
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+
   console.log('╔══════════════════════════════════════════════════════════════╗');
-  console.log('║  CDP SHELL  —  Persistent debug session                       ║');
-  console.log('║  Type "help" for commands.  Type "exit" to quit.               ║');
+  console.log('║  CDP SHELL  —  Persistent debug session                      ║');
+  console.log('║  Type "help" for commands.  Type "exit" to quit.             ║');
   console.log('╚══════════════════════════════════════════════════════════════╝');
   console.log('');
 
@@ -672,7 +704,7 @@ async function runShell() {
 
   // Live tail state
   let tailInterval = null;
-  let tailLastSize  = 0;
+  let tailLastSize = 0;
 
   const startTail = () => {
     if (tailInterval) return; // already running
@@ -682,10 +714,10 @@ async function runShell() {
         const content = readFileSync(DIAG_LOG, 'utf8');
         if (content.length > tailLastSize) {
           const newLines = content.slice(tailLastSize).split('\n').filter(Boolean);
-          for (const line of newLines) {console.log('[LOG]', line);}
+          for (const line of newLines) { console.log('[LOG]', line); }
           tailLastSize = content.length;
         }
-      } catch {}
+      } catch { }
     }, 300);
     console.log('[SHELL] 📡 Log tail ON.');
   };
@@ -721,6 +753,8 @@ async function runShell() {
     console.log('  launch              — launch dev host (F5)');
     console.log('  close               — graceful 3-tier shutdown of dev host');
     console.log('  kill                — surgical PID kill (last resort)');
+    console.log('  show read-aloud     — focus the sidebar and wake the extension');
+    console.log('  find read-aloud     — verify the webview is present/detected');
     console.log('  targets             — list all CDP page targets');
     console.log('  eval <expr>         — evaluate JS in Read Aloud webview');
     console.log('  exec <vs-cmd>       — execute a VS Code command');
@@ -736,9 +770,9 @@ async function runShell() {
     console.log(`\n[SHELL] ${pages.length} CDP page(s):`);
     for (const { title, url } of pages) {
       const tag = title.includes('Extension Development Host') ? '[DEV HOST]'
-                 : url.includes('workbench.html')              ? '[WORKBENCH]'
-                 : url.includes('vscode-webview')              ? '[WEBVIEW]  '
-                 : '[OTHER]    ';
+        : url.includes('workbench.html') ? '[WORKBENCH]'
+          : url.includes('vscode-webview') ? '[WEBVIEW]  '
+            : '[OTHER]    ';
       console.log(`  ${tag}  "${title}"`);
       console.log(`             ${url}`);
     }
@@ -774,6 +808,21 @@ async function runShell() {
     }
   };
 
+  const shellShowReadAloud = async () => {
+    console.log('[SHELL] 👁 Waking Read Aloud sidebar...');
+    await shellExec('readme-preview-read-aloud.show-dashboard');
+  };
+
+  const shellFindReadAloud = async () => {
+    const b = await getbrowser();
+    const frame = await findWebviewFrame(b);
+    if (frame) {
+      console.log(`[SHELL] ✓ Found Read Aloud webview frame: ${frame.url()}`);
+    } else {
+      console.log('[SHELL] ✗ No Read Aloud webview frame found. Try "show read-aloud" first.');
+    }
+  };
+
   const shellFrames = async () => {
     const b = await getbrowser();
     const devPage = await findDevHostPage(b);
@@ -793,7 +842,7 @@ async function runShell() {
 
   const shellEval = async (expr) => {
     if (!expr) { console.log('[SHELL] Usage: eval <JS expression>'); return; }
-    const b     = await getbrowser();
+    const b = await getbrowser();
     const frame = await findWebviewFrame(b);
     if (!frame) {
       console.log('[SHELL] ⚠ No Read Aloud webview frame found.');
@@ -804,7 +853,7 @@ async function runShell() {
     }
     try {
       const result = await frame.evaluate((e) => {
-        try { return JSON.stringify(eval(e), null, 2); } catch(err) { return `ERROR: ${err.message}`; }
+        try { return JSON.stringify(eval(e), null, 2); } catch (err) { return `ERROR: ${err.message}`; }
       }, expr);
       console.log('[SHELL] 🔬 Result:');
       console.log(result);
@@ -819,9 +868,9 @@ async function runShell() {
 
     // When a dev host is live, prefer it as the command target.
     // Fall back to the main workbench if no dev host page is found.
-    const devPage  = await findDevHostPage(b);
+    const devPage = await findDevHostPage(b);
     const mainPage = devPage ? null : await findWorkbenchPage(b);
-    const page     = devPage || mainPage;
+    const page = devPage || mainPage;
 
     if (!page) {
       console.log('[SHELL] ✗ No workbench page found to dispatch command.');
@@ -854,7 +903,7 @@ async function runShell() {
   // ── readline loop ────────────────────────────────────────────
 
   const rl = createInterface({
-    input:  process.stdin,
+    input: process.stdin,
     output: process.stdout,
     prompt: '\ncdp> ',
     terminal: true,
@@ -863,28 +912,43 @@ async function runShell() {
   rl.prompt();
 
   rl.on('line', async (raw) => {
-    const line  = raw.trim();
-    const [cmd, ...rest] = line.split(/\s+/);
-    const arg   = rest.join(' ');
+
+    const line = raw.trim();
+    if (!line) { rl.prompt(); return; }
+
+    const lower = line.toLowerCase();
+    if (lower === 'show read-aloud') { await shellShowReadAloud(); rl.prompt(); return; }
+    if (lower === 'find read-aloud') { await shellFindReadAloud(); rl.prompt(); return; }
+
+    // Support JSON-wrapped commands (e.g. from agent tools)
+    let finalCmd = line;
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.terminate) { finalCmd = 'exit'; }
+      else if (parsed.command) { finalCmd = parsed.command; }
+    } catch { /* not JSON, proceed normally */ }
+
+    const [cmd, ...rest] = finalCmd.split(/\s+/);
+    const arg = rest.join(' ');
 
     try {
       switch (cmd.toLowerCase()) {
-        case '':        break;
-        case 'help':    shellHelp();              break;
-        case 'targets': await shellTargets();     break;
-        case 'frames':  await shellFrames();      break;
-        case 'launch':  await shellLaunch();      break;
-        case 'close':   await shellClose();       break;
-        case 'kill':    await shellKill();        break;
-        case 'eval':    await shellEval(arg);     break;
-        case 'exec':    await shellExec(arg);     break;
-        case 'log':     shellLog(arg);            break;
-        case 'tail':    shellTail();              break;
+        case '': break;
+        case 'help': shellHelp(); break;
+        case 'targets': await shellTargets(); break;
+        case 'frames': await shellFrames(); break;
+        case 'launch': await shellLaunch(); break;
+        case 'close': await shellClose(); break;
+        case 'kill': await shellKill(); break;
+        case 'eval': await shellEval(arg); break;
+        case 'exec': await shellExec(arg); break;
+        case 'log': shellLog(arg); break;
+        case 'tail': shellTail(); break;
         case 'exit':
         case 'quit':
           console.log('[SHELL] Closing...');
           stopTail();
-          await browser.close().catch(() => {});
+          await browser.close().catch(() => { });
           rl.close();
           process.exit(0);
           return;
@@ -900,27 +964,25 @@ async function runShell() {
 
   rl.on('close', () => {
     stopTail();
-    browser.close().catch(() => {});
+    if (existsSync(SHELL_LOCK)) unlinkSync(SHELL_LOCK);
+    browser.close().catch(() => { });
     process.exit(0);
   });
 }
 
 function printUsage() {
-  console.error('[CDP] Usage: node scripts/cdp-controller.mjs <action> [arg] [--duration <ms>] [--eval <expr>]');
-  console.error('[CDP] Actions:');
-  console.error('[CDP]   shell                     — INTERACTIVE: persistent REPL shell (recommended)');
-  console.error('[CDP]   list-targets              — show all CDP page targets');
-  console.error('[CDP]   launch-dev-host           — trigger dev host (F5 equivalent)');
-  console.error('[CDP]   wait-for-devhost          — block until dev host appears');
-  console.error('[CDP]   close-dev-host            — graceful 3-tier shutdown (polite first)');
-  console.error('[CDP]   kill-dev-host             — surgical PID kill (legacy)');
-  console.error('[CDP]   observe-cycle             — launch → signal → live tail → graceful close');
-  console.error('[CDP]   eval-webview "<expr>"     — evaluate JS in the live Read Aloud webview');
-  console.error('[CDP]   probe-cycle               — legacy: launch → wait → kill → read log');
-  console.error('[CDP]   exec-command "<name>"     — execute any command via command palette');
-  console.error('[CDP] Flags:');
-  console.error('[CDP]   --duration <ms>           — observe window duration (default: 8000)');
-  console.error('[CDP]   --eval "<expr>"           — JS to eval in webview during observe window');
+  console.log('[CDP] Usage: node scripts/cdp-controller.mjs <action> [arg] [--duration <ms>] [--eval <expr>]');
+  console.log('[CDP] Actions:');
+  console.log('[CDP]   shell (default)   — Open persistent CDP command shell (REPL)');
+  console.log('[CDP]   observe-cycle     — Launch, observe logs, and close (automated dev cycle)');
+  console.log('[CDP]   probe-cycle       — Launch, wait for activation, and close (health check)');
+  console.log('[CDP]   list-targets      — show all CDP page targets');
+  console.log('[CDP]   eval <expr>       — evaluate JS in the live Read Aloud webview');
+  console.log('');
+  console.log('[CDP] Flags:');
+  console.log('[CDP]   --duration <ms>   — Set delay (for observe-cycle)');
+  console.log('[CDP]   --eval <expr>     — Javascript to evaluate in webview context');
+  console.log('[CDP]   --log             — Write detailed diagnostics to scripts/logs/diagnostics.log');
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -930,24 +992,28 @@ function printUsage() {
 if (!action) { printUsage(); process.exit(1); }
 
 switch (action) {
-  case 'shell':             runShell();                            break;
-  case 'list-targets':      listTargets();                         break;
-  case 'launch-dev-host':   launchDevHost();                       break;
-  case 'wait-for-devhost':  waitForDevHostAction();                break;
-  case 'close-dev-host':    closeDevHostAction();                  break;
-  case 'kill-dev-host':     closeDevHostAction();                  break; // alias → graceful
-  case 'observe-cycle':     observeCycle();                        break;
-  case 'eval-webview':      evalWebview(actionArg);               break;
-  case 'probe-cycle':       probeCycle();                          break;
-  case 'exec-command':
-    if (!actionArg) {
-      console.error('[CDP] ✗ exec-command requires a command name argument.');
+  case 'shell':
+  default:
+    runShell();
+    break;
+
+  case 'observe-cycle':
+    observeCycle();
+    break;
+
+  case 'probe-cycle':
+    probeCycle();
+    break;
+
+  case 'list-targets':
+    listTargets();
+    break;
+
+  case 'eval':
+    if (!flags.eval) {
+      console.error('[CDP] ERROR: --eval flag is required for "eval" action.');
       process.exit(1);
     }
-    execVSCodeCommand(actionArg);
+    evalWebview(flags.eval);
     break;
-  default:
-    console.error(`[CDP] ✗ Unknown action: "${action}"`);
-    printUsage();
-    process.exit(1);
 }

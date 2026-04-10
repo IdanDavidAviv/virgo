@@ -109,4 +109,29 @@ expect(mockDashboardRelay.sync).toHaveBeenCalledWith(undefined, 'SESSION-ID');
 
 // WRONG — null never crosses the boundary:
 expect(mockDashboardRelay.sync).toHaveBeenCalledWith(null, 'SESSION-ID');
+
+---
+
+## 6. Argument-Aware Engine Consistency 🧪
+
+To ensure 100% test reliability and prevent race conditions between local logic and asynchronous `Store` synchronization, engine components MUST prioritize explicit arguments over store state in internal methods.
+
+### 6.1 The Shadow Argument Pattern
+When an engine method (e.g., `setRate`) is called, it should pass its value to a private worker method that accepts an optional parameter. The worker should only fall back to the store if the parameter is missing.
+
+```typescript
+// WebviewAudioEngine.ts
+public setRate(val: number): void {
+  this._applyPlaybackRate(val); // Explicitly pass the value
+}
+
+private _applyPlaybackRate(requestedRate?: number): void {
+  const state = WebviewStore.getInstance().getState();
+  const rate = requestedRate ?? state.rate; // Priority: Argument > Store
+  // ... apply rate
+}
 ```
+
+**Rationale**: 
+1. **Synchronous Execution**: Ensures the engine reacts to the *latest* intent immediately, even if the store update cycle hasn't completed.
+2. **Deterministic Tests**: Allows unit tests to verify engine behavior in isolation by passing mock values without needing a fully hydrated store.

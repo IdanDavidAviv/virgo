@@ -142,23 +142,28 @@ describe('SpeechProvider (Sync)', () => {
         expect(lastSync.volume).toBe(50);
     });
 
-    it('should handle webview commands and trigger reactive sync + persistence', async () => {
+    it('should handle webview VOICE_CHANGED and trigger pure store update + persistence', async () => {
         provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
         const stateStore = (provider as any)._stateStore as StateStore;
+        const bridge = (provider as any)._audioBridge;
+        const startSpy = vi.spyOn(bridge, 'start');
         vi.clearAllMocks();
 
-        // Simulate SET_VOICE command
-        await (provider as any)._handleWebviewMessage({ command: 'SET_VOICE', value: 'new-voice' });
+        // Simulate VOICE_CHANGED command (from OutgoingAction.VOICE_CHANGED)
+        await (provider as any)._handleWebviewMessage({ command: 'voiceChanged', voice: 'new-voice' });
 
         // 1. Verify StateStore update
         expect(stateStore.state.selectedVoice).toBe('new-voice');
 
-        // 2. Verify configuration persistence (Debounced)
+        // 2. Verify NO immediate playback start (Deferred Invalidation)
+        expect(startSpy).not.toHaveBeenCalled();
+
+        // 3. Verify configuration persistence (Debounced)
         vi.advanceTimersByTime(1000);
         const config = vscode.workspace.getConfiguration('readAloud');
         expect(config.update).toHaveBeenCalledWith('playback.voice', 'new-voice', vscode.ConfigurationTarget.Global);
 
-        // 3. Verify UI_SYNC broadcast (Throttled)
+        // 4. Verify UI_SYNC broadcast (Throttled)
         vi.advanceTimersByTime(200);
         const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');
         expect(syncCalls.length).toBeGreaterThanOrEqual(1);

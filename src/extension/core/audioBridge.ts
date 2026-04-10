@@ -20,6 +20,8 @@ export interface AudioBridgeEvents {
 export class AudioBridge extends EventEmitter {
     private _pushDelayMs: number = 200;
     private _webviewCacheManifest: Set<string> = new Set();
+    private _latchedVoiceId: string | null = null;
+    private _latchedRate: number | undefined = undefined;
     // [Law 7.1] Cache confirmation window (200ms) to prevent FETCH_FAILED false positives
     // when the Webview ACKs a Tier-2 disk-hit slightly after the bridge timeout fires.
     private _recentCacheConfirmations: Map<string, number> = new Map();
@@ -115,6 +117,12 @@ export class AudioBridge extends EventEmitter {
     public async start(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions, previewOnly: boolean = false, intentId?: number, batchId?: number) {
         // [SOVEREIGNTY] Generate new IDs if none provided (e.g. extension host calls)
         const finalIntent = intentId !== undefined ? intentId : this._playbackEngine.playbackIntentId + 1;
+        
+        // [COMMITMENT_GATE] Detect drift between user choice and latched production settings
+        const isVoiceDrift = options.voice !== this._latchedVoiceId && this._latchedVoiceId !== null;
+        const isRateDrift = options.rate !== this._latchedRate && this._latchedRate !== undefined;
+        const isCommitmentThresholdCrossed = isVoiceDrift || isRateDrift;
+
         let finalBatch = batchId !== undefined ? batchId : this._playbackEngine.batchIntentId;
 
         // [HARDENING] Prevent Batch 0 from escaping the Extension boundary
@@ -124,11 +132,20 @@ export class AudioBridge extends EventEmitter {
         this._playbackEngine.adoptIntent(finalIntent);
         this._stateStore.setPlaybackIntentId(finalIntent);
         
-        // If it's a new manual start from the host (no IDs provided), we tick the batchId.
+        // If it's a new manual start from the host (no IDs provided), or if commitment threshold crossed, we tick the batchId.
         // If it's a resume or webview-driven start, we trust the provided/current batch.
-        const resolutionBatch = (intentId === undefined && batchId === undefined) ? finalBatch + 1 : finalBatch;
+        const resolutionBatch = (intentId === undefined && batchId === undefined) || isCommitmentThresholdCrossed ? finalBatch + 1 : finalBatch;
+        
+        if (isCommitmentThresholdCrossed) {
+            this._logger(`[BRIDGE] Commitment Threshold crossed: v:${this._latchedVoiceId}->${options.voice}, r:${this._latchedRate}->${options.rate}. Incrementing batchId to ${resolutionBatch}.`);
+        }
+
         this._playbackEngine.adoptBatchIntent(resolutionBatch);
         this._stateStore.setBatchIntentId(resolutionBatch);
+
+        // Update latches upon commitment
+        this._latchedVoiceId = options.voice;
+        this._latchedRate = options.rate;
 
         // CRITICAL: Stop any in-flight synthesis or sequences before starting a new one.
         this._playbackEngine.stop(finalIntent);
@@ -428,6 +445,7 @@ export class AudioBridge extends EventEmitter {
                     text: sentence,
                     chapterIndex: cIdx,
                     sentenceIndex: sIdx,
+                    bakedRate: options.rate,
                     totalSentences: this._docController.chapters[cIdx].sentences.length,
                     sentences: this._docController.chapters[cIdx].sentences
                 });

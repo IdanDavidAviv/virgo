@@ -231,6 +231,24 @@ export class WebviewStore {
       }
     });
 
+    // [SOVEREIGNTY] Surgical Filtering: Prevent stale packets from hijacking playback thread
+    if (isStale) {
+      const SOVEREIGN_FIELDS: (keyof StoreState)[] = [
+        'isPlaying', 
+        'isPaused', 
+        'currentChapterIndex', 
+        'currentSentenceIndex', 
+        'activeDocumentUri',
+        'isBuffering',
+        'playbackStalled'
+      ];
+      SOVEREIGN_FIELDS.forEach(field => {
+        if (field in activePatch) {
+          delete (activePatch as any)[field];
+        }
+      });
+    }
+
     // 2. Hydration logic: Aggressive Enforcement [DIAGNOSTIC]
     const hasDocData = (activePatch.allChapters && activePatch.allChapters.length > 0) || activePatch.activeFileName;
     

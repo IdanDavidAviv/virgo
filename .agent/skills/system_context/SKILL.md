@@ -297,8 +297,8 @@ Key methods available via `window.__debug.audioEngine`:
 
 | Observation | Verdict |
 |---|---|
-| `isBuffering: true` while `playbackIntent: "STOPPED"` | ⚠️ **Anomaly** — buffer flag not cleared after last synthesized segment goes unconsumed. Potential source of stall regression. |
-| `audioEngine.setRate()` does not echo to `store.rate` | ✅ **By design** — rate takes effect on next batch render, not active stream |
+| `isBuffering: true` while `playbackIntent: "STOPPED"` | ✅ **Remediated** — Filtered via Segmented Sovereignty |
+| `audioEngine.setRate()` adjustments | ✅ **Seamless** — Applied via Neural Rate Guard ($target / baked$) |
 | `audioElement.volume = setVolume(n) / 100` | ✅ **Correct normalization** |
 | `store.patchState()` mutations are instant and reflected in next `getState()` | ✅ Confirmed |
 | Dev session baseline: `rate: 7.2`, `volume: 84`, `engineMode: "neural"` | 📊 Reference snapshot |
@@ -363,3 +363,17 @@ To ensure playback reliability despite the inherent instability of internet-base
 2. **Fresh Client Check**: Verify client health before I/O.
 3. **Synthesis Loop**: A simple `for` loop (3 attempts) with exponential backoff.
 4. **Health Guard**: On error, update health state. If health hits `DEGRADED`, signal the Bridge to pivot.
+
+### 9.5 Sidebar Discovery Protocol (Lazy-Loading)
+- **Invariant**: The Read Aloud sidebar webview is **lazy-loaded**.
+- **Protocol**: CDP automation MUST NOT assume the webview frame exists on launch.
+- **Action**: Use `show read-aloud` (dispatches `readme-preview-read-aloud.show-dashboard`) to ensure the panel is active before performing `eval` or state audits.
+- **Discovery**: Use `find read-aloud` to locate the `fake.html` frame within the `vscode-webview://` sandbox.
+
+### 9.6 CDP Automation Invariants (Shell Sovereignty)
+- **Locking**: The `cdp-controller.mjs` uses `.cdp_shell.lock` (in project root). ONLY ONE instance can be active.
+- **Cleanup (Sovereign Exit)**: 
+    - Always use the `exit` or `quit` command via `send_command_input` to ensure the lock file is removed.
+    - **Verification**: After exit, confirmed that the lock file is GONE via `list_dir`.
+- **Connection**: Parallel CDP connections to the same port (9222) will cause SSE `429` (Too Many Requests) or target detachment.
+- **Protocol**: If the shell hangs, manually delete `scripts/.cdp-shell.lock` and `kill` the Node process.

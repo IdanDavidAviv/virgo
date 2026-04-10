@@ -169,6 +169,7 @@ export class PlaybackController {
         });
 
         client.onCommand(IncomingCommand.SNIPPET_SAVED, () => {
+            console.log('[PlaybackController] 💾 Snippet saved. Refreshing history...');
             client.postAction(OutgoingAction.GET_ALL_SNIPPET_HISTORY);
         });
 
@@ -303,6 +304,7 @@ export class PlaybackController {
         // [SOVEREIGNTY] Authoritative update
         store.patchState({ selectedVoice: voiceId });
 
+        console.log(`[IPC:OUT] VOICE_CHANGED -> ${voiceId}`);
         MessageClient.getInstance().postAction(OutgoingAction.VOICE_CHANGED, {
             voice: voiceId,
             intentId: store.getState().playbackIntentId
@@ -313,6 +315,7 @@ export class PlaybackController {
      * setVolume(): Throttled volume orchestration.
      */
     private debouncedVolumeEmit = debounce((volume: number) => {
+        console.log(`[IPC:OUT] VOLUME_CHANGED -> ${volume}`);
         MessageClient.getInstance().postAction(OutgoingAction.VOLUME_CHANGED, {
             volume,
             intentId: WebviewStore.getInstance().getState().playbackIntentId
@@ -334,6 +337,7 @@ export class PlaybackController {
      * setRate(): Throttled rate orchestration.
      */
     private debouncedRateEmit = debounce((rate: number) => {
+        console.log(`[IPC:OUT] RATE_CHANGED -> ${rate}x`);
         MessageClient.getInstance().postAction(OutgoingAction.RATE_CHANGED, {
             rate,
             intentId: WebviewStore.getInstance().getState().playbackIntentId

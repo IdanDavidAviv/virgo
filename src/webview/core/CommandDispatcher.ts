@@ -83,10 +83,10 @@ export class CommandDispatcher {
 
         if (data?.data) {
           // Extension provided raw data (Synthesis Hit or Extension Cache Hit)
-          audioEngine.playFromBase64(data.data, data.cacheKey, intentId);
+          audioEngine.playFromBase64(data.data, data.cacheKey, intentId, data.bakedRate);
         } else if (data?.cacheKey) {
           // Hint received: try local cache first
-          const success = await audioEngine.playFromCache(data.cacheKey, intentId);
+          const success = await audioEngine.playFromCache(data.cacheKey, intentId, data.bakedRate);
           if (!success) {
             // [HARDENING] If local cache misses, the bridge might still have it (e.g., Prefetch Hit).
             // Try FETCH_AUDIO before escalating to full REQUEST_SYNTHESIS to prevent loops.
@@ -106,7 +106,7 @@ export class CommandDispatcher {
       case IncomingCommand.SYNTHESIS_READY:
         console.log('[Dispatcher] ✨ SYNTHESIS_READY Received', data);
         // Bridge reports audio is ready in its cache. Pull it if we don't have it.
-        const hasLocal = await audioEngine.playFromCache(data.cacheKey, data.intentId);
+        const hasLocal = await audioEngine.playFromCache(data.cacheKey, data.intentId, data.bakedRate);
         if (!hasLocal) {
           MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId: data.intentId });
         }

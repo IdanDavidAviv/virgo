@@ -617,39 +617,58 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 // [RATE_HARDENING] Previously unhandled — extension was silently dropping every
                 // rate change from the webview, causing the next UI_SYNC to snap the slider back.
                 // Now we persist the rate AND update the live StateStore so the cache key stays correct.
-                if (typeof data.rate === 'number' && data.rate > 0) {
-                    this._settingsManager.saveSetting('rate', data.rate);
-                    this._stateStore.setOptions({ rate: data.rate });
-                    this._logger(`[RATE] User rate committed: ${data.rate}x`);
+                if (typeof payload.rate === 'number' && payload.rate > 0) {
+                    this._settingsManager.saveSetting('rate', payload.rate);
+                    this._stateStore.setOptions({ rate: payload.rate });
+                    this._logger(`[RATE] User rate committed: ${payload.rate}x`);
                 }
                 break;
-            // case 'SET_SPEED': [DECOMMISSIONED v2.3.2] — was reading data.value but webview sends data.rate. Replaced by OutgoingAction.RATE_CHANGED.
 
-            case 'SET_VOLUME':
-                this._settingsManager.saveSetting('volume', data.value);
+            case OutgoingAction.VOLUME_CHANGED:
+                if (typeof payload.volume === 'number') {
+                    this._settingsManager.saveSetting('volume', payload.volume);
+                    this._stateStore.setOptions({ volume: payload.volume });
+                    this._logger(`[VOLUME] User volume committed: ${payload.volume}%`);
+                }
                 break;
-            case 'SET_VOICE':
-                this._settingsManager.saveSetting('selectedVoice', data.value);
-                this._playbackEngine.stop();
-                this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions(), true);
+
+            case OutgoingAction.VOICE_CHANGED:
+                if (payload.voice) {
+                    this._settingsManager.saveSetting('selectedVoice', payload.voice);
+                    this._stateStore.setOptions({ selectedVoice: payload.voice });
+                    this._logger(`[VOICE] choice -> [STORE] sync: ${payload.voice}`);
+                }
                 break;
+
             case OutgoingAction.REPORT_VOICES:
-                this._voiceManager.updateLocalVoices(data.voices);
+                this._voiceManager.updateLocalVoices(payload.voices);
                 break;
-            case 'SET_ENGINE_MODE':
-                this._settingsManager.saveSetting('engineMode', data.value);
-                this._playbackEngine.stop();
-                this._voiceManager.broadcastVoices();
-                this._broadcastCacheStats();
+
+            case OutgoingAction.ENGINE_MODE_CHANGED:
+                if (payload.mode) {
+                    this._settingsManager.saveSetting('engineMode', payload.mode);
+                    this._playbackEngine.stop();
+                    this._voiceManager.broadcastVoices();
+                    this._broadcastCacheStats();
+                    this._logger(`[ENGINE] User engineMode committed: ${payload.mode}`);
+                }
                 break;
-            case 'SET_AUTOPLAY_MODE':
-                this._settingsManager.saveSetting('autoPlayMode', data.value);
+
+            case OutgoingAction.SET_AUTO_PLAY_MODE:
+                if (payload.mode) {
+                    this._settingsManager.saveSetting('autoPlayMode', payload.mode);
+                    this._logger(`[AUTOPLAY] User mode committed: ${payload.mode}`);
+                }
                 break;
-            case 'SET_AUTOPLAY_INJECTION':
-                this._settingsManager.saveSetting('autoPlayOnInjection', data.value);
+
+            case OutgoingAction.SET_AUTOPLAY_INJECTION:
+                this._settingsManager.saveSetting('autoPlayOnInjection', payload.value);
+                this._logger(`[AUTOPLAY] injection_auto_play=${payload.value}`);
                 break;
-            case 'SET_AUTO_INJECT_SITREP':
-                this._settingsManager.saveSetting('agent.autoInjectSITREP', data.value);
+
+            case OutgoingAction.SET_AUTO_INJECT_SITREP:
+                this._settingsManager.saveSetting('agent.autoInjectSITREP', payload.value);
+                this._logger(`[SITREP] auto_inject=${payload.value}`);
                 break;
 
             case OutgoingAction.SENTENCE_ENDED:
@@ -712,17 +731,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._logger(`[CACHE] Extension cache purged. Triggering webview sync...`);
                 break;
             case OutgoingAction.OPEN_FILE:
-                const fileUri = data.uri || data.path;
+                const fileUri = payload.uri || payload.path;
                 if (fileUri) {
                     vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(fileUri));
                 }
                 break;
             case OutgoingAction.ERROR:
-                this._logger(`[DASHBOARD_CRITICAL] ${data.message || 'Unknown Error'}`);
+                this._logger(`[DASHBOARD_CRITICAL] ${payload.message || 'Unknown Error'}`);
                 break;
             case OutgoingAction.LOG: 
-                const logType = (data.type || 'info').toUpperCase();
-                this._logger(`[${source.toUpperCase()}:${logType}] ${data.message}`); 
+                const logType = (payload.type || 'info').toUpperCase();
+                this._logger(`[${source.toUpperCase()}:${logType}] ${payload.message}`); 
                 break;
             
             case OutgoingAction.GET_ALL_SNIPPET_HISTORY:
