@@ -13,19 +13,23 @@
  * @param voiceId The unique identifier for the voice (e.g. Edge TTS name)
  * @param rate The playback rate (will be normalized to 2 decimal places)
  * @param docUri The URI of the document (prevents collisions across different files with same text)
+ * @param isNeural Whether this is for a neural voice (rate is always 1.0 for neural cache keys)
  * @returns A stable, unique cache key
  */
 export function generateCacheKey(
     text: string,
     voiceId: string,
     rate: number,
-    docUri: string | null = 'global'
+    docUri: string | null = 'global',
+    isNeural: boolean = false
 ): string {
     // 1. Normalize Text: Trim and remove duplicate whitespace
     const cleanText = text.trim().replace(/\s+/g, ' ');
 
-    // 2. Normalize Rate: Round to 2 decimal places to prevent "1.0000001" issues
-    const cleanRate = rate.toFixed(2);
+    // 2. Normalize Rate: For neural audio, we always synthesize at 1.0x to allow relative scaling in the webview.
+    // This allows the speed slider to work instantly without re-synthesizing.
+    const effectiveRateForCache = isNeural ? 1.0 : rate;
+    const cleanRate = effectiveRateForCache.toFixed(2);
 
     // 3. Normalize VoiceId: Ensure lowercase
     const cleanVoice = voiceId.toLowerCase();
@@ -33,13 +37,7 @@ export function generateCacheKey(
     // 4. Normalize URI: Handle null/undefined
     const cleanUri = (docUri || 'global').replace(/[\\/]/g, '_');
 
-    // Combine into a raw string
-    // Format: [Voice]_[Rate]_[DocHash]_[TextHash]
-    const raw = `${cleanVoice}|${cleanRate}|${cleanUri}|${cleanText}`;
-
-    // Simple hash function for the text (since we don't have crypto/crypto in all environments easily)
-    // We prioritize readability and debugging for now, or use a basic djb2 if needed.
-    // For now, let's keep it relatively human-readable for the manifest audit.
+    // Simple hash function for the text
     const textHash = simpleHash(cleanText);
     const uriHash = simpleHash(cleanUri);
 

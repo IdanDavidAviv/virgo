@@ -135,6 +135,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.registerWebviewViewProvider(
             'readme-preview-read-aloud.speech-engine',
             speechProvider,
+            
             { webviewOptions: { retainContextWhenHidden: true } }
         )
     );
@@ -143,11 +144,13 @@ export async function activate(context: vscode.ExtensionContext) {
         mainStatusBarItem,
         
         vscode.commands.registerCommand('readme-preview-read-aloud.show-dashboard', () => {
+            log('[CMD_RECV] readme-preview-read-aloud.show-dashboard');
             vscode.commands.executeCommand('readme-preview-read-aloud.speech-engine.focus');
             speechProvider.refresh();
         }),
 
         vscode.commands.registerCommand('readme-preview-read-aloud.show-quick-controls', async () => {
+            log('[CMD_RECV] readme-preview-read-aloud.show-quick-controls');
             const isPlaying = speechProvider.isPlaying();
             const isPaused = speechProvider.isPaused();
 
@@ -185,26 +188,55 @@ export async function activate(context: vscode.ExtensionContext) {
 
         vscode.commands.registerCommand('readme-preview-read-aloud.play', async () => {
             const editor = vscode.window.activeTextEditor;
+            log(`[CMD_RECV] readme-preview-read-aloud.play | hasEditor: ${!!editor}`);
             if (editor) {
                 const text = editor.selection.isEmpty ? editor.document.getText() : editor.document.getText(editor.selection);
                 speechProvider.play(text, 0, editor.document.fileName);
+            } else if (speechProvider.isHydrated()) {
+                // [v2.3.2] Fallback: If no editor focus but UI has content, play/resume current state.
+                speechProvider.continue();
             } else {
                 vscode.window.showWarningMessage('No text found to read.');
             }
         }),
 
-        vscode.commands.registerCommand('readme-preview-read-aloud.pause', () => speechProvider.pause()),
-        vscode.commands.registerCommand('readme-preview-read-aloud.stop', () => speechProvider.stop()),
-        vscode.commands.registerCommand('readme-preview-read-aloud.start-over', () => speechProvider.startOver()),
-        vscode.commands.registerCommand('readme-preview-read-aloud.refresh-view', () => speechProvider.refreshView()),
-        vscode.commands.registerCommand('readme-preview-read-aloud.next-chapter', () => speechProvider.nextChapter()),
-        vscode.commands.registerCommand('readme-preview-read-aloud.prev-chapter', () => speechProvider.prevChapter()),
-        vscode.commands.registerCommand('readme-preview-read-aloud.next-sentence', () => speechProvider.nextSentence()),
-        vscode.commands.registerCommand('readme-preview-read-aloud.prev-sentence', () => speechProvider.prevSentence()),
+        vscode.commands.registerCommand('readme-preview-read-aloud.pause', () => {
+            log('[CMD_RECV] readme-preview-read-aloud.pause');
+            speechProvider.pause();
+        }),
+        vscode.commands.registerCommand('readme-preview-read-aloud.stop', () => {
+            log('[CMD_RECV] readme-preview-read-aloud.stop');
+            speechProvider.stop();
+        }),
+        vscode.commands.registerCommand('readme-preview-read-aloud.start-over', () => {
+            log('[CMD_RECV] readme-preview-read-aloud.start-over');
+            speechProvider.startOver();
+        }),
+        vscode.commands.registerCommand('readme-preview-read-aloud.refresh-view', () => {
+            log('[CMD_RECV] readme-preview-read-aloud.refresh-view');
+            speechProvider.refreshView();
+        }),
+        vscode.commands.registerCommand('readme-preview-read-aloud.next-chapter', () => {
+            log('[CMD_RECV] readme-preview-read-aloud.next-chapter');
+            speechProvider.nextChapter();
+        }),
+        vscode.commands.registerCommand('readme-preview-read-aloud.prev-chapter', () => {
+            log('[CMD_RECV] readme-preview-read-aloud.prev-chapter');
+            speechProvider.prevChapter();
+        }),
+        vscode.commands.registerCommand('readme-preview-read-aloud.next-sentence', () => {
+            log('[CMD_RECV] readme-preview-read-aloud.next-sentence');
+            speechProvider.nextSentence();
+        }),
+        vscode.commands.registerCommand('readme-preview-read-aloud.prev-sentence', () => {
+            log('[CMD_RECV] readme-preview-read-aloud.prev-sentence');
+            speechProvider.prevSentence();
+        }),
 
 
         vscode.commands.registerCommand('readme-preview-read-aloud.read-from-cursor', async () => {
             const editor = vscode.window.activeTextEditor;
+            log(`[CMD_RECV] readme-preview-read-aloud.read-from-cursor | hasEditor: ${!!editor}`);
             if (!editor) {return;}
             const text = editor.document.getText();
             const cursorLine = editor.selection.active.line;

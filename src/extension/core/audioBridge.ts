@@ -7,7 +7,7 @@ import { EventEmitter } from 'events';
 import { generateCacheKey } from '../../common/cachePolicy';
 
 export interface AudioBridgeEvents {
-    'playAudio': (payload: { cacheKey: string, data: string, text: string, chapterIndex: number, sentenceIndex: number, totalSentences: number, sentences: string[], intentId: number }) => void;
+    'playAudio': (payload: { cacheKey: string, data: string, text: string, chapterIndex: number, sentenceIndex: number, totalSentences: number, sentences: string[], intentId: number, bakedRate: number }) => void;
     'synthesisStarting': (payload: { cacheKey: string, intentId: number }) => void;
     'synthesisError': (payload: { error: string, isFallingBack: boolean, cacheKey: string, chapterIndex: number, sentenceIndex: number, intentId: number }) => void;
     'playbackFinished': () => void;
@@ -187,17 +187,21 @@ export class AudioBridge extends EventEmitter {
         this._stateStore.setPreviewing(previewOnly);
 
         const sentence = chapter.sentences[sentenceIndex];
-        const cacheKey = generateCacheKey(
-            sentence, 
-            options.voice, 
-            options.rate, 
-            this._docController.metadata.uri?.toString() || this._docController.metadata.fileName
-        );
-
+        
         // [v2.3.1] Autoradiant Routing: Check health-aware viability before choosing engine
         const isNeuralSelected = options.mode === 'neural';
         const isNeuralViable = this._playbackEngine.isNeuralViable();
         const finalMode = (isNeuralSelected && isNeuralViable) ? 'neural' : 'local';
+
+        // neural for rate=1
+        const isNeural = isNeuralSelected && isNeuralViable;
+        const cacheKey = generateCacheKey(
+            sentence, 
+            options.voice, 
+            options.rate, 
+            this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
+            isNeural
+        );
 
         if (isNeuralSelected && !isNeuralViable) {
             this._logger('[BRIDGE] ☢️ Neural stalled > 120s. Autoradiant Fallback -> LOCAL.');
@@ -219,7 +223,7 @@ export class AudioBridge extends EventEmitter {
                     chapterIndex,
                     sentenceIndex,
                     totalSentences: chapter.sentences.length,
-                    sentences: chapter.sentences
+                    bakedRate: isNeural ? 1.0 : options.rate
                 });
 
                 // If it's in Extension cache, we already pushed data.
@@ -295,8 +299,8 @@ export class AudioBridge extends EventEmitter {
         // for this key within the last 200ms, skip synthesis and emit playAudio directly.
         const confirmedAt = this._recentCacheConfirmations.get(cacheKey);
         if (confirmedAt !== undefined && Date.now() - confirmedAt < 200) {
-            this._logger(`[BRIDGE] [LAW_7.1] Cache confirmation found for ${cacheKey} within 200ms. Skipping synthesis — emitting playAudio from disk.`);
-            this._emitWithIntent('playAudio', { cacheKey, data: '' });
+            const isNeural = options.mode === 'neural';
+            this._emitWithIntent('playAudio', { cacheKey, data: '', bakedRate: isNeural ? 1.0 : options.rate });
             return;
         }
 
@@ -444,8 +448,7 @@ export class AudioBridge extends EventEmitter {
                     data, // Restore Push Mode for performance
                     text: sentence,
                     chapterIndex: cIdx,
-                    sentenceIndex: sIdx,
-                    bakedRate: options.rate,
+                    bakedRate: options.mode === 'neural' ? 1.0 : options.rate,
                     totalSentences: this._docController.chapters[cIdx].sentences.length,
                     sentences: this._docController.chapters[cIdx].sentences
                 });
@@ -535,11 +538,13 @@ export class AudioBridge extends EventEmitter {
             let count = 0;
             for (const target of targets) {
                 const text = chapters[target.cIdx].sentences[target.sIdx];
+                const isNeural = options.mode === 'neural';
                 const key = generateCacheKey(
                     text,
                     options.voice,
                     options.rate,
-                    this._docController.metadata.uri?.toString() || this._docController.metadata.fileName
+                    this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
+                    isNeural
                 );
 
                 // Skip prefetch if already in either cache

@@ -192,6 +192,7 @@ export function bootstrap() {
     registry.forEach((c) => (c as any).mount());
     
     interaction.mount();
+    dispatcher.initSovereignBridge();
     dispatcher.mount(client);
 
     // 2a. Register with Layout Manager (Issue #15)

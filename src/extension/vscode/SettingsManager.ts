@@ -71,19 +71,41 @@ export class SettingsManager {
 
     /**
      * Debounced save to VS Code Global configuration.
+     * [SOFT_DEFAULT_GUARD]: Only updates the physical settings.json if the value has changed
+     * compared to the current global configuration.
      */
     public saveSetting(key: string, value: any): void {
-        // Optimistic UI update in the StateStore
+        // 1. Optimistic UI update in the StateStore (immediate)
         const storeKey = key === 'voice' ? 'selectedVoice' : key;
+        const currentState = this._stateStore.state;
+        
+        // Prevent redundant state updates if the value matches the current store state
+        if ((currentState as any)[storeKey] === value) {
+            return;
+        }
+
         this._stateStore.setOptions({ [storeKey]: value });
 
+        // 2. Debounced persistence to VS Code configuration
         if (this._debounceTimers.has(key)) {
             clearTimeout(this._debounceTimers.get(key)!);
         }
+        
         this._debounceTimers.set(key, setTimeout(async () => {
             const config = vscode.workspace.getConfiguration('readAloud');
-            const configKey = `playback.${key === 'selectedVoice' ? 'voice' : (key === 'voice' ? 'voice' : key)}`;
+            const configKey = `playback.${key === 'selectedVoice' || key === 'voice' ? 'voice' : key}`;
             
+            // [SOVEREIGNTY] Check if the value actually differs from the PERSISTED value
+            // config.get() returns the merged value. config.inspect() gives us the global/workspace breakdown.
+            const inspection = config.inspect(configKey);
+            const currentGlobalValue = inspection?.globalValue;
+
+            if (currentGlobalValue === value) {
+                this._logger(`[CONFIG_SYNC] Skipping redundant update for ${configKey} (already matches global config: ${value})`);
+                this._debounceTimers.delete(key);
+                return;
+            }
+
             try {
                 await config.update(configKey, value, vscode.ConfigurationTarget.Global);
                 this._logger(`[CONFIG_SYNC] Updated ${configKey} -> ${value}`);

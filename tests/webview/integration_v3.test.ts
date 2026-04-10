@@ -15,6 +15,8 @@ import { FileContext } from '../../src/webview/components/FileContext';
 import { VoiceSelector } from '../../src/webview/components/VoiceSelector';
 import { SnippetLookup } from '../../src/webview/components/SnippetLookup';
 
+import { resetAllSingletons } from './testUtils';
+
 /**
  * @vitest-environment jsdom
  */
@@ -85,14 +87,8 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
     let dispatcher: CommandDispatcher;
 
     beforeEach(() => {
-        // 1. Reset all singletons
-        WebviewStore.resetInstance();
-        MessageClient.resetInstance();
-        PlaybackController.resetInstance();
-        CommandDispatcher.resetInstance();
-        LayoutManager.resetInstance();
-        InteractionManager.resetInstance();
-        WebviewAudioEngine.resetInstance();
+        // 1. Reset all singletons (including polyfills for Speech API)
+        resetAllSingletons();
 
         // 2. Full DOM scaffold
         document.body.innerHTML = FULL_DOM;

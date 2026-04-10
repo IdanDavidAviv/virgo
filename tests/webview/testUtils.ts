@@ -6,6 +6,8 @@ import { vi } from 'vitest';
 
 import { CommandDispatcher } from '../../src/webview/core/CommandDispatcher';
 import { CacheManager } from '../../src/webview/cacheManager';
+import { LayoutManager } from '../../src/webview/core/LayoutManager';
+import { InteractionManager } from '../../src/webview/core/InteractionManager';
 
 /**
  * Consolidated Authority for Webview DOM structure.
@@ -84,6 +86,8 @@ export function resetAllSingletons() {
         delete win.__MESSAGE_CLIENT__;
         delete win.__WEBVIEW_STORE__;
         delete win.__PLAYBACK_CONTROLLER__;
+        delete win.__LAYOUT_MANAGER__;
+        delete win.__INTERACTION_MANAGER__;
     }
 
     // [SOVEREIGNTY] Polyfill SpeechSynthesisUtterance for jsdom BEFORE singletons capture it
@@ -123,6 +127,8 @@ export function resetAllSingletons() {
     WebviewAudioEngine.resetInstance();
     CommandDispatcher.resetInstance();
     CacheManager.resetInstance();
+    LayoutManager.resetInstance();
+    InteractionManager.resetInstance();
 
     // Reset vitest mocks
     vi.clearAllMocks();
@@ -205,6 +211,7 @@ export function createMockSyncPacket(overrides: Partial<UISyncPacket> = {}): UIS
         cacheCount: 0,
         cacheSizeBytes: 0,
         logLevel: 1,
+        isSelectingVoice: false,
         
         ...overrides
     };
