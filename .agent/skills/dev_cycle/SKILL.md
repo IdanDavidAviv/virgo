@@ -59,26 +59,37 @@ Antigravity is permanently configured with `--remote-debugging-port=9222` via:
 
 CDP endpoint is live at `http://localhost:9222` on every launch. **No launcher script needed.**
 
-#### The Probe Cycle — Primary Agent Loop
+#### The Observe Cycle — Primary Agent Loop ⭐
 
 ```
-npm run cdp:probe-cycle
+npm run cdp:observe
 ```
 
-This is the **only command the agent needs** for a full observe cycle:
+This is the **primary agent command** for a live, interactive debug session:
 
 ```
-[1/4] Launch dev host (F5 via command palette on correct workbench shell)
-[2/4] Poll until [Extension Development Host] appears (max 30s)
-[3/4] Wait 3s for extension activation
-[4/4] Kill dev host → print last 30 lines of diagnostics.log
+[1/5] Pre-launch PID snapshot
+[2/5] Launch dev host (F5 via command palette)
+[3/5] Wait for full activation — PID delta + VOICE_SCAN log signal
+[4/5] OBSERVE WINDOW (8s default) — live diagnostics.log stream + optional webview eval
+[5/5] Graceful 3-tier close → final log snapshot
 ```
 
 Loop diagram:
 ```
-compile → cdp:probe-cycle → read log → next iteration
-   ↑                                         ↓
-   └──────────── fix → recompile ────────────┘
+compile → cdp:observe → analyze live logs → fix → recompile
+   ↑                                                   ↓
+   └────────────────────────────────────────────────────┘
+```
+
+#### Graceful Shutdown Ladder (3-Tier)
+
+Instead of immediately killing the process, `close-dev-host` and `observe-cycle` use:
+
+```
+Tier 1 (Polite):  Ctrl+Shift+P → workbench.action.closeWindow  → wait 3s
+Tier 2 (Harder):  page.evaluate(() => window.close())           → wait 2s
+Tier 3 (Nuclear): Stop-Process -Id <devHostPids> -Force         (last resort)
 ```
 
 #### All CDP Commands
@@ -86,11 +97,22 @@ compile → cdp:probe-cycle → read log → next iteration
 | Command | Action | Safe to Auto-Run |
 |---|---|---|
 | `npm run cdp:targets` | List all CDP page targets (debug) | ✅ Yes |
-| `npm run cdp:probe-cycle` | Full: launch → wait → kill → read log | ✅ Yes |
+| `npm run cdp:shell` | **⭐ Interactive REPL**: persistent session for live `window.__debug` inspection | ✅ Yes |
+| `npm run cdp:observe` | **Primary loop**: launch → signal → live tail → graceful close | ✅ Yes |
+| `npm run cdp:eval-webview "<expr>"` | Evaluate JS expression in the live Read Aloud webview | ✅ Yes |
+| `npm run cdp:close-dev-host` | Graceful 3-tier shutdown (polite → eval → kill) | ✅ Yes |
 | `npm run cdp:launch-dev-host` | Launch dev host only | ✅ Yes |
 | `npm run cdp:wait-for-devhost` | Block until dev host appears | ✅ Yes |
-| `npm run cdp:kill-dev-host` | Kill the dev host window | ✅ Yes (dev host only, no user data) |
+| `npm run cdp:kill-dev-host` | Surgical PID kill (legacy alias → now routes to graceful) | ✅ Yes |
+| `npm run cdp:probe-cycle` | Legacy: launch → wait → kill → read log | ✅ Yes |
 | `npm run dev:full-cycle` | Compile + launch dev host | ✅ Yes |
+
+#### observe-cycle Flags
+
+| Flag | Description | Default |
+|---|---|---|
+| `--duration <ms>` | How long to keep the dev host alive for observation | `8000` |
+| `--eval "<expr>"` | JS expression to evaluate in the webview during the observe window | none |
 
 #### Workbench Selector Law (CRITICAL)
 

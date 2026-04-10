@@ -132,8 +132,8 @@ describe('SettingsDrawer', () => {
         // Use 'change' (onchange) which fires postAction directly without the 40ms debounce
         slider.dispatchEvent(new Event('change'));
         
-        // Advance timers for debounced setVolume() in PlaybackController
-        vi.advanceTimersByTime(200);
+        // Advance timers past the 300ms debounce on debouncedVolumeEmit
+        vi.advanceTimersByTime(400);
 
         expect(postActionSpy).toHaveBeenCalledWith(
             OutgoingAction.VOLUME_CHANGED,

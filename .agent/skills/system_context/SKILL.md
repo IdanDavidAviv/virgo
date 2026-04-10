@@ -19,7 +19,7 @@ description: Architectural map and development guidelines for the Read Aloud ext
 
 | Skill | Governs | Last Updated |
 |---|---|---|
-| [`system_context`](../system_context/SKILL.md) | Architectural map, subsystem ownership, agent heuristics | 2026-04-10 |
+| [`system_context`](../system_context/SKILL.md) | Architectural map, subsystem ownership, agent heuristics | 2026-04-10 (CDP) |
 | [`startup_orchestration`](../startup_orchestration/SKILL.md) | Boot sequence, Pulse graph, DPG, Phase 1–3 dependencies | 2026-04-09 |
 | [`autoplay_orchestration`](../autoplay_orchestration/SKILL.md) | Playback pipeline, pre-fetch, neural laws, intent baton | 2026-04-09 |
 | [`state_coherence_v4`](../state_coherence_v4/SKILL.md) | State sovereignty, split-brain detection, fluid handshake | 2026-04-09 |
@@ -50,6 +50,7 @@ description: Architectural map and development guidelines for the Read Aloud ext
 - **`CommandDispatcher.ts`**: Entry point for all incoming VS Code messages. Dispatches actions to the store or local services.
 - **`MessageClient.ts`**: Outbound IPC wrapper. Used to send user commands (Play, Pause, Stop) back to VS Code.
 - **`WebviewAudioEngine.ts`**: The "Dumb Player" (Stateless worker). Executes single-threaded audio playback using a single HTMLAudioElement for all strategies.
+- **`window.__debug`** *(dev builds only)*: When `__BOOTSTRAP_CONFIG__.debugMode === true`, the bootstrap function in `src/webview/index.ts` exposes internal singletons as a global for live CDP inspection: `{ store, audioEngine, playback, dispatcher }`. This global is **never present in production builds** (gated by `debugMode`).
 
 ### 1.3 Auditory Strategy & Caching (The Holistic Hierarchy)
 - **Unified Synthesis Pipe**: The engine no longer uses separate strategy classes. Logic for Neural vs Local is controlled via the `engineMode` property and executed by the `WebviewAudioEngine`.
@@ -216,6 +217,91 @@ graph TD
         N -- "Sync Out" --> B
     end
 ```
+
+## 6. CDP Debugging Infrastructure
+
+> [!NOTE]
+> This section documents the live inspection and mutation toolchain available to the agent during development. All capabilities below are **dev-only** and are never active in production.
+
+### 6.1 The `cdp-controller.mjs` Persistent REPL (`npm run cdp:shell`)
+
+A long-running Node.js process that maintains a single CDP connection to the running Antigravity editor (`localhost:9222`). It provides a REPL with the following command registry:
+
+| Command | Action |
+|---|---|
+| `launch` | Triggers F5 in the main editor, waits for `VOICE_SCAN` activation signal |
+| `exec <cmd>` | Dispatches a VS Code command palette action to the **Dev Host** workbench |
+| `frames` | Lists all CDP frames in the dev host (diagnostic — identifies webview targets) |
+| `eval <expr>` | Executes JS in the live Read Aloud webview (`fake.html`) frame |
+| `close` | 3-tier graceful shutdown: Polite → `window.close()` → Surgical PID kill |
+| `exit` | Terminates the REPL process itself |
+
+**VS Code Two-Frame Architecture**: VS Code webviews are sandboxed iframes inside the workbench renderer. They never appear as separate CDP top-level targets. The controller traverses child frames of the dev host page, preferring the `vscode-webview://.../fake.html` frame — where extension HTML is injected.
+
+### 6.2 `window.__debug` — Live Singleton Inspector
+
+Exposed in `src/webview/index.ts` inside the `bootstrap()` function, gated by:
+```typescript
+if (__BOOTSTRAP_CONFIG__.debugMode) {
+  (window as any).__debug = { store, audioEngine, playback, dispatcher };
+}
+```
+
+**Verified live snapshot** (2026-04-10):
+```json
+{ "native": true, "extensionVersion": "2.2.2", "debugMode": true, "logLevel": 2 }
+```
+
+### 6.3 WebviewStore API Surface (Custom Store — NOT Zustand/Redux)
+
+The store is a custom class. Key methods available via `window.__debug.store`:
+
+| Method | Purpose |
+|---|---|
+| `getState()` | Returns full state snapshot |
+| `patchState(patch)` | Shallow-merges patch into state. **Mutations are immediate and confirmed.** |
+| `updateState(patch)` | Deep state update (triggers listeners) |
+| `subscribe(fn)` | Registers a state change listener |
+| `resetPlaybackIntent()` | Atomically resets intent + `isAwaitingSync` |
+| `setIntentIds(ids)` | Updates `playbackIntentId` + `batchIntentId` |
+
+> [!WARNING]
+> `store.dispatch()` does NOT exist. This is a custom store, not Redux. Use `patchState()` for direct mutations in debug sessions.
+
+**Critical state fields for playback diagnosis:**
+```
+rate, volume, engineMode, playbackIntent, isPlaying, isPaused,
+playbackStalled, isBuffering, neuralBuffer, lastLoadType,
+playbackIntentId, batchIntentId, activeQueue
+```
+
+### 6.4 WebviewAudioEngine API Surface
+
+Key methods available via `window.__debug.audioEngine`:
+
+| Method | Behavior |
+|---|---|
+| `setVolume(0–100)` | Normalizes to `audioElement.volume` (divides by 100). ✅ Confirmed working. |
+| `setRate(n)` | Sets playback rate. **Does NOT write back to store** — rate change is engine-local only. |
+| `pause()` / `resume()` / `stop()` | Direct playback control |
+| `ingestData(data)` | Feeds a synthesized audio blob into the engine buffer |
+| `scanVoices()` | Re-queries available TTS voices |
+| `purgeMemory()` | Wipes in-memory audio objects |
+| `wipeCache()` | Clears IndexedDB cache |
+
+### 6.5 Dispatcher API (Extension → Webview only)
+
+`window.__debug.dispatcher.dispatch({ command, ... })` handles **inbound** message commands from the VS Code extension side. It is **not** a client-side mutation API — calling `dispatch()` from the webview console will return `{}` without state changes.
+
+### 6.6 Known Live-State Observations (Verified 2026-04-10)
+
+| Observation | Verdict |
+|---|---|
+| `isBuffering: true` while `playbackIntent: "STOPPED"` | ⚠️ **Anomaly** — buffer flag not cleared after last synthesized segment goes unconsumed. Potential source of stall regression. |
+| `audioEngine.setRate()` does not echo to `store.rate` | ✅ **By design** — rate takes effect on next batch render, not active stream |
+| `audioElement.volume = setVolume(n) / 100` | ✅ **Correct normalization** |
+| `store.patchState()` mutations are instant and reflected in next `getState()` | ✅ Confirmed |
+| Dev session baseline: `rate: 7.2`, `volume: 84`, `engineMode: "neural"` | 📊 Reference snapshot |
 
 ## 7. Architectural Sovereignty Protocol (SSOA)
 

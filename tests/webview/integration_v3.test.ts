@@ -64,7 +64,7 @@ const FULL_DOM = `
     <span id="chapter-progress"></span>
 
     <input id="volume-slider" type="range" min="0" max="100" value="50">
-    <input id="rate-slider" type="range" min="-10" max="10" value="0">
+    <input id="rate-slider" type="range" min="0.5" max="2.0" value="1.0" step="0.05">
     <span id="volume-val"></span>
     <span id="rate-val"></span>
     <button id="engine-neural"></button>
@@ -267,6 +267,31 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             expect(client.postAction).toHaveBeenCalledWith(
                 OutgoingAction.ENGINE_MODE_CHANGED, 
                 expect.objectContaining({ mode: 'local', intentId: expect.any(Number) })
+            );
+        });
+
+        it('T1.8 — rate slider input event patches store with the slider value', () => {
+            mountSettingsDrawer();
+            const slider = document.getElementById('rate-slider') as HTMLInputElement;
+            // Simulate user dragging slider to 1.5x (within 0.5–2.0 range)
+            slider.value = '1.5';
+            slider.dispatchEvent(new Event('input'));
+            expect(store.getState()?.rate).toBe(1.5);
+        });
+
+        it('T1.9 — rate slider change event (mouse release) emits RATE_CHANGED via postAction', () => {
+            vi.useFakeTimers();
+            mountSettingsDrawer();
+            const slider = document.getElementById('rate-slider') as HTMLInputElement;
+            // Simulate committed change (mouseup / touch end)
+            slider.value = '1.5';
+            slider.dispatchEvent(new Event('change'));
+            // Flush the 150ms debounce in PlaybackController.debouncedRateEmit
+            vi.runAllTimers();
+            vi.useRealTimers();
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.RATE_CHANGED,
+                expect.objectContaining({ rate: 1.5, intentId: expect.any(Number) })
             );
         });
     });
@@ -896,5 +921,149 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             backBtn.click();
             expect(elements.snippetLookupContainer.querySelector('.snippet-layer-sessions')).not.toBeNull();
         });
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SUITE 9: WebviewAudioEngine — Rate Mode Isolation
+    // Verifies the Neural Guard: neural mode must NOT mutate audio.playbackRate
+    // (rate is already baked into SSML prosody). Local mode MUST apply it.
+    // ─────────────────────────────────────────────────────────────────────────
+    describe('Suite 9: WebviewAudioEngine — Rate Mode Isolation', () => {
+        // jsdom does not implement HTMLAudioElement.playbackRate as a real setter,
+        // so vi.spyOn(HTMLAudioElement.prototype, 'playbackRate', 'set') silently no-ops.
+        // The engine exposes its internal Audio instance via window.__AUDIO_ENGINE__.
+        // We reify playbackRate as a trackable data descriptor on that specific instance
+        // and verify writes directly.
+        let writtenValues: number[];
+
+        beforeEach(() => {
+            WebviewAudioEngine.resetInstance();
+            const engine = WebviewAudioEngine.getInstance(); // creates new instance, sets window.__AUDIO_ENGINE__
+            const internalAudio = (engine as any)._audio as HTMLAudioElement;
+            writtenValues = [];
+            // Reify playbackRate as a trackable data descriptor
+            Object.defineProperty(internalAudio, 'playbackRate', {
+                get: () => writtenValues[writtenValues.length - 1] ?? 1.0,
+                set: (v: number) => { writtenValues.push(v); },
+                configurable: true,
+            });
+        });
+
+        it('T9.1 — local mode: setRate() writes to audio.playbackRate', () => {
+            store.patchState({ engineMode: 'local' });
+            const engine = WebviewAudioEngine.getInstance();
+            engine.setRate(2.0);
+            expect(writtenValues).toContain(2.0);
+        });
+
+        it('T9.2 — neural mode: setRate() does NOT write to audio.playbackRate', () => {
+            store.patchState({ engineMode: 'neural' });
+            const engine = WebviewAudioEngine.getInstance();
+            engine.setRate(3.0);
+            expect(writtenValues).toHaveLength(0);
+        });
+
+        it('T9.3 — switching from neural to local re-enables playbackRate writes', () => {
+            const engine = WebviewAudioEngine.getInstance();
+            // Neural — must be suppressed
+            store.patchState({ engineMode: 'neural' });
+            engine.setRate(3.0);
+            expect(writtenValues).toHaveLength(0);
+
+            // Local — must be written
+            store.patchState({ engineMode: 'local' });
+            engine.setRate(1.5);
+            expect(writtenValues).toContain(1.5);
+        });
+    });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Suite 10 — Rate/Volume Application: State Inspection
+// Verifies rate/volume flow by directly inspecting engine internals rather than
+// console.log (which is captured by vitest and not spy-able reliably in jsdom).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('Suite 10 — Rate/Volume Application Trace', () => {
+    let engine: WebviewAudioEngine;
+    // Suite 10 is outside the outer describe, so we access the store directly.
+    const s10store = () => WebviewStore.getInstance();
+
+    beforeEach(() => {
+        s10store().patchState({ engineMode: 'local', rate: 1.0, volume: 50 });
+        WebviewAudioEngine.resetInstance();
+        engine = WebviewAudioEngine.getInstance();
+    });
+
+    afterEach(() => {
+        engine?.dispose();
+    });
+
+    it('T10.1 — setRate() writes to audio.playbackRate in local mode', () => {
+        const audio = (engine as any)._audio as HTMLAudioElement;
+        // Reify into a trackable descriptor
+        const written: number[] = [];
+        Object.defineProperty(audio, 'playbackRate', {
+            get: () => written[written.length - 1] ?? 1.0,
+            set: (v: number) => written.push(v),
+            configurable: true,
+        });
+
+        engine.setRate(1.75);
+        expect(written).toContain(1.75);
+    });
+
+    it('T10.2 — store patchState(rate) → subscription → setRate → audio.playbackRate updated', () => {
+        const audio = (engine as any)._audio as HTMLAudioElement;
+        const written: number[] = [];
+        Object.defineProperty(audio, 'playbackRate', {
+            get: () => written[written.length - 1] ?? 1.0,
+            set: (v: number) => written.push(v),
+            configurable: true,
+        });
+
+        s10store().patchState({ rate: 1.75 });
+        expect(written).toContain(1.75);
+    });
+
+    it('T10.3 — neural mode: store patchState(rate) does NOT mutate audio.playbackRate', () => {
+        s10store().patchState({ engineMode: 'neural' });
+
+        const audio = (engine as any)._audio as HTMLAudioElement;
+        const written: number[] = [];
+        Object.defineProperty(audio, 'playbackRate', {
+            get: () => written[written.length - 1] ?? 1.0,
+            set: (v: number) => written.push(v),
+            configurable: true,
+        });
+
+        s10store().patchState({ rate: 1.5 });
+        expect(written).toHaveLength(0); // Neural guard suppressed write
+    });
+
+    it('T10.4 — store.rate flows correctly: getState() returns patched rate for baking', () => {
+        // SpeechSynthesisUtterance is not available in jsdom; test the upstream guarantee:
+        // that after patchState({rate}), getState().rate returns the value that speakLocal
+        // will bake into the utterance at line 306 of WebviewAudioEngine.ts.
+        s10store().patchState({ rate: 1.5, volume: 60 });
+
+        const state = s10store().getState();
+        // Simulate the exact bake formulae from speakLocal (lines 306-307):
+        const bakedRate = state.rate;           // utterance.rate = state.rate
+        const bakedVolume = state.volume / 100; // utterance.volume = state.volume / 100
+
+        expect(bakedRate).toBe(1.5);
+        expect(bakedVolume).toBeCloseTo(0.60);
+    });
+
+    it('T10.5 — setVolume() applies to audio.volume (normalized to 0-1)', () => {
+        const audio = (engine as any)._audio as HTMLAudioElement;
+        engine.setVolume(75);
+        expect(audio.volume).toBeCloseTo(0.75);
+    });
+
+    it('T10.6 — store patchState(volume) → subscription → setVolume → audio.volume updated', () => {
+        const audio = (engine as any)._audio as HTMLAudioElement;
+        s10store().patchState({ volume: 80 });
+        expect(audio.volume).toBeCloseTo(0.80);
     });
 });

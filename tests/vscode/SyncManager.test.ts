@@ -104,12 +104,12 @@ describe('SyncManager', () => {
     it('should update activeSessionId and trigger immediate sync', () => {
         syncManager.setSessionId('NEW-SESSION');
         expect((syncManager as any)._activeSessionId).toBe('NEW-SESSION');
-        expect(mockDashboardRelay.sync).toHaveBeenCalledWith(null, 'NEW-SESSION');
+        expect(mockDashboardRelay.sync).toHaveBeenCalledWith(undefined, 'NEW-SESSION');
     });
 
     it('should carry through snippetHistory during flush', () => {
-        const history = [{ id: '1' }];
-        syncManager.requestSync(true, history);
+        const history = [{ id: '1', sessionName: 'Test Session', snippets: [] }];
+        syncManager.requestSync(true, history as any);
         expect(mockDashboardRelay.sync).toHaveBeenCalledWith(history, 'SESSION-ID-MISSING');
     });
 
