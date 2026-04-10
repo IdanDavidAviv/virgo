@@ -7,6 +7,22 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.4.0] - 2026-04-10
+
+### Hardened
+- **Sovereign Dev-Host Protocol**: All automated UI simulations are now strictly isolated to the Extension Development Host. Implemented a `Promise`-based sequential execution queue in the CDP controller to prevent character scrambling and race conditions during developer loops.
+- **Discovery Heuristics**: Refactored webview discovery logic to prioritize the "Extension Development Host" targets and implemented strict URL-based exclusion (`vscode-webview://`) of system webviews (e.g., Media Preview).
+- **Command Palette Reliability**: Automated mandatory `>` prefix injection for terminal-driven UI simulation, ensuring VS Code always interprets inputs as commands.
+
+### Added
+- **Immediate Auditory Sampling**: Voice selection now triggers an immediate synthesis of the current sentence, providing real-time auditory feedback for the selected identity.
+- **Selection Mode Sovereignty**: Introduced `isSelectingVoice` state flag to suppress automatic sentence advancement while the user is sampling voices.
+- **Authoritative Committal**: Implemented "Batch-Intent Reset" upon committing to a new voice, ensuring all future prefetch tasks use the newly selected identity.
+
+### Improved
+- **Neural Rate Traceability**: Standardized neural rate scale calculations and added high-density logging for relative rate patching (`[NEURAL_RATE]`).
+- **Initialization Parity**: Added `inspect()` mocks to VS Code settings tests to prevent runtime errors during configuration discovery.
+
 ## [2.3.2] - 2026-04-10
 
 ### Hardened
