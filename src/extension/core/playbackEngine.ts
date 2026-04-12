@@ -341,6 +341,10 @@ export class PlaybackEngine extends EventEmitter {
     }
 
     public async getVoices() {
+        // [HARDENING] Await the TTS warm-up gate to ensure WebSocket transport is open.
+        // This resolves the race condition where discovery fires during the handshake.
+        await this._ttsReady;
+        
         // [v2.3.1] Simplified: Native voices are now discovered via the Webview.
         // The extension only manages Neural voices.
         return this._tts.getVoices().then(voices => voices.map(v => ({

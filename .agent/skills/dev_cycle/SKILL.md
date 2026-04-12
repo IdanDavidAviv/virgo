@@ -73,7 +73,7 @@ If you encounter a port conflict (9222), use `scan` to find the culprit PID and 
 | **Safety Rule** | **Validation**: Never `close` or `kill` without verifying Target via CDP. |
 | **Sovereignty** | **Dev-First**: All verification MUST target the Extension Development Host. |
 | **Antigravity Rule** | **Resiliency**: The shell automatically handles `>` and palette clearing. |
-| **Log Policy** | **Internal Forensic Stream**: Logs are aggregated in memory AND written to `scripts/forensics.log`. |
+| **Log Policy** | **Internal Forensic Stream**: Logs are aggregated in memory for history auditing. |
 | **Noise Control** | **Smart Aggregator**: Noise (e.g. Focus syncs) is collapsed (xN). |
 | **Cleanup Protocol** | **Sovereign Cleanup**: Use `cleanup-all` to gracefully close all active dev hosts. |
 
@@ -132,8 +132,8 @@ Closing the loop is as important as opening it. NEVER kill the shell process dir
 1.  **The Gesture**: Dispatch `exit` via the shell's stdin.
     - *Note*: Hit `Ctrl+C` if the shell is hung; the `SIGINT` handler will trigger a full cleanup.
 2.  **The Validation (MANDATORY)**: Before issuing a `close` or `nuke` command, the agent MUST run `find-dev-host` or equivalent to ensure the target exists and is NOT the main workbench.
-3.  **The Verification**: Verify that `scripts/.cdp-shell.lock` is removed.
-4.  **The Registry**: Use `scripts/forensics.log` for deep post-mortem analysis across multiple sessions.
+3. **The Verification**: Verify that `scripts/.cdp-shell.lock` is removed.
+4. **The Registry**: Use the internal `history` buffer for deep post-mortem analysis across multiple sessions.
 
 
 ## 4. Troubleshooting the Signal

@@ -47,9 +47,9 @@ description: Architectural map and development guidelines for the Read Aloud ext
 - **`McpWatcher.ts` / `McpBridge.ts`**: High-integrity integration with the agent's brain environment for real-time SITREP and command mirroring.
 
 ### 1.2 Frontend (Webview Sidebar)
-- **`WebviewStore.ts`**: Global reactive store (Redux-lite). Maintained by `UI_SYNC` packets from `SyncManager`. Includes `isSelectingVoice` flag.
+- **`WebviewStore.ts`**: Global reactive store (Redux-lite). Maintained by `UI_SYNC` packets from `SyncManager`. Includes `isRefreshing` flag.
 - **`CommandDispatcher.ts`**: Entry point for all incoming VS Code messages. Dispatches actions to the store or local services.
-- **`MessageClient.ts`**: Outbound IPC wrapper. Used to send user commands (Play, Pause, Stop) back to VS Code.
+- **`MessageClient.ts`**: Outbound IPC wrapper. Used to send user commands (Play, Pause, Stop, Refresh) back to VS Code.
 - **`WebviewAudioEngine.ts`**: The "Dumb Player" (Stateless worker). Executes single-threaded audio playback using a single HTMLAudioElement for all synthesis modes (Neural/Local).
 - **`window.__debug`** *(dev builds only)*: When `__BOOTSTRAP_CONFIG__.debugMode === true`, the bootstrap function in `src/webview/index.ts` exposes internal singletons as a global for live CDP inspection: `{ store, audioEngine, playback, dispatcher }`. This global is **never present in production builds** (gated by `debugMode`).
 
@@ -132,11 +132,12 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
     - **Discovery-only Isolation (The Brain Exception)**: The Webview Sidebar (Snippet Lookup) MUST filter ONLY the `brain/` directory. Directories like `knowledge/` and `protocols/` are permissible for discovery. This ensures UI history hygiene while maintaining permissive authoritative focus.
     - **Limit**: Snippet history is strictly limited to the **10 most recent** non-system sessions to prevent performance degradation.
 
-### 2.7 Sampling Neutrality (Law S.1)
-When the user changes a voice, the system enters "Sampling Mode" (`isSelectingVoice: true`).
-- **Isolation**: Only the current sentence is synthesized and played.
-- **Suppression**: The `SENTENCE_ENDED` event from the audio engine is caught by the `PlaybackEngine` but **not** processed for auto-advance.
-- **Intent**: Changing voice triggers an authoritative stop but *does not* increment the `batchIntentId` (which is reserved for manual playback jumps or explicit user "Commit" to play).
+### 2.7 Unified Voice Discovery & Manual Refresh (v2.4.4)
+The extension emphasizes high-quality Neural voices but maintains Local voices as a reliable baseline.
+- **Unified List**: The Webview UI no longer splits voices into separate "System" vs "Premium" tabs. It displays a single, searchable list where Neural voices are prioritized (marked with ✨).
+- **Manual Refresh**: A circular **Refresh** button (🔄) in the settings popover allows users to manually trigger the `VOICE_SCAN` protocol. This is used to resolve transient Edge TTS connectivity issues or to force a fresh scan after network recovery.
+- **Automatic Fallback**: If a scan or synthesis fails for a Neural voice, the system ensures local voices remain available in the list, providing "Zero-Delay" fallback.
+- **Sovereignty**: Clicking Refresh triggers `OutgoingAction.REFRESH_VOICES`, which calls `VoiceManager.scanAndSync()` in the Extension Host.
 
 ### 2.8 CDP Command Prefixing (PowerShell Protocol)
 When simulating command palette interaction via CDP:
