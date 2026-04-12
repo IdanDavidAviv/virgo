@@ -36,3 +36,7 @@ Any payload marked as `content`, `snippet`, or `markdown` used for user-facing a
 High-frequency "heartbeat" or "sync" messages MUST be suppressed from the main output channel.
 -   **Blacklist**: `state-sync`, `cacheStatus`, `progress`.
 -   **Exception**: Only log errors from these channels.
+
+### 1.6 Automation Signal Exemption (v2.4.2)
+The ASCII signal marker `[STORE-SYNC-COMPLETE]` is EXEMPT from all noise suppression and summarization rules.
+- **Mandate**: This marker MUST be emitted as a standalone, unformatted terminal line to ensure CDP automation can detect it via basic string matching.

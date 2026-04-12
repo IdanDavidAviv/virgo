@@ -19,10 +19,11 @@ description: Architectural map and development guidelines for the Read Aloud ext
 
 | Skill | Governs | Last Updated |
 |---|---|---|
-| [`system_context`](../system_context/SKILL.md) | Architectural map, subsystem ownership, agent heuristics | 2026-04-10 (CDP) |
-| [`startup_orchestration`](../startup_orchestration/SKILL.md) | Boot sequence, Pulse graph, DPG, Phase 1–3 dependencies | 2026-04-09 |
+| [`system_context`](../system_context/SKILL.md) | Architectural map, subsystem ownership, synchronization protocols | 2026-04-12 (v2.12.0) |
+| [`loom_meta_governance`](../loom_meta_governance/artifacts/SKILL.md) | **Tier-0** Universal Agent OS / Medium Tier Management | 2026-04-12 |
+| [`startup_orchestration`](../startup_orchestration/SKILL.md) | Boot sequence, Pulse graph, DPG, Phase 1–3 dependencies | 2026-04-10 |
 | [`autoplay_orchestration`](../autoplay_orchestration/SKILL.md) | Playback pipeline, pre-fetch, neural laws, intent baton | 2026-04-09 |
-| [`state_coherence_v4`](../state_coherence_v4/SKILL.md) | State sovereignty, split-brain detection, fluid handshake | 2026-04-09 |
+| [`state_coherence_v4`](../state_coherence_v4/SKILL.md) | State sovereignty, 1-based consensus, split-brain detection | 2026-04-11 (v2.4.2) |
 | [`state_auditor`](../state_auditor/SKILL.md) | Multi-layer state conflict detection and audit methodology | 2026-04-09 |
 | [`read_aloud_injection_guard`](../read_aloud_injection_guard/SKILL.md) | MCP injection, dedup guards, sensory parity, verbatim rules | 2026-04-09 |
 | [`session_persistence`](../session_persistence/SKILL.md) | `extension_state.json`, turn indexing, session metadata, snippet paths | 2026-04-10 |
@@ -109,6 +110,8 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
 - **Abortable Intent Pattern**: `WebviewAudioEngine` manages an internal `AbortController` linked to the active intent. New intents call `abort()` on the previous controller, which immediately releases locks and cancels async playback/fetch tasks.
 - **Authoritative Stop**: The `stop()` command is universal. It triggers a cascade of aborts across all active segments, pre-fetch batches, and the primary synthesis lock in the `WebviewAudioEngine`.
 - **Handshake Gate**: The Webview MUST block all synthesis requests and pre-fetching until the `isHandshakeComplete` flag is true in the store. This ensures the intent baseline has synced.
+- **Log-Based Verification (v2.4.2)**: To enable robust automated testing via CDP, the `WebviewStore.patchState` method emits a specific ASCII marker `[STORE-SYNC-COMPLETE]` after every non-identical state update. This signal is the authoritative "Done" marker for automation scripts to stop polling and verify state.
+- **Voice Decoupling**: To optimize IPC performance, `availableVoices` is excluded from the high-frequency `DEFAULT_SYNC_PACKET`. It is updated exclusively via dedicated `VOICES` commands during initialization or explicit voice scans.
 - **Control Sovereignty**: User actions in the Webview are authoritative. Upon a user click, the system enters a **Sovereign Window (5s)**:
     - `playbackIntentId` is updated in the store (`Date.now()`).
     - `isAwaitingSync` is set to `true` in the store.

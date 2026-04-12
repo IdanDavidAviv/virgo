@@ -73,6 +73,18 @@ The most robust pattern for highly reactive UIs. Instead of discarding entire pa
 
 - **Immunity Window**: A shortened sovereignty window (1500ms) that allows the UI to recover faster from failed or slow synthesis.
 
+### 1-Based Intent ID Consensus (v2.4.2)
+To prevent synchronization drift during initialization, all intent-based IDs MUST follow a strict baseline:
+- **Baseline**: `playbackIntentId` and `batchIntentId` MUST initialize to **1** in all environments (Extension Host, Webview Store, Engine).
+- **Initialization**: Default state in `WebviewStore` constructor and `disposed` state MUST use `1`.
+- **Authoritative Source**: The Extension Relay is the source of truth; the Webview synchronously adopts the IDs received in the first `UI_SYNC` pulse.
+
+### ASCII Signal Protocol (v2.4.2)
+To close the feedback loop for automated agents, the Webview Store implements a log-based handshake:
+- **Marker**: `[STORE-SYNC-COMPLETE]`
+- **Condition**: Emitted in `patchState` only when a state change actually occurs (diff detection).
+- **Automation Law**: Agents MUST wait for this signal before performing state assertions (`eval-webview`) or subsequent actions.
+
 ## 4. Implementation Checklist
 
 - [ ] **Zero Nesting**: Ensure the Store has no nested `state` objects. All synced properties must be top-level.

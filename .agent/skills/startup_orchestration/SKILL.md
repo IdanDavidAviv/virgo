@@ -20,18 +20,19 @@ graph TD
         WD --> WH[Webview: isSyncing = false]
     end
 
-    subgraph "Phase 2: Contextual Hydration (Medium/Editor-bound)"
-        EA --> EB[Extension: Load Active Document]
-        EB --> ED[Extension: Send Document Sync]
+    subgraph "Phase 2: Contextual Hydration (Non-Blocking/Standby)"
+        EA --> EB[Extension: Load Active Document / Enter Standby]
+        EB --> ED[Extension: Send Context Sync]
         ED --> WG[Webview: Render Content]
     end
 
     subgraph "Phase 3: Heavy Data Discovery (Slow/Async)"
         EA --> EE[Extension: scanAndSync Voices]
         EA --> EF[Extension: getSnippetHistory]
-        EE --> EH[Extension: Send Final UI_SYNC]
-        EF --> EH
-        EH --> WH[Webview: Populate Selectors/History]
+        EE --> EH[Extension: Send VOICES Command]
+        EF --> EI[Extension: Send Final UI_SYNC]
+        EH --> WH[Webview: Populate Selectors]
+        EI --> WI[Webview: Populate History]
     end
 
     style WF fill:#d4edda,stroke:#28a745,stroke-width:2px
@@ -53,8 +54,10 @@ graph TD
 - `_sendInitialState()` MUST NOT `await` heavy operations before sending the first `sync()`.
 - Use a "Triple-Pulse" sync strategy:
     1.  **ACK Pulse**: Immediate empty sync with `isHydrated: true`.
-    2.  **Context Pulse**: Sync after `loadCurrentDocument`.
-    3.  **Data Pulse**: Sync after `scanAndSync` and history discovery.
+    2.  **Context Pulse**: Sync after `loadCurrentDocument` (or immediate `sync()` if in Standby).
+    3.  **Data Pulse**: Send `broadcastVoices()` and history-populated `sync()`.
+- **Sovereign Detachment**: `availableVoices` MUST NOT be sent in `UI_SYNC`. Use the dedicated `VOICES` command for all voice inventory updates.
+- **Standby Mandate**: If no document is focused and no persisted context exists, the extension MUST NOT block. It MUST transition to STANDBY mode, marking initialization as complete to allow Phase 3 to populate the UI shell.
 
 ### 3.2 Webview side (`WebviewStore.ts`)
 - Ensure `patchState` can handle partial updates without regressing the hydration state.
@@ -91,13 +94,21 @@ independently — it must never again feed the "Loaded File" display slot.
 
 ```typescript
 // REQUIRED guard in _tryInitialDocumentLoad():
-if (this._stateStore.state.activeDocumentUri) {
+const hasUri = !!this._stateStore.state.focusedDocumentUri;
+if (!hasUri) {
+    if (!this._stateStore.state.activeDocumentUri) {
+        // [STANDBY] No focus or persistence — unblock UI.
+        this._initialLoadExecuted = true;
+        this._dashboardRelay.sync();
+        return;
+    }
     // Persisted doc exists — yield. Sync only.
+    this._initialLoadExecuted = true;
     this._dashboardRelay.sync();
     return;
 }
-// Only reach loadCurrentDocument() if NO persisted doc exists:
-await this.loadCurrentDocument(true);
+// Only reach loadCurrentDocument() if URI is present:
+await this.loadCurrentDocument(true, true); // Use silent=true for startup
 ```
 
 **LOAD_DOCUMENT vs LOAD_AND_PLAY:**
@@ -397,7 +408,12 @@ For agents monitoring the startup sequence from the outside (CDP Shell), the seq
 
 ## 7. CDP Discovery & Sovereign Lifecycle (v2.4.0) ⭐
 
-### 7.1 Heuristic Frame Discovery
+### 7.1 The Wake Ritual (v2.5.0 Protocol) ⭐
+The `launch` command in the CDP shell is the authoritative "Wake Ritual".
+- **Smart Launch**: It automatically executes the **Stop-then-Start** ritual if an existing dev host is detected.
+- **Combined Intent**: It ensures a clean, conflict-free environment refresh.
+
+### 7.2 Heuristic Frame Discovery
 The `cdp-controller.mjs` implements a tiered discovery protocol to identify the correct target for `eval` commands:
 1.  **Filter**: Targets MUST be children of the primary "Extension Development Host" window.
 2.  **Priority**: The system prioritizes frames containing `fake.html` (the standard VS Code webview sandbox) over the main workbench frame.
@@ -411,7 +427,13 @@ To prevent race conditions during rapid automation (e.g., `launch` followed imme
 
 ### 7.3 Graceful Shutdown Tiers
 The `close` command enforces a 3-tier sovereign exit:
-1.  **Polite**: Attempt `window.close()` via CDP.
-2.  **Sovereign**: Dispatch the VS Code `workbench.action.closeWindow` command.
-3.  **Surgical**: If the PID remains active after 3s, perform an authoritative OS-level process kill.
+1.  **Tier 1 (UI)**: Dispatches `workbench.action.closeWindow`. This is the SAFEST way to exit.
+2.  **Tier 2 (CDP)**: Attempt `Target.closeTarget` fallback for unresponsive UI.
+3.  **Tier 3 (OS)**: If the PID remains active, perform a polite `taskkill /T` (without `/F`).
+
+### 7.4 The Smart Launch Ritual
+To refresh the dev environment without parallel process conflicts:
+1.  **Stop**: Send `Shift+F5` (Stop Debugging) to the Main Editor.
+2.  **Poll**: Poll for the [Extension Development Host] window to disappear.
+3.  **Start**: Send `F5` (Start Debugging) once the environment is clear.
 

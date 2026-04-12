@@ -26,14 +26,7 @@ To ensure the "Readme Preview Read Aloud" extension maintains a professional, pr
 - **Side Effects**: Automatically updates `package.json` and injects the current date into the `CHANGELOG.md` while preserving an empty `## [Unreleased]` section for the next cycle.
 
 ## 5. Hierarchical Prestige Audit (MANDATORY)
-**MANDATORY**: Before finalizing **ANY** release, perform a Hierarchical Audit to ensure full visibility:
-1.  **Identify Intent**: Determine it is a `--patch`, `--minor`, or `--major` release.
-2.  **Execute Audit**: Run `npm run release:audit -- --[level]`.
-3.  **Hierarchical Baselines**:
-    *   `--patch`: Anchor is the current version (summarizes work since the last hotfix).
-    *   `--minor`: Anchor is the last minor (major.minor.0). Summarizes the entire minor series.
-    *   `--major`: Anchor is the last major (major.0.0). Summarizes the entire major series.
-4.  **Synthesis**: Create a "Representative Story" excluding agent-specific infrastructure.
+**MANDATORY**: Follow the [Release Prestige](../release_prestige/SKILL.md) protocol for all release audits and packaging. This is the Single Source of Truth for the release chain.
 
 ## 6. Changelog Protocol
 - **Format**: Follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
