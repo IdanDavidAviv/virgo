@@ -98,8 +98,7 @@ export interface AudioEngineEvent {
 }
 
 /**
- * [AUTORADIANT] AudioStrategy is decommissioned.
- * WebviewAudioEngine now acts as a unified player.
+ * WebviewAudioEngine acts as a unified player for all synthesis modes.
  */
 
 

@@ -50,10 +50,10 @@ description: Architectural map and development guidelines for the Read Aloud ext
 - **`WebviewStore.ts`**: Global reactive store (Redux-lite). Maintained by `UI_SYNC` packets from `SyncManager`. Includes `isSelectingVoice` flag.
 - **`CommandDispatcher.ts`**: Entry point for all incoming VS Code messages. Dispatches actions to the store or local services.
 - **`MessageClient.ts`**: Outbound IPC wrapper. Used to send user commands (Play, Pause, Stop) back to VS Code.
-- **`WebviewAudioEngine.ts`**: The "Dumb Player" (Stateless worker). Executes single-threaded audio playback using a single HTMLAudioElement for all strategies.
+- **`WebviewAudioEngine.ts`**: The "Dumb Player" (Stateless worker). Executes single-threaded audio playback using a single HTMLAudioElement for all synthesis modes (Neural/Local).
 - **`window.__debug`** *(dev builds only)*: When `__BOOTSTRAP_CONFIG__.debugMode === true`, the bootstrap function in `src/webview/index.ts` exposes internal singletons as a global for live CDP inspection: `{ store, audioEngine, playback, dispatcher }`. This global is **never present in production builds** (gated by `debugMode`).
 
-### 1.3 Auditory Strategy & Caching (The Holistic Hierarchy)
+### 1.3 Unified Synthesis & Caching (The Holistic Hierarchy)
 - **Unified Synthesis Pipe**: The engine no longer uses separate strategy classes. Logic for Neural vs Local is controlled via the `engineMode` property and executed by the `WebviewAudioEngine`.
 - **`CacheManager.ts`**: The **Tier-1 (Persistent)** storage (SSOT). Uses **IndexedDB** (`ReadAloudAudioCache`) with a 100MB cap and 7-day TTL.
 - **`cachePolicy.ts`**: The centralized authority for key generation across both environments.

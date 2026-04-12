@@ -5,8 +5,7 @@ import { MessageClient } from './MessageClient';
 
 /**
  * WebviewAudioEngine: Simplified "Dumb Player" Worker (v2.3.2)
- * [AUTORADIANT]: Decommissioned AudioStrategy pattern. Unified synthesis pipe.
- * passive worker that executes commands from the Extension.
+ * Passive worker that executes commands from the Extension.
  */
 export class WebviewAudioEngine {
   private static instance: WebviewAudioEngine;

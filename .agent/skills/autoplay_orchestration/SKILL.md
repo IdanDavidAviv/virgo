@@ -133,7 +133,7 @@ Ensures that synthesis and playback never drift due to Batch 0 leakage.
 The Orchestrator must be decoupled from the specific Sidebar or Webview implementation.
 - **State Registry**: All UI "Heads" must subscribe to the same `WebviewStore` for state.
 - **Action Inversion**: Heads do not trigger logic; they emit "Intent Requests" (e.g., `REQUEST_PLAY`) to the Orchestrator.
-- **Auditory Parity**: The Auditory Strategy (Neural/Local) is the only component allowed to mark a sentence as "Finished".
+- **Auditory Parity**: The WebviewAudioEngine is the only component allowed to mark a sentence as "Finished".
 
 ## 6. Implementation Protocol
 

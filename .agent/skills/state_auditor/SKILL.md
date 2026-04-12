@@ -25,9 +25,7 @@ graph TD
     end
 
     subgraph "Execution Layer (Workers)"
-        EG["AudioEngine<br/>(Stateless Coordinator)"]
-        NAS["Neural Audio Strategy<br/>(Passive Executor)"]
-        LAS["Local Audio Strategy<br/>(Passive Executor)"]
+        EG["WebviewAudioEngine<br/>(Unified Synthesis)"]
     end
 
     %% IPC sync
@@ -37,12 +35,8 @@ graph TD
     %% Intent Flow
     UI["React Components"] -- "User Intent" --> HC
     HC -- "Command (intentId)" --> EG
-    EG -- "Execute" --> NAS
-    EG -- "Execute" --> LAS
     
     %% Event Bubbling
-    NAS -- "Raw Event" --> EG
-    LAS -- "Raw Event" --> EG
     EG -- "Report (intentId)" --> HC
     HC -- "Authoritative Patch" --> Store
 ```
