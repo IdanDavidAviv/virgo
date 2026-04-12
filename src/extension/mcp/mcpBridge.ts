@@ -23,6 +23,8 @@ export class McpBridge extends EventEmitter {
     // Gate opens on first connection and closes ONLY when the SSE connection closes (req 'close' event).
     // This prevents Gemini's MCP client from triggering eviction loops on every retry.
     private _isHandshaking: boolean = false;
+    private _handshakeTimeout: NodeJS.Timeout | null = null;
+    private _absorbedProbes: number = 0;
 
     constructor(
         private _persistencePath: string, 
@@ -121,19 +123,30 @@ export class McpBridge extends EventEmitter {
             res.json({ status: "ok", mcp: "read-aloud", version: "1.2.1" });
         });
 
-        this._app.get("/sse", async (req, res) => {
-            this._logger(`[MCP_BRIDGE] New SSE connection attempt from ${req.ip}`);
 
-            // [Gate 2] Startup Orchestration — Coalesce Window.
-            // While a handshake is already in-flight, absorb all subsequent probes silently.
-            // This prevents MCP clients (e.g. Gemini) firing 10+ simultaneous SSE probes
-            // from each spawning a new server instance that is then immediately evicted.
-            if (this._isHandshaking) {
-                this._logger(`[MCP_BRIDGE] 🛑 Coalesce Gate: Handshake in-flight. Absorbing duplicate probe from ${req.ip}.`);
+        this._app.get("/sse", async (req, res) => {
+            // [Gate 3] Noise Mitigation — v2.4.0
+            // Gemini/MCP clients often fire parallel SSE probes.
+            // If already handshaking, absorb duplicates with 1:10 logging.
+            if (this._isHandshaking || this._activeServers.size > 0) {
+                this._absorbedProbes++;
+                if (this._absorbedProbes === 1 || this._absorbedProbes % 10 === 0) {
+                    this._logger(`[MCP_BRIDGE] 🛑 Coalesce Gate: Handshake in-flight. Absorbing duplicate probe #${this._absorbedProbes} from ${req.ip}.`);
+                }
                 if (!res.headersSent) { res.status(429).end(); }
                 return;
             }
+
+            this._logger(`[MCP_BRIDGE] New SSE connection attempt from ${req.ip}`);
             this._isHandshaking = true;
+            this._absorbedProbes = 0;
+            this._handshakeTimeout = setTimeout(() => {
+                if (this._isHandshaking) {
+                    this._logger(`[MCP_BRIDGE] ⏳ Handshake timeout (10s). Dropping gate safety.`);
+                    this._isHandshaking = false;
+                    this._handshakeTimeout = null;
+                }
+            }, 10000);
 
             // SELF-HEALING: If a stale session exists from a previous cold boot, evict it cleanly.
             if (this._activeServers.size > 0) {
@@ -142,6 +155,7 @@ export class McpBridge extends EventEmitter {
                     this._logger(`[MCP_BRIDGE] Evicting stale instance ID: ${(oldServer as any)._readAloudInstanceId}`);
                     this._activeServers.delete(oldServer);
                 }
+                this.emit("stale_eviction");
             }
 
             const server = this._createNewServer();
@@ -153,6 +167,10 @@ export class McpBridge extends EventEmitter {
             this._logger(`[MCP_BRIDGE] Connecting Instance ${instanceId} to Transport (Pending Handshake)...`);
 
             server.connect(transport).then(() => {
+                if (this._handshakeTimeout) {
+                    clearTimeout(this._handshakeTimeout);
+                    this._handshakeTimeout = null;
+                }
                 const sid = (transport as any).sessionId || (transport as any)._sessionId;
                 if (sid) {
                     this._transports.set(sid, transport);
@@ -170,7 +188,10 @@ export class McpBridge extends EventEmitter {
                 // [Gate 2] Gate stays OPEN until SSE disconnect — do NOT clear here.
                 // Clearing here was the root cause of the eviction storm.
             }).catch(err => {
-                this._logger(`[MCP_BRIDGE] CONNECTION_ERROR (Instance ${instanceId}): ${err.message}`);
+                if (this._handshakeTimeout) {
+                    clearTimeout(this._handshakeTimeout);
+                    this._handshakeTimeout = null;
+                }
                 this._activeServers.delete(server);
                 this._isHandshaking = false; // Gate drops on failure only — allow retry
                 try { transport.close(); } catch (e) {}
@@ -185,6 +206,10 @@ export class McpBridge extends EventEmitter {
                     this._transports.delete(sid);
                 }
                 this._activeServers.delete(server);
+                if (this._handshakeTimeout) {
+                    clearTimeout(this._handshakeTimeout);
+                    this._handshakeTimeout = null;
+                }
                 // [Gate 2] Session is gone — open the gate for the next legitimate connection
                 this._isHandshaking = false;
                 try { transport.close(); } catch (e) {}

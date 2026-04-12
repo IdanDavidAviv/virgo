@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as vscode from 'vscode';
 import { SpeechProvider } from '@vscode/speechProvider';
 import { StateStore } from '@core/stateStore';
+import { IncomingCommand } from '../../src/common/types';
 
 // Mock vscode
 vi.mock('vscode', () => ({
@@ -116,23 +117,19 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
 
         const handler = (mockWebviewView.webview.onDidReceiveMessage as any).mock.calls[0][0];
         await handler({ command: 'ready' });
-        
-        // ASSERT: Handshake MUST be atomic and include voices to prevent UI flicker
+
+        // ASSERT: Handshake MUST follow decoupling protocol: IncomingCommand.VOICES command then UI_SYNC
         await vi.waitFor(() => {
-            const calls = postMessageSpy.mock.calls;
-            const fullSyncCall = [...calls].reverse().find((call: any) => 
-                call[0].command === 'UI_SYNC' && call[0].availableVoices !== undefined
-            );
-            expect(fullSyncCall).toBeDefined();
+            const calls = mockWebviewView.webview.postMessage.mock.calls;
+            const voicesCall = calls.find((call: any) => call[0].command === IncomingCommand.VOICES);
+            expect(voicesCall).toBeDefined();
         }, { timeout: 3000 });
 
-        const calls = postMessageSpy.mock.calls;
-        const fullSyncCall = [...calls].reverse().find((call: any) => 
-            call[0].command === 'UI_SYNC' && call[0].availableVoices !== undefined
-        );
-        const packet = fullSyncCall![0] as any;
-        expect(packet.availableVoices.neural.length).toBeGreaterThan(0);
-        expect(packet.availableVoices.neural[0].id).toBe('nv1');
+        const calls = mockWebviewView.webview.postMessage.mock.calls;
+        const voicesCall = calls.find((call: any) => call[0].command === IncomingCommand.VOICES);
+        const voicesPacket = voicesCall![0] as any;
+        expect(voicesPacket.neural.length).toBeGreaterThan(0);
+        expect(voicesPacket.neural[0].id).toBe('nv1');
     });
 
     it('should update the state store correctly after background scan completes', async () => {

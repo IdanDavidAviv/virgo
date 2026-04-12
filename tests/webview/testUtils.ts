@@ -203,7 +203,6 @@ export function createMockSyncPacket(overrides: Partial<UISyncPacket> = {}): UIS
         rate: 1.0,
 
         // Data
-        availableVoices: { local: [], neural: [] },
         allChapters: [],
         currentSentences: [],
         

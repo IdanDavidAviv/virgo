@@ -12,8 +12,20 @@ function dispatchSync(data: Partial<UISyncPacket>) {
     window.dispatchEvent(new MessageEvent('message', {
         data: { 
             command: IncomingCommand.UI_SYNC, 
-            currentSentenceIndex: 0, 
+            currentSentenceIndex: 0,
+            playbackIntentId: 1,
+            batchIntentId: 1,
             ...data 
+        }
+    }));
+}
+
+function dispatchVoices(voices: any[], neural: any[]) {
+    window.dispatchEvent(new MessageEvent('message', {
+        data: {
+            command: IncomingCommand.VOICES,
+            voices,
+            neuralVoices: neural
         }
     }));
 }
@@ -40,13 +52,10 @@ describe('WebviewStore — patchState (#2 regression guard)', () => {
 
     it('should merge a partial patch into existing state', () => {
         dispatchSync({ isPlaying: false, isPaused: false, rate: 1.0 });
-        const voicePatch = {
-            availableVoices: { neural: ['VoiceA'], local: [] },
-            selectedVoice: 'VoiceA',
-            engineMode: 'neural' as const
-        };
-
-        store.patchState(voicePatch);
+        
+        // Hydrate voices via decoupled command
+        dispatchVoices([], ['VoiceA']);
+        store.patchState({ selectedVoice: 'VoiceA', engineMode: 'neural' });
 
         expect(store.getState()?.availableVoices?.neural).toEqual(['VoiceA']);
         expect(store.getState()?.selectedVoice).toBe('VoiceA');
@@ -56,15 +65,14 @@ describe('WebviewStore — patchState (#2 regression guard)', () => {
     });
 
     it('should notify subscribers whose selected slice changed', () => {
-        dispatchSync({ isPlaying: false, availableVoices: { neural: [], local: [] } });
+        dispatchSync({ isPlaying: false });
+        dispatchVoices([], []);
 
         const listener = vi.fn();
         store.subscribe((s) => s.availableVoices?.neural, listener);
         vi.clearAllMocks(); // ignore immediate call on subscribe
 
-        store.patchState({
-            availableVoices: { neural: ['ShinyVoice'], local: [] }
-        });
+        dispatchVoices([], ['ShinyVoice']);
 
         expect(listener).toHaveBeenCalledWith(['ShinyVoice']);
     });
