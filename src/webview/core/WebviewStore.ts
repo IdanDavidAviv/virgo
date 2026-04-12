@@ -36,10 +36,6 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
   playbackIntentId: 1,
   batchIntentId: 1,
   logLevel: LogLevel.STANDARD,
-  availableVoices: {
-    local: [],
-    neural: []
-  },
   windowSentences: [],
   selectedVoice: undefined,
   snippetHistory: [],
@@ -61,6 +57,7 @@ export type StoreState = UISyncPacket & {
   neuralBuffer: { count: number, sizeMb: number };
   isSyncing: boolean;
   isHydrated: boolean;
+  availableVoices?: { local: any[], neural: any[] };
 };
 
 export type Selector<T, S = StoreState> = (state: S) => T;
@@ -100,8 +97,8 @@ export class WebviewStore {
       neuralBuffer: { count: 0, sizeMb: 0 },
       isSyncing: false,
       isHydrated: false,
-      playbackIntentId: 0,
-      batchIntentId: 0
+      playbackIntentId: 1,
+      batchIntentId: 1
     };
   }
 
@@ -148,8 +145,8 @@ export class WebviewStore {
       neuralBuffer: { count: 0, sizeMb: 0 },
       isSyncing: false,
       isHydrated: false,
-      playbackIntentId: 0,
-      batchIntentId: 0
+      playbackIntentId: 1,
+      batchIntentId: 1
     };
   }
 
@@ -219,7 +216,7 @@ export class WebviewStore {
     const isStale = incomingIntentId < currentIntentId;
 
     if (isStale) {
-      console.warn(`[STORE] 🧟 STALE PACKET DETECTED (${incomingIntentId} < ${currentIntentId}). Continuing with non-disruptive fields.`);
+      console.warn(`[STORE] STALE PACKET DETECTED (${incomingIntentId} < ${currentIntentId}). Continuing with non-disruptive fields.`);
     }
 
     const wasHydrated = this.state.isHydrated;
@@ -235,10 +232,10 @@ export class WebviewStore {
     // [SOVEREIGNTY] Surgical Filtering: Prevent stale packets from hijacking playback thread
     if (isStale) {
       const SOVEREIGN_FIELDS: (keyof StoreState)[] = [
-        'isPlaying', 
-        'isPaused', 
-        'currentChapterIndex', 
-        'currentSentenceIndex', 
+        'isPlaying',
+        'isPaused',
+        'currentChapterIndex',
+        'currentSentenceIndex',
         'activeDocumentUri',
         'isBuffering',
         'playbackStalled'
@@ -252,12 +249,12 @@ export class WebviewStore {
 
     // 2. Hydration logic: Aggressive Enforcement [DIAGNOSTIC]
     const hasDocData = (activePatch.allChapters && activePatch.allChapters.length > 0) || activePatch.activeFileName;
-    
+
     if (activePatch.isHydrated === true) {
-      console.log('[STORE] 💧 Explicit Hydration Signal Received.');
+      console.log('[STORE] Explicit Hydration Signal Received.');
       activePatch.isHydrated = true;
     } else if (hasDocData && !this.state.isHydrated) {
-      console.warn('[STORE] 💧 🏃 FORCE HYDRATION triggered by contextual data arrival.');
+      console.warn('[STORE] FORCE HYDRATION triggered by contextual data arrival.');
       activePatch.isHydrated = true;
     }
 
@@ -284,10 +281,6 @@ export class WebviewStore {
       }
     }
 
-    // 5. Merge nested objects (Protect availableVoices)
-    if (activePatch.availableVoices && this.state.availableVoices) {
-      activePatch.availableVoices = { ...this.state.availableVoices, ...activePatch.availableVoices };
-    }
 
     // 6. Apply atomic update
     this.state = { ...this.state, ...activePatch };
@@ -305,8 +298,22 @@ export class WebviewStore {
         entry.listener(newValue);
       }
     });
-    console.log(`[STORE] 💎 State Updated [${changedKeys.join(', ')}]. isSyncing=${this.state.isSyncing}, awaitingSync=${this.state.isAwaitingSync}`);
-    
+    console.log(`[STORE] State Updated [${changedKeys.join(', ')}]. isSyncing=${this.state.isSyncing}, awaitingSync=${this.state.isAwaitingSync}`);
+
+    // [HARDENING] ASCII Signal for automation visibility
+    console.log('[STORE-SYNC-COMPLETE]');
+  }
+
+  /**
+   * Hydrates the voice list from the extension.
+   * This is a TRANSIENT field — not synced via UI_SYNC packet.
+   */
+  public setAvailableVoices(local: any[], neural: any[]): void {
+    console.log(`[STORE] Hydrating Voices: local=${local.length}, neural=${neural.length}`);
+    this.patchState({
+      availableVoices: { local, neural },
+      isLoadingVoices: false
+    });
   }
 
   public resetCacheStats(): void {

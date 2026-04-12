@@ -24,7 +24,7 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
         }), (info) => {
             if (info.available) {
                 const list = info.mode === 'neural' ? info.available.neural : info.available.local;
-                this.renderVoiceList(list, info.selected, info.mode);
+            this.renderVoiceList(list, info.selected, info.mode);
             }
         });
 
@@ -46,7 +46,7 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
                 const state = this.store.getState();
                 if (state && state.availableVoices) {
                     const list = state.engineMode === 'neural' ? state.availableVoices.neural : state.availableVoices.local;
-                    this.renderVoiceList(list, state.selectedVoice, state.engineMode);
+                this.renderVoiceList(list, state.selectedVoice, state.engineMode);
                 }
             });
         }

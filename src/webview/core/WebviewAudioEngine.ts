@@ -39,6 +39,18 @@ export class WebviewAudioEngine {
     this.activeIntentId = 0;
     this.setupAudioListeners();
     this.setupStoreListeners();
+    
+    // [VOICE_SOVEREIGNTY] 🎙️ v2.4.0
+    // Chrome/Edge often load voices asynchronously. 
+    // Listen for changes to ensure the dashboard reflects all available options.
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = () => {
+            console.log('[AUDIO] 🎙️ Voices changed event detected.');
+            this.scanVoices();
+        };
+        // Initial scan for immediate availability.
+        this.scanVoices();
+    }
   }
 
   public static getInstance(): WebviewAudioEngine {
@@ -147,7 +159,7 @@ export class WebviewAudioEngine {
               watchdog = setTimeout(() => {
                   console.warn(`[AUDIO] ⚠️ Mutex Safety Timeout (intent=${intentId})`);
                   r(null);
-              }, 3000);
+              }, 3000); // [STABILITY] Reduced to 3s to align with bridge churn cycle.
           })
       ]);
       
@@ -255,7 +267,7 @@ export class WebviewAudioEngine {
             this._audio.src = url;
             this._audio.load();
 
-            playWatchdog = setTimeout(() => finish('watchdog'), 5000);
+            playWatchdog = setTimeout(() => finish('watchdog'), 3000);
         });
     } finally {
         release();
@@ -354,7 +366,10 @@ export class WebviewAudioEngine {
   public scanVoices(): void {
     if (typeof window === 'undefined' || !window.speechSynthesis) { return; }
     const voices = window.speechSynthesis.getVoices();
-    if (voices.length === 0) { return; }
+    if (voices.length === 0) { 
+        console.log('[AUDIO] 🎙️ scanVoices: No voices returned yet (waiting for engine).');
+        return; 
+    }
     const mapped = voices.map(v => ({ name: v.name, voiceURI: v.voiceURI, lang: v.lang, localService: v.localService }));
     WebviewStore.getInstance().patchState({
       availableVoices: {
@@ -362,7 +377,7 @@ export class WebviewAudioEngine {
         neural: WebviewStore.getInstance().getState().availableVoices?.neural ?? []
       }
     });
-    console.log(`[AUDIO] 🎙️ scanVoices: ${mapped.length} local voices loaded.`);
+    console.log(`[AUDIO] 🎙️ scanVoices: ${mapped.length} local voices synchronized.`);
   }
 
   /**

@@ -80,6 +80,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this.stop();
             await this.refreshView();
             if (this._stateStore.state.autoPlayOnInjection) {
+                this._logger('[EXTENSION] Playback started via autoPlayOnInjection signal');
                 this.continue();
             }
         });
@@ -963,10 +964,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger('[STARTUP] pulse_3_background_discovery_initiated');
         this._voiceManager.scanAndSync().then(async () => {
              const history = await this._getSnippetHistory();
-             this._dashboardRelay.sync(history, this._sessionId, { 
-                local: this._voiceManager.localVoices, 
-                neural: this._voiceManager.neuralVoices 
-            });
+             this._dashboardRelay.sync(history, this._sessionId);
             this._logger('[STARTUP] pulse_3_complete');
         }).catch(e => {
             this._logger(`[STARTUP] pulse_3_failed: ${e}`);
@@ -988,10 +986,23 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
         // [v2.3.2] Check if we have a valid URI in the State Store
         const hasUri = !!this._stateStore.state.focusedDocumentUri;
+        
         if (!hasUri) {
-            this._logger('[DPG] Gate blocked: no focused URI yet. Waiting for setActiveEditor.');
+            // [v2.3.5] STANDBY Support: If no URI and no persisted doc, unblock the UI anyway.
+            // This prevents the "Dead UI" state when starting Extension Host with zero files open.
+            if (!this._stateStore.state.activeDocumentUri) {
+                this._logger('[DPG] 🛡️ No focus or persistence detected. Entering STANDBY mode.');
+                this._initialLoadExecuted = true;
+                this._dashboardRelay.sync();
+                return;
+            }
+            
+            this._logger('[DPG] No focus, but persisted activeDoc detected. Yielding to persistence.');
+            this._initialLoadExecuted = true;
+            this._dashboardRelay.sync();
             return;
         }
+
         this._logger('[DPG] ✅ Both conditions met. Executing Pulse 2: contextual hydration.');
         // Lock the gate permanently to prevent "Ghost Focus" auto-loads on tab switches (Issue #26)
         this._initialLoadExecuted = true;
@@ -1006,12 +1017,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
 
         // Pulse 2: Contextual Hydration (Active Document) — only when no persisted doc exists
-        await this.loadCurrentDocument(true);
+        // [v2.3.5] Use silent flag to prevent start-up alerts if focus is on a non-markdown file.
+        await this.loadCurrentDocument(true, true);
         this._dashboardRelay.sync();
     }
 
 
-    public async loadCurrentDocument(useHydratedProgress: boolean = false): Promise<boolean> {
+    public async loadCurrentDocument(useHydratedProgress: boolean = false, isSilent: boolean = false): Promise<boolean> {
         if (this._isLoadingDocument) {
             this._logger('[DOC_LOAD] Already in progress, skipping redundant call.');
             return false;
@@ -1031,16 +1043,18 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 const input = tab?.input as any;
                 return input?.uri?.fsPath || input?.resource?.fsPath || 'null';
             })();
-            this._logger(`[DOC_LOAD] START | hintUri=${hintUri?.fsPath ?? 'null'} | activeEditor=${activeEditorNow} | activeTab=${tabNow} | useHydrated=${useHydratedProgress}`);
+            this._logger(`[DOC_LOAD] START | hintUri=${hintUri?.fsPath ?? 'null'} | activeEditor=${activeEditorNow} | activeTab=${tabNow} | useHydrated=${useHydratedProgress} | silent=${isSilent}`);
             const success = await this._docController.loadActiveDocument(hintUri);
             this._logger(`[DOC_LOAD] loadActiveDocument success: ${success}`);
             if (!success) {
-                this._logger('[DOC_LOAD] ❌ No active document found. UI will be "Dead".');
-                this._postToAll({
-                    command: 'synthesisError',
-                    error: 'No active document found to read.',
-                    isFallingBack: false
-                });
+                this._logger(`[DOC_LOAD] ${isSilent ? '🛡️' : '❌'} No active document found. ${isSilent ? 'Silently entering STANDBY.' : 'UI will be "Dead".'}`);
+                if (!isSilent) {
+                    this._postToAll({
+                        command: 'synthesisError',
+                        error: 'No active document found to read.',
+                        isFallingBack: false
+                    });
+                }
                 return false;
             }
             this._logger(`[DOC_LOAD] ✅ Extracted ${this._docController.chapters.length} chapters.`);

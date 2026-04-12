@@ -106,6 +106,13 @@ export async function activate(context: vscode.ExtensionContext) {
     const sessionPersistencePath = path.join(brainRoot, sessionId);
     const mcpBridge = new McpBridge(sessionPersistencePath, log, (outputChannel as any).logUri, logFilePath, context.extensionMode);
     context.subscriptions.push(mcpBridge);
+    
+    // [SOVEREIGNTY] Authoritative Playback Interruption on Bridge Churn
+    mcpBridge.on('stale_eviction', () => {
+        log('[MCP_BRIDGE] Stale eviction detected. Informing SpeechProvider to stop audio.');
+        speechProvider.stop();
+    });
+
     mcpBridge.start().catch((err: any) => {
         log(`[MCP_ERROR] Bridge failed to start: ${err.message}`);
     });

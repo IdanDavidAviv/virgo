@@ -290,7 +290,16 @@ export class MessageClient {
 
     if (isInternalCommand) {
       if (this._logLevel === LogLevel.VERBOSE) {
-        console.log(`[SIGNAL] ${command} | ${JSON.stringify(message)}`);
+        if (command === IncomingCommand.UI_SYNC) {
+          // [BLOAT-PREVENTION] Truncate massive state packets even in VERBOSE mode.
+          const summarized = { ...finalPayload };
+          if (summarized.allChapters) {summarized.allChapters = `[Array(${summarized.allChapters.length})]`;}
+          if (summarized.windowSentences) {summarized.windowSentences = `[Array(${summarized.windowSentences.length})]`;}
+          if (summarized.currentSentences) {summarized.currentSentences = `[Array(${summarized.currentSentences.length})]`;}
+          console.log(`[SIGNAL] ${command} | ${JSON.stringify(summarized)}`);
+        } else {
+          console.log(`[SIGNAL] ${command} | ${JSON.stringify(message)}`);
+        }
       } else {
         const shorthand = this.toShorthand(command, finalPayload);
         console.log(`[SIGNAL] ${command} | ${shorthand}`);

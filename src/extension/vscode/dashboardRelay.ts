@@ -8,6 +8,7 @@ export class DashboardRelay {
     private _view?: vscode.WebviewView;
     // [Hygiene] Voice scan idempotency — only emit if the voice list has changed since last broadcast.
     private _lastVoiceHash: string = '';
+    private _initialHydrationDone: boolean = false;
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -21,6 +22,7 @@ export class DashboardRelay {
             this._logger(`[DashboardRelay] 🔄 Replacing existing view. Cleaving old connection.`);
         }
         this._view = view;
+        this._initialHydrationDone = false; // Reset hydration flag for new view
         if (view) {
             this._logger(`[DashboardRelay] 🔌 New view attached.`);
         }
@@ -37,7 +39,7 @@ export class DashboardRelay {
      * The single source of truth for the dashboard's state.
      * Aggregates StateStore, DocController, and logic into one packet.
      */
-    public sync(snippetHistory?: SnippetHistory, activeSessionId?: string, voices?: { local: any[], neural: any[] }) {
+    public sync(snippetHistory?: SnippetHistory, activeSessionId?: string) {
         if (!this._view) { return; }
 
         const s = this._stateStore.state;
@@ -114,18 +116,31 @@ export class DashboardRelay {
             cacheCount: cacheStats.count ?? 0,
             cacheSizeBytes: cacheStats.sizeBytes ?? 0,
             isHydrated: !!s.isHydrated,
-            playbackIntentId: s.playbackIntentId || 1,
-            batchIntentId: s.batchIntentId || 1,
+            playbackIntentId: Math.max(1, s.playbackIntentId ?? 1),
+            batchIntentId: Math.max(1, s.batchIntentId ?? 1),
             lastLoadType: s.lastLoadType || 'none',
             activeSessionId: activeSessionId,
             logLevel: logLevel,
-            availableVoices: voices || s.availableVoices,
+            snippetHistory: snippetHistory,
             windowSentences: this._calculateWindowSentences(currentChapterIndex, currentSentenceIndex)
         };
 
         this._logger(`[RELAY] 📦 Assembled Packet: active=${packet.activeFileName}, focus=${packet.focusedFileName}, chapters=${packet.allChapters.length}, sets=${packet.currentSentences.length}, hydrated=${packet.isHydrated}, intent=${packet.playbackIntentId}`);
         
         this.postMessage({ command: IncomingCommand.UI_SYNC, ...packet });
+
+        // [INIT-GAP] Immediate Hydration Ritual
+        // Trigger voices and cache stats immediately after the first sync pulse to populate the UI.
+        if (!this._initialHydrationDone) {
+            this._logger(`[RELAY] 🚀 Triggering Immediate Initial Hydration (Voices + Cache)`);
+            this.broadcastVoices(s.availableVoices.local, s.availableVoices.neural, s.engineMode);
+            this.postMessage({ 
+                command: IncomingCommand.CACHE_STATS_UPDATE, 
+                count: cacheStats.count, 
+                sizeBytes: cacheStats.sizeBytes 
+            });
+            this._initialHydrationDone = true;
+        }
     }
 
     /**
@@ -169,9 +184,9 @@ export class DashboardRelay {
         }
         this._lastVoiceHash = hash;
         this.postMessage({
-            command: 'voices',
+            command: IncomingCommand.VOICES,
             voices: local,
-            neuralVoices: neural,
+            neural: neural,
             engineMode: engineMode,
             playbackIntentId: this._stateStore.state.playbackIntentId
         });

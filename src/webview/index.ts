@@ -195,6 +195,11 @@ export function bootstrap() {
     dispatcher.initSovereignBridge();
     dispatcher.mount(client);
 
+    // [VOICE-SYNC] Sovereign Hydration Gate
+    client.onCommand(IncomingCommand.VOICES, (payload: any) => {
+        store.setAvailableVoices(payload.voices, payload.neural);
+    });
+
     // 2a. Register with Layout Manager (Issue #15)
     const layout = LayoutManager.getInstance();
     if (settings) {

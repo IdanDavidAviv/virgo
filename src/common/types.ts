@@ -68,10 +68,6 @@ export interface UISyncPacket {
     lastLoadType?: 'cache' | 'synth' | 'none';
     activeSessionId?: string;
     logLevel: LogLevel;
-    availableVoices?: {
-        local: any[];
-        neural: any[];
-    };
     snippetHistory?: SnippetHistory;
     isHydrated?: boolean;
 }

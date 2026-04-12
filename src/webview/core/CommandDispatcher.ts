@@ -35,7 +35,7 @@ export class CommandDispatcher {
   public initSovereignBridge(): void {
     if (typeof window !== 'undefined') {
       (window as any).__SOVEREIGN_RPC__ = async (commandId: string, args: any[] = []) => {
-        console.log(`[RPC] 🛰️ Sovereign Request: ${commandId}`, args);
+        console.log(`[RPC] Sovereign Request: ${commandId}`, args);
         const requestId = Math.random().toString(36).substring(7);
         return new Promise((resolve, reject) => {
           this._pendingCommands.set(requestId, { resolve, reject });
@@ -51,7 +51,7 @@ export class CommandDispatcher {
           }, 10000);
         });
       };
-      console.log('[RPC] 🛡️ Sovereign Bridge Initialized.');
+      console.log('[RPC] Sovereign Bridge Initialized.');
     }
   }
 
@@ -66,7 +66,7 @@ export class CommandDispatcher {
    * Mounts the dispatcher to a MessageClient for automatic command routing.
    */
   public mount(client: MessageClient): void {
-    console.log('[Dispatcher] 🛰️ Mounting IPC Bridge...');
+    console.log('[Dispatcher] Mounting IPC Bridge...');
     Object.values(IncomingCommand).forEach(command => {
        client.onCommand(command, (data) => this.dispatch(command, data));
     });
@@ -76,8 +76,8 @@ export class CommandDispatcher {
    * Dispatches an incoming message to the appropriate handler.
    */
   public async dispatch(command: string, data: any): Promise<void> {
-    // [BRIDGE] 💓 HEARTBEAT
-    console.log(`[BRIDGE] 💓 Message Arrived: command=${command}${command === 'uiSync' ? ' (active=' + data?.activeFileName + ')' : ''}`);
+    // [BRIDGE] HEARTBEAT
+    console.log(`[BRIDGE] Message Arrived: command=${command}${command === 'uiSync' ? ' (active=' + data?.activeFileName + ')' : ''}`);
 
     const store = WebviewStore.getInstance();
     const audioEngine = WebviewAudioEngine.getInstance();
@@ -132,7 +132,7 @@ export class CommandDispatcher {
         break;
 
       case IncomingCommand.SYNTHESIS_READY:
-        console.log('[Dispatcher] ✨ SYNTHESIS_READY Received', data);
+        console.log('[Dispatcher] SYNTHESIS_READY Received', data);
         // Bridge reports audio is ready in its cache. Pull it if we don't have it.
         const hasLocal = await audioEngine.playFromCache(data.cacheKey, data.intentId, data.bakedRate);
         if (!hasLocal) {
@@ -178,7 +178,7 @@ export class CommandDispatcher {
 
         case IncomingCommand.SYNTHESIS_ERROR:
         const errorMsg = data?.error || 'Synthesis failed';
-        console.error(`[Dispatcher] ⛔ Synthesis Error at ${data?.chapterIndex}:${data?.sentenceIndex}:`, errorMsg);
+        console.error(`[Dispatcher] Synthesis Error at ${data?.chapterIndex}:${data?.sentenceIndex}:`, errorMsg);
         
         const ToastManager = (await import('../components/ToastManager')).ToastManager;
         // Restoring dashboard.js parity: warnings for fallbacks, errors for failures.
@@ -199,34 +199,20 @@ export class CommandDispatcher {
             neural: data.neuralVoices || []
           },
           ...(data.selectedVoice && { selectedVoice: data.selectedVoice }),
-          ...(data.engineMode && { engineMode: data.engineMode }),
-          neuralVoices: data.neuralVoices || [],
-          engineMode: data.engineMode
+          ...(data.engineMode && { engineMode: data.engineMode })
         });
         break;
 
       case IncomingCommand.CACHE_STATS:
-        store.patchState({
-            cacheCount: data.count,
-            cacheSizeBytes: data.size !== undefined ? data.size : data.sizeBytes
-        });
-        store.updateUIState({
-            neuralBuffer: {
-                count: data.count,
-                sizeMb: Number(((data.size !== undefined ? data.size : data.sizeBytes) / (1024 * 1024)).toFixed(2))
-            }
-        });
-        break;
-
       case IncomingCommand.CACHE_STATS_UPDATE:
-        store.patchState({ 
-            cacheSizeBytes: data.sizeBytes, 
-            cacheCount: data.count
-        });
-        store.updateUIState({
+        const count = data.count ?? 0;
+        const sizeBytes = data.sizeBytes ?? data.size ?? 0;
+        store.patchState({
+            cacheCount: count,
+            cacheSizeBytes: sizeBytes,
             neuralBuffer: {
-                count: data.count,
-                sizeMb: Number((data.sizeBytes / (1024 * 1024)).toFixed(2))
+                count: count,
+                sizeMb: Number((sizeBytes / (1024 * 1024)).toFixed(2))
             }
         });
         break;
@@ -248,7 +234,7 @@ export class CommandDispatcher {
             // [PARITY] If the dispatcher receives text, we ensure the AudioEngine/PlaybackController 
             // knows about the upcoming sentence.
             if (data.text) {
-                console.log(`[Dispatcher] 📝 Auth Sentence Injection: ${data.text.substring(0, 30)}...`);
+                console.log(`[Dispatcher] Auth Sentence Injection: ${data.text.substring(0, 30)}...`);
             }
         }
         break;
@@ -293,7 +279,7 @@ export class CommandDispatcher {
         }
     };
 
-    console.log('[Dispatcher] 🛡️ GLOBAL SITREP DUMP:', report);
+    console.log('[Dispatcher] GLOBAL SITREP DUMP:', report);
     MessageClient.getInstance().postAction(OutgoingAction.LOG, { 
         level: 'info', 
         message: `SITREP: intent=${report.audioEngine.activeIntentId} isPlaying=${report.store.isPlaying}` 
