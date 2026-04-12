@@ -131,9 +131,10 @@ Closing the loop is as important as opening it. NEVER kill the shell process dir
 
 1.  **The Gesture**: Dispatch `exit` via the shell's stdin.
     - *Note*: Hit `Ctrl+C` if the shell is hung; the `SIGINT` handler will trigger a full cleanup.
-2.  **The Validation (MANDATORY)**: Before issuing a `close` or `nuke` command, the agent MUST run `find-dev-host` or equivalent to ensure the target exists and is NOT the main workbench.
-3. **The Verification**: Verify that `scripts/.cdp-shell.lock` is removed.
-4. **The Registry**: Use the internal `history` buffer for deep post-mortem analysis across multiple sessions.
+2.  **SITREP Ceremony (MANDATORY)**: Before closing the shell forever, perform the [sitrep_ceremony](../../../C:/Users/Idan4/.gemini/antigravity/knowledge/sitrep_ceremony/artifacts/SKILL.md) to document the session's final diagnostic state.
+3.  **The Validation (MANDATORY)**: Before issuing a `close` or `nuke` command, the agent MUST run `find-dev-host` or equivalent to ensure the target exists and is NOT the main workbench.
+4. **The Verification**: Verify that `scripts/.cdp-shell.lock` is removed.
+5. **The Registry**: Use the internal `history` buffer for deep post-mortem analysis across multiple sessions.
 
 
 ## 4. Troubleshooting the Signal
