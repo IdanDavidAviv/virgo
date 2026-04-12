@@ -136,6 +136,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }, 500);
         }
     });
+    
     context.subscriptions.push(brainWatcher);
 
     context.subscriptions.push(
@@ -154,6 +155,11 @@ export async function activate(context: vscode.ExtensionContext) {
             log('[CMD_RECV] readme-preview-read-aloud.show-dashboard');
             vscode.commands.executeCommand('readme-preview-read-aloud.speech-engine.focus');
             speechProvider.refresh();
+        }),
+
+        vscode.commands.registerCommand('readme-preview-read-aloud.refresh-voices', () => {
+            log('[CMD_RECV] readme-preview-read-aloud.refresh-voices');
+            speechProvider.refreshVoices();
         }),
 
         vscode.commands.registerCommand('readme-preview-read-aloud.show-quick-controls', async () => {

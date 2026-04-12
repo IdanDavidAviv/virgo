@@ -567,6 +567,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._voiceManager.broadcastVoices();
     }
 
+    public refreshVoices() {
+        this._voiceManager.scanAndSync();
+    }
+
     private async _handleWebviewMessage(data: any, source: string = 'webview') {
         const sanitized = this._validatePayload(data);
         if (!sanitized.command) {

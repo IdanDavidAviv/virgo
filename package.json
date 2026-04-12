@@ -104,6 +104,11 @@
         "command": "readme-preview-read-aloud.restart-extension",
         "title": "Read Aloud: Full Extension Restart",
         "icon": "$(sync)"
+      },
+      {
+        "command": "readme-preview-read-aloud.refresh-voices",
+        "title": "Read Aloud: Refresh Voices",
+        "icon": "$(refresh)"
       }
     ],
     "viewsContainers": {
