@@ -85,6 +85,59 @@ body {
     justify-content: flex-start;
 }
 
+.popover-header-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    padding: 2px 6px;
+    cursor: pointer;
+    color: #64748b;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    font-size: 14px;
+    opacity: 0.7;
+}
+
+.btn-icon:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.05);
+    color: #f1f5f9;
+}
+
+.btn-refresh:hover {
+    color: var(--primary);
+}
+
+.btn-close {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.btn-close:hover {
+    color: #fb7185;
+    background: rgba(244, 63, 94, 0.1);
+}
+
+.btn-refresh.spinning {
+    animation: btn-spin 0.8s linear infinite;
+    color: var(--primary);
+    opacity: 1;
+    pointer-events: none;
+}
+
+@keyframes btn-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .settings-toggle-btn {
     cursor: pointer;
     margin-left: auto;

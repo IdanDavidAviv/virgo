@@ -99,17 +99,14 @@ describe('E2E Handshake & UI Integrity', () => {
         components.settings = new SettingsDrawer({
             drawer: getEl('settings-drawer')!,
             btnOpen: getEl('settings-toggle')!,
-            btnClose: getEl('settings-close'),
+            btnRefreshVoices: getEl('settings-toggle') as HTMLButtonElement, // Shared for test purposes
+            btnClosePopover: getEl('settings-close') as HTMLButtonElement,
             volumeSlider: getEl('volume-slider') as HTMLInputElement,
             rateSlider: getEl('rate-slider') as HTMLInputElement,
             volumeVal: getEl('volume-val')!,
             rateVal: getEl('rate-val')!,
-            btnCloudEngine: getEl('engine-neural') as HTMLButtonElement,
-            btnLocalEngine: getEl('engine-local') as HTMLButtonElement,
             cacheDebugTag: getEl('cache-debug-tag')!,
-            stateDebugTag: getEl('state-debug-tag')!,
-            engineToggleGroup: document.querySelector('.engine-toggle-group'),
-            neuralPlayer: getEl('neural-player') as HTMLMediaElement
+            stateDebugTag: getEl('state-debug-tag')!
         });
 
         components.playback = new PlaybackControls({
@@ -142,8 +139,7 @@ describe('E2E Handshake & UI Integrity', () => {
         });
 
         components.voiceSelector = new VoiceSelector({
-            container: getEl('voice-list-container')!,
-            voiceList: getEl('voice-list') as HTMLUListElement,
+            voiceList: getEl('voice-list-container')!,
             searchInput: getEl('voice-search') as HTMLInputElement
         });
 

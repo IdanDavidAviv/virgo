@@ -731,6 +731,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 });
                 this._logger(`[CACHE] Extension cache purged. Triggering webview sync...`);
                 break;
+            case OutgoingAction.REFRESH_VOICES:
+                this._logger(`[VOICE] Manual refresh requested via UI.`);
+                this._voiceManager.scanAndSync();
+                break;
             case OutgoingAction.OPEN_FILE:
                 const fileUri = payload.uri || payload.path;
                 if (fileUri) {

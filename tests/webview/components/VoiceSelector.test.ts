@@ -56,7 +56,6 @@ describe('VoiceSelector', () => {
                     ],
                     neural: []
                 },
-                engineMode: 'local',
                 currentSentenceIndex: 0
             }
         }));
@@ -80,7 +79,6 @@ describe('VoiceSelector', () => {
                         { id: 'n1', name: 'Neural Voice', lang: 'en-GB' }
                     ]
                 },
-                engineMode: 'neural',
                 currentSentenceIndex: 0
             }
         }));
@@ -106,7 +104,6 @@ describe('VoiceSelector', () => {
                     ],
                     neural: []
                 },
-                engineMode: 'local',
                 currentSentenceIndex: 0
             }
         }));
@@ -148,7 +145,6 @@ describe('VoiceSelector', () => {
                     local: [{ id: 'v1', name: 'V1', lang: '' }],
                     neural: []
                 },
-                engineMode: 'local',
                 currentSentenceIndex: 0
             }
         }));
@@ -181,7 +177,6 @@ describe('VoiceSelector', () => {
                     local: [{ id: 'v1', name: 'V1', lang: '' }],
                     neural: []
                 },
-                engineMode: 'local',
                 selectedVoice: 'v1'
             }
         }));

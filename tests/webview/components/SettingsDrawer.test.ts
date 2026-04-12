@@ -37,14 +37,12 @@ describe('SettingsDrawer', () => {
         elements = {
             drawer: document.getElementById('settings-drawer'),
             btnOpen: document.getElementById('settings-toggle'),
-            btnClose: document.getElementById('settings-close'),
+            btnRefreshVoices: document.getElementById('settings-toggle'), // Shared for test purposes
+            btnClosePopover: document.getElementById('settings-close'),
             volumeSlider: document.getElementById('volume-slider'),
             volumeVal: document.getElementById('volume-val'),
             rateSlider: document.getElementById('rate-slider'),
             rateVal: document.getElementById('rate-val'),
-            btnCloudEngine: document.getElementById('engine-neural'),
-            btnLocalEngine: document.getElementById('engine-local'),
-            engineToggleGroup: document.querySelector('.engine-toggle-group'),
             cacheDebugTag: document.getElementById('cache-debug-tag'),
             stateDebugTag: document.getElementById('state-debug-tag'),
             neuralPlayer: document.getElementById('neural-player')
@@ -59,8 +57,7 @@ describe('SettingsDrawer', () => {
             isHydrated: true, 
             playbackIntentId: 12345,
             volume: 50,
-            rate: 0,
-            engineMode: 'neural'
+            rate: 0
         } as any);
 
         vi.useFakeTimers();
@@ -141,30 +138,15 @@ describe('SettingsDrawer', () => {
         );
     });
 
-    it('should toggle "active" class on engine buttons based on store state', () => {
+    it('should show spinning state when refreshing', () => {
         ctrl = new SettingsDrawer(elements);
         ctrl.mount();
 
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                command: IncomingCommand.UI_SYNC,
-                engineMode: 'neural',
-                currentSentenceIndex: 0
-            }
-        }));
+        WebviewStore.getInstance().patchState({ isLoadingVoices: true });
+        expect(elements.btnRefreshVoices.classList.contains('spinning')).toBe(true);
 
-        expect(elements.btnCloudEngine.classList.contains('active')).toBe(true);
-        expect(elements.btnLocalEngine.classList.contains('active')).toBe(false);
-
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                command: IncomingCommand.UI_SYNC,
-                engineMode: 'local',
-                currentSentenceIndex: 0
-            }
-        }));
-
-        expect(elements.btnCloudEngine.classList.contains('active')).toBe(false);
-        expect(elements.btnLocalEngine.classList.contains('active')).toBe(true);
+        WebviewStore.getInstance().patchState({ isLoadingVoices: false });
+        expect(elements.btnRefreshVoices.classList.contains('spinning')).toBe(false);
     });
+
 });

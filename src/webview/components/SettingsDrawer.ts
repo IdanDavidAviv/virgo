@@ -5,17 +5,15 @@ import { PlaybackController } from '../playbackController';
 export interface SettingsDrawerElements extends Record<string, HTMLElement | HTMLInputElement | HTMLButtonElement | HTMLMediaElement | null | undefined> {
     drawer: HTMLElement;
     btnOpen: HTMLElement;           // accepts <span> or <button>
-    btnClose?: HTMLElement | null;  // optional: only bind if different from btnOpen
+    btnClose?: HTMLElement | null;  // optional: fallback if main close not used
+    btnRefreshVoices?: HTMLButtonElement | null;
+    btnClosePopover?: HTMLButtonElement | null;
     volumeSlider: HTMLInputElement;
     rateSlider: HTMLInputElement;
-    btnCloudEngine: HTMLButtonElement;
-    btnLocalEngine: HTMLButtonElement;
     rateVal: HTMLElement | null;
     volumeVal: HTMLElement | null;
     cacheDebugTag: HTMLElement;
     stateDebugTag: HTMLElement;
-    engineToggleGroup: HTMLElement | null;
-    neuralPlayer?: HTMLMediaElement | null;
 }
 
 /**
@@ -48,16 +46,20 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             }
         });
 
-        // 3. Engine Mode Sync
+        // 3. Engine Mode Sync - Simplified/Removed Toggle logic
         this.subscribe((state) => state.engineMode, (mode) => {
-            if (this.els.btnCloudEngine && this.els.btnLocalEngine) {
-                this.els.btnCloudEngine.classList.toggle('active', mode === 'neural');
-                this.els.btnLocalEngine.classList.toggle('active', mode === 'local');
-            }
             if (this.els.stateDebugTag) {
                 this.els.stateDebugTag.classList.toggle('neural-active', mode === 'neural');
             }
         });
+
+        // 4. Refresh State Sync (Animation handler)
+        this.subscribeUI((ui) => ui.isLoadingVoices, (isLoading) => {
+            if (this.els.btnRefreshVoices) {
+                this.els.btnRefreshVoices.classList.toggle('spinning', isLoading);
+            }
+        });
+
 
         // 4. Cache Stats Sync
         this.subscribe((state) => ({ count: state.cacheCount, size: state.cacheSizeBytes }), (stats) => {
@@ -130,16 +132,18 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             });
         }
 
-        // 4. Engine Toggle
-        if (btnCloudEngine) {
-            this.registerEventListener(btnCloudEngine, 'click', () => {
-                controller.setEngineMode('neural');
+        // 4. Refresh & Close Buttons
+        if (this.els.btnRefreshVoices) {
+            this.registerEventListener(this.els.btnRefreshVoices, 'click', (e) => {
+                e.stopPropagation();
+                controller.refreshVoices();
             });
         }
 
-        if (btnLocalEngine) {
-            this.registerEventListener(btnLocalEngine, 'click', () => {
-                controller.setEngineMode('local');
+        if (this.els.btnClosePopover) {
+            this.registerEventListener(this.els.btnClosePopover, 'click', (e) => {
+                e.stopPropagation();
+                this.close();
             });
         }
 

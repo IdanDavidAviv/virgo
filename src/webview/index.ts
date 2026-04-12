@@ -146,13 +146,12 @@ export function bootstrap() {
         btnOpen: document.getElementById('audio-settings-pill') as HTMLElement,
         volumeSlider: document.getElementById('volume-slider') as HTMLInputElement,
         rateSlider: document.getElementById('rate-slider') as HTMLInputElement,
-        btnCloudEngine: document.getElementById('engine-neural') as HTMLButtonElement,
-        btnLocalEngine: document.getElementById('engine-local') as HTMLButtonElement,
+        btnRefreshVoices: document.getElementById('btn-refresh-voices') as HTMLButtonElement,
+        btnClosePopover: document.getElementById('btn-close-popover') as HTMLButtonElement,
         rateVal: document.getElementById('rate-val'),
         volumeVal: document.getElementById('volume-val'),
         cacheDebugTag: document.getElementById('cache-debug-tag') as HTMLElement,
-        stateDebugTag: document.getElementById('audio-settings-pill') as HTMLElement,
-        engineToggleGroup: document.querySelector('.engine-toggle-group') as HTMLElement
+        stateDebugTag: document.getElementById('audio-settings-pill') as HTMLElement
     }));
     if (settings) {registry.push(settings);}
 
@@ -195,10 +194,8 @@ export function bootstrap() {
     dispatcher.initSovereignBridge();
     dispatcher.mount(client);
 
-    // [VOICE-SYNC] Sovereign Hydration Gate
-    client.onCommand(IncomingCommand.VOICES, (payload: any) => {
-        store.setAvailableVoices(payload.voices, payload.neural);
-    });
+    // [VOICE-SYNC] Managed by PlaybackController subscription
+
 
     // 2a. Register with Layout Manager (Issue #15)
     const layout = LayoutManager.getInstance();

@@ -393,6 +393,23 @@ export class PlaybackController {
     }
 
     /**
+     * refreshVoices(): Triggers a manual re-scan of both local and neural voices.
+     */
+    public refreshVoices(): void {
+        console.log('[PlaybackController] 🔄 Manual voice refresh requested');
+        
+        // 1. Scan browser local voices
+        WebviewAudioEngine.getInstance().scanVoices();
+
+        // 2. [UI] Immediate feedback
+        WebviewStore.getInstance().patchState({ isLoadingVoices: true });
+
+        // 3. Request extension to re-scan neural voices
+        MessageClient.getInstance().postAction(OutgoingAction.REFRESH_VOICES);
+    }
+
+
+    /**
      * handleSynthesisReady() - Sovereign fetch orchestration.
      */
     private handleSynthesisReady(cacheKey: string, intentId: number): void {

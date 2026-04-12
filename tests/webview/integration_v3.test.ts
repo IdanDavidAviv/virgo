@@ -69,10 +69,11 @@ const FULL_DOM = `
     <input id="rate-slider" type="range" min="0.5" max="2.0" value="1.0" step="0.05">
     <span id="volume-val"></span>
     <span id="rate-val"></span>
-    <button id="engine-neural"></button>
-    <button id="engine-local"></button>
+    <button id="btn-refresh-voices"></button>
+    <button id="btn-close-popover"></button>
     <span id="cache-debug-tag"></span>
     <span id="state-debug-tag"></span>
+
 
     <div id="voice-list-container" class="voice-list-container"></div>
     <input id="voice-search" type="text">
@@ -148,17 +149,17 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             btnOpen: document.getElementById('settings-toggle') as HTMLElement,
             volumeSlider: document.getElementById('volume-slider') as HTMLInputElement,
             rateSlider: document.getElementById('rate-slider') as HTMLInputElement,
-            btnCloudEngine: document.getElementById('engine-neural') as HTMLButtonElement,
-            btnLocalEngine: document.getElementById('engine-local') as HTMLButtonElement,
+            btnRefreshVoices: document.getElementById('btn-refresh-voices') as HTMLButtonElement,
+            btnClosePopover: document.getElementById('btn-close-popover') as HTMLButtonElement,
             rateVal: document.getElementById('rate-val'),
             volumeVal: document.getElementById('volume-val'),
             cacheDebugTag: document.getElementById('cache-debug-tag') as HTMLElement,
-            stateDebugTag: document.getElementById('state-debug-tag') as HTMLElement,
-            engineToggleGroup: document.querySelector('.engine-toggle-group')
+            stateDebugTag: document.getElementById('state-debug-tag') as HTMLElement
         });
         drawer.mount();
         return drawer;
     }
+
 
     function mountPlaybackControls() {
         const controls = new PlaybackControls({
@@ -241,30 +242,17 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             expect(document.getElementById('rate-val')!.textContent).toBe('5.0x');
         });
 
-        it('T1.5 — should mark engine-neural as active when engineMode is neural', () => {
+        it('T1.5 — should trigger REFRESH_VOICES action when refresh button is clicked', () => {
             mountSettingsDrawer();
-            store.patchState({ engineMode: 'neural' });
-            expect(document.getElementById('engine-neural')!.classList.contains('active')).toBe(true);
-            expect(document.getElementById('engine-local')!.classList.contains('active')).toBe(false);
+            const btnRefresh = document.getElementById('btn-refresh-voices')!;
+            
+            btnRefresh.click();
+            expect(client.postAction).toHaveBeenCalledWith(
+                OutgoingAction.REFRESH_VOICES
+            );
+
         });
 
-        it('T1.6 — should post ENGINE_MODE_CHANGED when neural engine button is clicked', () => {
-            mountSettingsDrawer();
-            document.getElementById('engine-neural')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(
-                OutgoingAction.ENGINE_MODE_CHANGED, 
-                expect.objectContaining({ mode: 'neural', intentId: expect.any(Number) })
-            );
-        });
-
-        it('T1.7 — should post ENGINE_MODE_CHANGED when local engine button is clicked', () => {
-            mountSettingsDrawer();
-            document.getElementById('engine-local')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(
-                OutgoingAction.ENGINE_MODE_CHANGED, 
-                expect.objectContaining({ mode: 'local', intentId: expect.any(Number) })
-            );
-        });
 
         it('T1.8 — rate slider input event patches store with the slider value', () => {
             mountSettingsDrawer();

@@ -19,12 +19,15 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
         // 1. Subscribe to relevant state changes for list rendering
         this.subscribe((state) => ({
             available: state.availableVoices,
-            selected: state.selectedVoice,
-            mode: state.engineMode
+            selected: state.selectedVoice
         }), (info) => {
             if (info.available) {
-                const list = info.mode === 'neural' ? info.available.neural : info.available.local;
-            this.renderVoiceList(list, info.selected, info.mode);
+                // Merge lists: Neural first, then Local
+                const mergedList = [
+                    ...(info.available.neural || []).map(v => ({ ...v, isNeural: true })),
+                    ...(info.available.local || []).map(v => ({ ...v, isNeural: false }))
+                ];
+                this.renderVoiceList(mergedList, info.selected);
             }
         });
 
@@ -45,8 +48,11 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
                 this.searchTerm = (e.target as HTMLInputElement).value.toLowerCase();
                 const state = this.store.getState();
                 if (state && state.availableVoices) {
-                    const list = state.engineMode === 'neural' ? state.availableVoices.neural : state.availableVoices.local;
-                this.renderVoiceList(list, state.selectedVoice, state.engineMode);
+                    const mergedList = [
+                        ...(state.availableVoices.neural || []).map(v => ({ ...v, isNeural: true })),
+                        ...(state.availableVoices.local || []).map(v => ({ ...v, isNeural: false }))
+                    ];
+                    this.renderVoiceList(mergedList, state.selectedVoice);
                 }
             });
         }
@@ -75,7 +81,7 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
     /**
      * Internal rendering logic for the custom premium list.
      */
-    private renderVoiceList(voicesToUse: any[], selectedVoice: string | undefined, mode: string): void {
+    private renderVoiceList(voicesToUse: any[], selectedVoice: string | undefined): void {
         const { isLoadingVoices } = this.store.getUIState();
         if (!this.els.voiceList || isLoadingVoices) { return; }
 
@@ -98,6 +104,7 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
             const name = typeof v === 'string' ? v : v.name;
             const lang = typeof v === 'string' ? '' : v.lang;
             const id = typeof v === 'string' ? v : v.id;
+            const isNeural = v.isNeural;
 
             const item = document.createElement('div');
             item.className = 'voice-item';
@@ -107,7 +114,7 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
             const label = document.createElement('span');
             label.className = 'flex-1';
 
-            if (mode === 'neural') {
+            if (isNeural) {
                 label.innerHTML = `<span class="sparkle">✨</span> ${name} ${lang ? `<small style="opacity:0.5; font-size:9px">(${lang})</small>` : ''}`;
             } else {
                 label.textContent = name;
