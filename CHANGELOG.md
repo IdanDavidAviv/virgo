@@ -7,6 +7,17 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.4.2] - 2026-04-12
+
+### Added
+- **Premium Settings Popover**: Migrated audio settings from a static card to a footer-anchored, glassmorphism-enhanced popover (`backdrop-filter: 28px blur`).
+- **Engine-Aware Pill Trigger**: Repurposed the V/R indicator as an interactive status pill that provides real-time visual feedback (Cyber Blue for Local, Amber Gold for Neural) and toggles the settings overlay.
+- **Dynamic Exit Rituals**: Implemented bouncy `cubic-bezier` entry/exit animations for the settings popover to ensure a fluid, high-integrity interaction model.
+
+### Changed
+- **UI Footprint Optimization**: Decommissioned the legacy "AUDIO SETTINGS" card, significantly reclaiming vertical space in the dashboard for the chapter list.
+- **Unified State Mapping**: Refactored `SettingsDrawer` to directly bind to the new popover DOM structure, simplifying the component registry and cross-context synchronization.
+
 ## [2.4.1] - 2026-04-11
 
 ### Added
