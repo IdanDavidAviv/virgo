@@ -54,6 +54,9 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
                 this.els.btnCloudEngine.classList.toggle('active', mode === 'neural');
                 this.els.btnLocalEngine.classList.toggle('active', mode === 'local');
             }
+            if (this.els.stateDebugTag) {
+                this.els.stateDebugTag.classList.toggle('neural-active', mode === 'neural');
+            }
         });
 
         // 4. Cache Stats Sync
@@ -163,16 +166,10 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
 
     public open(): void {
         this.els.drawer?.classList.add('open');
-        if (this.els.engineToggleGroup) {
-            this.els.engineToggleGroup.style.display = 'flex';
-        }
     }
 
     public close(): void {
         this.els.drawer?.classList.remove('open');
-        if (this.els.engineToggleGroup) {
-            this.els.engineToggleGroup.style.display = 'none';
-        }
     }
 
     public toggle(): void {

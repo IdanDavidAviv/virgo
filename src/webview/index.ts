@@ -141,9 +141,9 @@ export function bootstrap() {
     }));
     if (chapterList) {registry.push(chapterList);}
 
-    const settings = safeMount('settings', document.getElementById('settings-drawer'), (el) => new SettingsDrawer({
+    const settings = safeMount('settings', document.getElementById('settings-popover'), (el) => new SettingsDrawer({
         drawer: el,
-        btnOpen: document.getElementById('settings-toggle') as HTMLElement,
+        btnOpen: document.getElementById('audio-settings-pill') as HTMLElement,
         volumeSlider: document.getElementById('volume-slider') as HTMLInputElement,
         rateSlider: document.getElementById('rate-slider') as HTMLInputElement,
         btnCloudEngine: document.getElementById('engine-neural') as HTMLButtonElement,
@@ -151,7 +151,7 @@ export function bootstrap() {
         rateVal: document.getElementById('rate-val'),
         volumeVal: document.getElementById('volume-val'),
         cacheDebugTag: document.getElementById('cache-debug-tag') as HTMLElement,
-        stateDebugTag: document.getElementById('state-debug-tag') as HTMLElement,
+        stateDebugTag: document.getElementById('audio-settings-pill') as HTMLElement,
         engineToggleGroup: document.querySelector('.engine-toggle-group') as HTMLElement
     }));
     if (settings) {registry.push(settings);}

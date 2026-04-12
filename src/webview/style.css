@@ -1328,13 +1328,12 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 /* ---- Engine Toggle ---- */
 .engine-toggle-group {
-    display: none;
+    display: flex;
     background: rgba(15, 23, 42, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 20px;
     padding: 2px;
-    align-self: center;
-    margin-left: auto;
+    align-items: center;
 }
 
 .toggle-pill {
@@ -1439,7 +1438,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
     font-weight: 500;
 }
 
-.state-debug, .cache-debug {
+.settings-pill, .cache-debug {
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     color: #64748b;
     background: rgba(15, 23, 42, 0.3);
@@ -1448,9 +1447,34 @@ input[type="range"]::-webkit-slider-thumb:hover {
     border: 1px solid rgba(255, 255, 255, 0.03);
 }
 
-.state-debug {
+.settings-pill {
     color: var(--primary);
     border-color: rgba(56, 189, 248, 0.1);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.settings-pill:hover {
+    background: rgba(56, 189, 248, 0.1);
+    border-color: var(--primary);
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+    transform: translateY(-1px);
+}
+
+.settings-pill:active {
+    transform: translateY(0) scale(0.98);
+}
+
+.settings-pill.neural-active {
+    color: #fbbf24;
+    border-color: rgba(251, 191, 36, 0.2);
+    background: rgba(251, 191, 36, 0.05);
+}
+
+.settings-pill.neural-active:hover {
+    background: rgba(251, 191, 36, 0.15);
+    border-color: #fbbf24;
+    box-shadow: 0 0 12px rgba(251, 191, 36, 0.2);
 }
 
 /* ---- File Links (Visual Gate) ---- */
@@ -1709,4 +1733,73 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .snippet-item.active-glow .snippet-name {
     color: var(--primary);
     text-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+}
+
+/* --- Settings Popover System --- */
+.settings-anchor {
+    position: relative;
+    display: inline-flex;
+}
+
+.settings-popover {
+    position: absolute;
+    bottom: calc(100% + 12px);
+    left: 0;
+    width: 280px;
+    background: var(--glass);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    
+    /* Layout */
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    
+    /* Animation base */
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+    pointer-events: none;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.settings-popover.open {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: all;
+}
+
+.popover-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+}
+
+.popover-header h3 {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: #64748b;
+    margin: 0;
+    text-transform: uppercase;
+}
+
+.popover-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.popover-section-title {
+    font-size: 9px;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
