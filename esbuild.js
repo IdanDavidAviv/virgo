@@ -83,7 +83,7 @@ async function build() {
         entryPoints: ['./src/extension/mcp/mcpStandalone.ts'],
         bundle: true,
         alias: commonAlias,
-        outfile: './dist/mcp-standalone.mjs',
+        outfile: './dist/mcp-standalone.js',
         platform: 'node',
         format: 'esm',
         minify: mode === 'production',

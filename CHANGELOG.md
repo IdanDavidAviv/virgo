@@ -7,6 +7,16 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.4.1] - 2026-04-11
+
+### Added
+- **Internal Log Sovereignty**: Removed all external `forensics.log` dependencies in favor of high-density internal memory buffers.
+- **Noise-Filtered Observation**: Implemented automatic Tier 3 noise suppression (renders, sync signals) in the CDP controller to ensure signal-heavy diagnostics.
+
+### Fixed
+- **Stability Exit Ladder**: Hardened Tier 1 and Tier 2 exit rituals to distinguish between "already clean" transitions and actual process failures.
+- **Store Signal Hardening**: Injected `[STORE-SYNC-COMPLETE]` markers to provide deterministic visibility for automated UI validation.
+
 ## [2.4.0] - 2026-04-10
 
 ### Hardened
