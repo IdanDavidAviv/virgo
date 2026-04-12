@@ -35,6 +35,7 @@ const action = process.argv[2];
 let cachedWebviewFrame = null;
 
 // ── Log Sovereignty: In-Memory Forensic Buffer ──
+let lastLogTime = Date.now();
 let inMemoryLogs = [];
 let aggregatorState = { lastLine: null, count: 0 };
 
@@ -1315,13 +1316,19 @@ async function runShell() {
     let context = '[DEV HOST]';
 
     if (!page) {
-      if (isProjectCmd) {
+      // PROBE: Force a discovery refresh if we can't find the dev host [v2.5.0]
+      const refreshedB = await getbrowser(true);
+      const refreshedDevPage = await findDevHostPage(refreshedB);
+      if (refreshedDevPage) {
+        page = refreshedDevPage;
+      } else if (isProjectCmd) {
         console.log('[SHELL] ✗ FAILED: Project commands MUST target the Dev Host.');
         console.log('[SHELL]   Main Editor is protected.');
         return;
+      } else {
+        page = mainPage;
+        context = '[MAIN EDITOR]';
       }
-      page = mainPage;
-      context = '[MAIN EDITOR]';
     }
 
     if (!page) {
@@ -1411,7 +1418,7 @@ async function runShell() {
     return false;
   };
 
-  const shellShowReadAloud = async () => {
+  const shellOpenReadAloud = async () => {
     console.log('[SHELL] 👁 Waking Read Aloud sidebar...');
     await shellExec('readme-preview-read-aloud.show-dashboard');
     console.log('[SHELL] ⏳ Waiting for hydration...');
@@ -1497,44 +1504,36 @@ async function runShell() {
 
   /** [v2.4.2] Wait-for-Log: Deterministic verification polling */
   const shellWaitForLog = async (pattern, timeoutMs = 15000) => {
-    if (!pattern) { console.log('[SHELL] Usage: wait-for-log <regex-pattern>'); return; }
-    console.log(`[SHELL] ⏳ Waiting for log pattern: /${pattern}/`);
-    
-    // [v2.4.2] Start checking from 10KB back to catch near-simultaneous events
-    let lastSize = 0;
-    try { 
-      const stats = fs.statSync(DIAG_LOG);
-      lastSize = Math.max(0, stats.size - 10240); 
-    } catch (e) { }
-
+    if (!pattern) {return false;}
     const start = Date.now();
-    const patternUpper = pattern.replace(/^["']|["']$/g, '').toUpperCase(); 
+    const patternUpper = pattern.toUpperCase();
     
-    let lastLogTime = Date.now();
-    let lastKnownSize = 0;
+    // [v2.4.2] Initial forensic offset
+    let initialOffset = 0;
+    try { initialOffset = fs.statSync(DIAG_LOG).size; } catch (e) { }
 
     while (Date.now() - start < timeoutMs) {
-      try {
-        const stats = fs.statSync(DIAG_LOG);
-        const content = readFileSync(DIAG_LOG, 'utf8').toUpperCase();
-        
-        if (stats.size !== lastKnownSize) {
-          lastLogTime = Date.now();
-          lastKnownSize = stats.size;
-        }
+      // 1. Check in-memory forensics (Console events) [v2.3.2]
+      const match = inMemoryLogs.find(l => l.toUpperCase().includes(patternUpper));
+      if (match) {
+        console.log(`[SHELL] ✓ Pattern found in console: "${pattern}"`);
+        return true;
+      }
 
-        const newPart = content.slice(lastSize);
-        if (newPart.includes(patternUpper)) {
-          console.log(`[SHELL] ✓ Pattern found: "${pattern}"`);
+      // 2. Check forensic file (Extension Host logs) [v2.5.0]
+      try {
+        const fileContent = readFileSync(DIAG_LOG, 'utf8').substring(initialOffset).toUpperCase();
+        if (fileContent.includes(patternUpper)) {
+          console.log(`[SHELL] ✓ Pattern found in file: "${pattern}"`);
           return true;
         }
-
-        // [v2.5.0] Heartbeat: Detect if logs have stalled for > 8s
-        if (Date.now() - lastLogTime > 8000) {
-          console.warn('[SHELL] ⚠ HEARTBEAT STALL: No log activity detected for 8s. System may be hung.');
-          lastLogTime = Date.now(); // Reset to avoid constant spam
-        }
       } catch (e) { }
+
+      // [v2.5.0] Heartbeat: Detect if logs have stalled for > 10s
+      if (Date.now() - lastLogTime > 10000) {
+        console.warn('[SHELL] ⚠ HEARTBEAT STALL: No log activity detected for 10s.');
+        lastLogTime = Date.now();
+      }
       await new Promise(r => setTimeout(r, 800));
     }
     console.log(`[SHELL] ❌ TIMEOUT: Pattern /${pattern}/ not found in ${timeoutMs}ms.`);
@@ -1548,8 +1547,14 @@ async function runShell() {
   const shellWaitForReady = async () => {
     console.log('[SHELL] 🚀 Initiating Unified Ready Ritual...');
     await shellOpenReadAloud();
-    console.log('[SHELL] ⏳ Polling for hydration signal (VOICE_SCAN SUCCESS)...');
-    const hydrated = await shellWaitForLog('VOICE_SCAN SUCCESS', 10000);
+    
+    // [v2.5.0] Deterministic Hydration Trigger
+    // We send refresh-voices via UI simulation if RPC is pending to break circular dependency.
+    console.log('[SHELL] 🔄 Triggering manual voice scan (Sovereign override)...');
+    await shellExec('>readme-preview-read-aloud.refresh-voices'); // Use '>' prefix to force UI route
+    
+    console.log('[SHELL] ⏳ Polling for hydration signal ([VOICE_SCAN] SUCCESS)...');
+    const hydrated = await shellWaitForLog('[VOICE_SCAN] SUCCESS', 15000);
     if (hydrated) {
       console.log('[SHELL] ✅ SYSTEM READY.');
     } else {
