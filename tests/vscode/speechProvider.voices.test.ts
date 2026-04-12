@@ -154,9 +154,11 @@ describe('SpeechProvider (Voice Lifecycle)', () => {
         provider.resolveWebviewView(mockWebviewView, {} as any, {} as any);
         const postMessageSpy = vi.spyOn(mockWebviewView.webview, 'postMessage');
         
-        // Mock success
+        // Mock success with a sample voice to avoid retry backoff timeout
         const engine = (provider as any)._playbackEngine;
-        vi.spyOn(engine, 'getVoices').mockResolvedValue([]);
+        vi.spyOn(engine, 'getVoices').mockResolvedValue([
+            { id: 'sample', name: 'Sample Voice', lang: 'en' }
+        ]);
 
         await (provider as any)._voiceManager.scanAndSync();
         vi.advanceTimersByTime(100); 
