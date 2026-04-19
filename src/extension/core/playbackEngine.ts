@@ -290,8 +290,6 @@ export class PlaybackEngine extends EventEmitter {
         }
         this._prefetchAbortController.abort('Stop Action');
         this._prefetchAbortController = new AbortController();
-
-        this._reinitTTS();
     }
 
 

@@ -794,10 +794,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
             case OutgoingAction.PLAYBACK_BLOCKED:
                 // [AUTOPLAY PROPAGATION] Webview browser blocked audio.play().
-                // Align extension StateStore so the next UI_SYNC reflects reality (isPlaying:false).
-                this._logger(`[BRIDGE] 🚫 PLAYBACK_BLOCKED received. Resetting extension playback state. key=${payload.cacheKey || 'n/a'}`);
-                this._playbackEngine.stop();
-                this._stateStore.patchState({ isPlaying: false, isPaused: false });
+                // Align extension StateStore to PAUSED so the user can click 'Play' to resume.
+                this._logger(`[BRIDGE] 🚫 PLAYBACK_BLOCKED received. Switching to PAUSED state. key=${payload.cacheKey || 'n/a'}`);
+                this._playbackEngine.setPaused(true);
+                this._stateStore.patchState({ isPlaying: false, isPaused: true });
                 this._syncStatusBars();
                 break;
 

@@ -125,15 +125,20 @@ export class McpBridge extends EventEmitter {
 
 
         this._app.get("/sse", async (req, res) => {
+            // [Gate 3] Storm Debounce
+            // Allow a tiny window for the 'probe storm' to settle before processing.
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             // [Gate 3] Noise Mitigation — v2.4.0
             // Gemini/MCP clients often fire parallel SSE probes.
             // If already handshaking, absorb duplicates with 1:10 logging.
-            if (this._isHandshaking || this._activeServers.size > 0) {
+            if (this._isHandshaking) {
                 this._absorbedProbes++;
                 if (this._absorbedProbes === 1 || this._absorbedProbes % 10 === 0) {
                     this._logger(`[MCP_BRIDGE] 🛑 Coalesce Gate: Handshake in-flight. Absorbing duplicate probe #${this._absorbedProbes} from ${req.ip}.`);
                 }
-                if (!res.headersSent) { res.status(429).end(); }
+                // Return 204 (No Content) instead of 429 to prevent client-side retry backoff.
+                if (!res.headersSent) { res.status(204).end(); }
                 return;
             }
 

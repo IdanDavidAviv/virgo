@@ -124,9 +124,9 @@ describe('McpBridge Tests', () => {
             expect(r1.isError).toBeFalsy();
             expect(r1.content[0].text).toBeTruthy();
 
-            // A second simultaneous probe should be rejected by Gate 2 (429)
+            // A second simultaneous probe should be absorbed by Gate 2 (204 No Content)
             const probeResponse = await fetch(`http://127.0.0.1:${activePort}/sse`);
-            expect(probeResponse.status).toBe(429);
+            expect(probeResponse.status).toBe(204);
 
             // Primary session remains unaffected
             const r2 = await c1.callTool({ name: 'get_injection_status', arguments: {} }) as any;

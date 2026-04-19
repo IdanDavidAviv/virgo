@@ -115,6 +115,25 @@ const actionArg = (process.argv[3] && !process.argv[3].startsWith('--')) ? proce
 // ─────────────────────────────────────────────────────────────
 
 async function connectToCDP() {
+  // [v2.4.3] Shell Sovereignty: Prevent parallel CDP connections
+  if (existsSync(SHELL_LOCK)) {
+    const oldPidStr = readFileSync(SHELL_LOCK, 'utf8').trim();
+    const oldPid = parseInt(oldPidStr, 10);
+    if (!isNaN(oldPid) && oldPid !== process.pid) {
+      try {
+        process.kill(oldPid, 0); // Check if alive
+        console.error('╔══════════════════════════════════════════════════════════════╗');
+        console.error(`║  [CDP] ✗ Blocked: Persistent shell is active (PID: ${oldPid})   ║`);
+        console.error('║  Use "send_command_input" to talk to the active shell.       ║');
+        console.error('╚══════════════════════════════════════════════════════════════╝');
+        process.exit(1);
+      } catch (e) {
+        // Process is dead, cleanup stale lock
+        try { unlinkSync(SHELL_LOCK); } catch { }
+      }
+    }
+  }
+
   try {
     const browser = await chromium.connectOverCDP(CDP_URL);
     return browser;
@@ -951,31 +970,10 @@ function delay(ms) {
  *   exit / quit         — close everything and exit
  */
 async function runShell() {
-  // ── Shell Sovereignty ──
-  if (existsSync(SHELL_LOCK)) {
-    const oldPidStr = readFileSync(SHELL_LOCK, 'utf8').trim();
-    const oldPid = parseInt(oldPidStr, 10);
-    if (!isNaN(oldPid)) {
-      try {
-        // Check if the old PID is still alive
-        process.kill(oldPid, 0);
-        console.error('╔══════════════════════════════════════════════════════════════╗');
-        console.error(`║  [SHELL] ✗ Another shell instance is active (PID: ${oldPid})    ║`);
-        console.error('║  Aborting to prevent parallel CDP connection leakage.        ║');
-        console.error('╚══════════════════════════════════════════════════════════════╝');
-        process.exit(1);
-      } catch (e) {
-
-        // Process is dead, cleanup stale lock
-        unlinkSync(SHELL_LOCK);
-      }
-    }
-  }
-
-  // Create lock
+  // 1. Core State Initialization
+  // Create lock specifically for the shell session to assert sovereignty
   writeFileSync(SHELL_LOCK, process.pid.toString());
 
-  // 1. Core State Initialization
   const mainPids = snapshotAntigravityPids();
   let devHostPids = [];
   let browser = null; 

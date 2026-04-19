@@ -7,6 +7,16 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.4.4] - 2026-04-19
+
+### Fixed
+- **MCP Handshake Stability**: Implemented 100ms storm-debounce and `204 No Content` logic for parallel SSE probes to eliminate `429 Too Many Requests` retry loops.
+- **Autoplay Recovery**: Redirected `PLAYBACK_BLOCKED` events to a recoverable `PAUSED` state instead of engine reset, enabling browser-level policy recovery via the UI.
+- **Library Corruption False-Positives**: Decoupled `stop()` from automatic TTS re-initialization to prevent misleading corruption diagnostics during normal playback termination.
+
+### Hardened
+- **Shell Sovereignty**: Enforced a mandatory `.cdp_shell.lock` mechanism in the CDP controller to prevent parallel bridge contention and process leakage.
+
 ## [2.4.3] - 2026-04-19
 
 ### Fixed
