@@ -25,7 +25,7 @@ function dispatchVoices(voices: any[], neural: any[]) {
         data: {
             command: IncomingCommand.VOICES,
             voices,
-            neuralVoices: neural
+            neural: neural
         }
     }));
 }

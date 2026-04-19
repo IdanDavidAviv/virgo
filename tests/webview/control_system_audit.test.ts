@@ -156,7 +156,7 @@ describe('Control System Audit (Reproduction)', () => {
 
         const testVoices = [{ name: 'Voice A', id: 'a' }];
         await dispatcher.dispatch(IncomingCommand.VOICES, {
-            neuralVoices: testVoices
+            neural: testVoices
         });
 
         expect(store.getState()?.availableVoices?.neural).toEqual(testVoices);

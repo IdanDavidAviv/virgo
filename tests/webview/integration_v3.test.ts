@@ -621,7 +621,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
 
             await dispatcher.dispatch(IncomingCommand.VOICES, {
                 voices: MOCK_VOICES,
-                neuralVoices: []
+                neural: []
             });
 
             const container = document.getElementById('voice-list-container')!;
@@ -637,7 +637,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
 
             await dispatcher.dispatch(IncomingCommand.VOICES, {
                 voices: MOCK_VOICES,
-                neuralVoices: []
+                neural: []
             });
 
             const searchInput = document.getElementById('voice-search') as HTMLInputElement;
@@ -664,7 +664,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
 
             await dispatcher.dispatch(IncomingCommand.VOICES, {
                 voices: VOICES_WITH_ID,
-                neuralVoices: []
+                neural: []
             });
 
             const firstVoice = document.getElementById('voice-list-container')!.querySelector('.voice-item') as HTMLElement;
@@ -715,7 +715,7 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
         it('T7.4 — VOICES command updates availableVoices in store', async () => {
             await dispatcher.dispatch(IncomingCommand.VOICES, {
                 voices: [{ name: 'LocalVoice', lang: 'en' }],
-                neuralVoices: [{ name: 'NeuralVoice', lang: 'en' }],
+                neural: [{ name: 'NeuralVoice', lang: 'en' }],
                 engineMode: 'local'
             });
             const voices = store.getState()?.availableVoices;
