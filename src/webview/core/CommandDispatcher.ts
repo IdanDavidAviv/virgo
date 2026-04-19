@@ -206,11 +206,13 @@ export class CommandDispatcher {
         break;
 
       case IncomingCommand.VOICES:
+        console.log(`[Dispatcher] 🔊 VOICES Packet Received (Local: ${data.voices?.length}, Neural: ${data.neural?.length})`);
         store.patchState({
           availableVoices: {
             local: data.voices || [],
-            neural: data.neuralVoices || []
+            neural: data.neural || []
           },
+          isLoadingVoices: false, // Release the manual refresh lock
           ...(data.selectedVoice && { selectedVoice: data.selectedVoice }),
           ...(data.engineMode && { engineMode: data.engineMode })
         });

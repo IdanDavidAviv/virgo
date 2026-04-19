@@ -265,6 +265,12 @@ export class WebviewStore {
     // 3. Change detection
     const changedKeys = Object.keys(activePatch).filter(key => !this.isEqual((activePatch as any)[key], (this.state as any)[key]));
     const hasChanges = changedKeys.length > 0;
+
+    // [SURGICAL TELEMETRY] Log transitions of the voice loading lock
+    if ('isLoadingVoices' in activePatch && activePatch.isLoadingVoices !== this.state.isLoadingVoices) {
+      console.log(`[WebviewStore] 🔊 isLoadingVoices: ${this.state.isLoadingVoices} -> ${activePatch.isLoadingVoices}`);
+    }
+
     if (!hasChanges && wasHydrated) {
       return;
     }

@@ -126,14 +126,6 @@ export class PlaybackController {
             this.handleSynthesisReady(data.cacheKey, data.intentId);
         });
 
-        client.onCommand<any>(IncomingCommand.VOICES, (data) => {
-            store.patchState({
-                availableVoices: {
-                    local: data.localVoices || [],
-                    neural: data.neuralVoices || []
-                }
-            });
-        });
 
         // --- IPC & LOGIC HELPERS ---
 
