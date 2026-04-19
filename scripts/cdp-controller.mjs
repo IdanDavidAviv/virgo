@@ -211,75 +211,80 @@ async function findDevHostPage(browser) {
  *   2. A separate top-level page (if in certain panel/mode states).
  */
 async function findWebviewFrame(browser, verbose = false, maxRetries = 3) {
-  if (cachedWebviewFrame && !cachedWebviewFrame.isDetached()) {return cachedWebviewFrame;}
+  if (cachedWebviewFrame && !cachedWebviewFrame.isDetached()) { return cachedWebviewFrame; }
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const allPages = await getAllPages(browser);
     
-    // [SOVEREIGNTY] Prioritize Dev Host targets in the discovery pass.
-  // We want to avoid accidentally talking to the main editor's webview.
-  allPages.sort((a, b) => {
-    const isADev = a.url.includes('extensionDevelopmentPath') || a.title.includes('Extension Development Host');
-    const isBDev = b.url.includes('extensionDevelopmentPath') || b.title.includes('Extension Development Host');
-    if (isADev && !isBDev) {return -1;}
-    if (!isADev && isBDev) {return 1;}
-    return 0;
-  });
+    // [SOVEREIGNTY] Prioritize Dev Host targets
+    allPages.sort((a, b) => {
+      const isADev = a.url.includes('extensionDevelopmentPath') || a.title.includes('Extension Development Host');
+      const isBDev = b.url.includes('extensionDevelopmentPath') || b.title.includes('Extension Development Host');
+      if (isADev && !isBDev) { return -1; }
+      if (!isADev && isBDev) { return 1; }
+      return 0;
+    });
 
-  if (verbose) {console.log(`[CDP] 🔍 Scanning ${allPages.length} top-level targets for Read Aloud webview (Dev-First)...`);}
+    if (verbose) { console.log(`[CDP] 🔍 Scanning ${allPages.length} targets for Read Aloud webview (Parallel Pass)...`); }
 
-  // [v2.3.2] Multi-Pass Discovery with recursive frame scanning
-  for (const { page, title } of allPages) {
-    const frames = page.frames();
-    if (verbose) {console.log(`  [Page] "${title}" (${frames.length} frames)`);}
-    for (const f of frames) {
-      if (f.isDetached()) {continue;}
+    // Collect all unique frames across all pages
+    const frames = [];
+    for (const { page } of allPages) {
+      frames.push(...page.frames().filter(f => !f.isDetached()));
+    }
+
+    // [SOVEREIGNTY] Pass 1: Authoritative Store Check (Parallel)
+    const storeProbes = frames.map(async f => {
       try {
-        const url = f.url();
-        if (verbose) {console.log(`    [Frame] ${url.substring(0, 80)}...`);}
-
-        // [SOVEREIGNTY] Exclude system webviews (Media Preview, Markdown Preview, etc.)
-        const isSystem = url.includes('extensionId=vscode.') || url.includes('extensionId=ms-vscode.');
-        if (isSystem) {
-          if (verbose) {console.log(`      ⏭ Skipping System Webview`);}
-          continue;
-        }
-
-        // [SOVEREIGNTY] The debug store is the most authoritative marker
         const hasStore = await f.evaluate(() => typeof window.__debug?.store?.getState === 'function').catch(() => false);
-        if (hasStore) {
-          if (verbose) {console.log(`      🎯 MATCH! Pass 1 (Debug Store)`);}
-          cachedWebviewFrame = f;
-          return f;
-        }
+        return { frame: f, match: hasStore, tier: 1 };
+      } catch { return { frame: f, match: false }; }
+    });
 
-        // [SOVEREIGNTY] Fallback to bootstrap config
+    const tier1Results = await Promise.all(storeProbes);
+    const tier1Match = tier1Results.find(r => r.match)?.frame;
+    if (tier1Match) {
+      if (verbose) { console.log(`      🎯 MATCH! Tier 1 (Debug Store) detected.`); }
+      cachedWebviewFrame = tier1Match;
+      return tier1Match;
+    }
+
+    // [SOVEREIGNTY] Pass 2: Bootstrap Config Check (Parallel)
+    const configProbes = frames.map(async f => {
+      try {
         const hasConfig = await f.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__ === 'object').catch(() => false);
-        if (hasConfig) {
-          if (verbose) {console.log(`      🎯 MATCH! Pass 2 (Config Probe)`);}
-          cachedWebviewFrame = f;
-          return f;
-        }
+        return { frame: f, match: hasConfig, tier: 2 };
+      } catch { return { frame: f, match: false }; }
+    });
 
-        // [SOVEREIGNTY] Final fallback: URL heuristic (ONLY for webviews)
-        if (url.startsWith('vscode-webview://') && (title.includes('readme-preview-read-aloud') || url.includes('readme-preview-read-aloud'))) {
-          if (verbose) {console.log(`      📍 MATCH! Pass 4 (URL Heuristic: "${url}")`);}
-          cachedWebviewFrame = f;
-          return f;
-        }
-      } catch (e) {
-        if (verbose) {console.log(`    [Frame] ⚠ Probe error: ${e.message}`);}
+    const tier2Results = await Promise.all(configProbes);
+    const tier2Match = tier2Results.find(r => r.match)?.frame;
+    if (tier2Match) {
+      if (verbose) { console.log(`      🎯 MATCH! Tier 2 (Config Probe) detected.`); }
+      cachedWebviewFrame = tier2Match;
+      return tier2Match;
+    }
+
+    // [SOVEREIGNTY] Pass 3: URL Heuristic Fallback (Serial, safe)
+    for (const f of frames) {
+      const url = f.url();
+      const isSystem = url.includes('extensionId=vscode.') || url.includes('extensionId=ms-vscode.');
+      if (isSystem) {continue;}
+
+      if (url.startsWith('vscode-webview://') && url.includes('readme-preview-read-aloud')) {
+        if (verbose) { console.log(`      📍 MATCH! Tier 3 (URL Heuristic: "${url.substring(0, 60)}...")`); }
+        cachedWebviewFrame = f;
+        return f;
       }
     }
-  }
 
     if (attempt < maxRetries) {
-      if (verbose) {console.log(`[CDP] ⏳ Discovery attempt ${attempt + 1} failed. Retrying in 800ms...`);}
+      if (verbose) { console.log(`[CDP] ⏳ Discovery attempt ${attempt + 1} failed. Retrying in 800ms...`); }
       await new Promise(r => setTimeout(r, 800));
     }
   }
 
-  if (verbose) {console.log('[CDP] ✗ No matching webview frame found across all targets.');}
+  if (verbose) { console.log('[CDP] ✗ No matching webview frame found across all targets.'); }
   return null;
 }
 
@@ -1137,7 +1142,13 @@ async function runShell() {
       console.log(`  Context [${i}]: ${pCount} pages`);
       for (const [j, p] of ctx.pages().entries()) {
         const title = await p.title().catch(() => 'Untitled');
+        const frames = p.frames();
         console.log(`    Page [${j}]: "${title}" -> ${p.url().slice(0, 100)}`);
+        for (const [k, f] of frames.entries()) {
+          const isCached = cachedWebviewFrame && f === cachedWebviewFrame;
+          const url = f.url().slice(0, 80);
+          console.log(`      └─ [${k}] ${isCached ? '⭐ [ACTIVE] ' : ''}${url}...`);
+        }
       }
     }
     console.log('');
@@ -1474,21 +1485,54 @@ async function runShell() {
     console.log('');
   };
 
-  const shellEval = async (expr) => {
-    if (!expr) { console.log('[SHELL] Usage: eval <JS expression>'); return; }
+  const shellEval = async (input) => {
+    if (!input) { console.log('[SHELL] Usage: eval [index|@fragment] <JS expression>'); return; }
+    
     const b = await getbrowser();
-    const frame = await findWebviewFrame(b);
+    let frame = null;
+    let expression = input;
+
+    const parts = input.split(' ');
+    if (parts.length > 1) {
+      const target = parts[0];
+      if (!isNaN(parseInt(target))) {
+        // Index targeting
+        const idx = parseInt(target);
+        const devHost = await findDevHostPage(b);
+        if (devHost) {
+          frame = devHost.frames()[idx];
+          expression = parts.slice(1).join(' ');
+        }
+      } else if (target.startsWith('@')) {
+        // Fragment targeting
+        const frag = target.substring(1);
+        const allPages = await getAllPages(b);
+        for (const { page } of allPages) {
+          frame = page.frames().find(f => f.url().includes(frag));
+          if (frame) {
+            expression = parts.slice(1).join(' ');
+            break;
+          }
+        }
+      }
+    }
+
+    if (!frame) {
+      frame = await findWebviewFrame(b);
+    }
+
     if (!frame) {
       console.log('[SHELL] ⚠ No Read Aloud webview frame found.');
-      console.log('[SHELL]   Make sure the dev host is running and the Read Aloud panel is open.');
-      console.log('[SHELL]   Try: exec readme-preview-read-aloud.show-dashboard');
-      console.log('[SHELL]   Then run: frames   (to see all frames in the dev host)');
       return;
     }
+
     try {
       const result = await frame.evaluate((e) => {
-        try { return JSON.stringify(eval(e), null, 2); } catch (err) { return `ERROR: ${err.message}`; }
-      }, expr);
+        try { 
+          const val = eval(e);
+          return JSON.stringify(val, (k,v) => typeof v === 'undefined' ? 'undefined' : v, 2); 
+        } catch (err) { return `ERROR: ${err.message}`; }
+      }, expression);
       console.log('[SHELL] 🔬 Result:');
       console.log(result);
     } catch (err) {
@@ -1678,6 +1722,8 @@ async function runShell() {
             break;
           case 'sitrep': await shellSitrep(); break;
           case 'close': await cleanupAndExit(0); break;
+          case 'targets': await shellTargets(); break;
+          case 'pages': await shellPages(); break;
           case 'cleanup-all': 
             console.log('[SHELL] 🧹 Initiating Global Graceful Cleanup...');
             await shellScanDevHosts(); // Update PIDs

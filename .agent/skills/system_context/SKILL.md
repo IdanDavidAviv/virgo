@@ -19,7 +19,7 @@ description: Architectural map and development guidelines for the Read Aloud ext
 
 | Skill | Governs | Last Updated |
 |---|---|---|
-| [`system_context`](../system_context/SKILL.md) | Architectural map, subsystem ownership, synchronization protocols | 2026-04-12 (v2.12.0) |
+| [`system_context`](../system_context/SKILL.md) | Architectural map, subsystem ownership, synchronization protocols | 2026-04-19 (v2.4.2+) |
 | [`loom_meta_governance`](../loom_meta_governance/artifacts/SKILL.md) | **Tier-0** Universal Agent OS / Medium Tier Management | 2026-04-12 |
 | [`startup_orchestration`](../startup_orchestration/SKILL.md) | Boot sequence, Pulse graph, DPG, Phase 1–3 dependencies | 2026-04-10 |
 | [`autoplay_orchestration`](../autoplay_orchestration/SKILL.md) | Playback pipeline, pre-fetch, neural laws, intent baton | 2026-04-09 |
@@ -248,11 +248,12 @@ A long-running Node.js process that maintains a single CDP connection to the run
 | `launch` | Triggers F5 in the main editor, waits for `VOICE_SCAN` activation signal |
 | `exec <cmd>` | Dispatches a VS Code command palette action (prefixed with `>`) to the **Dev Host** workbench |
 | `frames` | Lists all CDP frames in the dev host (diagnostic — identifies webview targets) |
-| `eval <expr>` | Executes JS in the live Read Aloud webview (`fake.html`) frame |
+| `targets` / `pages` | Lists all active CDP targets and pages across the browser instance |
+| `eval [target] <expr>` | Executes JS in the webview. [target] can be an index (`eval 1 ...`) or a URL fragment (`eval @fragment ...`) |
 | `close` | 3-tier graceful shutdown: Polite → `window.close()` → Surgical PID kill |
 | `exit` | Terminates the REPL process itself |
 
-**VS Code Two-Frame Architecture**: VS Code webviews are sandboxed iframes inside the workbench renderer. They never appear as separate CDP top-level targets. The controller traverses child frames of the dev host page, preferring the `vscode-webview://.../fake.html` frame — where extension HTML is injected.
+**VS Code Two-Frame Architecture**: VS Code webviews are sandboxed iframes inside the workbench renderer. They never appear as separate CDP top-level targets. The controller uses **Parallel Sovereign Probing** (scanning Store, Config, and URL markers) to traverse child frames of the dev host page, preferring the `vscode-webview://.../fake.html` frame.
 
 ### 6.2 `window.__debug` — Live Singleton Inspector
 
@@ -388,8 +389,12 @@ To ensure playback reliability despite the inherent instability of internet-base
 
 ### 9.6 CDP Automation Invariants (Shell Sovereignty)
 - **Locking**: The `cdp-controller.mjs` uses `.cdp_shell.lock` (in project root). ONLY ONE instance can be active.
+- **Parallel Sovereign Probing**: If standard discovery fails, the shell uses a fallback hierarchy:
+    1. **Store Probe**: Checking for `window.__debug.store`.
+    2. **Config Probe**: Checking for `__BOOTSTRAP_CONFIG__`.
+    3. **URL Probe**: Matching `vscode-webview://` fragments.
 - **Cleanup (Sovereign Exit)**: 
     - Always use the `exit` or `quit` command via `send_command_input` to ensure the lock file is removed.
     - **Verification**: After exit, confirmed that the lock file is GONE via `list_dir`.
 - **Connection**: Parallel CDP connections to the same port (9222) will cause SSE `429` (Too Many Requests) or target detachment.
-- **Protocol**: If the shell hangs, manually delete `scripts/.cdp-shell.lock` and `kill` the Node process.
+- **Protocol**: If the shell hangs, manually delete `.cdp_shell.lock` and `kill` the Node process.
