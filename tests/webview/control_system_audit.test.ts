@@ -210,6 +210,7 @@ describe('Control System Audit (Reproduction)', () => {
         // 1. MUST set intent to PLAYING otherwise Zombie Guard blocks it
         engine.ensureAudioContext();
         const controller = (await import('../../src/webview/playbackController')).PlaybackController.getInstance();
+        controller.userInteracted(); // [v2.3.2] Unlock the Autoplay Gate
         controller.handleSync({ isPlaying: true, isPaused: false } as any);
         
         await dispatcher.dispatch(IncomingCommand.PLAY_AUDIO, {
