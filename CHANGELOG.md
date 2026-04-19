@@ -7,6 +7,16 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.4.3] - 2026-04-19
+
+### Fixed
+- **UI Integrity Restoration**: Reverted unauthorized styling and string changes to maintain design consistency.
+- **Action Alignment**: Restored high-fidelity alignment for settings action buttons.
+
+### Hardened
+- **CDP Diagnostic Pipeline**: Optimized lifecycle controller for robust webview discovery and reliable character transmission.
+- **Neural Voice Discovery**: Stabilized `VoiceManager` via exponential backoff and `PlaybackEngine` handshake gating to prevent cold-boot race conditions.
+
 ## [2.4.2] - 2026-04-12
 
 ### Added
