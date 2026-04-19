@@ -87,27 +87,23 @@ body {
 
 .popover-header-actions {
     display: flex;
-    gap: 8px;
+    gap: 4px;
     margin-left: auto;
-    flex-wrap: nowrap;
-    align-items: center;
 }
 
 .settings-btn-icon {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--border);
-    padding: 3px 8px;
+    background: none;
+    border: none;
+    padding: 2px 6px;
     cursor: pointer;
     color: #64748b;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
-    font-size: 8px;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    border-radius: 6px;
+    font-size: 15px;
+    opacity: 0.7;
 }
 
 .settings-btn-icon:hover {
