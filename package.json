@@ -287,16 +287,12 @@
     "release:minor": "node .agent/skills/version_sentinel/scripts/manage_version.js --bump minor && npm run release",
     "release:major": "node .agent/skills/version_sentinel/scripts/manage_version.js --bump major && npm run release",
     "onboard": "node scripts/read_aloud_setup.js",
-    "cdp:targets": "node scripts/cdp-controller.mjs list-targets",
     "cdp:shell": "node scripts/cdp-controller.mjs shell",
-    "cdp:launch-dev-host": "node scripts/cdp-controller.mjs launch-dev-host",
-    "cdp:wait-for-devhost": "node scripts/cdp-controller.mjs wait-for-devhost",
-    "cdp:close-dev-host": "node scripts/cdp-controller.mjs close-dev-host",
-    "cdp:kill-dev-host": "node scripts/cdp-controller.mjs kill-dev-host",
-    "cdp:observe": "node scripts/cdp-controller.mjs observe-cycle",
-    "cdp:eval-webview": "node scripts/cdp-controller.mjs eval-webview",
-    "cdp:probe-cycle": "node scripts/cdp-controller.mjs probe-cycle",
-    "dev:full-cycle": "npm run compile && node scripts/cdp-controller.mjs launch-dev-host"
+    "cdp:status": "node scripts/cdp-controller.mjs status",
+    "cdp:targets": "node scripts/cdp-controller.mjs targets",
+    "cdp:launch": "node scripts/cdp-controller.mjs launch",
+    "cdp:cleanup": "node scripts/cdp-controller.mjs cleanup-all",
+    "dev:full-cycle": "npm run compile && npm run cdp:launch"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",

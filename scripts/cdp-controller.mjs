@@ -110,31 +110,38 @@ async function getAllPages(browser) {
 
 async function findSovereignTarget(browser, type, verbose = false) {
   const allPages = await getAllPages(browser);
-  if (type === 'workbench') {return allPages.find(p => p.url.includes('workbench.html') && !p.url.includes('extensionDevelopmentPath'))?.page || null;}
-  if (type === 'host') {return allPages.find(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'))?.page || null;}
+  if (type === 'workbench') { return allPages.find(p => p.url.includes('workbench.html') && !p.url.includes('extensionDevelopmentPath'))?.page || null; }
+  if (type === 'host') { return allPages.find(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'))?.page || null; }
   if (type === 'webview') {
     const frames = [];
-    for (const { page } of allPages) {frames.push(...page.frames().filter(f => !f.isDetached()));}
+    for (const { page } of allPages) {
+      frames.push(...page.frames().filter(f => !f.isDetached()));
+    }
     for (const f of frames) {
       try {
-        if (await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false)) {return f;}
+        if (await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false)) { return f; }
       } catch { }
     }
     for (const f of frames) {
       try {
-        if (await f.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__ === 'object').catch(() => false)) {return f;}
+        if (await f.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__ === 'object').catch(() => false)) { return f; }
       } catch { }
     }
-    for (const f of frames) {if (f.url().startsWith('vscode-webview://') && f.url().includes('readme-preview-read-aloud')) {return f;}}
+    for (const f of frames) {
+      const url = f.url();
+      if (url.startsWith('vscode-webview://')) {
+        return f;
+      }
+    }
   }
   return null;
 }
 
 async function shellDispatch(browser, command, payload = {}) {
   const frame = await findSovereignTarget(browser, 'webview');
-  if (!frame) {throw new Error('READ_ALOUD_WEBVIEW_NOT_FOUND');}
+  if (!frame) { throw new Error('READ_ALOUD_WEBVIEW_NOT_FOUND'); }
   return await frame.evaluate(async ({ cmd, data }) => {
-    if (!window.__debug?.dispatcher?.dispatch) {throw new Error('DISPATCHER_NOT_READY');}
+    if (!window.__debug?.dispatcher?.dispatch) { throw new Error('DISPATCHER_NOT_READY'); }
     return await window.__debug.dispatcher.dispatch(cmd, data);
   }, { cmd: command, data: payload });
 }
@@ -166,7 +173,7 @@ async function gracefulClose(devHostPids, protectedPids = new Set(), browser = n
   }
   await new Promise(r => setTimeout(r, 2000));
   for (const pid of devHostPids) {
-    if (protectedPids.has(pid)) {continue;}
+    if (protectedPids.has(pid)) { continue; }
     try { execSync(`taskkill /T /PID ${pid}`, { stdio: 'ignore' }); } catch { }
   }
 }
@@ -182,9 +189,9 @@ async function runShell() {
 
   const cleanupAndExit = async () => {
     console.log('\n[SHELL] 🔻 Cleanup...');
-    if (tailInterval) {clearInterval(tailInterval);}
-    if (browser) {await browser.close().catch(() => { });}
-    if (existsSync(SHELL_LOCK)) {unlinkSync(SHELL_LOCK);}
+    if (tailInterval) { clearInterval(tailInterval); }
+    if (browser) { await browser.close().catch(() => { }); }
+    if (existsSync(SHELL_LOCK)) { unlinkSync(SHELL_LOCK); }
     process.exit(0);
   };
 
@@ -193,7 +200,7 @@ async function runShell() {
 
   const getbrowser = async (force = false) => {
     try {
-      if (force) {throw new Error();}
+      if (force) { throw new Error(); }
       browser.contexts();
       return browser;
     } catch {
@@ -210,7 +217,7 @@ async function runShell() {
     const frame = await findSovereignTarget(b, 'webview');
 
     console.log('\n╔══════════════════════════════════════════════════════════════╗');
-    console.log('║  SITUATION REPORT (v2.4.6 Hardening)                         ║');
+    console.log('║  SITUATION REPORT (v2.4.7 Sovereignty)                       ║');
     console.log('╚══════════════════════════════════════════════════════════════╝');
     console.log(`  Workbench:    ${workbench ? '✅ READY' : '❌ NOT FOUND'}`);
     console.log(`  Dev Host:     ${host ? '✅ LIVE' : '❌ LAUNCH REQ'}`);
@@ -223,11 +230,11 @@ async function runShell() {
       console.log(`  Webview:      ✅ ${vitals.isHydrated ? 'HYDRATED' : 'WAITING'} | ${vitals.isPlaying ? '▶️ PLAYING' : '⏹️ STOPPED'}`);
       console.log(`  Document:     "${vitals.file}"`);
     } else { console.log(`  Webview:      ❌ NOT DETECTED`); }
-    
+
     // Add PID scan to status
     const pids = Array.from(snapshotAntigravityPids());
     if (pids.length > 0) { console.log(`  Active PIDs:  [${pids.join(', ')}]`); }
-    
+
     console.log('────────────────────────────────────────────────────────────────\n');
   };
 
@@ -251,7 +258,7 @@ async function runShell() {
   };
 
   const shellExec = async (cmd) => {
-    if (!cmd) {return;}
+    if (!cmd) { return; }
     const b = await getbrowser();
     if (cmd.startsWith('readme-preview-read-aloud.') && !cmd.startsWith('>')) {
       try {
@@ -286,7 +293,7 @@ async function runShell() {
       if (frames.length > 1) {
         console.log(`    └─ ${frames.length - 1} sub-frames:`);
         for (const f of frames) {
-          if (f === p.page.mainFrame()) {continue;}
+          if (f === p.page.mainFrame()) { continue; }
           console.log(`       - ${f.url().substring(0, 80)}...`);
         }
       }
@@ -314,10 +321,10 @@ async function runShell() {
         await shellWaitForReady();
         break;
       case 'verify-state':
-        const v_b = await getbrowser();
-        const v_f = await findSovereignTarget(v_b, 'webview');
-        if (v_f) {
-          const state = await v_f.evaluate(() => JSON.stringify(window.__debug?.store?.getState(), null, 2)).catch(() => 'Error: Store not found');
+        const verifyBrowser = await getbrowser();
+        const verifyFrame = await findSovereignTarget(verifyBrowser, 'webview');
+        if (verifyFrame) {
+          const state = await verifyFrame.evaluate(() => JSON.stringify(window.__debug?.store?.getState(), null, 2)).catch(() => 'Error: Store not found');
           console.log(`[STATE]\n${state}`);
         } else { console.log('[STATE] ❌ No webview.'); }
         break;
@@ -334,6 +341,14 @@ async function runShell() {
           const res = await f.evaluate(e => { try { return JSON.stringify(eval(e), null, 2); } catch (err) { return `ERR: ${err.message}`; } }, arg);
           console.log(`[EVAL] Result:\n${res}`);
         } else { console.log('[EVAL] ❌ No webview.'); }
+        break;
+      case 'eval-host':
+        const hostBrowser = await getbrowser();
+        const h = await findSovereignTarget(hostBrowser, 'host');
+        if (h) {
+          const res = await h.evaluate(e => { try { return JSON.stringify(eval(e), null, 2); } catch (err) { return `ERR: ${err.message}`; } }, arg);
+          console.log(`[EVAL-HOST] Result:\n${res}`);
+        } else { console.log('[EVAL-HOST] ❌ No host.'); }
         break;
       case 'launch':
         const wb = await findSovereignTarget(await getbrowser(), 'workbench');
@@ -354,7 +369,7 @@ async function runShell() {
       case 'help':
         console.log('\n  status         - Situation report\n  targets        - List discovery targets\n  scan           - Show active PIDs\n  wait-for-ready - Poll for hydration\n  refresh        - Reload window + Wait\n  verify-state   - Dump Redux store\n  dispatch       - VS Code command\n  eval           - JS execution\n  launch         - Start Debugging\n  cleanup-all    - Force close all hosts\n  exit           - Close shell\n');
         break;
-      default: if (cmd) {console.log(`Unknown: ${cmd}`);} break;
+      default: if (cmd) { console.log(`Unknown: ${cmd}`); } break;
     }
     rl.prompt();
   });
@@ -364,7 +379,7 @@ async function runShell() {
 
 const flags = {};
 for (let i = 3; i < process.argv.length; i++) {
-  if (process.argv[i] === '--eval' && process.argv[i + 1]) {flags.eval = process.argv[++i];}
+  if (process.argv[i] === '--eval' && process.argv[i + 1]) { flags.eval = process.argv[++i]; }
 }
 
 (async () => {
@@ -409,7 +424,32 @@ for (let i = 3; i < process.argv.length; i++) {
     }
     await b.close();
   }
+  else if (action === 'launch') {
+    const b = await connectToCDP();
+    const wb = await findSovereignTarget(b, 'workbench');
+    if (wb) {
+      console.log('[CDP] Launching Extension Host...');
+      await wb.bringToFront();
+      await wb.keyboard.press('Escape');
+      await new Promise(r => setTimeout(r, 200));
+      await wb.keyboard.press('Control+Shift+P');
+      await new Promise(r => setTimeout(r, 400));
+      await wb.keyboard.type('Debug: Start Debugging', { delay: 20 });
+      await new Promise(r => setTimeout(r, 500));
+      await wb.keyboard.press('Enter');
+      await new Promise(r => setTimeout(r, 500));
+      await wb.keyboard.press('Enter');
+    }
+    await b.close();
+  }
+  else if (action === 'cleanup-all') {
+    const b = await connectToCDP();
+    const mainPids = snapshotAntigravityPids();
+    const hostPids = snapshotAntigravityPids();
+    await gracefulClose(hostPids, mainPids, b);
+    await b.close();
+  }
   else {
-    console.log('Usage: node scripts/cdp-controller.mjs [shell|status|targets|dispatch|eval]');
+    console.log('Usage: node scripts/cdp-controller.mjs [shell|status|targets|dispatch|eval|launch|cleanup-all]');
   }
 })();
