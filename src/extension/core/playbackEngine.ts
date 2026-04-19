@@ -169,18 +169,44 @@ export class PlaybackEngine extends EventEmitter {
      * Neural is only considered 'Viable' if it has been healthy OR if it is degraded 
      * but hasn't yet crossed the 2-minute failure threshold.
      */
+    /**
+     * resetNeuralHealth(): Explicitly restores the engine to HEALTHY state.
+     * Used by VoiceManager during manual refreshes to break 'STALLED' deadlocks.
+     */
+    public resetNeuralHealth() {
+        this.logger(`[NEURAL] ❤️‍🩹 Manual health reset triggered.`);
+        this._neuralHealth = 'HEALTHY';
+        this._lastNeuralSuccessTime = Date.now();
+        this._consecutiveNeuralErrors = 0;
+    }
+
+    /**
+     * isNeuralViable(): Checks if the neural engine is healthy enough to use.
+     * [v2.4.5] Healing Logic: If stalled but > 5 minutes have passed since last failure,
+     * allow a 'Probe' attempt to self-heal.
+     */
     public isNeuralViable(): boolean {
         if (this._neuralHealth === 'HEALTHY') { return true; }
         
         const timeSinceSuccess = Date.now() - this._lastNeuralSuccessTime;
+        
+        // 1. Healing Window (2 Minutes)
         if (timeSinceSuccess < this.NEURAL_FALLBACK_THRESHOLD_MS) {
-            return true; // Still in the 2-minute 'Healing' window
+            return true; 
+        }
+
+        // 2. [v2.4.5] Probe Window: If > 5 minutes passed, allow ONE attempt to see if it's back.
+        const PROBE_THRESHOLD = 300000; // 5 Minutes
+        if (timeSinceSuccess > PROBE_THRESHOLD && this._neuralHealth === 'STALLED') {
+            this.logger(`[NEURAL] 🩺 Probe window opened (>5m). Allowing trial synthesis.`);
+            return true;
         }
 
         if (this._neuralHealth !== 'STALLED') {
             this.logger(`[NEURAL] ☠️ Health downgraded to STALLED (>120s failure).`);
             this._neuralHealth = 'STALLED';
         }
+
         return false;
     }
 

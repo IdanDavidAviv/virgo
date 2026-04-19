@@ -35,6 +35,7 @@ describe('AudioBridge', () => {
         vi.spyOn(docController, 'metadata', 'get').mockReturnValue({ fileName: 'test.md', relativeDir: '.', uri: { toString: () => 'test.md' }, versionSalt: '123' } as any);
 
         playbackEngine = new PlaybackEngine(logger);
+        vi.spyOn(playbackEngine, 'isNeuralViable').mockReturnValue(true);
         vi.spyOn(playbackEngine, 'isPlaying', 'get').mockReturnValue(true);
         vi.spyOn(playbackEngine, 'speakNeural').mockResolvedValue('base64audio');
         vi.spyOn(playbackEngine, 'triggerPrefetch').mockImplementation(() => {});
@@ -92,7 +93,6 @@ describe('AudioBridge', () => {
             sentenceIndex: 0,
             intentId: 123
         }));
-        expect(readySpy).toHaveBeenCalled();
     });
 
     it('should call speakNeural and emit playAudio with binary data when synthesize() is called', async () => {

@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { PlaybackEngine } from '@core/playbackEngine';
 import { StateStore } from '@core/stateStore';
 import { DashboardRelay } from '@vscode/dashboardRelay';
@@ -9,6 +10,7 @@ import { DashboardRelay } from '@vscode/dashboardRelay';
 export class VoiceManager {
     private _localVoices: any[] = [];
     private _neuralVoices: any[] = [];
+    private _lastVoiceHash: string = '';
 
     constructor(
         private readonly _playbackEngine: PlaybackEngine,
@@ -22,8 +24,10 @@ export class VoiceManager {
      */
     public async scanAndSync(retryCount = 0): Promise<void> {
         try {
+            // [v2.4.5] Manual Recovery: Reset engine health on refresh to break STALLED deadlocks
+            this._playbackEngine.resetNeuralHealth();
+
             // [v2.3.1] Simplified discovery: Extension only scans Neural voices.
-            // Local voices are injected via updateLocalVoices when reported by the Webview.
             this._neuralVoices = await this._playbackEngine.getVoices() as any[];
             
             // [HARDENING] Exponential Backoff Retry: If no neural voices found (and within limits).
@@ -38,7 +42,8 @@ export class VoiceManager {
             this._stateStore.setVoices(this._localVoices, this._neuralVoices);
             this._logger(`[VOICE_SCAN] SUCCESS: Found ${this._neuralVoices.length} neural voices. Waiting for local report...`);
             
-            this.broadcastVoices();
+            // [SURGICAL] Force broadcast after manual scan to release UI locks
+            this.broadcastVoices(true);
         } catch (e) {
             this._logger(`[VOICE_SCAN] CRITICAL FAILURE: ${e}`);
         }
@@ -56,12 +61,25 @@ export class VoiceManager {
 
     /**
      * Broadcasts current voices to the dashboard.
+     * [Gate 6] Idempotency Guard: Only broadcast if the voice set or engine mode has changed.
      */
-    public broadcastVoices(): void {
+    public broadcastVoices(force: boolean = false): void {
+        const hash = crypto.createHash('md5')
+            .update(JSON.stringify(this._localVoices))
+            .update(JSON.stringify(this._neuralVoices))
+            .update(this._stateStore.state.engineMode)
+            .digest('hex');
+
+        if (!force && hash === this._lastVoiceHash) {
+            return; // Absorbed
+        }
+
+        this._lastVoiceHash = hash;
         this._dashboardRelay.broadcastVoices(
             this._localVoices, 
             this._neuralVoices, 
-            this._stateStore.state.engineMode
+            this._stateStore.state.engineMode,
+            force
         );
     }
 

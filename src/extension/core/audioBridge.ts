@@ -190,11 +190,17 @@ export class AudioBridge extends EventEmitter {
         
         // [v2.3.1] Autoradiant Routing: Check health-aware viability before choosing engine
         const isNeuralSelected = options.mode === 'neural';
-        const isNeuralViable = this._playbackEngine.isNeuralViable();
+        const isNeuralViable = this._playbackEngine.isNeuralViable;
         const finalMode = (isNeuralSelected && isNeuralViable) ? 'neural' : 'local';
 
-        // neural for rate=1
-        const isNeural = isNeuralSelected && isNeuralViable;
+        // [v2.4.5] Forensic Audit: Log the decision matrix for clarity
+        this._logger(`[BRIDGE] Routing decision: Selected=${options.mode}, Viable=${isNeuralViable} -> Final=${finalMode}`);
+
+        if (isNeuralSelected && !isNeuralViable) {
+            this._logger('[BRIDGE] ☢️ Neural stalled/degraded. Autoradiant Fallback -> LOCAL.');
+        }
+
+        const isNeural = finalMode === 'neural';
         const cacheKey = generateCacheKey(
             sentence, 
             options.voice, 
@@ -202,10 +208,6 @@ export class AudioBridge extends EventEmitter {
             this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
             isNeural
         );
-
-        if (isNeuralSelected && !isNeuralViable) {
-            this._logger('[BRIDGE] ☢️ Neural stalled > 120s. Autoradiant Fallback -> LOCAL.');
-        }
 
         if (finalMode === 'neural') {
             // [SOVEREIGNTY] Tiered Cache Lookup
