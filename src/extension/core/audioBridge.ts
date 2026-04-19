@@ -191,7 +191,7 @@ export class AudioBridge extends EventEmitter {
         // [v2.3.1] Autoradiant Routing: Check health-aware viability before choosing engine
         const isNeuralSelected = options.mode === 'neural';
         const isNeuralViable = this._playbackEngine.isNeuralViable;
-        const finalMode = (isNeuralSelected && isNeuralViable) ? 'neural' : 'local';
+        const finalMode = (isNeuralSelected && isNeuralViable()) ? 'neural' : 'local';
 
         // [v2.4.5] Forensic Audit: Log the decision matrix for clarity
         this._logger(`[BRIDGE] Routing decision: Selected=${options.mode}, Viable=${isNeuralViable} -> Final=${finalMode}`);

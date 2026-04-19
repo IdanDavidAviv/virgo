@@ -23,6 +23,11 @@ The system revolves around the **Sovereign Intent Baton**.
     1. Clear `isSelectingVoice`.
     2. Increment `batchId` (The authoritative commitment).
     3. Resynthesize the entire sequence (invalidating cache) and begin normal continuous playback.
+- **The Browser Interaction Gate (Playback Blocked)**:
+    - **Symptom**: `[WEBVIEW WARN] [Dispatcher] ✋ Playback Blocked: User has not interacted with webview yet.`
+    - **Cause**: Browser security policy (Autoplay) prevents audio until a user gesture (click/keypress) occurs within the webview frame.
+    - **Remediation (Manual)**: The user MUST click the Play button or any part of the webview UI once per session to "un-gate" audio.
+    - **Remediation (Diagnostic)**: Use the **Wake Ritual** via CDP: `dispatch mousedown` or the `prime` command. This programmatically satisfies the user-gesture requirement for headless testing.
 - **Execution Phases**:
     - **Call**: Extension is notified of the intent.
     - **Synthesis**: Extension prepares the audio.

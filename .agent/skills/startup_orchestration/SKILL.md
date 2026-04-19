@@ -173,7 +173,7 @@ triggers a new probe ~50ms later, outside the now-closed window.
 **Law:** The coalesce window MUST be held **open for the full lifetime of the active session**,
 not just during the initial handshake. It MUST only be cleared when the SSE connection closes
 (req `close` event). New connections arriving while a session is alive are a signal that the
-existing session is still healthy — they MUST be absorbed, not evicted.
+existing session is still healthy — they MUST be absorbed (429), not evicted.
 
 ```typescript
 // REQUIRED pattern in the MCP bridge server
@@ -181,7 +181,8 @@ private _activeSession: boolean = false;   // Replaces short-lived _isHandshakin
 
 private onSseConnect(req: Request, res: Response) {
     if (this._activeSession) {
-        // A live session exists — absorb the probe, do not evict or spawn
+        // A live session exists — absorb the probe (429), do not evict or spawn.
+        // This solves the 'Handshake Storm' caused by aggressive client retries.
         res.status(429).end();
         return;
     }
@@ -436,4 +437,3 @@ To refresh the dev environment without parallel process conflicts:
 1.  **Stop**: Send `Shift+F5` (Stop Debugging) to the Main Editor.
 2.  **Poll**: Poll for the [Extension Development Host] window to disappear.
 3.  **Start**: Send `F5` (Start Debugging) once the environment is clear.
-
