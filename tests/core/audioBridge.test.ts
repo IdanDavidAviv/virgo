@@ -77,6 +77,26 @@ describe('AudioBridge', () => {
         expect(playbackEngine.speakNeural).not.toHaveBeenCalled();
     });
 
+    it('should fallback to LOCAL mode when NEURAL is requested but not viable (Autoradiant Fallback)', async () => {
+        const speakLocalSpy = vi.fn();
+        audioBridge.on('speakLocal', speakLocalSpy);
+        
+        // Force neural stall
+        vi.spyOn(playbackEngine, 'isNeuralViable').mockReturnValue(false);
+        vi.spyOn(playbackEngine, 'getCached').mockReturnValue(null);
+
+        await audioBridge.start(0, 0, options);
+
+        // Verify routing decision
+        expect(logger).toHaveBeenCalledWith(expect.stringContaining('Falling back to LOCAL'));
+        
+        // Verify local speech was triggered instead of neural
+        expect(speakLocalSpy).toHaveBeenCalledWith(expect.objectContaining({
+            text: 'Sentence 1',
+            voiceId: 'NeuralVoice' // Still uses the requested voice name for local search
+        }));
+    });
+
     it('should emit playAudio with binary data on extension cache hit (Push-on-Hit Architecture)', async () => {
         const playAudioSpy = vi.fn();
         const readySpy = vi.fn();

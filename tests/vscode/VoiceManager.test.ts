@@ -22,7 +22,8 @@ describe('VoiceManager', () => {
         mockPlaybackEngine = {
             getVoices: vi.fn().mockResolvedValue([
                 { name: 'Neural Voice 1' }
-            ])
+            ]),
+            resetNeuralHealth: vi.fn()
         };
         mockStateStore = {
             state: { engineMode: 'local' },
@@ -57,7 +58,8 @@ describe('VoiceManager', () => {
         expect(mockDashboardRelay.broadcastVoices).toHaveBeenCalledWith(
             [],
             [{ name: 'Neural Voice 1' }],
-            'local'
+            'local',
+            true
         );
     });
 

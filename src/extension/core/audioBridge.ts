@@ -84,7 +84,7 @@ export class AudioBridge extends EventEmitter {
                 }
             }, this._pushDelayMs);
         });
-        
+
         this._playbackEngine.on('synthesis-failed', (payload: { cacheKey: string, error: string, intentId: number }) => {
             const state = this._stateStore.state;
             this._logger(`[BRIDGE] synthesis_failed | cacheKey: ${payload.cacheKey} | Error: ${payload.error}`);
@@ -117,7 +117,7 @@ export class AudioBridge extends EventEmitter {
     public async start(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions, previewOnly: boolean = false, intentId?: number, batchId?: number) {
         // [SOVEREIGNTY] Generate new IDs if none provided (e.g. extension host calls)
         const finalIntent = intentId !== undefined ? intentId : this._playbackEngine.playbackIntentId + 1;
-        
+
         // [COMMITMENT_GATE] Detect drift between user choice and latched production settings
         const isVoiceDrift = options.voice !== this._latchedVoiceId && this._latchedVoiceId !== null;
         const isRateDrift = options.rate !== this._latchedRate && this._latchedRate !== undefined;
@@ -131,11 +131,11 @@ export class AudioBridge extends EventEmitter {
         // [SOVEREIGNTY] Adopt the intent provided from the gesture authority
         this._playbackEngine.adoptIntent(finalIntent);
         this._stateStore.setPlaybackIntentId(finalIntent);
-        
+
         // If it's a new manual start from the host (no IDs provided), or if commitment threshold crossed, we tick the batchId.
         // If it's a resume or webview-driven start, we trust the provided/current batch.
         const resolutionBatch = (intentId === undefined && batchId === undefined) || isCommitmentThresholdCrossed ? finalBatch + 1 : finalBatch;
-        
+
         if (isCommitmentThresholdCrossed) {
             this._logger(`[BRIDGE] Commitment Threshold crossed: v:${this._latchedVoiceId}->${options.voice}, r:${this._latchedRate}->${options.rate}. Incrementing batchId to ${resolutionBatch}.`);
         }
@@ -187,24 +187,23 @@ export class AudioBridge extends EventEmitter {
         this._stateStore.setPreviewing(previewOnly);
 
         const sentence = chapter.sentences[sentenceIndex];
-        
-        // [v2.3.1] Autoradiant Routing: Check health-aware viability before choosing engine
-        const isNeuralSelected = options.mode === 'neural';
-        const isNeuralViable = this._playbackEngine.isNeuralViable;
-        const finalMode = (isNeuralSelected && isNeuralViable()) ? 'neural' : 'local';
 
-        // [v2.4.5] Forensic Audit: Log the decision matrix for clarity
+        // [v2.4.5] Autoradiant Routing: Tiered Engine Selection
+        const isNeuralSelected = options.mode === 'neural';
+        const isNeuralViable   = this._playbackEngine.isNeuralViable();
+        const finalMode        = (isNeuralSelected && isNeuralViable) ? 'neural' : 'local';
+
         this._logger(`[BRIDGE] Routing decision: Selected=${options.mode}, Viable=${isNeuralViable} -> Final=${finalMode}`);
 
         if (isNeuralSelected && !isNeuralViable) {
-            this._logger('[BRIDGE] ☢️ Neural stalled/degraded. Autoradiant Fallback -> LOCAL.');
+            this._logger('[BRIDGE] ☢️ Neural stalled/degraded. Falling back to LOCAL.');
         }
 
         const isNeural = finalMode === 'neural';
         const cacheKey = generateCacheKey(
-            sentence, 
-            options.voice, 
-            options.rate, 
+            sentence,
+            options.voice,
+            options.rate,
             this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
             isNeural
         );
@@ -360,7 +359,7 @@ export class AudioBridge extends EventEmitter {
 
         // [HARDENING] Prevent Batch 0 leakage
         if (finalBatch === 0) { finalBatch = 1; }
-        
+
         this._playbackEngine.adoptIntent(finalIntent);
         this._stateStore.setPlaybackIntentId(finalIntent);
 
@@ -488,7 +487,7 @@ export class AudioBridge extends EventEmitter {
         // The Webview will handle the utterance and report completion via 'playbackFinished' if needed,
         // or we can rely on the existing 'next' logic if we want extension-side sequencing.
         this._logger(`[BRIDGE] >> SPEAK_LOCAL: "${sentence.substring(0, 30)}..."`);
-        
+
         this._emitWithIntent('speakLocal', {
             text: sentence,
             voiceId: options.voice,
@@ -519,13 +518,13 @@ export class AudioBridge extends EventEmitter {
 
             // 1. Target Window: [Current-1, Current+1, Current+2]
             // Note: Current is already handled by the PlaybackEngine start/next logic.
-            
+
             const curC = currentState.currentChapterIndex;
             const curS = currentState.currentSentenceIndex;
 
             // - Previous
             const prev = this._sequenceManager.getPrevious(curC, curS, chapters);
-            if (prev) {targets.push({ cIdx: prev.chapterIndex, sIdx: prev.sentenceIndex });}
+            if (prev) { targets.push({ cIdx: prev.chapterIndex, sIdx: prev.sentenceIndex }); }
 
             // - Next +1
             const next1 = this._sequenceManager.getNext(curC, curS, chapters);
@@ -533,7 +532,7 @@ export class AudioBridge extends EventEmitter {
                 targets.push({ cIdx: next1.chapterIndex, sIdx: next1.sentenceIndex });
                 // - Next +2
                 const next2 = this._sequenceManager.getNext(next1.chapterIndex, next1.sentenceIndex, chapters);
-                if (next2) {targets.push({ cIdx: next2.chapterIndex, sIdx: next2.sentenceIndex });}
+                if (next2) { targets.push({ cIdx: next2.chapterIndex, sIdx: next2.sentenceIndex }); }
             }
 
             // 2. Trigger Deduplicated Synthesis
