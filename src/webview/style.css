@@ -91,7 +91,7 @@ body {
     margin-left: auto;
 }
 
-.btn-icon {
+.settings-btn-icon {
     background: none;
     border: none;
     padding: 2px 6px;
@@ -106,7 +106,7 @@ body {
     opacity: 0.7;
 }
 
-.btn-icon:hover {
+.settings-btn-icon:hover {
     opacity: 1;
     background: rgba(255, 255, 255, 0.05);
     color: #f1f5f9;
@@ -810,6 +810,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
     min-width: 42px; /* Ensure a consistent touch/click target size */
     box-sizing: border-box;
 }
+
 
 
 .ctrl-btn:hover {
@@ -1834,7 +1835,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
     padding-bottom: 12px;
 }
 
-.popover-header h3 {
+.popover-title {
     font-size: 10px;
     font-weight: 800;
     letter-spacing: 0.1em;
