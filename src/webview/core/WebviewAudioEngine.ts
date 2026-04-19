@@ -183,10 +183,10 @@ export class WebviewAudioEngine {
     }
   }
 
-  public ensureAudioContext(): void {
-    if (this._isPrimed) {return;}
+  public ensureAudioContext(): Promise<void> {
+    if (this._isPrimed) {return Promise.resolve();}
     this._audio.muted = true;
-    this._audio.play().then(() => {
+    return this._audio.play().then(() => {
       this._isPrimed = true;
       this._audio.muted = false;
       console.log('[AUDIO] 🔓 Primed');

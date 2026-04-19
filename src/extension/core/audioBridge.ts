@@ -227,8 +227,8 @@ export class AudioBridge extends EventEmitter {
                 });
 
                 // If it's in Extension cache, we already pushed data.
-                // If only in Webview, emitting 'synthesisReady' will trigger the Pull handshake in the webview.
-                this._emitWithIntent('synthesisReady', { cacheKey });
+                // If only in Webview, emitting 'playAudio' with data:'' will trigger the Pull handshake in the webview.
+                // [DE-DUPLICATION] synthesisReady was redundant here and caused double-playback.
             } else {
                 this._logger(`[BRIDGE] Sovereign Cache MISS: ${cacheKey}. Triggering fresh synth/fetch flow.`);
                 this._stateStore.setLoadType('synth');

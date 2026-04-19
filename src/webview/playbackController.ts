@@ -31,12 +31,30 @@ export class PlaybackController {
     private readonly TRANSITION_WINDOW_MS = 500; // [UI] 500ms window to ignore index syncs after a jump
     private synthesizingKeys: Set<string> = new Set();
     private readonly MAX_CONCURRENT_SYNTHESIS = 3;
-    /** [AUTOPLAY GUARD] True only after the user has explicitly clicked Play/Jump. */
+    /** [AUTOPLAY GUARD] True only after the user has explicitly clicked Play/Jump or interacted with the webview. */
     private _userHasInteracted: boolean = false;
+
+    public get userHasInteracted(): boolean {
+        return this._userHasInteracted;
+    }
     private constructor() {
         this.setupListeners();
         // [PASSIVE BINDING] Controllers bind to the Engine's event stream
         WebviewAudioEngine.getInstance().onEvent = (e) => this.handleEngineEvent(e);
+
+        // [v2.3.2] AUTOPLAY PRIMING: Use the first click/mousedown anywhere in the webview to unlock audio.
+        if (typeof window !== 'undefined') {
+            const prime = () => {
+                console.log('[PlaybackController] 🔑 User gesture detected. Unlocking Audio Engine...');
+                this.userInteracted();
+                window.removeEventListener('mousedown', prime);
+                window.removeEventListener('touchstart', prime);
+                window.removeEventListener('keydown', prime);
+            };
+            window.addEventListener('mousedown', prime);
+            window.addEventListener('touchstart', prime, { passive: true });
+            window.addEventListener('keydown', prime);
+        }
 
         // [v2.3.1] Authoritative Voice Discovery
         if (typeof window !== 'undefined' && window.speechSynthesis) {
@@ -78,6 +96,16 @@ export class PlaybackController {
     public dispose(): void {
         this.clearWatchdog();
         WebviewAudioEngine.getInstance().onEvent = undefined;
+    }
+
+    public userInteracted(): void {
+        if (!this._userHasInteracted) {
+            this._userHasInteracted = true;
+            // Prime the engine immediately on interaction
+            WebviewAudioEngine.getInstance().ensureAudioContext().catch(err => {
+                console.warn('[PlaybackController] ⚠️ Failed to prime AudioContext on interaction:', err);
+            });
+        }
     }
 
     public clearIntent(): void {

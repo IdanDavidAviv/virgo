@@ -111,9 +111,18 @@ export class CommandDispatcher {
 
         if (data?.data) {
           // Extension provided raw data (Synthesis Hit or Extension Cache Hit)
+          if (!playback.userHasInteracted) {
+            console.warn('[Dispatcher] ✋ Playback Blocked: User has not interacted with webview yet. Ingesting but suppressing play.');
+            audioEngine.ingestData(data.cacheKey, data.data, intentId);
+            return;
+          }
           audioEngine.playFromBase64(data.data, data.cacheKey, intentId, data.bakedRate);
         } else if (data?.cacheKey) {
           // Hint received: try local cache first
+          if (!playback.userHasInteracted) {
+             console.warn(`[Dispatcher] ✋ Playback Blocked: Suppression for ${data.cacheKey}.`);
+             return;
+          }
           const success = await audioEngine.playFromCache(data.cacheKey, intentId, data.bakedRate);
           if (!success) {
             // [HARDENING] If local cache misses, the bridge might still have it (e.g., Prefetch Hit).
@@ -133,6 +142,10 @@ export class CommandDispatcher {
 
       case IncomingCommand.SYNTHESIS_READY:
         console.log('[Dispatcher] SYNTHESIS_READY Received', data);
+        if (!playback.userHasInteracted) {
+           console.warn('[Dispatcher] ✋ SYNTHESIS_READY suppressed — awaiting interaction.');
+           return;
+        }
         // Bridge reports audio is ready in its cache. Pull it if we don't have it.
         const hasLocal = await audioEngine.playFromCache(data.cacheKey, data.intentId, data.bakedRate);
         if (!hasLocal) {
