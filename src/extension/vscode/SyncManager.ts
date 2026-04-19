@@ -120,8 +120,9 @@ export class SyncManager implements vscode.Disposable {
         // This prevents document observer ticks from emitting redundant UI_SYNC packets
         // when nothing has actually changed (same chapters, intent, hydrated, isPlaying).
         if (this._isPlaying) {
-            const sessionId = this._activeSessionId;
-            const hash = `${sessionId}::playing`;
+            const state = this._stateStore.state;
+            const hash = `v2::${this._activeSessionId}::${state.activeContentHash}::${state.currentChapterIndex}::${state.playbackIntentId}::${state.isHydrated}`;
+            
             if (hash === this._lastFlushHash) {
                 return; // Absorbed — state is equivalent, no change to broadcast
             }

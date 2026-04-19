@@ -176,10 +176,10 @@ export class DashboardRelay {
         }
     }
 
-    public broadcastVoices(local: any[], neural: any[], engineMode: string) {
+    public broadcastVoices(local: any[], neural: any[], engineMode: string, force: boolean = false) {
         // [Hygiene] Idempotency guard — skip broadcast if voice list is unchanged.
         const hash = neural.map((v: any) => v.id || v.shortName || v.Name || '').join(',');
-        if (hash === this._lastVoiceHash) {
+        if (!force && hash === this._lastVoiceHash) {
             return;
         }
         this._lastVoiceHash = hash;

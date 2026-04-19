@@ -110,28 +110,52 @@ async function getAllPages(browser) {
 
 async function findSovereignTarget(browser, type, verbose = false) {
   const allPages = await getAllPages(browser);
-  if (type === 'workbench') { return allPages.find(p => p.url.includes('workbench.html') && !p.url.includes('extensionDevelopmentPath'))?.page || null; }
-  if (type === 'host') { return allPages.find(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'))?.page || null; }
+  if (verbose) {console.log(`[CDP] Finding ${type} among ${allPages.length} pages...`);}
+  
+  if (type === 'workbench') { 
+    const p = allPages.find(p => p.url.includes('workbench.html') && !p.url.includes('extensionDevelopmentPath'));
+    if (verbose) {console.log(`[CDP] Workbench check: ${p?.title ?? 'NONE'}`);}
+    return p?.page || null; 
+  }
+  if (type === 'host') { 
+    const p = allPages.find(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'));
+    if (verbose) {console.log(`[CDP] Host check: ${p?.title ?? 'NONE'}`);}
+    return p?.page || null; 
+  }
   if (type === 'webview') {
     const frames = [];
-    for (const { page } of allPages) {
-      frames.push(...page.frames().filter(f => !f.isDetached()));
-    }
-    for (const f of frames) {
-      try {
-        if (await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false)) { return f; }
-      } catch { }
-    }
-    for (const f of frames) {
-      try {
-        if (await f.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__ === 'object').catch(() => false)) { return f; }
-      } catch { }
-    }
-    for (const f of frames) {
-      const url = f.url();
-      if (url.startsWith('vscode-webview://')) {
-        return f;
+    for (const { page, title } of allPages) {
+      const pageFrames = page.frames().filter(f => !f.isDetached());
+      if (verbose) {console.log(`[CDP] Scanning ${pageFrames.length} frames in page: ${title}`);}
+      for (const f of pageFrames) {
+        if (verbose) {console.log(`  - Frame: ${f.url().substring(0, 100)}`);}
       }
+      frames.push(...pageFrames);
+    }
+    for (const f of frames) {
+      try {
+        if (await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false)) { 
+          if (verbose) {console.log(`[CDP] Found webview via __debug in ${f.url()}`);}
+          return f; 
+        }
+      } catch { }
+    }
+    for (const f of frames) {
+      try {
+        if (await f.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__ === 'object').catch(() => false)) { 
+          if (verbose) {console.log(`[CDP] Found webview via __BOOTSTRAP_CONFIG__ in ${f.url()}`);}
+          return f; 
+        }
+      } catch { }
+    }
+    for (const f of frames) {
+      try {
+        const url = f.url() || await f.evaluate(() => window.location.href).catch(() => '');
+        if (url.startsWith('vscode-webview://') && !url.includes('fake.html')) {
+          if (verbose) {console.log(`[CDP] Found webview via URL: ${url}`);}
+          return f;
+        }
+      } catch { }
     }
   }
   return null;
@@ -212,9 +236,9 @@ async function runShell() {
 
   const shellStatus = async () => {
     const b = await getbrowser(true);
-    const host = await findSovereignTarget(b, 'host');
-    const workbench = await findSovereignTarget(b, 'workbench');
-    const frame = await findSovereignTarget(b, 'webview');
+    const host = await findSovereignTarget(b, 'host', true);
+    const workbench = await findSovereignTarget(b, 'workbench', true);
+    const frame = await findSovereignTarget(b, 'webview', true);
 
     console.log('\n╔══════════════════════════════════════════════════════════════╗');
     console.log('║  SITUATION REPORT (v2.4.7 Sovereignty)                       ║');
@@ -225,7 +249,7 @@ async function runShell() {
       const vitals = await frame.evaluate(() => ({
         isHydrated: !!window.__debug?.store?.getState()?.activeDocumentUri,
         isPlaying: !!window.__debug?.store?.getState()?.isPlaying,
-        file: window.__debug?.store?.getState()?.activeDocumentFileName || 'None'
+        file: window.__debug?.store?.getState()?.activeFileName || 'None'
       })).catch(() => ({ error: true }));
       console.log(`  Webview:      ✅ ${vitals.isHydrated ? 'HYDRATED' : 'WAITING'} | ${vitals.isPlaying ? '▶️ PLAYING' : '⏹️ STOPPED'}`);
       console.log(`  Document:     "${vitals.file}"`);
@@ -277,10 +301,30 @@ async function runShell() {
     await new Promise(r => setTimeout(r, 200));
     await page.keyboard.press('Control+Shift+P');
     await new Promise(r => setTimeout(r, 400));
-    await page.keyboard.type(`>${cleanCmd}`, { delay: 20 });
+    await page.keyboard.type(cleanCmd, { delay: 20 });
     await new Promise(r => setTimeout(r, 500));
     await page.keyboard.press('Enter');
     console.log('[SHELL] ✓ UI Dispatch Success');
+  };
+
+  const shellPrime = async () => {
+    const b = await getbrowser();
+    const f = await findSovereignTarget(b, 'webview');
+    if (f) {
+        console.log('[SHELL] ⚡ Executing Wake Ritual (mousedown)...');
+        await f.evaluate(() => {
+            const event = new MouseEvent('mousedown', {
+                view: window,
+                bubbles: true,
+                cancelable: true
+            });
+            document.dispatchEvent(event);
+            console.log('[CDP] 🔔 Wake Ritual Complete: Interaction simulated.');
+        });
+        return true;
+    }
+    console.log('[SHELL] ❌ Wake Ritual Failed: No webview found.');
+    return false;
   };
 
   const shellTargets = async () => {
@@ -314,6 +358,7 @@ async function runShell() {
         break;
       case 'frames': await shellTargets(); break;
       case 'wait-for-ready': await shellWaitForReady(); break;
+      case 'prime': await shellPrime(); break;
       case 'refresh':
         console.log('[SHELL] 🔄 Refreshing Window...');
         await shellExec('workbench.action.reloadWindow');
@@ -367,7 +412,7 @@ async function runShell() {
       case 'exit':
       case 'quit': await cleanupAndExit(); break;
       case 'help':
-        console.log('\n  status         - Situation report\n  targets        - List discovery targets\n  scan           - Show active PIDs\n  wait-for-ready - Poll for hydration\n  refresh        - Reload window + Wait\n  verify-state   - Dump Redux store\n  dispatch       - VS Code command\n  eval           - JS execution\n  launch         - Start Debugging\n  cleanup-all    - Force close all hosts\n  exit           - Close shell\n');
+        console.log('\n  status         - Situation report\n  targets        - List discovery targets\n  scan           - Show active PIDs\n  wait-for-ready - Poll for hydration\n  prime          - Execute Wake Ritual (mousedown)\n  refresh        - Reload window + Wait\n  verify-state   - Dump Redux store\n  dispatch       - VS Code command\n  eval           - JS execution\n  launch         - Start Debugging\n  cleanup-all    - Force close all hosts\n  exit           - Close shell\n');
         break;
       default: if (cmd) { console.log(`Unknown: ${cmd}`); } break;
     }

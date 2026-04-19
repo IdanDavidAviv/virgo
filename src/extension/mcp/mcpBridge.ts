@@ -87,7 +87,7 @@ export class McpBridge extends EventEmitter {
             nativeLogUri: this._nativeLogUri,
             debugLogPath: this._debugLogPath,
             store: this._store,
-            version: "2.2.0"
+            version: "2.4.5"
         });
 
         (server as any)._readAloudInstanceId = instanceId;
@@ -120,7 +120,7 @@ export class McpBridge extends EventEmitter {
         this._app.use(cors());
 
         this._app.get("/health", (req, res) => {
-            res.json({ status: "ok", mcp: "read-aloud", version: "1.2.1" });
+            res.json({ status: "ok", mcp: "read-aloud", version: "2.4.5" });
         });
 
 
@@ -135,10 +135,12 @@ export class McpBridge extends EventEmitter {
             if (this._isHandshaking) {
                 this._absorbedProbes++;
                 if (this._absorbedProbes === 1 || this._absorbedProbes % 10 === 0) {
-                    this._logger(`[MCP_BRIDGE] 🛑 Coalesce Gate: Handshake in-flight. Absorbing duplicate probe #${this._absorbedProbes} from ${req.ip}.`);
+                    this._logger(`[MCP_BRIDGE] 🛑 Coalesce Gate: Handshake in-flight. Absorbing duplicate probe #${this._absorbedProbes} (Returning 429).`);
                 }
-                // Return 204 (No Content) instead of 429 to prevent client-side retry backoff.
-                if (!res.headersSent) { res.status(204).end(); }
+                if (!res.headersSent) {
+                    // [Gate 3] Use 204 No Content to signal "Already Handled" without triggering client retries
+                    res.status(204).end();
+                }
                 return;
             }
 
@@ -147,11 +149,11 @@ export class McpBridge extends EventEmitter {
             this._absorbedProbes = 0;
             this._handshakeTimeout = setTimeout(() => {
                 if (this._isHandshaking) {
-                    this._logger(`[MCP_BRIDGE] ⏳ Handshake timeout (10s). Dropping gate safety.`);
+                    this._logger(`[MCP_BRIDGE] ⏳ Handshake timeout (5s). Dropping gate safety.`);
                     this._isHandshaking = false;
                     this._handshakeTimeout = null;
                 }
-            }, 10000);
+            }, 5000);
 
             // SELF-HEALING: If a stale session exists from a previous cold boot, evict it cleanly.
             if (this._activeServers.size > 0) {
@@ -190,8 +192,9 @@ export class McpBridge extends EventEmitter {
                         } catch (e) {}
                     }, 500);
                 }
-                // [Gate 2] Gate stays OPEN until SSE disconnect — do NOT clear here.
-                // Clearing here was the root cause of the eviction storm.
+                // [Gate 2] Handshake complete. Gate is now OPEN for next connection (will evict this one).
+                this._isHandshaking = false;
+                this._absorbedProbes = 0;
             }).catch(err => {
                 if (this._handshakeTimeout) {
                     clearTimeout(this._handshakeTimeout);
