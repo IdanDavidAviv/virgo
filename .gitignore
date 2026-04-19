@@ -12,3 +12,4 @@ implementation_plan.md
 
 dist/
 coverage/
+tests/mcp/test_storage/
