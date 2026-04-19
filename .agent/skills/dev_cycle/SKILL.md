@@ -64,19 +64,18 @@ Once initialized, **NEVER** close the Dev Host unless necessary. Use this cycle:
 | Goal | Command | Output / Expectation |
 |---|---|---|
 | **Initialize** | `npm run cdp:shell` | Singleton background shell |
-| **Inventory** | `targets` / `pages` | List all pages and frame counts |
-| **Deep Audit** | `frames` | Recursive frame URL dump |
-| **Probe** | `find read-aloud` | Automated webview discovery |
-| **Targeted Eval** | `eval [idx\|@frag] <js>` | Execute JS in a specific frame context |
+| **Inventory** | `targets` | List all pages and frame counts |
+| **Dispatch** | `dispatch <cmd>` | direct sovereign command triggering (v2.4.4+) |
 | **Wake Host** | `launch` | Smart F5 launch protocol |
-| **Wait for State** | `wait-for-log <str>` | Polls logs for a specific ASCII marker |
+| **Wait for State** | `wait-for-ready` | Polls for system hydration signal |
 | **Full SitRep** | `status` | Full environment health check |
+| **Exit** | `exit` | Graceful closure of the shell and session |
 | **Cleanup** | `cleanup-all` | Gracefully closes all dev hosts |
 
-## 6. Verification Rituals (v2.4.2+) ⭐
-- **ASCII-First Policy**: Use explicit markers like `[STORE-SYNC-COMPLETE]` for all automation signals. Avoid emojis in scripts.
-- **Intent Sovereignty**: `playbackIntentId` MUST be verified as `> 0` after hydration.
-- **Recursion Guard**: If "Same State" logs flood the console, audit the Extension for redundant sync pulses.
+## 6. Verification Rituals (v2.4.4+) ⭐
+- **Atomic Dispatch**: Use `dispatch` instead of `exec` for project commands to bypass UI latency.
+- **Noise Filtering**: Log traces for Volume and Rate are now suppressed by default to improve readability.
+- **Target Sovereignty**: `findSovereignTarget` handles the multi-tier discovery logic automatically.
 
 > [!TIP]
 > **Checkbox Sovereignty**: Always verify build success in the "Tasks" terminal before running `reloadWindow`. If the builder is red, the reload will serve stale code.

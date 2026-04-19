@@ -50,7 +50,9 @@ const NOISE_FILTER = [
   /Subscription initial call/,
   /\[Reactive\]/i,
   /\[STORE\] State Updated/,
-  /\[STORE-SYNC-COMPLETE\]/
+  /\[STORE-SYNC-COMPLETE\]/,
+  /\[VOL_TRACE\]/,
+  /\[RATE_TRACE\]/
 ];
 
 function processLogLine(line) {
@@ -179,48 +181,46 @@ async function getAllPages(browser) {
 }
 
 /**
- * Finds the main Antigravity workbench shell.
- * LAW: The real workbench shell always loads workbench.html.
- *      Preview tabs, Launchpad, and agent panels use about:blank or other URLs.
- *      NEVER match on title alone — preview tabs also contain "Antigravity" in their title.
- */
-async function findWorkbenchPage(browser) {
-  const pages = await getAllPages(browser);
-  for (const { page, title, url } of pages) {
-    const isWorkbench = url.includes('workbench.html');
-    const isDevHost = url.includes('extensionDevelopmentPath') || title.includes('Extension Development Host');
-    const isWebview = url.includes('vscode-webview');
-    const hasAntigravity = title.includes('Antigravity');
-
-    // [SOVEREIGNTY] Real workbench: workbench.html, NOT dev host, and usually has Antigravity title
-    if (isWorkbench && !isDevHost && !isWebview && hasAntigravity) {
-      return page;
-    }
-  }
-  // Fallback: first workbench.html that isn't dev host
-  for (const { page, title, url } of pages) {
-    if (url.includes('workbench.html') && !(url.includes('extensionDevelopmentPath') || title.includes('Extension Development Host'))) {
-      return page;
-    }
-  }
-  return null;
-}
-
-
-/**
- * Finds all targets matching [Extension Development Host].
- */
-async function findAllDevHosts(browser) {
-  const allPages = await getAllPages(browser);
-  return allPages.filter(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'));
-}
-
-/**
  * Finds the FIRST [Extension Development Host] page in CDP targets.
  */
 async function findDevHostPage(browser) {
-  const hosts = await findAllDevHosts(browser);
-  return hosts.length > 0 ? hosts[0].page : null;
+  const allPages = await getAllPages(browser);
+  const match = allPages.find(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'));
+  return match ? match.page : null;
+}
+
+/**
+ * Unified Sovereign Target Discovery
+ * type: 'workbench' | 'host' | 'webview'
+ */
+async function findSovereignTarget(browser, type) {
+  const allPages = await getAllPages(browser);
+  
+  if (type === 'workbench') {
+    return allPages.find(p => p.url.includes('workbench.html') && !p.url.includes('extensionDevelopmentPath'))?.page || null;
+  }
+  
+  if (type === 'host') {
+    return allPages.find(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'))?.page || null;
+  }
+
+  if (type === 'webview') {
+    // Try to find frame with window.__debug
+    for (const { page } of allPages) {
+      const frames = page.frames();
+      for (const f of frames) {
+        try {
+          const hasDebug = await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false);
+          if (hasDebug) {
+            console.log('[CDP] ✅ Found Read Aloud webview frame.');
+            cachedWebviewFrame = f;
+            return f;
+          }
+        } catch {}
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -308,41 +308,21 @@ async function findWebviewFrame(browser, verbose = false, maxRetries = 3) {
 }
 
 /** 
- * [v2.3.2] Sovereign RPC Bridge: Dispatch commands directly via Webview -> Extension RPC 
- * Bypasses the Command Palette (Ctrl+Shift+P) for high-integrity automation.
+ * [v2.4.4] Sovereign Dispatch: Triggers commands directly via the debug dispatcher in the webview.
+ * Bypasses both UI simulation and the legacy RPC bridge.
  */
-async function shellExecDirect(browser, cmdId, args = []) {
-  let frame = null;
-  let attempts = 0;
-  const maxAttempts = 5;
-
-  // [v2.3.2] Bridge Hydration Retry Loop
-  while (attempts < maxAttempts) {
-    try {
-      frame = await findWebviewFrame(browser);
-      if (frame) {
-        return await frame.evaluate(async ({ id, a }) => {
-          if (!window.__SOVEREIGN_RPC__) {
-            throw new Error('PENDING_HYDRATION');
-          }
-          return await window.__SOVEREIGN_RPC__(id, a);
-        }, { id: cmdId, a: args });
-      }
-    } catch (err) {
-      if (err.message.includes('PENDING_HYDRATION') || err.message.includes('Target page, context or browser has been closed')) {
-        attempts++;
-        if (attempts < maxAttempts) {
-          await new Promise(r => setTimeout(r, 600));
-          continue;
-        }
-      }
-      throw err;
-    }
-    attempts++;
-    await new Promise(r => setTimeout(r, 600));
+async function shellDispatch(browser, command, payload = {}) {
+  const frame = await findSovereignTarget(browser, 'webview');
+  if (!frame) {
+    throw new Error('READ_ALOUD_WEBVIEW_NOT_FOUND');
   }
 
-  throw new Error('Webview frame or Sovereign Bridge not found after retries.');
+  return await frame.evaluate(async ({ cmd, data }) => {
+    if (!window.__debug?.dispatcher?.dispatch) {
+      throw new Error('DISPATCHER_NOT_READY');
+    }
+    return await window.__debug.dispatcher.dispatch(cmd, data);
+  }, { cmd: command, data: payload });
 }
 
 
@@ -586,82 +566,45 @@ async function listTargets() {
 /** exec-command — trigger any VS Code command via the command palette */
 async function execVSCodeCommand(commandName) {
   const browser = await connectToCDP();
-  const page = await findWorkbenchPage(browser);
-
-  if (!page) {
-    console.error('[CDP] ✗ Workbench shell not found (workbench.html).');
-    console.error('[CDP]   Run list-targets to inspect available pages.');
-    await browser.close();
-    process.exit(1);
-  }
-
-  // [v2.4.2] Sovereign Scoping: Project commands MUST ONLY target the Dev Host
-  const isProjectCmd = commandName.startsWith('readme-preview-read-aloud.');
-  if (isProjectCmd) {
-    console.log(`[CDP] 🛡️ Project command detected. Enforcing Dev Host scoping...`);
-    const devPage = await findDevHostPage(browser);
-    if (!devPage) {
-      console.error('[CDP] ✗ FAILED: Extension commands MUST be run on Dev Host.');
-      console.error('[CDP]   The Main Editor context is protected.');
-      await browser.close();
-      process.exit(1);
-    }
-  }
-
-  // [v2.3.2] Hybrid Sovereignty: Direct RPC vs. UI Simulation
+  
+  // [v2.4.4] Sovereign Scoping: Project commands use direct dispatch
   if (commandName.startsWith('readme-preview-read-aloud.')) {
-    console.log(`[CDP] ⚡ Direct RPC detected...`);
+    console.log(`[CDP] ⚡ Sovereign dispatching project command: ${commandName}...`);
     try {
-      // Refresh browser context to ensure we have the Dev Host targets
-      const devHostPage = await findDevHostPage(browser);
-      const result = await shellExecDirect(browser, commandName);
-      console.log(`[CDP] ✓ RPC Success${result ? ': ' + JSON.stringify(result) : ''}`);
+      const result = await shellDispatch(browser, commandName);
+      console.log(`[CDP] ✓ Dispatch Success${result ? ': ' + JSON.stringify(result) : ''}`);
       await browser.close();
       return;
     } catch (err) {
-      console.warn(`[CDP] ⚠ RPC Bridge failed: ${err.message}. Falling back to UI simulation...`);
+      console.warn(`[CDP] ⚠ Sovereign dispatch failed: ${err.message}. Falling back to UI simulation...`);
     }
   }
 
-  // [v2.4.2] Final target resolution for UI simulation
-  let targetPage = page;
-  if (isProjectCmd) {
-    targetPage = await findDevHostPage(browser);
-  }
-
-  if (!targetPage) {
-    console.error('[CDP] ✗ No valid target page for command execution.');
+  const page = await findSovereignTarget(browser, 'workbench');
+  if (!page) {
+    console.error('[CDP] ✗ Workbench shell not found (workbench.html).');
     await browser.close();
     process.exit(1);
   }
 
-  const pageTitle = await targetPage.title().catch(() => '(unknown)');
-  console.log(`[CDP] Target: "${pageTitle}"`);
-  console.log(`[CDP] Executing: "${commandName}"`);
-
-  // [v2.4.0] Strip redundant '>' prefix if the agent/user provided it
-  const sanitizedCmd = commandName.startsWith('>') ? commandName.substring(1) : commandName;
-
+  // Fallback to UI simulation for non-project or failed commands
+  console.log(`[CDP] ⌨ Simulating UI command: ${commandName}...`);
   await page.bringToFront();
-  await page.keyboard.press('Escape');
-  await delay(150);
   await page.keyboard.press('Control+Shift+P');
-  await delay(350);
-  
-  console.log(`[CDP] Typing: ">${sanitizedCmd}"`);
-  await page.keyboard.type(`>${sanitizedCmd}`, { delay: 25 });
-  await delay(1000);
+  await delay(500);
+  await page.keyboard.type(commandName, { delay: 20 });
+  await delay(800);
   await page.keyboard.press('Enter');
-
-  console.log('[CDP] ✓ Command dispatched.');
+  console.log('[CDP] ✓ UI command dispatched.');
   await browser.close();
 }
+
 
 /** launch-dev-host — F5 equivalent */
 async function launchDevHost(passedBrowser = null) {
   console.log('[CDP] Triggering Extension Development Host (F5)...');
   const browser = passedBrowser || await connectToCDP();
-  const page = await findWorkbenchPage(browser);
+  const page = await findSovereignTarget(browser, 'workbench');
 
   if (!page) {
     console.error('[CDP] ✗ Workbench shell not found.');
@@ -702,7 +645,7 @@ async function launchDevHost(passedBrowser = null) {
 async function stopDevHost(passedBrowser = null) {
   console.log('[CDP] 🛑 Stopping active Debugging session (Shift+F5)...');
   const browser = passedBrowser || await connectToCDP();
-  const page = await findWorkbenchPage(browser);
+  const page = await findSovereignTarget(browser, 'workbench');
 
   if (!page) {
     console.warn('[CDP] ⚠ Workbench not found; cannot send Shift+F5.');
@@ -1721,7 +1664,8 @@ async function runShell() {
           case 'sitrep': await shellSitrep(); break;
           case 'close': await cleanupAndExit(0); break;
           case 'targets': await shellTargets(); break;
-          case 'pages': await shellPages(); break;
+          case 'pages':
+          case 'targets': await shellPages(); break;
           case 'cleanup-all': 
             console.log('[SHELL] 🧹 Initiating Global Graceful Cleanup...');
             await shellScanDevHosts(); // Update PIDs
@@ -1729,8 +1673,9 @@ async function runShell() {
             devHostPids = [];
             break;
 
-            case 'eval': await shellEval(arg); break;
-          case 'exec': await shellExec(arg); break;
+          case 'eval': await shellEval(arg); break;
+          case 'exec': 
+          case 'dispatch': await shellExec(arg); break;
           case 'open': await shellOpenReadAloud(); break;
           case 'wait-for-ready': await shellWaitForReady(); break;
           case 'history': shellShowHistory(arg); break;
@@ -1808,6 +1753,7 @@ switch (action) {
     closeDevHostAction();
     break;
 
+  case 'dispatch':
   case 'exec-command':
     if (!actionArg) {
       console.error('[CDP] ERROR: command name required.');
@@ -1816,6 +1762,7 @@ switch (action) {
     execVSCodeCommand(actionArg);
     break;
 
+  case 'targets':
   case 'list-targets':
     listTargets();
     break;
