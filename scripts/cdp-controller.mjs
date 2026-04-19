@@ -71,8 +71,11 @@ async function connectToCDP() {
     const oldPid = parseInt(readFileSync(SHELL_LOCK, 'utf8').trim(), 10);
     if (!isNaN(oldPid) && oldPid !== process.pid) {
       try {
-        process.kill(oldPid, 0);
-        console.error(`[CDP] ✗ Blocked: Persistent shell active (PID: ${oldPid})`);
+        process.kill(oldPid, 0); // Check if alive
+        console.error('╔══════════════════════════════════════════════════════════════╗');
+        console.error(`║  [CDP] ✗ Blocked: Persistent shell is active (PID: ${oldPid})   ║`);
+        console.error('║  Use "send_command_input" to talk to the active shell.       ║');
+        console.error('╚══════════════════════════════════════════════════════════════╝');
         process.exit(1);
       } catch (e) { unlinkSync(SHELL_LOCK); }
     }
@@ -107,31 +110,31 @@ async function getAllPages(browser) {
 
 async function findSovereignTarget(browser, type, verbose = false) {
   const allPages = await getAllPages(browser);
-  if (type === 'workbench') return allPages.find(p => p.url.includes('workbench.html') && !p.url.includes('extensionDevelopmentPath'))?.page || null;
-  if (type === 'host') return allPages.find(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'))?.page || null;
+  if (type === 'workbench') {return allPages.find(p => p.url.includes('workbench.html') && !p.url.includes('extensionDevelopmentPath'))?.page || null;}
+  if (type === 'host') {return allPages.find(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'))?.page || null;}
   if (type === 'webview') {
     const frames = [];
-    for (const { page } of allPages) frames.push(...page.frames().filter(f => !f.isDetached()));
+    for (const { page } of allPages) {frames.push(...page.frames().filter(f => !f.isDetached()));}
     for (const f of frames) {
       try {
-        if (await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false)) return f;
+        if (await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false)) {return f;}
       } catch { }
     }
     for (const f of frames) {
       try {
-        if (await f.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__ === 'object').catch(() => false)) return f;
+        if (await f.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__ === 'object').catch(() => false)) {return f;}
       } catch { }
     }
-    for (const f of frames) if (f.url().startsWith('vscode-webview://') && f.url().includes('readme-preview-read-aloud')) return f;
+    for (const f of frames) {if (f.url().startsWith('vscode-webview://') && f.url().includes('readme-preview-read-aloud')) {return f;}}
   }
   return null;
 }
 
 async function shellDispatch(browser, command, payload = {}) {
   const frame = await findSovereignTarget(browser, 'webview');
-  if (!frame) throw new Error('READ_ALOUD_WEBVIEW_NOT_FOUND');
+  if (!frame) {throw new Error('READ_ALOUD_WEBVIEW_NOT_FOUND');}
   return await frame.evaluate(async ({ cmd, data }) => {
-    if (!window.__debug?.dispatcher?.dispatch) throw new Error('DISPATCHER_NOT_READY');
+    if (!window.__debug?.dispatcher?.dispatch) {throw new Error('DISPATCHER_NOT_READY');}
     return await window.__debug.dispatcher.dispatch(cmd, data);
   }, { cmd: command, data: payload });
 }
@@ -163,7 +166,7 @@ async function gracefulClose(devHostPids, protectedPids = new Set(), browser = n
   }
   await new Promise(r => setTimeout(r, 2000));
   for (const pid of devHostPids) {
-    if (protectedPids.has(pid)) continue;
+    if (protectedPids.has(pid)) {continue;}
     try { execSync(`taskkill /T /PID ${pid}`, { stdio: 'ignore' }); } catch { }
   }
 }
@@ -179,9 +182,9 @@ async function runShell() {
 
   const cleanupAndExit = async () => {
     console.log('\n[SHELL] 🔻 Cleanup...');
-    if (tailInterval) clearInterval(tailInterval);
-    if (browser) await browser.close().catch(() => { });
-    if (existsSync(SHELL_LOCK)) unlinkSync(SHELL_LOCK);
+    if (tailInterval) {clearInterval(tailInterval);}
+    if (browser) {await browser.close().catch(() => { });}
+    if (existsSync(SHELL_LOCK)) {unlinkSync(SHELL_LOCK);}
     process.exit(0);
   };
 
@@ -190,7 +193,7 @@ async function runShell() {
 
   const getbrowser = async (force = false) => {
     try {
-      if (force) throw new Error();
+      if (force) {throw new Error();}
       browser.contexts();
       return browser;
     } catch {
@@ -220,11 +223,35 @@ async function runShell() {
       console.log(`  Webview:      ✅ ${vitals.isHydrated ? 'HYDRATED' : 'WAITING'} | ${vitals.isPlaying ? '▶️ PLAYING' : '⏹️ STOPPED'}`);
       console.log(`  Document:     "${vitals.file}"`);
     } else { console.log(`  Webview:      ❌ NOT DETECTED`); }
+    
+    // Add PID scan to status
+    const pids = Array.from(snapshotAntigravityPids());
+    if (pids.length > 0) { console.log(`  Active PIDs:  [${pids.join(', ')}]`); }
+    
     console.log('────────────────────────────────────────────────────────────────\n');
   };
 
+  const shellWaitForReady = async (maxRetries = 10) => {
+    console.log('[SHELL] ⏳ Waiting for System Ready...');
+    await shellExec('readme-preview-read-aloud.show-dashboard');
+    for (let i = 0; i < maxRetries; i++) {
+      const b = await getbrowser();
+      const f = await findSovereignTarget(b, 'webview');
+      if (f) {
+        const isReady = await f.evaluate(() => !!window.__debug?.store?.getState()?.activeDocumentUri).catch(() => false);
+        if (isReady) {
+          console.log('[SHELL] ✅ SYSTEM READY');
+          return true;
+        }
+      }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    console.log('[SHELL] ❌ Timeout waiting for ready.');
+    return false;
+  };
+
   const shellExec = async (cmd) => {
-    if (!cmd) return;
+    if (!cmd) {return;}
     const b = await getbrowser();
     if (cmd.startsWith('readme-preview-read-aloud.') && !cmd.startsWith('>')) {
       try {
@@ -256,7 +283,13 @@ async function runShell() {
     for (const p of pages) {
       console.log(`  - "${p.title}" [${p.url.substring(0, 80)}...]`);
       const frames = p.page.frames();
-      if (frames.length > 1) { console.log(`    └─ ${frames.length - 1} sub-frames`); }
+      if (frames.length > 1) {
+        console.log(`    └─ ${frames.length - 1} sub-frames:`);
+        for (const f of frames) {
+          if (f === p.page.mainFrame()) {continue;}
+          console.log(`       - ${f.url().substring(0, 80)}...`);
+        }
+      }
     }
   };
 
@@ -268,6 +301,30 @@ async function runShell() {
     switch (cmd.toLowerCase()) {
       case 'status': await shellStatus(); break;
       case 'targets': await shellTargets(); break;
+      case 'scan':
+        const pids = Array.from(snapshotAntigravityPids());
+        console.log(`[SHELL] Active Antigravity PIDs: ${pids.length ? pids.join(', ') : 'None'}`);
+        break;
+      case 'frames': await shellTargets(); break;
+      case 'wait-for-ready': await shellWaitForReady(); break;
+      case 'refresh':
+        console.log('[SHELL] 🔄 Refreshing Window...');
+        await shellExec('workbench.action.reloadWindow');
+        await new Promise(r => setTimeout(r, 2000));
+        await shellWaitForReady();
+        break;
+      case 'verify-state':
+        const v_b = await getbrowser();
+        const v_f = await findSovereignTarget(v_b, 'webview');
+        if (v_f) {
+          const state = await v_f.evaluate(() => JSON.stringify(window.__debug?.store?.getState(), null, 2)).catch(() => 'Error: Store not found');
+          console.log(`[STATE]\n${state}`);
+        } else { console.log('[STATE] ❌ No webview.'); }
+        break;
+      case 'cleanup-all':
+        const hostPids = snapshotAntigravityPids();
+        await gracefulClose(hostPids, mainPids, browser);
+        break;
       case 'dispatch':
       case 'exec': await shellExec(arg); break;
       case 'eval':
@@ -295,9 +352,9 @@ async function runShell() {
       case 'exit':
       case 'quit': await cleanupAndExit(); break;
       case 'help':
-        console.log('\n  status   - Situation report\n  targets  - List discovery targets\n  dispatch - VS Code command\n  eval     - JS execution\n  launch   - Start Debugging\n  exit     - Close shell\n');
+        console.log('\n  status         - Situation report\n  targets        - List discovery targets\n  scan           - Show active PIDs\n  wait-for-ready - Poll for hydration\n  refresh        - Reload window + Wait\n  verify-state   - Dump Redux store\n  dispatch       - VS Code command\n  eval           - JS execution\n  launch         - Start Debugging\n  cleanup-all    - Force close all hosts\n  exit           - Close shell\n');
         break;
-      default: if (cmd) console.log(`Unknown: ${cmd}`); break;
+      default: if (cmd) {console.log(`Unknown: ${cmd}`);} break;
     }
     rl.prompt();
   });
@@ -307,7 +364,7 @@ async function runShell() {
 
 const flags = {};
 for (let i = 3; i < process.argv.length; i++) {
-  if (process.argv[i] === '--eval' && process.argv[i + 1]) flags.eval = process.argv[++i];
+  if (process.argv[i] === '--eval' && process.argv[i + 1]) {flags.eval = process.argv[++i];}
 }
 
 (async () => {

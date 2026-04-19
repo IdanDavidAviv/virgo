@@ -397,12 +397,12 @@ For agents monitoring the startup sequence from the outside (CDP Shell), the seq
 
 ### Phase 0: External Initialization
 
-1.  **Connection Audit**: Before assume-launching, run `check-host` via the CDP shell.
+1.  **Connection Audit**: Before assume-launching, run `status` via the CDP shell.
 2.  **Activation Signal**: Monitor `diagnostics.log` for `[VOICE_SCAN] SUCCESS`. This is the definitive "UI is ready for audit" signal.
-3.  **Hydration Check**: Once `[VOICE_SCAN]` appears, run `check-host` again to confirm the Webview target is registered and hydrated (checked via `window.__debug.store`).
+3.  **Hydration Check**: Once `[VOICE_SCAN]` appears, run `status` again to confirm the Webview target is registered and hydrated (checked via `window.__debug.store`).
 
 > [!WARNING]
-> Never attempt an `eval` or `exec` before Phase 0 confirms a healthy `Dev Host` target. Attempting to execute commands against a half-booted editor leads to process corruption or zombie windows.
+> Never attempt an `eval` or `dispatch` before Phase 0 confirms a healthy `Dev Host` target. Attempting to execute commands against a half-booted editor leads to process corruption or zombie windows.
 
 ---
 
@@ -420,8 +420,8 @@ The `cdp-controller.mjs` implements a tiered discovery protocol to identify the 
 3.  **Validation**: A frame is only considered "Hydrated" if `window.__debug.store` is accessible via CDP.
 
 ### 7.2 The Sovereign Command Queue
-To prevent race conditions during rapid automation (e.g., `launch` followed immediately by `exec`), the CDP controller uses a **Sequential Promise Queue**:
-- All CDP commands (`exec`, `type`, `eval`) are wrapped in a serialized queue.
+To prevent race conditions during rapid automation (e.g., `launch` followed immediately by `dispatch`), the CDP controller uses a **Sequential Promise Queue**:
+- All CDP commands (`dispatch`, `eval`) are wrapped in a serialized queue.
 - A command MUST resolve its CDP `Response` before the next command in the queue is dispatched.
 - **Retry Logic**: If a frame is not found during `eval`, the system retries with exponential backoff (up to 5s) before failing, allowing for lazy-loaded webview hydration.
 
