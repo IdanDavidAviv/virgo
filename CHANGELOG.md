@@ -7,6 +7,23 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.4.5] - 2026-04-19
+
+### Fixed
+- **Neural Synthesis Deadlock**: Resolved a state deadlock where the engine could become permanently `STALLED` after network failures.
+- **Autoradiant Routing**: Hardened the AudioBridge to automatically fallback to local synthesis when neural health is compromised, verified via new unit tests.
+- **Voice Mapping & State Locks**: Resolved race conditions in `CommandDispatcher` that caused loading state deadlocks during rapid voice changes.
+- **Playback De-duplication**: Eliminated redundant event emissions in the Push-on-Hit path to prevent double-playback and audio corruption.
+
+### Improved
+- **Webview Reactivity**: Hardened state transitions in `WebviewStore` for more accurate tracking of synthesis and playback intent.
+- **MCP Bridge Stability**: Enhanced connectivity logic and error handling for the standalone MCP bridge.
+- **Forensic Visibility**: Updated CDP controller scripts and added decision matrix logging to `AudioBridge` for clearer routing transparency.
+
+### Added
+- **Manual Health Recovery**: The UI "Refresh" button now explicitly resets neural engine health to break persistent stalls.
+- **Self-Healing Probes**: Implemented a 5-minute automatic probe window to allow the engine to attempt recovery from stalled states without user intervention.
+
 ## [2.4.4] - 2026-04-19
 
 ### Fixed
