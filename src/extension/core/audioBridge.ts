@@ -15,6 +15,7 @@ export interface AudioBridgeEvents {
     'dataPush': (payload: { cacheKey: string, data: string, intentId: number }) => void;
     'synthesisReady': (payload: { cacheKey: string, intentId: number }) => void;
     'speakLocal': (payload: { text: string, voiceId: string, rate: number, volume: number, intentId: number }) => void;
+    'uiSyncRequested': () => void;
 }
 
 export class AudioBridge extends EventEmitter {
@@ -152,7 +153,9 @@ export class AudioBridge extends EventEmitter {
         this._latchedRate = options.rate;
 
         // CRITICAL: Stop any in-flight synthesis or sequences before starting a new one.
-        this._playbackEngine.stop(finalIntent);
+        // We use silent=true here because we are about to setPlaying(true) in line 159,
+        // and we want to avoid emitting a transient "isPlaying: false" state to the UI.
+        this._playbackEngine.stop(finalIntent, false, true);
 
         // Use the Engine as the source of truth for playing status
         this._playbackEngine.setPlaying(!previewOnly, finalIntent);
@@ -213,6 +216,9 @@ export class AudioBridge extends EventEmitter {
         );
 
         if (finalMode === 'neural') {
+            // [Law 7.2] Reinforce early warming signal to the webview
+            this.emitSynthesisStarting(cacheKey, finalIntent);
+
             // [SOVEREIGNTY] Tiered Cache Lookup
             const extensionCached = this._playbackEngine.getCached(cacheKey);
             const webviewCached = this._webviewCacheManifest.has(cacheKey);
@@ -220,6 +226,9 @@ export class AudioBridge extends EventEmitter {
             if (extensionCached || webviewCached) {
                 this._logger(`[BRIDGE] Sovereign Cache Hit: ${cacheKey} (${extensionCached ? 'Extension' : 'Webview'}).`);
                 this._stateStore.setLoadType('cache');
+                
+                // [Law 7.1] Proactively confirm cache hit to suppress late FETCH_FAILED noise
+                this.notifyCacheConfirmation(cacheKey);
 
                 this._emitWithIntent('playAudio', {
                     cacheKey,
@@ -268,9 +277,10 @@ export class AudioBridge extends EventEmitter {
     public emitSynthesisStarting(cacheKey: string, intentId: number): void {
         const guard = `${cacheKey}::${intentId}`;
         if (this._emittedSynthesisStarting.has(guard)) {
-            this._logger(`[BRIDGE] [DEDUP] synthesisStarting suppressed for ${cacheKey} (Intent: ${intentId})`);
+            this._logger(`[BRIDGE] [DEDUP_HIT] synthesisStarting suppressed for ${cacheKey} (Intent: ${intentId})`);
             return;
         }
+        this._logger(`[BRIDGE] [DEDUP_ARM] synthesisStarting emitted for ${cacheKey} (Intent: ${intentId})`);
         this._emittedSynthesisStarting.add(guard);
         this.emit('synthesisStarting', { cacheKey, intentId });
     }
@@ -315,6 +325,12 @@ export class AudioBridge extends EventEmitter {
         if (batchRepaired) {
             this._playbackEngine.adoptBatchIntent(batchId!);
             this._stateStore.setBatchIntentId(batchId!);
+        }
+
+        // [3.1.B] Trigger proactive UI_SYNC if IDs were repaired to stop oscillation
+        if (intentRepaired || batchRepaired) {
+            this._logger(`[BRIDGE] [PROTOCOL_REPAIR] Triggering proactive UI_SYNC for repaired IDs.`);
+            this.emit('uiSyncRequested');
         }
 
         // [Law 7.1] FETCH_FAILED Fallback Guard: If the Webview confirmed a cache hit

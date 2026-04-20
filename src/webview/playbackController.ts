@@ -557,49 +557,37 @@ export class PlaybackController {
             store.patchState({ isSelectingVoice: false });
         }
 
+        // [FIFO] Atomic Flush before new session
+        this.flushQueue();
+
+        // [SOVEREIGNTY] Reset both intent counters for a fresh authoritative session
+        const batchId = store.resetBatchIntent();
         const intentId = store.resetPlaybackIntent();
+        
         this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
 
-        // [SYNC] Universal Unlocker: Priming on Play
-        WebviewAudioEngine.getInstance().ensureAudioContext();
+        // [GESTURE] Prime the audio context immediately on user interaction.
+        WebviewAudioEngine.getInstance().ensureAudioContext().catch(() => { });
 
-        // [SOVEREIGNTY] Optimistic State Flip for immediate reactive feedback
+        // [SOVEREIGNTY] Optimistic State Flip
+        // Note: isAwaitingSync is removed here to prevent "stale sync" release during the extension's stop() handshake.
+        // WebviewStore.calculateSyncingState() will handle the spinner if isPlaying remains false.
         store.updateUIState({
             isPlaying: true,
             isPaused: false,
             playbackIntent: 'PLAYING',
-            isAwaitingSync: true,
             lastStallSource: 'USER'
         });
 
         this.startWatchdog();
 
         const resolvedUri = currentUri || store.getSentenceKey();
-
-        // [Law 7.3 — Play Guard] Only invoke the local cache + REQUEST_SYNTHESIS path when
-        // we have a valid, non-empty cache key. An empty key means no currentText has landed
-        // yet (e.g., fresh LOAD_DOCUMENT with no sentenceChanged yet). In that case, the
-        // extension's PLAY → continue() → audioBridge.start() path will handle everything
-        // correctly using the docController chapters — no webview-side REQUEST_SYNTHESIS needed.
-        if (resolvedUri) {
-            WebviewAudioEngine.getInstance().playFromCache(resolvedUri, intentId).then(hit => {
-                if (!hit) {
-                    console.log(`[PlaybackController] Cache miss for ${resolvedUri}. Requesting synthesis...`);
-                    MessageClient.getInstance().postAction(OutgoingAction.REQUEST_SYNTHESIS, {
-                        cacheKey: resolvedUri,
-                        intentId,
-                        batchId: store.getState().batchIntentId
-                    });
-                }
-            });
-        } else {
-            console.log('[PlaybackController] ⚠️ No resolved URI — skipping local cache check. Extension PLAY handler will drive synthesis via audioBridge.start().');
-        }
-
+        
+        console.log(`[PlaybackController] 🚀 Initiating authoritative PLAY | Intent: ${intentId} | Batch: ${batchId}`);
         MessageClient.getInstance().postAction(OutgoingAction.PLAY, {
             cacheKey: resolvedUri,
             intentId,
-            batchId: store.getState().batchIntentId
+            batchId
         });
     }
 

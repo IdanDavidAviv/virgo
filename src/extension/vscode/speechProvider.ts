@@ -110,6 +110,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._audioBridge.on('dataPush', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.DATA_PUSH, ...payload }));
         this._audioBridge.on('playbackFinished', () => this._syncStatusBars());
         this._audioBridge.on('speakLocal', payload => this._dashboardRelay.postMessage({ command: IncomingCommand.SPEAK_LOCAL, ...payload }));
+        this._audioBridge.on('uiSyncRequested', () => this._dashboardRelay.sync());
 
         // Register PlaybackEngine Events (Neural Optimization & Cache Parity)
         this._playbackEngine.on('clear-cache', () => {

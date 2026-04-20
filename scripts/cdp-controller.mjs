@@ -112,32 +112,47 @@ export async function findSovereignTarget(browser, type, verbose = false) {
   const allPages = await getAllPages(browser);
   if (verbose) { console.log(`[CDP] Finding ${type} among ${allPages.length} pages...`); }
 
-  if (type === 'workbench') {
-    const p = allPages.find(p => p.url.includes('workbench.html') && !p.url.includes('extensionDevelopmentPath'));
-    if (verbose) { console.log(`[CDP] Workbench check: ${p?.title ?? 'NONE'}`); }
-    return p?.page || null;
-  }
   if (type === 'host') {
     const p = allPages.find(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'));
     if (verbose) { console.log(`[CDP] Host check: ${p?.title ?? 'NONE'}`); }
     return p?.page || null;
   }
+  if (type === 'workbench') {
+    // [SOVEREIGNTY] Workbench MUST NOT be a host window.
+    const p = allPages.find(p => p.url.includes('workbench.html') && !p.url.includes('extensionDevelopmentPath') && !p.title.includes('Extension Development Host'));
+    if (verbose) { console.log(`[CDP] Workbench check: ${p?.title ?? 'NONE'}`); }
+    return p?.page || null;
+  }
   if (type === 'webview') {
     const frames = [];
     for (const { page, title } of allPages) {
-      const pageFrames = page.frames().filter(f => !f.isDetached());
-      if (verbose) { console.log(`[CDP] Scanning ${pageFrames.length} frames in page: ${title}`); }
-      for (const f of pageFrames) {
-        if (verbose) { console.log(`  - Frame: ${f.url().substring(0, 100)}`); }
+      const pageFrames = page.frames();
+      if (verbose) { 
+        console.log(`[CDP] Page: ${title}`);
+        pageFrames.forEach(f => console.log(`  - Frame: ${f.url().substring(0, 80)} (Child of: ${f.parentFrame()?.url().substring(0, 40) ?? 'ROOT'})`));
       }
       frames.push(...pageFrames);
     }
-    // Tier 1: __debug probe (fully hydrated webview)
     for (const f of frames) {
       try {
-        if (await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false)) {
+        const hasDebug = await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false);
+        if (hasDebug) {
           if (verbose) { console.log(`[CDP] Found webview via __debug in ${f.url()}`); }
           return f;
+        }
+        const childDebugIndex = await f.evaluate(() => {
+          for (let i = 0; i < window.frames.length; i++) {
+             try { if (typeof window.frames[i].__debug !== 'undefined') {return i;} } catch {}
+          }
+          return -1;
+        }).catch(() => -1);
+        
+        if (childDebugIndex !== -1) {
+           const children = f.childFrames();
+           if (children[childDebugIndex]) {
+             if (verbose) { console.log(`[CDP] ✅ Found webview via CHILD __debug in ${children[childDebugIndex].url()}`); }
+             return children[childDebugIndex];
+           }
         }
       } catch { }
     }
@@ -154,9 +169,40 @@ export async function findSovereignTarget(browser, type, verbose = false) {
     for (const f of frames) {
       try {
         const url = f.url() || await f.evaluate(() => window.location.href).catch(() => '');
-        if (url.startsWith('vscode-webview://') && !url.includes('fake.html')) {
-          if (verbose) { console.log(`[CDP] Found webview via URL: ${url}`); }
-          return f;
+        const hasDebug = await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false);
+        
+        if (hasDebug) {
+           if (verbose) { console.log(`[CDP] ✅ Confirmed Dashboard via __debug in ${url}`); }
+           return f;
+        }
+
+        const text = await f.evaluate(() => document.body.innerText).catch(() => '');
+        if (verbose) { console.log(`  - Probe: ${url.substring(0, 80)} | Text Length: ${text.length}`); }
+        
+        if (text.includes('FOCUSED FILE') || text.includes('LOADED FILE') || text.includes('CHAPTERS')) {
+           if (verbose) { console.log(`[CDP] ✅ Confirmed Dashboard via Text Match in ${url}`); }
+           return f;
+        }
+
+        if (url.includes('speechEngine.html') || (url.startsWith('vscode-webview://') && !url.includes('fake.html'))) {
+           if (verbose) { console.log(`[CDP] Potential Match (URL): ${url}`); }
+           const childDebug = await f.evaluate(() => {
+              for(let i=0; i<window.frames.length; i++){
+                try { if(typeof window.frames[i].__debug !== 'undefined') {return i;} } catch {}
+              }
+              return -1;
+           }).catch(() => -1);
+           
+           if (childDebug !== -1) {
+              const children = f.childFrames();
+              if (children[childDebug]) {return children[childDebug];}
+           }
+           
+           // Fallback if no child has __debug yet
+           if (!url.includes('id=4eac')) { // Exclude the Task webview if we know its ID
+              if (verbose) { console.log(`[CDP] ⚠️ Selecting likely webview (URL only): ${url}`); }
+              return f;
+           }
         }
       } catch { }
     }
@@ -190,6 +236,7 @@ async function gracefulClose(devHostPids, protectedPids = new Set(), browser = n
     if (host) {
       console.log('[CDP] Sending closeWindow to dev host...');
       await host.bringToFront();
+      
       await host.keyboard.press('Escape');
       await new Promise(r => setTimeout(r, 200));
       await host.keyboard.press('Control+Shift+P');
@@ -446,11 +493,42 @@ for (let i = 3; i < process.argv.length; i++) {
   }
   else if (action === 'verify-state') {
     const b = await connectToCDP();
-    const wv = await findSovereignTarget(b, 'webview', true);
+    let wv = await findSovereignTarget(b, 'webview', true);
     if (wv) {
-      const state = await wv.evaluate((debug) => JSON.stringify(debug.store.getState(), null, 2));
+      console.log(`[CDP] Probing frame: ${wv.url().substring(0, 80)}`);
+      
+      const getReduxState = async (f) => {
+        return await f.evaluate(() => {
+          if (window.__debug?.store) {return JSON.stringify(window.__debug.store.getState(), null, 2);}
+          // Try children
+          for (let i = 0; i < window.frames.length; i++) {
+            try {
+               if (window.frames[i].__debug?.store) {return JSON.stringify(window.frames[i].__debug.store.getState(), null, 2);}
+            } catch {}
+          }
+          return null;
+        }).catch(() => null);
+      };
+
+      const getHtml = async (f) => {
+        return await f.evaluate(() => {
+          if (document.body.innerHTML.length > 100) {return document.body.innerHTML;}
+          for (let i = 0; i < window.frames.length; i++) {
+            try {
+               if (window.frames[i].document.body.innerHTML.length > 100) {return window.frames[i].document.body.innerHTML;}
+            } catch {}
+          }
+          return document.body.innerHTML;
+        }).catch(() => 'ERR_ACCESS_DENIED');
+      };
+
+      const state = await getReduxState(wv);
+      const html = await getHtml(wv);
+      
       console.log('--- REDUX STATE ---');
-      console.log(state);
+      console.log(state || 'undefined');
+      console.log('--- HTML DUMP (Start) ---');
+      console.log(html.substring(0, 1000));
     } else {
       console.log('❌ Webview not found');
     }

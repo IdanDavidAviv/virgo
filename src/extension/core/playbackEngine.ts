@@ -274,13 +274,16 @@ export class PlaybackEngine extends EventEmitter {
     }
 
 
-    public stop(intentId?: number, forceBatchReset: boolean = false) {
-        this.logger(`[ENGINE] Stop (Intent: ${intentId ?? this._playbackIntentId} | ForceBatch: ${forceBatchReset})`);
+    public stop(intentId?: number, forceBatchReset: boolean = false, silent: boolean = false) {
+        this.logger(`[ENGINE] Stop (Intent: ${intentId ?? this._playbackIntentId} | ForceBatch: ${forceBatchReset}${silent ? ' | SILENT' : ''})`);
 
         this._isPlaying = false;
         this._isPaused = false;
         this._isStalled = false;
-        this._updateStatus();
+        
+        if (!silent) {
+            this._updateStatus();
+        }
 
         if (intentId !== undefined) {
             this.adoptIntent(intentId);
