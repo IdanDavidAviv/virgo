@@ -57,7 +57,7 @@ describe('BaseComponent', () => {
     expect(container?.innerHTML).toBe('rendered');
   });
 
-  it('should manage subscriptions and cleanup on unmount', () => {
+  it('should manage subscriptions and cleanup on unmount', async () => {
     const store = WebviewStore.getInstance();
     const container = document.getElementById('container');
     const component = new TestComponent({ container });
@@ -66,12 +66,9 @@ describe('BaseComponent', () => {
     component.testSubscribe((state: any) => state.isPlaying, listener);
     
     // Trigger sync
-    window.dispatchEvent(new MessageEvent('message', {
-      data: {
-        command: IncomingCommand.UI_SYNC,
+    await import('@webview/core/CommandDispatcher').then(m => m.CommandDispatcher.getInstance().dispatch(IncomingCommand.UI_SYNC, {
         isPlaying: true,
         currentSentenceIndex: 0
-      }
     }));
     
     expect(listener).toHaveBeenCalledWith(true);
@@ -80,11 +77,8 @@ describe('BaseComponent', () => {
     component.unmount();
     
     // Trigger sync again
-    window.dispatchEvent(new MessageEvent('message', {
-      data: {
-        command: IncomingCommand.UI_SYNC,
+    await import('@webview/core/CommandDispatcher').then(m => m.CommandDispatcher.getInstance().dispatch(IncomingCommand.UI_SYNC, {
         isPlaying: false
-      }
     }));
     
     expect(listener).not.toHaveBeenCalled();

@@ -22,7 +22,7 @@ describe('PlaybackController: Optimistic Transitions (TDD)', () => {
         vi.spyOn(WebviewAudioEngine, 'getInstance').mockReturnValue({
             pause: vi.fn(),
             stop: vi.fn(),
-            ensureAudioContext: vi.fn(),
+            ensureAudioContext: vi.fn().mockResolvedValue(undefined),
             speakLocal: vi.fn(),
             playBlob: vi.fn(),
             playFromBase64: vi.fn(),

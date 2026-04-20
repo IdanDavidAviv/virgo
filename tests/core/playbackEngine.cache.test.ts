@@ -52,7 +52,7 @@ describe('PlaybackEngine TDD: Cache Optimization & Clearing', () => {
         const speakPromise = engine.speakNeural('Hello', 'cache-key-1', defaultOptions);
         
         // Wait for microtasks
-        for (let i = 0; i < 5; i++) { await Promise.resolve(); }
+        await new Promise(r => setTimeout(r, 20));
 
         // Simulate stream flow
         stream.emit('data', Buffer.from('audio-chunk'));
@@ -87,7 +87,7 @@ describe('PlaybackEngine TDD: Cache Optimization & Clearing', () => {
 
         const speakPromise = engine.speakNeural('Hello', 'cache-key-1', defaultOptions);
         
-        for (let i = 0; i < 5; i++) { await Promise.resolve(); }
+        await new Promise(r => setTimeout(r, 20));
 
         stream.emit('data', Buffer.from('abc'));
         stream.emit('end');

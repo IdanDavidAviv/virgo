@@ -84,14 +84,14 @@ describe('Simplified Sync Playback UI', () => {
         vi.useRealTimers();
     });
 
-    it('should reflect isAwaitingSync immediately on PlaybackController trigger', async () => {
+    it('should reflect optimistic playback immediately on PlaybackController trigger', async () => {
         // User clicks Play via Controller (Sovereign Head)
         PlaybackController.getInstance().play();
         
-        // UI and Store should show loading immediately (Optimistic state set by Controller)
-        expect(store.isSyncing).toBe(true);
+        // UI and Store should NOT show loading immediately (Fully Optimistic Playback)
+        expect(store.isSyncing).toBe(false);
         controls.render(); 
-        expect(mockEls.btnPlay.classList.contains('is-loading')).toBe(true);
+        expect(mockEls.btnPlay.classList.contains('is-loading')).toBe(false);
         
         // Remote sync arrives via UI_SYNC command
         await CommandDispatcher.getInstance().dispatch(IncomingCommand.UI_SYNC, {
@@ -112,11 +112,11 @@ describe('Simplified Sync Playback UI', () => {
     });
 
     it('should apply loading classes and respect grace periods (Stall Logic)', async () => {
-        // 1. User Action (Instant Loading)
+        // 1. User Action (Optimistic Start)
         PlaybackController.getInstance().play();
-        expect(store.isSyncing).toBe(true);
+        expect(store.isSyncing).toBe(false);
         controls.render();
-        expect(mockEls.btnPlay.classList.contains('is-loading')).toBe(true);
+        expect(mockEls.btnPlay.classList.contains('is-loading')).toBe(false);
 
         // 2. Playback Starts (Clears Loading from Sync)
         await CommandDispatcher.getInstance().dispatch(IncomingCommand.UI_SYNC, {
