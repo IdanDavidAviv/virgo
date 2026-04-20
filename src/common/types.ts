@@ -70,6 +70,7 @@ export interface UISyncPacket {
     logLevel: LogLevel;
     snippetHistory?: SnippetHistory;
     isHydrated?: boolean;
+    playbackAuthorized?: boolean; // [COLD-BOOT GATE] True only after an explicit user play gesture.
 }
 
 

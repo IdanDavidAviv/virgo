@@ -121,7 +121,7 @@ export class SyncManager implements vscode.Disposable {
         // when nothing has actually changed (same chapters, intent, hydrated, isPlaying).
         if (this._isPlaying) {
             const state = this._stateStore.state;
-            const hash = `v2::${this._activeSessionId}::${state.activeContentHash}::${state.currentChapterIndex}::${state.playbackIntentId}::${state.isHydrated}`;
+            const hash = `v2::${this._activeSessionId}::${state.activeContentHash}::${state.currentChapterIndex}::${state.playbackIntentId}::${state.isHydrated}::${this._dashboardRelay.isPlaybackAuthorized}`;
             
             if (hash === this._lastFlushHash) {
                 return; // Absorbed — state is equivalent, no change to broadcast

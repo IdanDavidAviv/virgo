@@ -577,10 +577,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger(`[READALOUD <- ${source.toUpperCase()}] Command: ${cmd}`);
 
 
-        if (payload.intentId !== undefined) {
+        // [MONOTONIC GUARD] Only adopt webview-reported intent IDs if they are strictly
+        // higher than the engine's current counter. Unconditional writes allow webview
+        // commands carrying reset/stale intentIds (e.g. 0 or 1) to stomp the StateStore
+        // backward, causing the relay to oscillate between intent=1 and intent=N.
+        if (payload.intentId !== undefined && payload.intentId > this._playbackEngine.playbackIntentId) {
             this._stateStore.setPlaybackIntentId(payload.intentId);
         }
-        if (payload.batchId !== undefined) {
+        if (payload.batchId !== undefined && payload.batchId > this._playbackEngine.batchIntentId) {
             this._stateStore.setBatchIntentId(payload.batchId);
         }
 
@@ -1134,6 +1138,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
         this._logger(`[SPEECH_PROVIDER] action:play | file: ${fileName} | start: ${startFromChapter}`);
+        this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
         this._stateStore.setProgress(startFromChapter, 0);
         this._playbackEngine.setPlaying(true);
         this._audioBridge.start(startFromChapter, 0, this._getOptions());
@@ -1175,6 +1180,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public continue(intentId?: string, batchId?: string) {
         this._logger(`[SPEECH_PROVIDER] action:continue | intent: ${intentId} | batch: ${batchId} | hydrated: ${this.isHydrated()}`);
+        this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
         this._stateStore.setPreviewing(false); // Commit to full playback
         this._playbackEngine.setPlaying(true, intentId as any);
         this._playbackEngine.setPaused(false, intentId as any);
@@ -1187,6 +1193,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public jumpToSentence(index: number, intentId?: string, batchId?: string) {
         this._stateStore.setPreviewing(false); // Navigation often implies intent to play from there
+        this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
         this._playbackEngine.setPlaying(true, intentId as any);
         this._audioBridge.start(this._stateStore.state.currentChapterIndex, index, this._getOptions(), false, intentId as any, batchId as any);
     }
@@ -1195,6 +1202,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const chapters = this._docController.chapters;
         if (index < 0 || index >= chapters.length) { return; }
         this._stateStore.setPreviewing(false);
+        this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
         this._playbackEngine.setPlaying(true, intentId as any);
         this._audioBridge.start(index, 0, this._getOptions(), false, intentId as any, batchId as any);
     }

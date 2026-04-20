@@ -324,7 +324,7 @@ export class PlaybackController {
         const state = store.getState();
 
         // 1. [SOVEREIGNTY] Authoritative update + Sampling Flag
-        store.patchState({ 
+        store.patchState({
             selectedVoice: voiceId,
             isSelectingVoice: true // Enter sampling mode
         });
@@ -418,7 +418,7 @@ export class PlaybackController {
      */
     public refreshVoices(): void {
         console.log('[PlaybackController] 🔄 Manual voice refresh requested');
-        
+
         // 1. Scan browser local voices
         WebviewAudioEngine.getInstance().scanVoices();
 
@@ -434,22 +434,33 @@ export class PlaybackController {
      * handleSynthesisReady() - Sovereign fetch orchestration.
      */
     private handleSynthesisReady(cacheKey: string, intentId: number): void {
-        const currentPlaybackId = WebviewStore.getInstance().getState().playbackIntentId as number;
-        // [Authoritative Magnitude Check] 
+        const store = WebviewStore.getInstance();
+        const state = store.getState();
+        const currentPlaybackId = state.playbackIntentId as number;
+
+        // [Authoritative Magnitude Check]
         // Reject synthesis if it belongs to a stale intent (monotonic preemption).
         if (intentId < currentPlaybackId) {
             console.warn(`[PlaybackController] 💀 Rejecting zombie synthesis: ${intentId} < ${currentPlaybackId}`);
             return;
         }
 
+        // [COLD-BOOT GATE] Block FETCH_AUDIO until playback is explicitly authorized by a user gesture.
+        // Synthesis still runs on the extension side, warming the cache silently.
+        // Audio data will flow when the user presses play and playbackAuthorized flips to true.
+        if (!state.playbackAuthorized) {
+            console.warn(`[PlaybackController] 🔕 SYNTHESIS_READY suppressed — not yet authorized. Cache warming silently for ${cacheKey}.`);
+            this.synthesizingKeys.delete(cacheKey);
+            return;
+        }
+
         console.log(`[PlaybackController] 🟢 Synthesis ready for intent ${intentId}. Requesting audio fetch...`);
         this.synthesizingKeys.delete(cacheKey);
         this.setBuffering(true);
-        const store = WebviewStore.getInstance();
         MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, {
             cacheKey,
             intentId,
-            batchId: store.getState().batchIntentId
+            batchId: state.batchIntentId
         });
 
         // [FIFO] Trigger next pre-fetch
@@ -553,9 +564,9 @@ export class PlaybackController {
         WebviewAudioEngine.getInstance().ensureAudioContext();
 
         // [SOVEREIGNTY] Optimistic State Flip for immediate reactive feedback
-        store.updateUIState({ 
-            isPlaying: true, 
-            isPaused: false, 
+        store.updateUIState({
+            isPlaying: true,
+            isPaused: false,
             playbackIntent: 'PLAYING',
             isAwaitingSync: true,
             lastStallSource: 'USER'
@@ -605,9 +616,9 @@ export class PlaybackController {
         store.resetLoadingStates();
 
         // [SYNC] Authoritative update replacing "optimisticPatch"
-        store.updateUIState({ 
-            isPlaying: false, 
-            isPaused: true, 
+        store.updateUIState({
+            isPlaying: false,
+            isPaused: true,
             playbackIntent: 'PAUSED',
             isAwaitingSync: true,
             lastStallSource: 'USER'
@@ -642,9 +653,9 @@ export class PlaybackController {
         store.resetLoadingStates();
 
         // [SOVEREIGNTY] Optimistic State Flip for immediate reactive feedback
-        store.updateUIState({ 
-            playbackIntent: 'STOPPED', 
-            isPlaying: false, 
+        store.updateUIState({
+            playbackIntent: 'STOPPED',
+            isPlaying: false,
             isPaused: false,
             isAwaitingSync: true
         });
@@ -801,7 +812,7 @@ export class PlaybackController {
         // 2. [FLUID SYNC] Delegate segmented sovereignty to the store
         // If the packet is stale, patchState will automatically strip disruptive fields
         // but allow telemetry (Voices, Stats, FileName) to flow through.
-        
+
         const now = Date.now();
         const isTransitioning = now < this.transitionExpiry;
 
@@ -824,7 +835,17 @@ export class PlaybackController {
 
         // Apply the patch. WebviewStore.patchState handles the field-level intent filtering.
         store.patchState(syncPatch);
-        
+
+        // [SOVEREIGNTY BRIDGE] When the extension flips playbackAuthorized to true via UI_SYNC,
+        // treat it as equivalent to a user gesture — unlock the interaction gate and prime audio.
+        // Without this, PLAY_AUDIO blobs are ingested-only (blocked at CommandDispatcher L114)
+        // because _userHasInteracted remains false even after the authorization gate opens.
+        if (packet.playbackAuthorized && !this._userHasInteracted) {
+            console.log('[PlaybackController] 🔓 playbackAuthorized → unlocking userHasInteracted + priming audio.');
+            this._userHasInteracted = true;
+            WebviewAudioEngine.getInstance().ensureAudioContext().catch(() => { });
+        }
+
         this.releaseLock();
     }
 

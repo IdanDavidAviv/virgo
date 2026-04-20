@@ -39,7 +39,8 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
   windowSentences: [],
   selectedVoice: undefined,
   snippetHistory: [],
-  isHydrated: false
+  isHydrated: false,
+  playbackAuthorized: false
 };
 
 export type StoreState = UISyncPacket & {

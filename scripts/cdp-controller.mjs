@@ -295,10 +295,14 @@ async function runShell() {
         return;
       } catch (e) { console.warn(`[SHELL] ⚠ Atomic fail: ${e.message}. Falling back...`); }
     }
+    // [SOVEREIGNTY SAFEGUARD] Dispatch is STRICTLY host-only.
+    // Falling back to the main workbench would silently control the developer's IDE.
     const host = await findSovereignTarget(b, 'host');
-    const workbench = await findSovereignTarget(b, 'workbench');
-    const page = host || workbench;
-    if (!page) { console.log('[SHELL] ✗ No window found.'); return; }
+    if (!host) {
+      console.log('[SHELL] 🛑 SAFEGUARD: Extension Development Host not found. Refusing to dispatch to main IDE.');
+      return;
+    }
+    const page = host;
     const cleanCmd = cmd.startsWith('>') ? cmd.substring(1) : cmd;
     await page.bringToFront();
     await page.keyboard.press('Escape');
