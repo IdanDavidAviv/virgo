@@ -66,7 +66,7 @@ function processLogLine(line) {
 
 // ── CDP Core ──
 
-async function connectToCDP() {
+export async function connectToCDP() {
   if (existsSync(SHELL_LOCK)) {
     const oldPid = parseInt(readFileSync(SHELL_LOCK, 'utf8').trim(), 10);
     if (!isNaN(oldPid) && oldPid !== process.pid) {
@@ -96,7 +96,7 @@ function attachForensicListeners(page) {
   page.on('requestfailed', req => processLogLine(`[REQ_FAIL] ${req.url()}: ${req.failure()?.errorText || 'unknown'}`));
 }
 
-async function getAllPages(browser) {
+export async function getAllPages(browser) {
   const results = [];
   for (const ctx of browser.contexts()) {
     for (const page of ctx.pages()) {
@@ -108,56 +108,60 @@ async function getAllPages(browser) {
   return results;
 }
 
-async function findSovereignTarget(browser, type, verbose = false) {
+export async function findSovereignTarget(browser, type, verbose = false) {
   const allPages = await getAllPages(browser);
-  if (verbose) {console.log(`[CDP] Finding ${type} among ${allPages.length} pages...`);}
-  
-  if (type === 'workbench') { 
+  if (verbose) { console.log(`[CDP] Finding ${type} among ${allPages.length} pages...`); }
+
+  if (type === 'workbench') {
     const p = allPages.find(p => p.url.includes('workbench.html') && !p.url.includes('extensionDevelopmentPath'));
-    if (verbose) {console.log(`[CDP] Workbench check: ${p?.title ?? 'NONE'}`);}
-    return p?.page || null; 
+    if (verbose) { console.log(`[CDP] Workbench check: ${p?.title ?? 'NONE'}`); }
+    return p?.page || null;
   }
-  if (type === 'host') { 
+  if (type === 'host') {
     const p = allPages.find(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'));
-    if (verbose) {console.log(`[CDP] Host check: ${p?.title ?? 'NONE'}`);}
-    return p?.page || null; 
+    if (verbose) { console.log(`[CDP] Host check: ${p?.title ?? 'NONE'}`); }
+    return p?.page || null;
   }
   if (type === 'webview') {
     const frames = [];
     for (const { page, title } of allPages) {
       const pageFrames = page.frames().filter(f => !f.isDetached());
-      if (verbose) {console.log(`[CDP] Scanning ${pageFrames.length} frames in page: ${title}`);}
+      if (verbose) { console.log(`[CDP] Scanning ${pageFrames.length} frames in page: ${title}`); }
       for (const f of pageFrames) {
-        if (verbose) {console.log(`  - Frame: ${f.url().substring(0, 100)}`);}
+        if (verbose) { console.log(`  - Frame: ${f.url().substring(0, 100)}`); }
       }
       frames.push(...pageFrames);
     }
+    // Tier 1: __debug probe (fully hydrated webview)
     for (const f of frames) {
       try {
-        if (await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false)) { 
-          if (verbose) {console.log(`[CDP] Found webview via __debug in ${f.url()}`);}
-          return f; 
+        if (await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false)) {
+          if (verbose) { console.log(`[CDP] Found webview via __debug in ${f.url()}`); }
+          return f;
         }
       } catch { }
     }
+    // Tier 2: __BOOTSTRAP_CONFIG__ probe (booting webview)
     for (const f of frames) {
       try {
-        if (await f.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__ === 'object').catch(() => false)) { 
-          if (verbose) {console.log(`[CDP] Found webview via __BOOTSTRAP_CONFIG__ in ${f.url()}`);}
-          return f; 
+        if (await f.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__ === 'object').catch(() => false)) {
+          if (verbose) { console.log(`[CDP] Found webview via __BOOTSTRAP_CONFIG__ in ${f.url()}`); }
+          return f;
         }
       } catch { }
     }
+    // Tier 3: URL probe (vscode-webview scheme)
     for (const f of frames) {
       try {
         const url = f.url() || await f.evaluate(() => window.location.href).catch(() => '');
         if (url.startsWith('vscode-webview://') && !url.includes('fake.html')) {
-          if (verbose) {console.log(`[CDP] Found webview via URL: ${url}`);}
+          if (verbose) { console.log(`[CDP] Found webview via URL: ${url}`); }
           return f;
         }
       } catch { }
     }
   }
+
   return null;
 }
 
@@ -434,6 +438,18 @@ for (let i = 3; i < process.argv.length; i++) {
     const host = await findSovereignTarget(b, 'host');
     const wv = await findSovereignTarget(b, 'webview');
     console.log(`[CDP] Host: ${host ? '✅' : '❌'} | Webview: ${wv ? '✅' : '❌'}`);
+    await b.close();
+  }
+  else if (action === 'verify-state') {
+    const b = await connectToCDP();
+    const wv = await findSovereignTarget(b, 'webview', true);
+    if (wv) {
+      const state = await wv.evaluate((debug) => JSON.stringify(debug.store.getState(), null, 2));
+      console.log('--- REDUX STATE ---');
+      console.log(state);
+    } else {
+      console.log('❌ Webview not found');
+    }
     await b.close();
   }
   else if (action === 'targets') {

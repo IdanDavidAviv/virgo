@@ -263,12 +263,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const versionSalt = isSupported ? this._docController.getFileVersionSalt(uri) : undefined;
         this._stateStore.setFocusedFile(uri, fileName, relativeDir, isSupported, versionSalt);
         this._logger(`[DEBUG] setActiveEditor | file: ${fileName} | scheme: ${uri.scheme} | supported: ${isSupported} | salt: ${versionSalt}`);
-
-        // [DPG] A real URI is now known. Attempt the initial load pulse.
-        // This will only execute once per webview lifecycle.
-        if (!this._initialLoadExecuted) {
-            this._tryInitialDocumentLoad();
-        }
     }
 
     private _isFormatSupported(fileName: string): boolean {
@@ -694,6 +688,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 const audioData = this._playbackEngine.getAudioFromCache(payload.cacheKey);
                 if (audioData) {
                     this._logger(`[BRIDGE] PULL_FETCH: ${payload.cacheKey} | Intent: ${payload.intentId}`);
+                    // [3.1.C / Law 7.1] Confirm this key as a hit so the 200ms dedup window is armed.
+                    // Prevents FETCH_FAILED from triggering redundant synthesis on the same key
+                    // if a second FETCH_AUDIO arrives within the confirmation window.
+                    this._audioBridge.notifyCacheConfirmation(payload.cacheKey);
                     this._postToAll({
                         command: IncomingCommand.DATA_PUSH,
                         cacheKey: payload.cacheKey,
@@ -964,8 +962,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
         this._dashboardRelay.sync();
 
-        // [DPG] Mark webview as ready and attempt the gate
+        // [DPG] Mark webview as ready and attempt the one-shot initial load.
+        // Once _initialLoadExecuted is true, setActiveEditor will never trigger auto-loads.
         this._webviewIsReady = true;
+        this._initialLoadExecuted = true; 
         this._tryInitialDocumentLoad();
 
         // Pulse 3: Heavy Data Discovery (Background/Async)
@@ -992,28 +992,24 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._logger('[DPG] Gate blocked: webview not yet ready.');
             return;
         }
+
         // [v2.3.2] Check if we have a valid URI in the State Store
         const hasUri = !!this._stateStore.state.focusedDocumentUri;
         
         if (!hasUri) {
             // [v2.3.5] STANDBY Support: If no URI and no persisted doc, unblock the UI anyway.
-            // This prevents the "Dead UI" state when starting Extension Host with zero files open.
             if (!this._stateStore.state.activeDocumentUri) {
                 this._logger('[DPG] 🛡️ No focus or persistence detected. Entering STANDBY mode.');
-                this._initialLoadExecuted = true;
                 this._dashboardRelay.sync();
                 return;
             }
             
             this._logger('[DPG] No focus, but persisted activeDoc detected. Yielding to persistence.');
-            this._initialLoadExecuted = true;
             this._dashboardRelay.sync();
             return;
         }
 
-        this._logger('[DPG] ✅ Both conditions met. Executing Pulse 2: contextual hydration.');
-        // Lock the gate permanently to prevent "Ghost Focus" auto-loads on tab switches (Issue #26)
-        this._initialLoadExecuted = true;
+        this._logger('[DPG] ✅ Executing Pulse 2: contextual hydration.');
 
         // [Law F.1 — Persistence Yield] If PersistenceManager already restored an activeDocumentUri,
         // the user explicitly chose that document last session. Do NOT overwrite it with the currently

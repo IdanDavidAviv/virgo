@@ -46,11 +46,15 @@ export class AudioBridge extends EventEmitter {
         });
 
         this._playbackEngine.on('synthesis-starting', (payload) => {
-            this._emitWithIntent('synthesisStarting', payload);
+            // [Law 7.2] Route through deduplicated emitter instead of raw _emitWithIntent.
+            // emitSynthesisStarting() suppresses duplicate events for the same cacheKey+intentId pair.
+            this.emitSynthesisStarting(payload.cacheKey, payload.intentId);
         });
 
         this._playbackEngine.on('intent-change', (id: number) => {
             this._stateStore.setPlaybackIntentId(id);
+            // [Law 7.2] Clear the dedup set on intent change so the new intent gets fresh signals.
+            this.clearSynthesisStartingDedup();
         });
 
         // [v2.0.0] Throttled Pushing: Ensure bridge priority for user IPC 
@@ -284,16 +288,33 @@ export class AudioBridge extends EventEmitter {
     public async synthesize(cacheKey: string, options: PlaybackOptions, intentId?: number, batchId?: number) {
         // [PROTOCOL_REPAIR] If the intentId is 0, it means the Webview is likely in an uninitialized state.
         // We adopt the extension's current intent (or generate one if everything is 0) to bridge the gap.
+        let intentRepaired = false;
+        let batchRepaired = false;
+
         if (intentId === 0) {
             const currentIntent = this._playbackEngine.playbackIntentId;
             intentId = currentIntent > 0 ? currentIntent : 1;
+            intentRepaired = true;
             this._logger(`[BRIDGE] [PROTOCOL_REPAIR] Synthesis request with Intent 0. Adopted: ${intentId}`);
         }
 
         if (batchId === 0) {
             const currentBatch = this._playbackEngine.batchIntentId;
             batchId = currentBatch > 0 ? currentBatch : 1;
+            batchRepaired = true;
             this._logger(`[BRIDGE] [PROTOCOL_REPAIR] Synthesis request with Batch 0. Adopted: ${batchId}`);
+        }
+
+        // [3.1.B] Sync repaired values back to engine + StateStore so the next RELAY cycle carries
+        // the authoritative IDs to the Webview — preventing it from re-sending 0 and causing
+        // a second synthesis cycle (double-play oscillation).
+        if (intentRepaired) {
+            this._playbackEngine.adoptIntent(intentId!);
+            this._stateStore.setPlaybackIntentId(intentId!);
+        }
+        if (batchRepaired) {
+            this._playbackEngine.adoptBatchIntent(batchId!);
+            this._stateStore.setBatchIntentId(batchId!);
         }
 
         // [Law 7.1] FETCH_FAILED Fallback Guard: If the Webview confirmed a cache hit
@@ -443,7 +464,9 @@ export class AudioBridge extends EventEmitter {
                 return;
             }
 
-            if (data && (this._playbackEngine.isPlaying || state.isPreviewing)) {
+            // [SOVEREIGNTY] Decoupled emission: We push data if we have it. 
+            // The Webview is the final gate for playback and will ignore stale intents.
+            if (data) {
                 this._emitWithIntent('playAudio', {
                     cacheKey,
                     data, // Restore Push Mode for performance

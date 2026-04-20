@@ -51,7 +51,8 @@ export class PlaybackEngine extends EventEmitter {
     private _neuralHealth: 'HEALTHY' | 'DEGRADED' | 'STALLED' = 'HEALTHY';
     private _lastNeuralSuccessTime: number = Date.now();
     private _consecutiveNeuralErrors: number = 0;
-    private readonly NEURAL_FALLBACK_THRESHOLD_MS = 120000; // 2 Minutes
+    // [SOVEREIGN RESET] Removed legacy 5-minute fallback timer. 
+    // Health is now governed by explicit manual intent and reactive success signals.
     // [Gate 3] Startup Orchestration — lock-aware TTS disposal.
     // _reinitTTS() called while synthesis is active defers until the finally block fires.
     private _synthesisActive: number = 0;
@@ -127,8 +128,6 @@ export class PlaybackEngine extends EventEmitter {
 
     private _executeReinit() {
         this.logger('[NEURAL] Authority Re-initialization (Lib Corruption Detected)');
-        // [Gate 4] Reset the ready gate before spinning up the new client.
-        this._ttsReady = new Promise(r => { this._resolveTtsReady = r; });
         try {
             if (this._tts) {
                 try { (this._tts as any).close(); } catch (e) {}
@@ -138,24 +137,21 @@ export class PlaybackEngine extends EventEmitter {
         } catch (e) {
             this.logger(`[NEURAL] Failed to re-initialize TTS: ${e}`);
         }
-        // Warm up the new client asynchronously.
-        this._warmUpTts();
+        // [Gate 4] Reset ready gate and resolve immediately — no warm-up needed.
+        // MsEdgeTTS opens its WebSocket lazily per toStream(); pre-warming creates dead sockets.
+        this._ttsReady = Promise.resolve();
     }
 
-    /** [Gate 4] Fire a zero-cost warm-up setMetadata to open the WebSocket before real synthesis. */
+    /**
+     * [Gate 4] Resolve the TTS ready gate immediately.
+     * MsEdgeTTS opens its WebSocket lazily per toStream() call — there is no
+     * connection to pre-warm. A prior setMetadata() warm-up caused a "dead socket"
+     * race: Azure closed the idle WS after the probe, then the first real toStream()
+     * fired on a closed socket and returned 0 chunks.
+     */
     private _warmUpTts() {
-        // Use a known-good voice ID for the warm-up probe.
-        const WARMUP_VOICE = 'en-US-GuyNeural';
-        this._tts.setMetadata(WARMUP_VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {})
-            .then(() => {
-                this.logger('[NEURAL] 🟢 TTS warm-up complete. WS transport open.');
-                this._resolveTtsReady();
-            })
-            .catch((e: any) => {
-                this.logger(`[NEURAL] ⚠️ TTS warm-up failed (non-fatal): ${e?.message}`);
-                // Resolve anyway — synthesis will self-heal via existing retry logic.
-                this._resolveTtsReady();
-            });
+        this.logger('[NEURAL] 🟢 TTS gate resolved. WebSocket opens lazily on first synthesis.');
+        this._resolveTtsReady();
     }
 
     public get isPlaying() { return this._isPlaying; }
@@ -182,31 +178,17 @@ export class PlaybackEngine extends EventEmitter {
 
     /**
      * isNeuralViable(): Checks if the neural engine is healthy enough to use.
-     * [v2.4.5] Healing Logic: If stalled but > 5 minutes have passed since last failure,
-     * allow a 'Probe' attempt to self-heal.
+     * [SOVEREIGN RESET] Snappy Reactive Recovery:
+     * 1. If HEALTHY or DEGRADED, always viable.
+     * 2. If STALLED, only viable if the user has triggered a manual recovery (resetNeuralHealth)
+     *    or if we are in a 'Probe' state (e.g. manual Play gesture).
      */
     public isNeuralViable(): boolean {
-        if (this._neuralHealth === 'HEALTHY') { return true; }
+        if (this._neuralHealth !== 'STALLED') { return true; }
         
-        const timeSinceSuccess = Date.now() - this._lastNeuralSuccessTime;
-        
-        // 1. Healing Window (2 Minutes)
-        if (timeSinceSuccess < this.NEURAL_FALLBACK_THRESHOLD_MS) {
-            return true; 
-        }
-
-        // 2. [v2.4.5] Probe Window: If > 5 minutes passed, allow ONE attempt to see if it's back.
-        const PROBE_THRESHOLD = 300000; // 5 Minutes
-        if (timeSinceSuccess > PROBE_THRESHOLD && this._neuralHealth === 'STALLED') {
-            this.logger(`[NEURAL] 🩺 Probe window opened (>5m). Allowing trial synthesis.`);
-            return true;
-        }
-
-        if (this._neuralHealth !== 'STALLED') {
-            this.logger(`[NEURAL] ☠️ Health downgraded to STALLED (>120s failure).`);
-            this._neuralHealth = 'STALLED';
-        }
-
+        // [REACTIVE] If we are stalled, we only allow a probe if it's a manual recovery attempt.
+        // For now, if we are stalled, we force local fallback until manual reset.
+        this.logger(`[NEURAL] 🩺 Health is STALLED. Falling back to local.`);
         return false;
     }
 
@@ -544,9 +526,10 @@ export class PlaybackEngine extends EventEmitter {
                 new Promise((_, reject) => {
                     const onAbort = (msg: string) => reject(new Error(msg));
                     
-                    if (batchSignal?.aborted) { console.log('DEBUG: Batch Aborted'); return onAbort('Batch Synthesis Aborted'); }
-                    if (segmentSignal?.aborted) { console.log('DEBUG: Segment Aborted'); return onAbort('Segment Aborted'); }
-                    if (currentBatchId !== this._batchIntentId) { console.log('DEBUG: Stale Batch'); return onAbort('Stale Context'); }
+                    if (batchSignal?.aborted) { return onAbort('Batch Synthesis Aborted'); }
+                    if (segmentSignal?.aborted) { return onAbort('Segment Aborted'); }
+                    if (currentBatchId !== this._batchIntentId) { return onAbort('Stale Context'); }
+                    if (isPriority && currentIntentId !== this._playbackIntentId) { return onAbort('Stale Intent'); }
 
                     batchSignal?.addEventListener('abort', () => onAbort('Batch Synthesis Aborted'), { once: true });
                     segmentSignal?.addEventListener('abort', () => onAbort('Segment Aborted'), { once: true });
@@ -605,7 +588,7 @@ export class PlaybackEngine extends EventEmitter {
             if (this._playbackIntentId === intentId) {
                 onTimeout();
             }
-        }, 4000);
+        }, 10000);
     }
 
     private _clearWatchdog() {
@@ -667,9 +650,24 @@ export class PlaybackEngine extends EventEmitter {
             try {
                 // [Gate 4] Await TTS warm-up gate before calling setMetadata.
                 // Prevents 'readyState' TypeError on cold-boot first synthesis request.
-                await this._ttsReady;
+                // [v2.4.6] Abortable Pre-flight: Race against the abort signal to prevent deadlocks.
+                await Promise.race([
+                    this._ttsReady,
+                    new Promise((_, reject) => {
+                        if (signal?.aborted) { return reject(new Error("Synthesis Aborted")); }
+                        signal?.addEventListener('abort', () => reject(new Error("Synthesis Aborted")), { once: true });
+                    })
+                ]);
+
                 // [v2.3.1] Catch library/metadata/DOM errors during handshake
-                await this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
+                // [v2.4.6] Abortable setMetadata race.
+                await Promise.race([
+                    this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {}),
+                    new Promise((_, reject) => {
+                        if (signal?.aborted) { return reject(new Error("Synthesis Aborted")); }
+                        signal?.addEventListener('abort', () => reject(new Error("Synthesis Aborted")), { once: true });
+                    })
+                ]);
             } catch (e: any) {
                 const msg = e?.message || String(e);
                 if (msg.includes('readyState') || msg.includes('TypeError')) {
@@ -717,7 +715,7 @@ export class PlaybackEngine extends EventEmitter {
                     });
                 };
 
-                startWatchdog(4000); // Wait 4s for first chunk
+                startWatchdog(10000); // Wait 10s for first chunk (v2.4.6: Relaxed from 4s)
 
                 const onAbort = () => {
                     this.logger(`[TTS STREAM] ABORT SIGNAL received.`);
@@ -770,7 +768,7 @@ export class PlaybackEngine extends EventEmitter {
             const errorMessage = err?.message || String(err);
             const abortReason = this._abortController?.signal?.reason;
             const isTimeout = (typeof abortReason === 'string' && abortReason.includes("Timeout")) || errorMessage.includes("Timeout");
-            const isAbort = errorMessage.includes("Aborted") || errorMessage.includes("Stale Intent") || isTimeout;
+            const isAbort = errorMessage.includes("Aborted") || errorMessage.includes("Stale Intent") || errorMessage.includes("Stop Action") || isTimeout;
 
             // [v2.3.1] Global Health Degradation (unless explicitly aborted by user)
             if (!isAbort) {
