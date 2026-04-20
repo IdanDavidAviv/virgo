@@ -116,9 +116,10 @@ export class PlaybackEngine extends EventEmitter {
         }
     }
 
-    private _reinitTTS() {
+    private _reinitTTS(force: boolean = false) {
         // [Gate 3] If synthesis is actively in-flight, defer disposal until lock is released.
-        if (this._synthesisActive > 0) {
+        // If force is true (e.g. during a retry block where the stream is already dead), bypass the lock check.
+        if (!force && this._synthesisActive > 0) {
             this.logger('[NEURAL] ⏳ Re-init deferred — synthesis in-flight. Will execute on lock release.');
             this._pendingReinit = true;
             return;
@@ -644,11 +645,11 @@ export class PlaybackEngine extends EventEmitter {
             // [SOVEREIGNTY] Final check before I/O
             if (this._tts && (this._tts as any)._isDestroyed) {
                 this.logger(`[NEURAL] TTS Instance destroyed. Forcing re-init...`);
-                this._reinitTTS();
+                this._reinitTTS(true);
             }
 
             // Ensure client exists
-            if (!this._tts) { this._reinitTTS(); }
+            if (!this._tts) { this._reinitTTS(true); }
 
             try {
                 // [Gate 4] Await TTS warm-up gate before calling setMetadata.
@@ -675,7 +676,7 @@ export class PlaybackEngine extends EventEmitter {
                 const msg = e?.message || String(e);
                 if (msg.includes('readyState') || msg.includes('TypeError')) {
                     this.logger(`[NEURAL] ☢️ Critical library corruption during metadata. Resetting client.`);
-                    this._reinitTTS();
+                    this._reinitTTS(true);
                 }
                 throw e; // Bubble up for retry logic
             }
@@ -698,7 +699,7 @@ export class PlaybackEngine extends EventEmitter {
                 } catch (err: any) {
                     console.log(`[DEBUG] Catching error in _getNeuralAudio: ${err.message}`);
                     this.logger(`[TTS CRASH] toStream failed: ${err.message}`);
-                    this._reinitTTS(); // Force re-init on stream failure
+                    this._reinitTTS(true); // Force re-init on stream failure
                     reject(err);
                     return;
                 }
@@ -712,7 +713,7 @@ export class PlaybackEngine extends EventEmitter {
                         if (hasErrored) { return; }
                         this.logger(`[TTS HANG] Silent timeout (${timeoutMs}ms) for Intent ${intentId}. Recycling...`);
                         hasErrored = true;
-                        this._reinitTTS(); // Force WebSocket cleanup
+                        this._reinitTTS(true); // Force WebSocket cleanup
                         audioStream.destroy();
                         reject(new Error(`Synthesis Timeout (${timeoutMs}ms)`));
                     });
@@ -785,7 +786,7 @@ export class PlaybackEngine extends EventEmitter {
             // [v2.3.1] Hardening: Specific check for 'readyState' or 'TypeError' which indicates deep library state corruption
             if (errorMessage.includes('readyState') || errorMessage.includes('TypeError')) {
                 this.logger(`[NEURAL] ☢️ Critical library corruption detected (${errorMessage.includes('readyState') ? 'readyState' : 'TypeError'}). Forcing immediate client reset.`);
-                this._reinitTTS();
+                this._reinitTTS(true);
             }
 
             // CRITICAL: Immediately exit on User Abort or Stale Intent.
@@ -844,7 +845,7 @@ export class PlaybackEngine extends EventEmitter {
 
                 // [RESILIENCE] Re-init TTS client on retry to clear dead sockets/streams
                 if (isTimeout || errorMessage.includes("EPIPE") || errorMessage.includes("ECONNRESET")) {
-                    this._reinitTTS();
+                    this._reinitTTS(true);
                 }
 
                 // Exponential backoff
@@ -859,7 +860,7 @@ export class PlaybackEngine extends EventEmitter {
             // [HARDENING] Specific check for the 'readyState' TypeError which indicates deep library state corruption
             if (errorMessage.includes('readyState')) {
                 this.logger(`[NEURAL] ☢️ Critical library corruption detected (readyState). Forcing immediate client reset.`);
-                this._reinitTTS();
+                this._reinitTTS(true);
             }
 
             throw err;

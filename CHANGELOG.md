@@ -9,6 +9,9 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [2.5.0] - 2026-04-20
 
+### Fixed
+- **Neural Synthesis Stall**: Resolved a silent-playback regression caused by a deferred initialization bug inside `PlaybackEngine`, forcing immediate WebSocket disposal and re-initialization during corrupted state retry loops.
+
 ### Hardened
 - **State Sovereignty (Split-Brain Prevention)**: Hardened `WebviewStore` to safely filter `playbackIntent` and intent IDs from stale `UI_SYNC` packets, entirely eliminating UI state oscillation and "Play/Stop loops".
 - **Dynamic Baked Rate Sync**: Refactored the Neural Synthesis pipeline to synchronize the relative "baked rate" directly into the `WebviewAudioEngine` (`setRate` / `setVolume`).
