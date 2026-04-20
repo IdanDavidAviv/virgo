@@ -145,9 +145,15 @@ export class CommandDispatcher {
       case IncomingCommand.SYNTHESIS_READY:
         console.log('[Dispatcher] SYNTHESIS_READY Received', data);
         // Bridge reports audio is ready in its cache. Pull it if we don't have it.
-        // [AUTOPLAY_REPAIR] We remove the interaction guard here. Preparing the cache is safe.
-        // The actual play() call inside playFromCache -> playBlob will handle the NotAllowedError
-        // if no gesture has occurred yet.
+        // [INTERACTION GATE] VS Code webview Chromium does NOT enforce the browser autoplay
+        // gesture policy — NotAllowedError is never thrown. We must gate manually here,
+        // exactly like PLAY_AUDIO and DATA_PUSH HEAD MATCH do.
+        if (!playback.userHasInteracted) {
+          console.warn('[Dispatcher] 🚫 SYNTHESIS_READY suppressed — awaiting first user gesture. Pre-warming cache only.');
+          // Still fetch into local cache so playback is instant on first user click.
+          MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId: data.intentId });
+          break;
+        }
         const hasLocal = await audioEngine.playFromCache(data.cacheKey, data.intentId, data.bakedRate);
         if (!hasLocal) {
           MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId: data.intentId });

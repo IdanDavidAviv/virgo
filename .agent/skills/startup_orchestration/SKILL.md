@@ -400,10 +400,11 @@ For agents monitoring the startup sequence from the outside (CDP Shell), the seq
 
 1.  **Connection Audit**: Before assume-launching, run `status` via the CDP shell.
 2.  **Activation Signal**: Monitor `diagnostics.log` for `[VOICE_SCAN] SUCCESS`. This is the definitive "UI is ready for audit" signal.
-3.  **Hydration Check**: Once `[VOICE_SCAN]` appears, run `status` again to confirm the Webview target is registered and hydrated (checked via `window.__debug.store`).
+3.  **Hydration Check**: Once `[VOICE_SCAN]` appears, run `status` again to confirm the Webview target is registered.
+    - **Note**: In modern VS Code versions, the webview may appear as a separate `type: "iframe"` target rather than a sub-frame. Ensure the audit tool uses `Target.getTargets` sniffing.
 
 > [!WARNING]
-> Never attempt an `eval` or `dispatch` before Phase 0 confirms a healthy `Dev Host` target. Attempting to execute commands against a half-booted editor leads to process corruption or zombie windows.
+> A "Webview Not Found" error in the CDP shell often indicates a discovery mismatch (OOPIF) rather than a boot failure. Verify the raw target list via `targets` before assuming the extension is broken.
 
 ---
 
@@ -414,25 +415,31 @@ The `launch` command in the CDP shell is the authoritative "Wake Ritual".
 - **Smart Launch**: It automatically executes the **Stop-then-Start** ritual if an existing dev host is detected.
 - **Combined Intent**: It ensures a clean, conflict-free environment refresh.
 
-### 7.2 Heuristic Frame Discovery
-The `cdp-controller.mjs` implements a tiered discovery protocol to identify the correct target for `eval` commands:
-1.  **Filter**: Targets MUST be children of the primary "Extension Development Host" window.
-2.  **Priority**: The system prioritizes frames containing `fake.html` (the standard VS Code webview sandbox) over the main workbench frame.
-3.  **Validation**: A frame is only considered "Hydrated" if `window.__debug.store` is accessible via CDP.
+### 7.2 Exhaustive Target Discovery
+The `cdp-controller.mjs` implements a multi-tiered discovery protocol to identify the correct target:
+1.  **Frame Tree Scan**: Scans ALL frames of ALL pages for `window.__debug` or `vscode-webview://` URLs.
+2.  **OOPIF Sniffing**: If not found in the frame tree, it queries the raw CDP endpoint (`/json`) for targets of `type: "iframe"` matching the webview scheme.
+3.  **Direct Connection**: For "Stealth" webviews, the controller establishes a secondary CDP session directly to the target's `webSocketDebuggerUrl`.
 
-### 7.2 The Sovereign Command Queue
+### 7.3 The Sovereign Command Queue
 To prevent race conditions during rapid automation (e.g., `launch` followed immediately by `dispatch`), the CDP controller uses a **Sequential Promise Queue**:
-- All CDP commands (`dispatch`, `eval`) are wrapped in a serialized queue.
+- All CDP commands (`dispatch`, `eval`, `verify-state`) are wrapped in a serialized queue.
 - A command MUST resolve its CDP `Response` before the next command in the queue is dispatched.
 - **Retry Logic**: If a frame is not found during `eval`, the system retries with exponential backoff (up to 5s) before failing, allowing for lazy-loaded webview hydration.
 
-### 7.3 Graceful Shutdown Tiers
+### 7.4 State Verification Protocol
+The `verify-state` command allows for high-integrity Redux store audits:
+- It uses the **Exhaustive Discovery** (§7.2) to find the webview target.
+- It executes `window.__debug.getState()` and returns the full JSON state.
+- **Usage**: Mandatory after any `dispatch` that changes complex state (e.g., loading a document).
+
+### 7.5 Graceful Shutdown Tiers
 The `close` command enforces a 3-tier sovereign exit:
 1.  **Tier 1 (UI)**: Dispatches `workbench.action.closeWindow`. This is the SAFEST way to exit.
 2.  **Tier 2 (CDP)**: Attempt `Target.closeTarget` fallback for unresponsive UI.
 3.  **Tier 3 (OS)**: If the PID remains active, perform a polite `taskkill /T` (without `/F`).
 
-### 7.4 The Smart Launch Ritual
+### 7.6 The Smart Launch Ritual
 To refresh the dev environment without parallel process conflicts:
 1.  **Stop**: Send `Shift+F5` (Stop Debugging) to the Main Editor.
 2.  **Poll**: Poll for the [Extension Development Host] window to disappear.

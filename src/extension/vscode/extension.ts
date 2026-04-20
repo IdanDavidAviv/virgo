@@ -108,10 +108,13 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(mcpBridge);
     
     // [SOVEREIGNTY] Authoritative Playback Interruption on Bridge Churn
+    // v2.4.6: Decoupled. Bridge session churn should NOT kill active audio.
+    /*
     mcpBridge.on('stale_eviction', () => {
         log('[MCP_BRIDGE] Stale eviction detected. Informing SpeechProvider to stop audio.');
         speechProvider.stop();
     });
+    */
 
     mcpBridge.start().catch((err: any) => {
         log(`[MCP_ERROR] Bridge failed to start: ${err.message}`);
