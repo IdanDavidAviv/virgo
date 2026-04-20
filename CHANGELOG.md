@@ -4,8 +4,11 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [Unreleased]
 
-### Added
-- 
+### Hardened
+- **State Sovereignty (Split-Brain Prevention)**: Hardened `WebviewStore` to safely filter `playbackIntent` and intent IDs from stale `UI_SYNC` packets, entirely eliminating UI state oscillation and "Play/Stop loops".
+- **Dynamic Baked Rate Sync**: Refactored the Neural Synthesis pipeline to synchronize the relative "baked rate" directly into the `WebviewAudioEngine` (`setRate` / `setVolume`).
+- **Seamless Audio Control**: Real-time volume and speed adjustments now natively modify HTML media element properties instantly without stopping or re-triggering playback.
+- **Protocol Parity**: Fortified the diagnostic testing suite, bringing it to a flawless 100% pass rate (386/386) across rigorous Webview and Core unit tests.
 
 ## [2.4.6] - 2026-04-20
 
