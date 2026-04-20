@@ -128,7 +128,9 @@ export class CommandDispatcher {
             // [HARDENING] If local cache misses, the bridge might still have it (e.g., Prefetch Hit).
             // Try FETCH_AUDIO before escalating to full REQUEST_SYNTHESIS to prevent loops.
             console.log(`[Dispatcher] 🧩 Hint Cache Miss for ${data.cacheKey}. Requesting Pull (FETCH_AUDIO)...`);
-            MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId });
+            // [3.2.B] Carry bakedRate so the DATA_PUSH response can feed it back
+            // to playFromCache — otherwise the pull cycle loses the rate context.
+            MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId, bakedRate: data.bakedRate });
           } else {
             console.log(`[Dispatcher] ✅ Hint Cache Hit for ${data.cacheKey}`);
           }
@@ -142,11 +144,10 @@ export class CommandDispatcher {
 
       case IncomingCommand.SYNTHESIS_READY:
         console.log('[Dispatcher] SYNTHESIS_READY Received', data);
-        if (!playback.userHasInteracted) {
-           console.warn('[Dispatcher] ✋ SYNTHESIS_READY suppressed — awaiting interaction.');
-           return;
-        }
         // Bridge reports audio is ready in its cache. Pull it if we don't have it.
+        // [AUTOPLAY_REPAIR] We remove the interaction guard here. Preparing the cache is safe.
+        // The actual play() call inside playFromCache -> playBlob will handle the NotAllowedError
+        // if no gesture has occurred yet.
         const hasLocal = await audioEngine.playFromCache(data.cacheKey, data.intentId, data.bakedRate);
         if (!hasLocal) {
           MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId: data.intentId });

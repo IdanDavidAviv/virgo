@@ -692,11 +692,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     // Prevents FETCH_FAILED from triggering redundant synthesis on the same key
                     // if a second FETCH_AUDIO arrives within the confirmation window.
                     this._audioBridge.notifyCacheConfirmation(payload.cacheKey);
+                    // [3.2.A] Carry bakedRate in DATA_PUSH so the Webview AudioEngine
+                    // can compute the correct effectiveRate = targetRate / bakedRate.
+                    // Neural segments are always baked at 1.0; local TTS is baked at options.rate.
+                    const dpOptions = this._getOptions();
+                    const bakedRate = dpOptions.mode === 'neural' ? 1.0 : dpOptions.rate;
                     this._postToAll({
                         command: IncomingCommand.DATA_PUSH,
                         cacheKey: payload.cacheKey,
                         data: audioData,
-                        intentId: payload.intentId
+                        intentId: payload.intentId,
+                        bakedRate
                     });
                 } else {
                     this._logger(`[BRIDGE_WARN] FETCH_FAILED: ${payload.cacheKey}. Proactively triggering synthesis fallback.`);

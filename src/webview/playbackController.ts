@@ -129,7 +129,7 @@ export class PlaybackController {
 
         // --- IPC & LOGIC HELPERS ---
 
-        client.onCommand<{ cacheKey: string, data: string, intentId: number }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data, intentId }) => {
+        client.onCommand<{ cacheKey: string, data: string, intentId: number, bakedRate?: number }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data, intentId, bakedRate }) => {
             const engine = WebviewAudioEngine.getInstance();
             const store = WebviewStore.getInstance();
 
@@ -147,7 +147,8 @@ export class PlaybackController {
             if (playbackIntent === 'PLAYING' && cacheKey === headKey && intentId === currentPlaybackId) {
                 if (this._userHasInteracted) {
                     console.log(`[PlaybackController] 🚀 HEAD MATCH: ${cacheKey}. Triggering Engine Play.`);
-                    engine.playFromCache(cacheKey, intentId);
+                    // [3.2.B] Pass bakedRate so the engine applies the correct effectiveRate.
+                    engine.playFromCache(cacheKey, intentId, bakedRate);
                 } else {
                     console.warn('[PlaybackController] 🚫 HEAD MATCH suppressed — awaiting first user gesture.');
                 }

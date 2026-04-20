@@ -238,7 +238,12 @@ export class WebviewStore {
         'currentSentenceIndex',
         'activeDocumentUri',
         'isBuffering',
-        'playbackStalled'
+        'playbackStalled',
+        // [3.2.C] Protect intent IDs: a stale packet must not overwrite repaired IDs
+        // (e.g. after PROTOCOL_REPAIR advances batchId from 0→N, a queued sync must not
+        //  restore 0 and trigger another double-play oscillation cycle).
+        'playbackIntentId',
+        'batchIntentId'
       ];
       SOVEREIGN_FIELDS.forEach(field => {
         if (field in activePatch) {
