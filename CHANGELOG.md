@@ -7,6 +7,13 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.4.6] - 2026-04-20
+
+### Fixed
+- **Playback Sync Loop**: Resolved a critical UI oscillation bug by refactoring `PlaybackController.play()` to use atomic intent updates.
+- **Silent Stop Protocol**: Hardened `PlaybackEngine.stop()` to suppress transient state emissions during rapid audio initialization sequences, preventing optimistic UI listeners from creating intent loops.
+- **Test Integrity**: Resolved Promise resolution timeouts and DOM event listener race conditions across the Webview and Core test suites to align with the new optimistic playback architecture.
+
 ## [2.4.5] - 2026-04-19
 
 ### Fixed
