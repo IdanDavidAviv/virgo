@@ -244,7 +244,8 @@ export class WebviewStore {
         // (e.g. after PROTOCOL_REPAIR advances batchId from 0→N, a queued sync must not
         //  restore 0 and trigger another double-play oscillation cycle).
         'playbackIntentId',
-        'batchIntentId'
+        'batchIntentId',
+        'playbackIntent'
       ];
       SOVEREIGN_FIELDS.forEach(field => {
         if (field in activePatch) {
