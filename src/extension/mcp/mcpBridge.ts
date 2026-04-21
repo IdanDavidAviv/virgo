@@ -163,15 +163,8 @@ export class McpBridge extends EventEmitter {
                     }
                 }, 10000); // Relaxed to 10s to match synthesis watchdog
 
-                // SELF-HEALING: If a stale session exists, evict it cleanly.
-                if (this._activeServers.size > 0) {
-                    this._logger(`[MCP_BRIDGE] Conflict: Stale session found. Evicting before new handshake.`);
-                    for (const oldServer of this._activeServers) {
-                        this._logger(`[MCP_BRIDGE] Evicting stale instance ID: ${(oldServer as any)._readAloudInstanceId}`);
-                        this._activeServers.delete(oldServer);
-                    }
-                    this.emit("stale_eviction");
-                }
+                // [v2.4.6] DECOMMISSIONED: Aggressive eviction removed to support Multi-Instance sessions (Main + Dev Host).
+                // Eviction is now handled exclusively by the 'close' event on the request.
             } catch (err) {
                 this._logger(`[MCP_BRIDGE] Error during handshake setup: ${(err as any).message}`);
                 cleanupHandshake();

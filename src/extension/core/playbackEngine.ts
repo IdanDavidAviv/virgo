@@ -1,7 +1,6 @@
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { EventEmitter } from 'events';
 import { cleanForSpeech } from './speechProcessor';
-import * as crypto from 'crypto';
 
 export type EngineMode = 'local' | 'neural';
 
@@ -15,6 +14,9 @@ export interface PlaybackOptions {
 
 export class PlaybackEngine extends EventEmitter {
     private _tts: MsEdgeTTS;
+    private _ttsReady: Promise<void> | null = null;
+    private _reinitCooldown: number = 0;
+    private readonly REINIT_COOLDOWN_MS = 5000;
     private _synthesisLock: Promise<void> = Promise.resolve();
 
     // Unified LRU Cache for all synthesized audio
@@ -60,7 +62,6 @@ export class PlaybackEngine extends EventEmitter {
     // [Gate 4] Startup Orchestration — TTS warm-up gate.
     // MsEdgeTTS opens its WebSocket lazily on first setMetadata(). This gate resolves once
     // the client is confirmed ready so that real synthesis never races against the WS handshake.
-    private _ttsReady: Promise<void>;
     private _resolveTtsReady!: () => void;
 
 
@@ -116,22 +117,24 @@ export class PlaybackEngine extends EventEmitter {
         }
     }
 
-    private _reinitTTS(force: boolean = false) {
-        // [Gate 3] If synthesis is actively in-flight, defer disposal until lock is released.
-        // If force is true (e.g. during a retry block where the stream is already dead), bypass the lock check.
-        if (!force && this._synthesisActive > 0) {
-            this.logger('[NEURAL] ⏳ Re-init deferred — synthesis in-flight. Will execute on lock release.');
-            this._pendingReinit = true;
+    private _reinitTTS(force: boolean = false): void {
+        const now = Date.now();
+        if (now - this._reinitCooldown < this.REINIT_COOLDOWN_MS) {
+            this.logger(`[NEURAL] ❄️ Re-init throttled (cooldown active).`);
             return;
         }
-        this._executeReinit();
+        this._reinitCooldown = now;
+        this.logger(`[NEURAL] ♻️ Re-initializing TTS Engine (Force: ${force})...`);
+        this._executeReinit().catch(e => {
+            this.logger(`[NEURAL] ❌ Fatal error during re-init: ${e.message}`);
+        });
     }
 
-    private _executeReinit() {
+    private async _executeReinit() {
         this.logger('[NEURAL] Authority Re-initialization (Lib Corruption Detected)');
         try {
             if (this._tts) {
-                try { (this._tts as any).close(); } catch (e) {}
+                try { (this._tts as any).close(); } catch (e) { }
             }
             this._tts = new MsEdgeTTS();
             this.logger('[NEURAL] Client re-initialized.');
@@ -143,15 +146,31 @@ export class PlaybackEngine extends EventEmitter {
         this._ttsReady = Promise.resolve();
     }
 
-    /**
-     * [Gate 4] Resolve the TTS ready gate immediately.
-     * MsEdgeTTS opens its WebSocket lazily per toStream() call — there is no
-     * connection to pre-warm. A prior setMetadata() warm-up caused a "dead socket"
-     * race: Azure closed the idle WS after the probe, then the first real toStream()
-     * fired on a closed socket and returned 0 chunks.
-     */
-    private _warmUpTts() {
-        this.logger('[NEURAL] 🟢 TTS gate resolved. WebSocket opens lazily on first synthesis.');
+    private async _setTtsMetadata(voice: string, format: any) {
+        try {
+            // Guard: MsEdgeTTS setMetadata crashes on first call if _ws is uninitialized in some environments
+            // We wrap it to catch the 'readyState' TypeError and force a retry after implicit init
+            await this._tts.setMetadata(voice, format, {
+                voiceLocale: undefined,
+                sentenceBoundaryEnabled: true,
+                wordBoundaryEnabled: true
+            });
+        } catch (e: any) {
+            const msg = e.message || String(e);
+            if (msg.includes('readyState')) {
+                this.logger(`[NEURAL] ⚠️ Caught first-run readyState race. MsEdgeTTS client warming up...`);
+                // No-op, the internal _initClient will be triggered by subsequent toStream
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    private async _warmUpTts() {
+        this.logger('[NEURAL] 🟢 Warming up TTS client...');
+        const voice = 'en-US-SteffanNeural'; // Default
+        const format = OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3;
+        await this._setTtsMetadata(voice, format);
         this._resolveTtsReady();
     }
 
@@ -186,7 +205,7 @@ export class PlaybackEngine extends EventEmitter {
      */
     public isNeuralViable(): boolean {
         if (this._neuralHealth !== 'STALLED') { return true; }
-        
+
         // [REACTIVE] If we are stalled, we only allow a probe if it's a manual recovery attempt.
         // For now, if we are stalled, we force local fallback until manual reset.
         this.logger(`[NEURAL] 🩺 Health is STALLED. Falling back to local.`);
@@ -281,7 +300,7 @@ export class PlaybackEngine extends EventEmitter {
         this._isPlaying = false;
         this._isPaused = false;
         this._isStalled = false;
-        
+
         if (!silent) {
             this._updateStatus();
         }
@@ -354,7 +373,7 @@ export class PlaybackEngine extends EventEmitter {
         // [HARDENING] Await the TTS warm-up gate to ensure WebSocket transport is open.
         // This resolves the race condition where discovery fires during the handshake.
         await this._ttsReady;
-        
+
         // [v2.3.1] Simplified: Native voices are now discovered via the Webview.
         // The extension only manages Neural voices.
         return this._tts.getVoices().then(voices => voices.map(v => ({
@@ -457,7 +476,7 @@ export class PlaybackEngine extends EventEmitter {
         }
 
         console.log(`[DEBUG] speakNeural Start: intent=${currentIntentId}, text="${text.substring(0, 20)}"`);
-        
+
         if (intentId !== undefined) {
             this.adoptIntent(intentId);
         } else if (isPriority) {
@@ -523,13 +542,13 @@ export class PlaybackEngine extends EventEmitter {
 
         try {
             this.logger(`[NEURAL] WAITING LOCK: ${cacheKey}`);
-            
+
             // Wait for existing lock OR early abort
             await Promise.race([
                 release,
                 new Promise((_, reject) => {
                     const onAbort = (msg: string) => reject(new Error(msg));
-                    
+
                     if (batchSignal?.aborted) { return onAbort('Batch Synthesis Aborted'); }
                     if (segmentSignal?.aborted) { return onAbort('Segment Aborted'); }
                     if (currentBatchId !== this._batchIntentId) { return onAbort('Stale Context'); }
@@ -543,22 +562,22 @@ export class PlaybackEngine extends EventEmitter {
             // [Gate 3] Mark synthesis as active — _reinitTTS() will defer if called now
             this._synthesisActive++;
             this.logger(`[NEURAL] LOCK ACQUIRED: ${cacheKey}`);
-            
+
             const data = await this._getNeuralAudio(
                 text, options.voice, options.retryCount ?? this._retryAttempts,
                 currentIntentId, isPriority, currentBatchId, segmentSignal
             );
-            
+
             if (isPriority) { this._updateStatus(undefined, undefined, false); }
-            
+
             if (data) {
                 this._addToCache(cacheKey, data, currentIntentId);
             }
-            
+
             taskResolve(data);
         } catch (err: any) {
             if (isPriority) { this._updateStatus(undefined, undefined, false); }
-            
+
             // CLEAN ABORT: Don't log as error if manually stopped or intent changed
             const msg = err?.message || String(err);
             if (msg.includes('Aborted') || msg.includes('Stale') || msg.includes('Cleared') || msg.includes('Cancel')) {
@@ -566,9 +585,9 @@ export class PlaybackEngine extends EventEmitter {
                 taskResolve(null);
                 return;
             }
-            
+
             this.logger(`[NEURAL] ERROR: ${cacheKey} | ${msg}`);
-            
+
             this.emit('synthesis-failed', { cacheKey, error: msg, intentId: currentIntentId });
             taskReject(err);
         } finally {
@@ -666,7 +685,7 @@ export class PlaybackEngine extends EventEmitter {
                 // [v2.3.1] Catch library/metadata/DOM errors during handshake
                 // [v2.4.6] Abortable setMetadata race.
                 await Promise.race([
-                    this._tts.setMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {}),
+                    this._setTtsMetadata(voiceId, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3),
                     new Promise((_, reject) => {
                         if (signal?.aborted) { return reject(new Error("Synthesis Aborted")); }
                         signal?.addEventListener('abort', () => reject(new Error("Synthesis Aborted")), { once: true });
@@ -692,7 +711,7 @@ export class PlaybackEngine extends EventEmitter {
                 try {
                     const result = this._tts.toStream(escapedText);
                     audioStream = result.audioStream;
-                    
+
                     if (!audioStream) {
                         throw new Error("TTS Engine failed to initialize stream");
                     }
@@ -748,7 +767,7 @@ export class PlaybackEngine extends EventEmitter {
                     this._clearWatchdog(); // Ensure watchdog is cleared
                     signal?.removeEventListener('abort', onAbort);
                     this.logger(`[TTS STREAM] COMPLETE | chunks:${chunks.length}`);
-                    
+
                     // [v2.3.1] Reset health clock on success
                     this._lastNeuralSuccessTime = Date.now();
                     this._consecutiveNeuralErrors = 0;
@@ -857,7 +876,7 @@ export class PlaybackEngine extends EventEmitter {
                 return this._getNeuralAudio(text, voiceId, retryCount - 1, intentId, isPriority, batchId);
             }
             this.logger(`[NEURAL] synthesis_failure | error: ${errorMessage}`);
-            
+
             // [HARDENING] Specific check for the 'readyState' TypeError which indicates deep library state corruption
             if (errorMessage.includes('readyState')) {
                 this.logger(`[NEURAL] ☢️ Critical library corruption detected (readyState). Forcing immediate client reset.`);

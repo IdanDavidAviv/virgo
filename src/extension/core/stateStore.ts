@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { EventEmitter } from 'events';
+import { SnippetHistory } from '../../common/types';
 
 /**
  * Single Source of Truth for the extension and dashboard.
@@ -55,6 +56,11 @@ export interface StateMetadata {
     playbackIntentId: number;
     batchIntentId: number;
     isHydrated: boolean;
+    playbackAuthorized: boolean; // [COLD-BOOT GATE] True only after an explicit user play gesture.
+
+    // Antigravity Context (Session Persistence)
+    snippetHistory: SnippetHistory;
+    activeSessionId?: string;
 }
 
 export class StateStore extends EventEmitter {
@@ -97,11 +103,14 @@ export class StateStore extends EventEmitter {
             autoPlayOnInjection: false,
             cacheCount: 0,
             cacheSizeBytes: 0,
+            snippetHistory: [],
+            activeSessionId: undefined,
             autoInjectSITREP: true,
             playbackIntentId: 1,
             batchIntentId: 1,
             isHydrated: false,
-            isSelectingVoice: false
+            isSelectingVoice: false,
+            playbackAuthorized: false
         };
     }
 
@@ -175,6 +184,22 @@ export class StateStore extends EventEmitter {
      */
     public setLoadType(type: 'cache' | 'synth' | 'none') {
         this._state.lastLoadType = type;
+        this.emit('change', this.state);
+    }
+
+    /**
+     * Updates the snippet history for the dashboard.
+     */
+    public setHistory(history: SnippetHistory) {
+        this._state.snippetHistory = history;
+        this.emit('change', this.state);
+    }
+
+    /**
+     * Updates the active session ID.
+     */
+    public setSessionId(id: string) {
+        this._state.activeSessionId = id;
         this.emit('change', this.state);
     }
 
