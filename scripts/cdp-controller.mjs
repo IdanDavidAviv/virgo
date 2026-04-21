@@ -25,7 +25,42 @@ const DIRNAME = dirname(fileURLToPath(import.meta.url));
 const CDP_URL = 'http://localhost:9222';
 const DIAG_LOG = resolve(DIRNAME, '..', 'diagnostics.log');
 const SHELL_LOCK = resolve(DIRNAME, '..', '.cdp_shell.lock');
+const PKG_PATH = resolve(DIRNAME, '..', 'package.json');
+const LAUNCH_PATH = resolve(DIRNAME, '..', '.vscode', 'launch.json');
+
 const action = process.argv[2];
+
+// ── Project Environment Configuration ──
+function getProjectConfig() {
+  try {
+    const pkg = JSON.parse(readFileSync(PKG_PATH, 'utf8'));
+    const launch = existsSync(LAUNCH_PATH) ? JSON.parse(readFileSync(LAUNCH_PATH, 'utf8').replace(/\/\/.*/g, '')) : { configurations: [] };
+    
+    // Discovery markers defined by project identity
+    return {
+      name: pkg.name,
+      displayName: pkg.displayName,
+      // Environments are derived from launch configurations
+      envs: {
+        dev: launch.configurations.find(c => c.name.includes('Dev'))?.name || 'Extension (Dev)',
+        prod: launch.configurations.find(c => c.name.includes('Prod'))?.name || 'Extension (Prod)',
+      },
+      markers: {
+        host: 'Extension Development Host',
+        hostArg: 'extensionDevelopmentPath',
+        workbench: pkg.name
+      }
+    };
+  } catch (e) {
+    return { 
+      name: 'readme-preview-read-aloud', 
+      envs: { dev: 'Extension (Dev)', prod: 'Extension (Prod)' },
+      markers: { host: 'Extension Development Host', hostArg: 'extensionDevelopmentPath', workbench: 'readme-preview-read-aloud' } 
+    };
+  }
+}
+
+const CONFIG = getProjectConfig();
 
 // ── Log Sovereignty: In-Memory Forensic Buffer ──
 let lastLogTime = Date.now();
@@ -108,27 +143,31 @@ export async function getAllPages(browser) {
   return results;
 }
 
-export async function findSovereignTarget(browser, type, verbose = false) {
+export async function findSovereignTarget(browser, type, verbose = false, env = null) {
   const allPages = await getAllPages(browser);
   if (verbose) { console.log(`[CDP] Finding ${type} among ${allPages.length} pages...`); }
 
   if (type === 'host') {
-    const p = allPages.find(p => p.url.includes('extensionDevelopmentPath') || p.title.includes('Extension Development Host'));
+    const p = allPages.find(p => p.url.includes(CONFIG.markers.hostArg) || p.title.includes(CONFIG.markers.host));
     if (verbose) { console.log(`[CDP] Host check: ${p?.title ?? 'NONE'}`); }
     return p?.page || null;
   }
   if (type === 'workbench') {
     // [SOVEREIGNTY] Workbench MUST NOT be a host window.
-    const p = allPages.find(p => p.url.includes('workbench.html') && !p.url.includes('extensionDevelopmentPath') && !p.title.includes('Extension Development Host'));
+    const p = allPages.find(p => p.url.includes('workbench.html') && !p.url.includes(CONFIG.markers.hostArg) && !p.title.includes(CONFIG.markers.host));
     if (verbose) { console.log(`[CDP] Workbench check: ${p?.title ?? 'NONE'}`); }
     return p?.page || null;
   }
   if (type === 'webview') {
     const frames = [];
-    for (const { page, title } of allPages) {
+    for (const { page, title, url } of allPages) {
+      const isDevHost = url.includes(CONFIG.markers.hostArg) || title.includes(CONFIG.markers.host);
+      if (env === 'dev' && !isDevHost) {continue;}
+      if (env === 'main' && isDevHost) {continue;}
+
       const pageFrames = page.frames();
       if (verbose) { 
-        console.log(`[CDP] Page: ${title}`);
+        console.log(`[CDP] Page: ${title} (${isDevHost ? 'DEV' : 'MAIN'})`);
         pageFrames.forEach(f => console.log(`  - Frame: ${f.url().substring(0, 80)} (Child of: ${f.parentFrame()?.url().substring(0, 40) ?? 'ROOT'})`));
       }
       frames.push(...pageFrames);
@@ -211,8 +250,8 @@ export async function findSovereignTarget(browser, type, verbose = false) {
   return null;
 }
 
-async function shellDispatch(browser, command, payload = {}) {
-  const frame = await findSovereignTarget(browser, 'webview');
+async function shellDispatch(browser, command, payload = {}, env = null) {
+  const frame = await findSovereignTarget(browser, 'webview', false, env);
   if (!frame) { throw new Error('READ_ALOUD_WEBVIEW_NOT_FOUND'); }
   return await frame.evaluate(async ({ cmd, data }) => {
     if (!window.__debug?.dispatcher?.dispatch) { throw new Error('DISPATCHER_NOT_READY'); }
@@ -289,22 +328,27 @@ async function runShell() {
     const b = await getbrowser(true);
     const host = await findSovereignTarget(b, 'host', true);
     const workbench = await findSovereignTarget(b, 'workbench', true);
-    const frame = await findSovereignTarget(b, 'webview', true);
+    const mainFrame = await findSovereignTarget(b, 'webview', false, 'main');
+    const devFrame = await findSovereignTarget(b, 'webview', false, 'dev');
 
-    console.log('\n╔══════════════════════════════════════════════════════════════╗');
-    console.log('║  SITUATION REPORT (v2.4.7 Sovereignty)                       ║');
-    console.log('╚══════════════════════════════════════════════════════════════╝');
-    console.log(`  Workbench:    ${workbench ? '✅ READY' : '❌ NOT FOUND'}`);
-    console.log(`  Dev Host:     ${host ? '✅ LIVE' : '❌ LAUNCH REQ'}`);
-    if (frame) {
-      const vitals = await frame.evaluate(() => ({
+    if (mainFrame) {
+      const vitals = await mainFrame.evaluate(() => ({
         isHydrated: !!window.__debug?.store?.getState()?.activeDocumentUri,
         isPlaying: !!window.__debug?.store?.getState()?.isPlaying,
         file: window.__debug?.store?.getState()?.activeFileName || 'None'
       })).catch(() => ({ error: true }));
-      console.log(`  Webview:      ✅ ${vitals.isHydrated ? 'HYDRATED' : 'WAITING'} | ${vitals.isPlaying ? '▶️ PLAYING' : '⏹️ STOPPED'}`);
-      console.log(`  Document:     "${vitals.file}"`);
-    } else { console.log(`  Webview:      ❌ NOT DETECTED`); }
+      console.log(`  Webview (MAIN): ✅ ${vitals.isHydrated ? 'HYDRATED' : 'WAITING'} | ${vitals.isPlaying ? '▶️ PLAYING' : '⏹️ STOPPED'}`);
+    } else { console.log(`  Webview (MAIN): ❌ NOT DETECTED`); }
+
+    if (devFrame) {
+      const vitals = await devFrame.evaluate(() => ({
+        isHydrated: !!window.__debug?.store?.getState()?.activeDocumentUri,
+        isPlaying: !!window.__debug?.store?.getState()?.isPlaying,
+        file: window.__debug?.store?.getState()?.activeFileName || 'None'
+      })).catch(() => ({ error: true }));
+      console.log(`  Webview (DEV):  ✅ ${vitals.isHydrated ? 'HYDRATED' : 'WAITING'} | ${vitals.isPlaying ? '▶️ PLAYING' : '⏹️ STOPPED'}`);
+      console.log(`  Document:       "${vitals.file}"`);
+    } else { console.log(`  Webview (DEV):  ❌ NOT DETECTED`); }
 
     // Add PID scan to status
     const pids = Array.from(snapshotAntigravityPids());
@@ -487,8 +531,9 @@ for (let i = 3; i < process.argv.length; i++) {
   else if (action === 'status') {
     const b = await connectToCDP();
     const host = await findSovereignTarget(b, 'host');
-    const wv = await findSovereignTarget(b, 'webview');
-    console.log(`[CDP] Host: ${host ? '✅' : '❌'} | Webview: ${wv ? '✅' : '❌'}`);
+    const wvMain = await findSovereignTarget(b, 'webview', false, 'main');
+    const wvDev = await findSovereignTarget(b, 'webview', false, 'dev');
+    console.log(`[CDP] Host: ${host ? '✅' : '❌'} | Webview (MAIN): ${wvMain ? '✅' : '❌'} | Webview (DEV): ${wvDev ? '✅' : '❌'}`);
     await b.close();
   }
   else if (action === 'verify-state') {

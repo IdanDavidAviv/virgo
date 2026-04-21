@@ -12,6 +12,7 @@ This skill provides a rigorous framework for identifying, analyzing, and resolvi
 ### High-Level Blueprint
 The system is divided into three functional layers to ensure absolute state sovereignty and prevent race conditions.
 
+
 ```mermaid
 graph TD
     subgraph "External Host (Extension)"
