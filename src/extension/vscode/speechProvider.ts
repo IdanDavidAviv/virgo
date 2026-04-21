@@ -558,7 +558,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public async refreshView() {
         const history = await this._getSnippetHistory();
-        this._syncManager.requestSync(true, history);
+        this._stateStore.setHistory(history);
         this._voiceManager.broadcastVoices();
     }
 
@@ -764,10 +764,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             
             case OutgoingAction.GET_ALL_SNIPPET_HISTORY:
                 const history = await this._getSnippetHistory();
-                this._dashboardRelay.postMessage({
-                    command: IncomingCommand.UI_SYNC,
-                    snippetHistory: history
-                });
+                this._stateStore.setHistory(history);
                 break;
             case OutgoingAction.LOAD_SNIPPET:
                 if (data.path) {
@@ -969,9 +966,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._stateStore.patchState({
             currentChapterIndex: 0,
             currentSentenceIndex: 0,
-            isHydrated: true
+            isHydrated: true,
+            activeSessionId: this._sessionId // Ensure session is synced early
         });
-        this._dashboardRelay.sync();
 
         // [DPG] Mark webview as ready and attempt the one-shot initial load.
         // Once _initialLoadExecuted is true, setActiveEditor will never trigger auto-loads.
@@ -983,7 +980,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger('[STARTUP] pulse_3_background_discovery_initiated');
         this._voiceManager.scanAndSync().then(async () => {
              const history = await this._getSnippetHistory();
-             this._dashboardRelay.sync(history, this._sessionId);
+             this._stateStore.setHistory(history);
             this._logger('[STARTUP] pulse_3_complete');
         }).catch(e => {
             this._logger(`[STARTUP] pulse_3_failed: ${e}`);
@@ -1011,12 +1008,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             // [v2.3.5] STANDBY Support: If no URI and no persisted doc, unblock the UI anyway.
             if (!this._stateStore.state.activeDocumentUri) {
                 this._logger('[DPG] 🛡️ No focus or persistence detected. Entering STANDBY mode.');
-                this._dashboardRelay.sync();
                 return;
             }
             
             this._logger('[DPG] No focus, but persisted activeDoc detected. Yielding to persistence.');
-            this._dashboardRelay.sync();
             return;
         }
 
@@ -1027,14 +1022,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         // focused editor tab. Just sync the UI to reflect the restored state.
         if (this._stateStore.state.activeDocumentUri) {
             this._logger(`[DPG] Persisted activeDoc exists (${this._stateStore.state.activeFileName}). Yielding — skipping auto-load. Syncing only.`);
-            this._dashboardRelay.sync();
             return;
         }
 
         // Pulse 2: Contextual Hydration (Active Document) — only when no persisted doc exists
         // [v2.3.5] Use silent flag to prevent start-up alerts if focus is on a non-markdown file.
         await this.loadCurrentDocument(true, true);
-        this._dashboardRelay.sync();
     }
 
 

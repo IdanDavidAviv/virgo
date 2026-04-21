@@ -9,9 +9,6 @@ export class DashboardRelay {
     // [Hygiene] Voice scan idempotency — only emit if the voice list has changed since last broadcast.
     private _lastVoiceHash: string = '';
     private _initialHydrationDone: boolean = false;
-    // [COLD-BOOT GATE] Prevents isPlaying:true from leaking to the webview before an
-    // explicit user-initiated play action. Set by authorizePlayback() only.
-    private _playbackAuthorized: boolean = false;
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -26,7 +23,6 @@ export class DashboardRelay {
         }
         this._view = view;
         this._initialHydrationDone = false; // Reset hydration flag for new view
-        this._playbackAuthorized = false;   // [COLD-BOOT GATE] Reset on new view — must re-authorize
         if (view) {
             this._logger(`[DashboardRelay] 🔌 New view attached.`);
         }
@@ -45,22 +41,22 @@ export class DashboardRelay {
      * Never call from init, hydration, or synthesis-warmup paths.
      */
     public authorizePlayback(): void {
-        if (!this._playbackAuthorized) {
+        if (!this._stateStore.state.playbackAuthorized) {
             this._logger('[DashboardRelay] ✅ Playback authorized by user gesture.');
-            this._playbackAuthorized = true;
+            this._stateStore.patchState({ playbackAuthorized: true });
         }
     }
 
     /** [COLD-BOOT GATE] Read-only accessor for the authorization state. Used by SyncManager dedup hash. */
     public get isPlaybackAuthorized(): boolean {
-        return this._playbackAuthorized;
+        return !!this._stateStore.state.playbackAuthorized;
     }
 
     /**
      * The single source of truth for the dashboard's state.
      * Aggregates StateStore, DocController, and logic into one packet.
      */
-    public sync(snippetHistory?: SnippetHistory, activeSessionId?: string) {
+    public sync() {
         if (!this._view) { return; }
 
         const s = this._stateStore.state;
@@ -118,7 +114,7 @@ export class DashboardRelay {
             // [COLD-BOOT GATE] Only propagate isPlaying:true after an explicit play/continue action
             // has been authorized via authorizePlayback(). Engine-internal state (synthesis warmup,
             // hydration sequences) must never leak into the webview as a playing signal.
-            isPlaying: this._playbackAuthorized ? !!s.isPlaying : false,
+            isPlaying: this._stateStore.state.playbackAuthorized ? !!s.isPlaying : false,
             isPaused: !!s.isPaused,
             playbackStalled: !!s.playbackStalled,
             volume: s.volume ?? 50,
@@ -140,13 +136,13 @@ export class DashboardRelay {
             cacheCount: cacheStats.count ?? 0,
             cacheSizeBytes: cacheStats.sizeBytes ?? 0,
             isHydrated: !!s.isHydrated,
-            playbackAuthorized: this._playbackAuthorized,
+            playbackAuthorized: !!s.playbackAuthorized,
             playbackIntentId: Math.max(1, s.playbackIntentId ?? 1),
             batchIntentId: Math.max(1, s.batchIntentId ?? 1),
             lastLoadType: s.lastLoadType || 'none',
-            activeSessionId: activeSessionId,
+            activeSessionId: s.activeSessionId,
             logLevel: logLevel,
-            snippetHistory: snippetHistory,
+            snippetHistory: s.snippetHistory,
             windowSentences: this._calculateWindowSentences(currentChapterIndex, currentSentenceIndex)
         };
 

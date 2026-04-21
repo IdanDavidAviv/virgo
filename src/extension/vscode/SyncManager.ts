@@ -8,8 +8,6 @@ export class SyncManager implements vscode.Disposable {
     private _syncTimer?: NodeJS.Timeout;
     private _needsSync: boolean = false;
     private _view?: vscode.WebviewView;
-    private _activeSessionId: string = 'SESSION-ID-MISSING';
-    private _pendingSnippetHistory: SnippetHistory | null = null;
     // [Gate 1] Startup Orchestration — relay must be attached before any flush can proceed.
     // Syncs arriving before setView() are buffered in _needsSync and flushed on first attach.
     private _isRelayAttached: boolean = false;
@@ -35,8 +33,7 @@ export class SyncManager implements vscode.Disposable {
      * Update the active session ID for parity.
      */
     public setSessionId(sessionId: string) {
-        this._activeSessionId = sessionId;
-        this.requestSync(true); // Immediate sync on session pivot
+        this._stateStore.setSessionId(sessionId);
     }
 
     /**
@@ -62,13 +59,8 @@ export class SyncManager implements vscode.Disposable {
     /**
      * Request a UI synchronization.
      * @param immediate If true, bypasses the throttle timer.
-     * @param snippetHistory Optional history to include in the packet.
      */
-    public requestSync(immediate: boolean = false, snippetHistory?: SnippetHistory) {
-        // Buffer history if provided
-        if (snippetHistory) {
-            this._pendingSnippetHistory = snippetHistory;
-        }
+    public requestSync(immediate: boolean = false) {
 
         // [Gate 1] Do not flush until the DashboardRelay has a live view attached.
         // All pre-attach syncs are silently buffered in _needsSync.
@@ -121,7 +113,7 @@ export class SyncManager implements vscode.Disposable {
         // when nothing has actually changed (same chapters, intent, hydrated, isPlaying).
         if (this._isPlaying) {
             const state = this._stateStore.state;
-            const hash = `v2::${this._activeSessionId}::${state.activeContentHash}::${state.currentChapterIndex}::${state.playbackIntentId}::${state.isHydrated}::${this._dashboardRelay.isPlaybackAuthorized}`;
+            const hash = `v2::${state.activeSessionId}::${state.activeContentHash}::${state.currentChapterIndex}::${state.playbackIntentId}::${state.isHydrated}::${this._dashboardRelay.isPlaybackAuthorized}`;
             
             if (hash === this._lastFlushHash) {
                 return; // Absorbed — state is equivalent, no change to broadcast
@@ -129,11 +121,8 @@ export class SyncManager implements vscode.Disposable {
             this._lastFlushHash = hash;
         }
 
-        const historyToSync = this._pendingSnippetHistory;
-        this._pendingSnippetHistory = null;
-
         this._needsSync = false;
-        this._dashboardRelay.sync(historyToSync ?? undefined, this._activeSessionId);
+        this._dashboardRelay.sync();
     }
 
     public dispose() {
