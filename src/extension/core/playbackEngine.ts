@@ -754,7 +754,8 @@ export class PlaybackEngine extends EventEmitter {
                     this._consecutiveNeuralErrors = 0;
                     this._neuralHealth = 'HEALTHY';
 
-                    resolve(Buffer.concat(chunks).toString('base64'));
+                    const finalBuffer = Buffer.concat(chunks);
+                    resolve(finalBuffer.toString('base64'));
                 });
 
                 audioStream.on("error", (err: any) => {
