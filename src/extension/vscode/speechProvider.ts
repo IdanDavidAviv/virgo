@@ -1145,6 +1145,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
         this._logger(`[SPEECH_PROVIDER] action:play | file: ${fileName} | start: ${startFromChapter}`);
         this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
+        this._audioBridge.authorizePlayback();    // [UM-1] User gesture — unlock setPlaying gate
         this._stateStore.setProgress(startFromChapter, 0);
         // [FIX-5] audioBridge.start() → playbackEngine.setPlaying(!previewOnly) is the authoritative sink.
         // Removed: this._playbackEngine.setPlaying(true); ← was causing 2x engineStatus:playing emissions.
@@ -1193,6 +1194,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public async continue(intentId?: number, batchId?: number) {
         this._logger(`[SPEECH_PROVIDER] action:continue | intent: ${intentId} | batch: ${batchId} | hydrated: ${this.isHydrated()}`);
         this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
+        this._audioBridge.authorizePlayback();    // [UM-1] User gesture — unlock setPlaying gate
         this._stateStore.setPreviewing(false); // Commit to full playback
 
         // [PLAY-GATE] If no chapters are loaded, the user pressed Play before DPG finished.

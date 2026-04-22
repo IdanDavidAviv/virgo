@@ -34,6 +34,10 @@ export class AudioBridge extends EventEmitter {
     // Used by synthesis-complete to suppress redundant synthesisReady when
     // _speakNeural() (Path C) is already handling delivery for this key.
     private _activeCacheKey: string = '';
+    // [UM-1] User Intent Gate: MUST be set to true via authorizePlayback() before
+    // start() is allowed to call setPlaying(true). Prevents LOAD_DOCUMENT and
+    // synthesisReady callbacks from auto-triggering the playing state.
+    private _isUserInitiatedPlay: boolean = false;
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -126,6 +130,15 @@ export class AudioBridge extends EventEmitter {
         this._logger(`[BRIDGE] Push throttle updated to ${ms}ms.`);
     }
 
+    /**
+     * [UM-1] User Intent Gate — called by the human-facing play/continue gestures.
+     * Unlocks start() to call setPlaying(true). Automatically revoked on stop().
+     */
+    public authorizePlayback(): void {
+        this._isUserInitiatedPlay = true;
+        this._logger('[BRIDGE] 🔓 Playback authorized by user gesture.');
+    }
+
     public on<K extends keyof AudioBridgeEvents>(event: K, listener: AudioBridgeEvents[K]): this {
         return super.on(event, listener);
     }
@@ -173,8 +186,12 @@ export class AudioBridge extends EventEmitter {
         // and we want to avoid emitting a transient "isPlaying: false" state to the UI.
         this._playbackEngine.stop(finalIntent, false, true);
 
-        // Use the Engine as the source of truth for playing status
-        this._playbackEngine.setPlaying(!previewOnly, finalIntent);
+        // [UM-1] User Intent Gate: Only allow setPlaying(true) when a human gesture
+        // has explicitly authorized it via authorizePlayback(). This prevents LOAD_DOCUMENT
+        // and pre-fetch synthesisReady callbacks from auto-triggering the playing state.
+        const shouldPlay = !previewOnly && this._isUserInitiatedPlay;
+        this._isUserInitiatedPlay = false; // Consume the authorization (one-shot)
+        this._playbackEngine.setPlaying(shouldPlay, finalIntent);
 
         this._stateStore.setOptions({
             engineMode: options.mode,
@@ -391,6 +408,8 @@ export class AudioBridge extends EventEmitter {
         // [SINGLE-SINK] Clear active key so any late in-flight synthesis-complete
         // cannot match and will safely route to dataPush (harmless cache warm) instead of synthesisReady.
         this._activeCacheKey = '';
+        // [UM-1] Revoke any pending user authorization on stop.
+        this._isUserInitiatedPlay = false;
         this._playbackEngine.stop(intentId, !!batchId);
         this._logger(`[BRIDGE] Playback stopped (Intent: ${intentId ?? 'current'}, BatchReset: ${!!batchId}).`);
     }
