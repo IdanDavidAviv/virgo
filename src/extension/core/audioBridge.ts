@@ -79,8 +79,11 @@ export class AudioBridge extends EventEmitter {
                     this._logger(`[BRIDGE] NOTIFY_SUPPRESSED (Path C owns delivery): ${payload.cacheKey} | Intent: ${payload.intentId}`);
                 } else {
                     // Pre-fetched segment: warm the webview cache silently. No play signal.
+                    // [FIX-C] Omit `data` — VS Code IPC postMessage always corrupts large base64 payloads
+                    // causing guaranteed atob decode failure on the webview side. The FETCH_AUDIO pull
+                    // path (triggered by hasBinary:false) always succeeds via the HTTP cache server.
                     this._logger(`[BRIDGE] PREFETCH_PUSH: ${payload.cacheKey} | Intent: ${payload.intentId}`);
-                    this._emitWithIntent('dataPush', { cacheKey: payload.cacheKey, data: payload.data });
+                    this._emitWithIntent('dataPush', { cacheKey: payload.cacheKey, data: '' });
                 }
                 return;
             }
@@ -92,7 +95,14 @@ export class AudioBridge extends EventEmitter {
 
             if (pushTimeout) { return; }
             pushTimeout = setTimeout(() => {
-                const results = pushQueue.filter(p => p.intentId === this._playbackEngine.playbackIntentId);
+                // [FIX-A] Exclude the active HEAD key from the batch flush.
+                // If the HEAD key's synthesis completes while the timer is still running,
+                // the flush would emit a redundant synthesisReady → FETCH_AUDIO → playAudio,
+                // producing an audible duplicate ~350ms after the real PLAY_AUDIO.
+                const results = pushQueue.filter(p =>
+                    p.intentId === this._playbackEngine.playbackIntentId &&
+                    p.cacheKey !== this._activeCacheKey
+                );
                 pushQueue = [];
                 pushTimeout = null;
                 if (results.length > 0) {

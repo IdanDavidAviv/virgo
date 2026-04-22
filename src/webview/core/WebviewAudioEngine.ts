@@ -158,10 +158,15 @@ export class WebviewAudioEngine {
               if (currentAbortSignal?.aborted) { return reject(new Error('Aborted')); }
               currentAbortSignal?.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
           }),
-          new Promise(r => {
+          new Promise((_, reject) => {
+              // [FIX-MUTEX] Timeout REJECTS (aborts waiter) instead of resolving (granting lock).
+              // Previously r(null) let the waiter proceed while the active holder was still
+              // running — two callers owned the HTMLAudioElement simultaneously, each calling
+              // this._audio.src = url and triggering a duplicate loadstart + canplay event.
+              // Rejecting here means: "the previous holder is stuck, give up rather than steal."
               watchdog = setTimeout(() => {
-                  console.warn(`[AUDIO] ⚠️ Mutex Safety Timeout (intent=${intentId})`);
-                  r(null);
+                  console.warn(`[AUDIO] ⚠️ Mutex Safety Timeout — aborting waiter (intent=${intentId})`);
+                  reject(new Error('MutexTimeout'));
               }, 3000);
           })
       ]);
@@ -190,19 +195,25 @@ export class WebviewAudioEngine {
     }
   }
 
-  public ensureAudioContext(): Promise<void> {
-    if (this._isPrimed) {return Promise.resolve();}
+  public async ensureAudioContext(): Promise<void> {
+    if (this._isPrimed) { return; }
+    // Prime the audio context with a silent play on a muted element.
+    // This unlocks the browser's autoplay gate before the first real playBlob() arrives.
+    // [CRITICAL] muted = false and _isPrimed MUST be set AFTER the race — not inside .then().
+    // If the 500ms timeout wins (autoplay policy blocks play()), .then() never fires and
+    // the element stays permanently muted. Every playBlob() after that is silent.
     this._audio.muted = true;
-    
-    return Promise.race<void>([
-      this._audio.play().then(() => {
-        this._isPrimed = true;
-        this._audio.muted = false;
-        console.log('[AUDIO] 🔓 Primed');
-      }),
-      new Promise<void>(r => setTimeout(r, 1000)) // Safety timeout
+    await Promise.race<void>([
+      this._audio.play(),
+      new Promise<void>(r => setTimeout(r, 500))
     ]).catch(() => {});
+    this._audio.muted = false; // Always unmute — whether play() resolved or timed out
+    this._isPrimed = true;
+    console.log('[AUDIO] 🔓 Primed');
   }
+
+
+
 
   public async playBlob(blob: Blob, key: string, intentId?: number, bakedRate?: number): Promise<void> {
     const release = await this.acquireLock(intentId);
