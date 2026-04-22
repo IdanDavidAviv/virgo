@@ -1,0 +1,46 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2026-04-22T21:25:00+03:00",
+  "threads": [
+    {
+      "id": "T-001",
+      "title": "Sovereign Playback Stability",
+      "status": "INTEGRATED",
+      "priority": 1,
+      "description": "Eradicated UI sync regressions and playback race conditions. IPC crash fix, state-preserving navigation, ghost mutex elimination, and bridge dedup hardening.",
+      "commits": [
+        "24dae15 [fix] Sovereign Playback Stability — IPC Crash Fix & Bridge Hardening",
+        "737774a [fix] Webview Runtime — State-Preserving Navigation & Ghost Mutex Fix",
+        "23418b7 [test] Harden test suite for Sovereign Playback & Bridge hardening changes",
+        "06de6bd [fix] Resolve MessageClient.ts filename casing conflict"
+      ],
+      "keyFiles": [
+        "src/extension/vscode/speechProvider.ts",
+        "src/extension/core/audioBridge.ts",
+        "src/extension/vscode/SyncManager.ts",
+        "src/extension/vscode/dashboardRelay.ts",
+        "src/webview/playbackController.ts",
+        "src/webview/core/WebviewAudioEngine.ts"
+      ],
+      "architecturalLaws": [
+        "webview.options MUST be set before any setView() that can trigger postMessage()",
+        "SyncManager.setView() flushes synchronously — callers must ensure webview is initialized first",
+        "audioBridge is the sole authoritative status sink for engine lifecycle events",
+        "jumpToChapter() must preserve isPlaying intent — never force playback on navigation",
+        "MessageClient.ts filename must use capital M — Windows FS casing enforced via git mv"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Test Suite Infrastructure Repair",
+      "status": "OPEN",
+      "priority": 2,
+      "description": "76 tests fail at setup with 'Cannot read properties of undefined (reading config)' in vitest.setup.ts. Pre-existing on HEAD~1. Needs targeted mock config resolution before next release.",
+      "blockedBy": null,
+      "keyFiles": [
+        "tests/vitest.setup.ts"
+      ],
+      "notes": "Confirmed pre-existing via git stash baseline comparison. Not introduced by T-001 work."
+    }
+  ]
+}
