@@ -33,9 +33,8 @@ export class PlaybackController {
     private readonly MAX_CONCURRENT_SYNTHESIS = 3;
     /** [AUTOPLAY GUARD] True only after the user has explicitly clicked Play/Jump or interacted with the webview. */
     private _userHasInteracted: boolean = false;
-    /** [SOVEREIGN KEY] The cacheKey the extension declared as the HEAD segment via playAudio.
-     *  Used in DATA_PUSH HEAD_MATCH instead of getSentenceKey() to avoid rate-key mismatch. */
-    private _activePlayKey: string | null = null;
+    // [SIMPLIFICATION] _activePlayKey removed — HEAD_MATCH deleted. DATA_PUSH is cache-only.
+    // PLAY_AUDIO in CommandDispatcher is the sole entity that triggers playBlob().
     
     /** [DIAGNOSTICS] Monotonic counter for incoming synthesis handshakes */
     public synthesisHandshakeCount: number = 0;
@@ -121,19 +120,8 @@ export class PlaybackController {
         store.setIntentIds(0, 0);
         this.intentExpiry = 0;
         this.transitionExpiry = 0;
-        this._activePlayKey = null; // [SOVEREIGN KEY] Reset on intent clear
         store.updateUIState({ isAwaitingSync: false, playbackIntent: 'STOPPED' });
         this.clearWatchdog();
-    }
-
-    /** [SOVEREIGN KEY] Called by CommandDispatcher when the extension's authoritative playAudio
-     *  cacheKey arrives. Stores it so DATA_PUSH HEAD_MATCH uses the extension's key, not the
-     *  locally regenerated one (which may differ by rate or hash). */
-    public setActivePlayKey(key: string): void {
-        if (this._activePlayKey !== key) {
-            console.log(`[PlaybackController] 🔑 Active play key: ${key}`);
-            this._activePlayKey = key;
-        }
     }
 
     private setupListeners(): void {
@@ -148,35 +136,13 @@ export class PlaybackController {
 
         // --- IPC & LOGIC HELPERS ---
 
-        client.onCommand<{ cacheKey: string, data: string, intentId: number, bakedRate?: number }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data, intentId, bakedRate }) => {
+        // [SIMPLIFICATION] DATA_PUSH is cache-warm ONLY. No play trigger.
+        // PLAY_AUDIO in CommandDispatcher is the single authority for playBlob().
+        // Removing HEAD_MATCH eliminates the 3× concurrent playBlob() calls that
+        // caused the Mutex Safety Timeout and duplicate canplay events.
+        client.onCommand<{ cacheKey: string, data: string, intentId: number }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data, intentId }) => {
             const engine = WebviewAudioEngine.getInstance();
-            const store = WebviewStore.getInstance();
-
-            // 1. [FIFO] Atomic Ingestion
             engine.ingestData(cacheKey, data, intentId);
-
-            // 2. [INTENT GUARD]
-            // [SOVEREIGN KEY] Use the extension-authoritative key set by setActivePlayKey() rather
-            // than regenerating via getSentenceKey(). Local regeneration uses the user's display
-            // rate which differs from the extension's bakedRate, breaking HEAD_MATCH permanently.
-            const headKey = this._activePlayKey ?? store.getSentenceKey();
-            const { playbackIntent } = store.getUIState();
-            const currentPlaybackId = store.getState().playbackIntentId;
-
-            // [AUTHORITATIVE PLAYBACK]
-            // We only trigger auto-play if we are actively PLAYING, this is the HEAD segment,
-            // AND the user has already interacted (gesture gate for browser autoplay policy).
-            if (playbackIntent === 'PLAYING' && cacheKey === headKey && intentId === currentPlaybackId) {
-                if (this._userHasInteracted) {
-                    console.log(`[PlaybackController] 🚀 HEAD MATCH (sovereign key): ${cacheKey}. Triggering Engine Play.`);
-                    engine.playFromCache(cacheKey, intentId, bakedRate);
-                } else {
-                    console.warn('[PlaybackController] 🚫 HEAD MATCH suppressed — awaiting first user gesture.');
-                }
-            } else if (playbackIntent === 'PLAYING' && this._activePlayKey && cacheKey !== headKey) {
-                // [DIAGNOSTIC] Log mismatches so we can detect key drift
-                console.log(`[PlaybackController] 🔍 Key delta: got ${cacheKey.slice(-8)}, head=${headKey?.slice(-8)}`);
-            }
         });
 
         // Unified Cache Stats handler

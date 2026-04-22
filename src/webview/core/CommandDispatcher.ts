@@ -109,12 +109,6 @@ export class CommandDispatcher {
             return;
         }
 
-        // [SOVEREIGN KEY] Register the extension's authoritative cacheKey immediately.
-        // This must happen before any cache-lookup so DATA_PUSH HEAD_MATCH uses the right key
-        // regardless of the local getSentenceKey() rate mismatch.
-        if (data?.cacheKey) {
-            playback.setActivePlayKey(data.cacheKey);
-        }
 
         if (data?.data) {
           // Extension provided raw data (Synthesis Hit or Extension Cache Hit)
@@ -146,13 +140,6 @@ export class CommandDispatcher {
 
       case IncomingCommand.SYNTHESIS_STARTING:
         console.log('[Dispatcher] ⚡ SYNTHESIS_STARTING Received', data);
-        // [RC-1 FIX] Register the sovereign key at the EARLIEST possible signal.
-        // DATA_PUSH can arrive before playAudio (~30ms IPC ordering delta), so we must
-        // set _activePlayKey here to ensure HEAD_MATCH succeeds when DATA_PUSH ingestion runs.
-        if (data?.cacheKey) {
-            playback.setActivePlayKey(data.cacheKey);
-            console.log(`[Dispatcher] 🗝️ Sovereign key pre-armed via SYNTHESIS_STARTING: ${data.cacheKey}`);
-        }
         // [COLD-BOOT INTENT ADOPTION] If the extension's intentId is greater than the webview's
         // current counter (e.g. after a dev-host restart where webview resets to 1 but extension
         // retains a higher counter), adopt the extension's value to prevent first-play rejection.
