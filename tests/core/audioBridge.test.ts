@@ -53,7 +53,7 @@ describe('AudioBridge', () => {
 
     const options: PlaybackOptions = { voice: 'NeuralVoice', rate: 0, volume: 50, mode: 'neural' };
 
-    it('[Law 7.3] should NOT emit playAudio on cache miss — only synthesisReady fires (Zero-IPC pull handshake)', async () => {
+    it('[Law 7.3] should emit playAudio with binary data on cache miss (proactive Push-on-miss via start())', async () => {
         const playAudioSpy = vi.fn();
         const synthesisReadySpy = vi.fn();
         audioBridge.on('playAudio', playAudioSpy);
@@ -62,19 +62,20 @@ describe('AudioBridge', () => {
 
         await audioBridge.start(0, 0, options);
 
-        // Law 7.3: playAudio MUST NOT be emitted with empty data on a cache miss.
-        // The pull handshake is initiated exclusively via synthesisReady.
-        expect(playAudioSpy).not.toHaveBeenCalled();
-        expect(synthesisReadySpy).toHaveBeenCalledWith(expect.objectContaining({
-            cacheKey: expect.stringMatching(/neuralvoice/i)
+        // Law 7.3 updated: playAudio IS emitted with data on cache miss since start() awaits synthesis.
+        // synthesisReady is suppressed because Path C owns delivery.
+        expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
+            cacheKey: expect.stringMatching(/neuralvoice/i),
+            data: 'base64audio'
         }));
+        expect(synthesisReadySpy).not.toHaveBeenCalled();
 
         // StateStore progress must still be updated
         expect(stateStore.state.currentChapterIndex).toBe(0);
         expect(stateStore.state.currentSentenceIndex).toBe(0);
 
-        // speakNeural is NOT called on start() — synthesis is triggered separately by REQUEST_SYNTHESIS
-        expect(playbackEngine.speakNeural).not.toHaveBeenCalled();
+        // speakNeural IS called on start() now
+        expect(playbackEngine.speakNeural).toHaveBeenCalled();
     });
 
     it('should fallback to LOCAL mode when NEURAL is requested but not viable (Autoradiant Fallback)', async () => {
@@ -117,37 +118,30 @@ describe('AudioBridge', () => {
 
     it('should call speakNeural and emit playAudio with binary data when synthesize() is called', async () => {
         const playAudioSpy = vi.fn();
-        const readySpy = vi.fn();
+        // [SINGLE-SINK]: dataPush is suppressed for the ACTIVE cacheKey (Path C owns delivery).
+        // Only pre-fetched keys (non-active) get dataPush. We only test playAudio here.
         audioBridge.on('playAudio', playAudioSpy);
-        audioBridge.on('synthesisReady', readySpy);
         vi.spyOn(playbackEngine, 'speakNeural').mockResolvedValue('fresh-blob');
         vi.spyOn(playbackEngine, 'playbackIntentId', 'get').mockReturnValue(456);
 
-        // Act
-        const synthPromise = audioBridge.synthesize('some-key', options);
-        
-        // Manual trigger of the event that would normally be emitted by playbackEngine.speakNeural
-        playbackEngine.emit('synthesis-complete', { cacheKey: 'some-key', data: 'fresh-blob', intentId: 456 });
-        
-        await synthPromise;
+        // Act — synthesize() calls _speakNeural which awaits speakNeural and emits playAudio
+        await audioBridge.synthesize('some-key', options);
 
         expect(playbackEngine.speakNeural).toHaveBeenCalled();
         expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
             cacheKey: 'some-key',
-            data: 'fresh-blob' // Restored Push
-        }));
-        expect(readySpy).toHaveBeenCalledWith(expect.objectContaining({
-            cacheKey: 'some-key',
-            intentId: 456
+            data: 'fresh-blob'
         }));
     });
 
-    it('should advance to next sentence indices on next() but not call speakNeural', async () => {
+    it('should advance to next sentence indices on next() and call speakNeural for proactive synthesis', async () => {
         await audioBridge.start(0, 0, options);
-        audioBridge.next(options, true);
+        vi.clearAllMocks();
+        // [FIX] next() is async — must be awaited to ensure speakNeural and state updates complete.
+        await audioBridge.next(options, true);
 
         expect(stateStore.state.currentSentenceIndex).toBe(1);
-        expect(playbackEngine.speakNeural).not.toHaveBeenCalled();
+        expect(playbackEngine.speakNeural).toHaveBeenCalled();
     });
 
     it('should advance to next chapter when current chapter ends', async () => {
@@ -184,13 +178,11 @@ describe('AudioBridge', () => {
         expect(playbackEngine.speakLocal).not.toHaveBeenCalled();
     });
 
-    it('[Law 7.3] should ignore stale synthesis results during rapid sentence jumps — playAudio never fires on miss', async () => {
+    it('[Law 7.3] should ignore stale synthesis results during rapid sentence jumps — stale data never fires on playAudio', async () => {
         const playAudioSpy = vi.fn();
-        const synthesisReadySpy = vi.fn();
         audioBridge.on('playAudio', playAudioSpy);
-        audioBridge.on('synthesisReady', synthesisReadySpy);
 
-        // Mock a slow synthesis for the first call
+        // Mock a slow synthesis for the first call (sentence 0)
         let firstResolve: any;
         const firstPromise = new Promise(resolve => firstResolve = resolve);
         vi.spyOn(playbackEngine, 'speakNeural').mockReturnValueOnce(firstPromise as any);
@@ -198,28 +190,32 @@ describe('AudioBridge', () => {
         // Ensure playbackEngine.stop is tracked
         const stopSpy = vi.spyOn(playbackEngine, 'stop');
 
-        // 1. Initial Start (cache miss) → only synthesisReady should fire, NOT playAudio
-        await audioBridge.start(0, 0, options);
-        expect(playAudioSpy).not.toHaveBeenCalled();
-        expect(synthesisReadySpy).toHaveBeenCalledTimes(1);
+        // 1. Initial Start (cache miss, slow) — will hang until firstPromise resolves
+        const startPromise1 = audioBridge.start(0, 0, options);
         
-        // 2. Trigger synthesis for the first sentence → enters _speakNeural with intentId=1
-        const synthPromise = audioBridge.synthesize('key-0', options);
+        // 2. Rapid Jump to sentence 1 while synthesis is pending
+        //    This bumps intent + updates position (ch:0, s:1)
+        const startPromise2 = audioBridge.start(0, 1, options);
 
-        // 3. Rapid Jump while synthesis is pending → new intent, _activeRequestId bumped
-        await audioBridge.start(0, 1, options);
-        expect(playAudioSpy).not.toHaveBeenCalled(); // Still no playAudio — second start is also a miss
-        expect(synthesisReadySpy).toHaveBeenCalledTimes(2); // synthesisReady fires for both starts
-
-        // 4. Finish the (now stale) synthesis for the first request
+        // 3. Resolve the (now stale) synthesis for the FIRST request
         firstResolve('base64_stale');
-        await synthPromise;
+        
+        await Promise.all([startPromise1, startPromise2]);
 
+        // stop() must have been called when the jump preempted the first start
         expect(stopSpy).toHaveBeenCalled();
         
-        // VERIFY: playAudio must never have been emitted with empty data or stale data
-        // Law 7.3 guarantees playAudio is only emitted when real data is available.
-        expect(playAudioSpy).not.toHaveBeenCalled();
+        // STALE DROP: _speakNeural checks ch/si match against current stateStore.
+        // After startPromise2, stateStore.currentSentenceIndex === 1, so the stale
+        // result for sentence 0 is dropped — playAudio with stale data must NOT fire.
+        expect(playAudioSpy).not.toHaveBeenCalledWith(expect.objectContaining({
+            data: 'base64_stale'
+        }));
+        
+        // The fresh data from the second start WILL fire (speakNeural mock returns 'base64audio')
+        expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
+            data: 'base64audio'
+        }));
     });
 
     it('should implement Commitment-on-Play: batchId increments only when options drift during start()', async () => {

@@ -59,12 +59,15 @@ describe('Control System Audit (Reproduction)', () => {
         } as any);
     });
 
-    it('Play button should dispatch OutgoingAction.PLAY', () => {
+    it('Play button should dispatch OutgoingAction.PLAY', async () => {
         const ctrl = new PlaybackControls(elements);
         ctrl.mount();
 
         if (elements.btnPlay) {
             elements.btnPlay.click();
+            // [FIX] play() is async — flush microtask queue so the
+            // awaited ensureAudioContext() + postAction() chain completes.
+            await new Promise(resolve => setTimeout(resolve, 0));
             expect(postMessageSpy).toHaveBeenCalledWith(expect.objectContaining({
                 command: OutgoingAction.PLAY
             }));

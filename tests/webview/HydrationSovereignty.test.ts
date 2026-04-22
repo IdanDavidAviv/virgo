@@ -33,10 +33,9 @@ describe('Hydration Sovereignty (Webview Side)', () => {
         // 1. Ensure hydration is NOT complete
         expect(store.getState().isHydrated).toBe(false);
 
-        // 2. Attempt to play
-        controller.play();
-        
-        vi.advanceTimersByTime(100);
+        // 2. Attempt to play — play() is async (awaits ensureAudioContext internally)
+        //    We must await it so postMessage fires before the assertion.
+        await controller.play();
 
         // 3. Verification: Message IS sent to extension (Optimistic UI)
         expect(mockVscode.postMessage).toHaveBeenCalledWith(expect.objectContaining({

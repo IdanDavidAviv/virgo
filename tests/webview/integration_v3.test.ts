@@ -284,13 +284,15 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
     // SUITE 2: Playback Controls — Button Matrix
     // ─────────────────────────────────────────────────────────────────────────
     describe('Suite 2: Playback Controls — Button Matrix', () => {
-        it('T2.1 — PLAY button posts OutgoingAction.PLAY with metadata', () => {
+        it('T2.1 — PLAY button posts OutgoingAction.PLAY with metadata', async () => {
             mountPlaybackControls();
             document.getElementById('btn-play')!.click();
-            expect(client.postAction).toHaveBeenCalledWith(
-                OutgoingAction.PLAY,
-                expect.objectContaining({ cacheKey: expect.any(String) })
-            );
+            await vi.waitFor(() => {
+                expect(client.postAction).toHaveBeenCalledWith(
+                    OutgoingAction.PLAY,
+                    expect.objectContaining({ cacheKey: expect.any(String) })
+                );
+            });
         });
 
         it('T2.2 — PAUSE button posts OutgoingAction.PAUSE', () => {
@@ -435,14 +437,16 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
     // SUITE 4: Keyboard Shortcuts
     // ─────────────────────────────────────────────────────────────────────────
     describe('Suite 4: Keyboard Shortcuts', () => {
-        it('T4.1 — Space key triggers PLAY when currently stopped', () => {
+        it('T4.1 — Space key triggers PLAY when currently stopped', async () => {
             const interaction = InteractionManager.getInstance();
             interaction.mount();
             window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }));
-            expect(client.postAction).toHaveBeenCalledWith(
-                OutgoingAction.PLAY,
-                expect.objectContaining({ cacheKey: expect.any(String) })
-            );
+            await vi.waitFor(() => {
+                expect(client.postAction).toHaveBeenCalledWith(
+                    OutgoingAction.PLAY,
+                    expect.objectContaining({ cacheKey: expect.any(String) })
+                );
+            });
         });
 
         it('T4.2 — ArrowLeft triggers PREV_SENTENCE', () => {

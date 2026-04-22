@@ -202,8 +202,7 @@ describe('E2E Handshake & UI Integrity', () => {
         it('should trigger OutgoingAction.PLAY when play is clicked', async () => {
             const btn = document.getElementById('btn-play');
             btn?.click();
-            // Wait for optimistic state patch and postAction
-            vi.advanceTimersByTime(200);
+            await vi.runAllTimersAsync();
             expect(store.getState().isPlaying).toBe(true);
             expect(mockVscode.postMessage).toHaveBeenCalledWith(expect.objectContaining({
                 command: OutgoingAction.PLAY

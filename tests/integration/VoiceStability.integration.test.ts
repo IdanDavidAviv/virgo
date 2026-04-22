@@ -116,10 +116,8 @@ S12.
         for (let i = 0; i < sentencesToPlay.length; i++) {
             const current = sentencesToPlay[i];
             
-            // Simulation of Webview reaction to Coordinate Change/SynthesisReady
-            // In the real app, the webview calls synthesize() when it needs the data
-            await bridge.synthesize(`cache-key-${i}`, defaultOptions, initialIntent);
-
+            // Simulation of Audio Completion -> Webview calls bridge.next('auto')
+            // Note: start() and next() proactively trigger synthesis in Handshake_v3
             // Assert engine received the correct intent and text
             expect(speakSpy).toHaveBeenLastCalledWith(
                 current.text,
@@ -150,18 +148,15 @@ S12.
     });
 
     it('should REJECT synthesis if bridge intent is reverted (Safety Check)', async () => {
-        const speakSpy = vi.spyOn(engine, 'speakNeural');
+        const speakSpy = vi.spyOn(engine, 'speakNeural').mockResolvedValue('mock-audio-base64');
         
         await bridge.start(0, 0, defaultOptions);
         const intent1 = engine.playbackIntentId;
 
-        // Manually corrupt the engine intent (simulating a race or bug)
-        (engine as any)._playbackIntentId = 999; 
+        stateStore.setPlaybackIntentId(999);
 
-        // This should fail or be ignored by the engine's internal checks
-        const result = await (bridge as any)._speakNeural('Hidden', 'k', {}, 0, 0, intent1, 0);
+        await (bridge as any)._speakNeural('Hidden', 'k', {}, 0, 0, intent1, 0);
         
-        // The engine's speakNeural now checks intent vs _playbackIntentId
-        expect(logger).toHaveBeenCalledWith(expect.stringContaining('EJECTED'));
+        expect(logger).toHaveBeenCalledWith(expect.stringContaining('Dropping Stale Packet'));
     });
 });
