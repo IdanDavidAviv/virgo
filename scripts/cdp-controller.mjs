@@ -15,6 +15,7 @@ import http from 'http';
 const DIRNAME = dirname(fileURLToPath(import.meta.url));
 const CDP_URL = 'http://localhost:9222';
 const DIAG_LOG = resolve(DIRNAME, '..', 'diagnostics.log');
+const AGENT_LOG = resolve(DIRNAME, '..', 'diagnostics_agent.log');
 const SHELL_LOCK = resolve(DIRNAME, '..', '.cdp_shell.lock');
 const PKG_PATH = resolve(DIRNAME, '..', 'package.json');
 const LAUNCH_PATH = resolve(DIRNAME, '..', '.vscode', 'launch.json');
@@ -779,7 +780,161 @@ async function runShell() {
     
     await b.close();
   }
+  else if (action === 'playback-audit') {
+    const iterations = parseInt(process.argv[3] || '5', 10);
+    const b = await connectToCDP();
+
+    // Ensure the Read Aloud panel is open and hydrated before starting.
+    await shellWaitForReady();
+    await new Promise(r => setTimeout(r, 500));
+
+    const wv = await findSovereignTarget(b, 'webview');
+
+    if (!wv) {
+      console.error('\u274c Webview not found after wait-for-ready. Check panel visibility.');
+      await b.close();
+      return;
+    }
+
+    console.log(`\n\u{1F52C} Playback Audit \u2014 ${iterations} iteration(s)\n`);
+
+    // ── Safe Stop: halt any in-progress playback without leaving audio running ──
+    const stopPlayback = async () => {
+      await wv.evaluate(() => {
+        try {
+          const state = window.__debug?.store?.getState?.();
+          if (!state) { return; }
+          if (state.isPlaying || state.isPaused) {
+            // Prefer explicit pause button; fall back to play-toggle.
+            const pauseBtn = document.getElementById('btn-pause');
+            if (pauseBtn) { pauseBtn.click(); return; }
+            const playBtn = document.getElementById('btn-play');
+            if (playBtn) { playBtn.click(); }
+          }
+        } catch { }
+      }).catch(() => {});
+      // Drain the async stop pipeline before the next operation.
+      await new Promise(r => setTimeout(r, 600));
+    };
+
+    // Ensure clean state before the first iteration.
+    await stopPlayback();
+    await new Promise(r => setTimeout(r, 400));
+
+    // ── Pre-flight: verify a document is loaded and has content to play ──
+    const preflight = await wv.evaluate(() => {
+      const state = window.__debug?.store?.getState?.();
+      return {
+        sentences: state?.sentences?.length ?? 0,
+        activeDoc: state?.activeDocumentPath ?? state?.activeDocument ?? null,
+        cacheCount: state?.cacheCount ?? 0,
+        isHydrated: window.__debug?.isHydrated ?? false,
+      };
+    }).catch(() => ({ sentences: 0, activeDoc: null, cacheCount: 0, isHydrated: false }));
+
+    if (preflight.sentences === 0) {
+      console.error('\n\u274c PRE-FLIGHT FAILED: No document loaded in the Read Aloud panel.');
+      console.error('   \u2192 Open a Markdown file in VS Code and focus it so the extension loads content.');
+      console.error(`   \u2192 Webview hydrated: ${preflight.isHydrated} | Active doc: ${preflight.activeDoc ?? 'none'}`);
+      await b.close();
+      return;
+    }
+
+    console.log(`   \u2713 Pre-flight OK: ${preflight.sentences} sentences loaded | doc: ${preflight.activeDoc ?? 'unknown'}\n`);
+
+    const results = [];
+
+    for (let i = 1; i <= iterations; i++) {
+      process.stdout.write(`[Iter ${i}/${iterations}] `);
+      // ── Settle: let any log writes from the previous iteration flush to disk ──
+      await new Promise(r => setTimeout(r, 200));
+
+      // ── Snapshot log file cursor so we only read NEW lines this iteration ──
+      let logCursor = 0;
+      try {
+        if (existsSync(AGENT_LOG)) { logCursor = statSync(AGENT_LOG).size; }
+      } catch { }
+
+      // ── Unlock browser autoplay gate, then trigger play ──
+      // The browser blocks audio.play() until the frame has received a real user gesture.
+      // shellPrime() fires a native mousedown on the webview frame via Playwright —
+      // this IS counted as a user gesture and unlocks the audio context.
+      // We then dispatch the play command 100ms later once the gate is open.
+      await shellPrime();
+      await new Promise(r => setTimeout(r, 100));
+      await shellExec('readme-preview-read-aloud.play');
+
+      // ── Poll for PLAYING state (max 5 s) ──
+
+      let playing = false;
+      for (let j = 0; j < 50; j++) {
+        const state = await wv.evaluate(() => ({
+          isPlaying: window.__debug?.store?.getState?.()?.isPlaying ?? false
+        })).catch(() => ({ isPlaying: false }));
+        if (state.isPlaying) { playing = true; break; }
+        await new Promise(r => setTimeout(r, 100));
+      }
+
+      if (!playing) {
+        process.stdout.write(`\u26a0\ufe0f  Never reached PLAYING state\n`);
+        results.push({ i, canplay: 0, mutexTimeouts: 0, pass: false, reason: 'NO_PLAY' });
+        // Still stop defensively before next iteration.
+        await stopPlayback();
+        await new Promise(r => setTimeout(r, 400));
+        continue;
+      }
+
+      // ── IMMEDIATELY stop — never leave audio running ——
+      await stopPlayback();
+      // Wait for the async logger to flush canplay events to disk.
+      // Extension host logger is not synchronous — events land ~1s after the audio element fires.
+      await new Promise(r => setTimeout(r, 1500));
+
+      // ── Read log slice from cursor and extract diagnostics ──
+      let canplayCount = 0;
+      let mutexTimeouts = 0;
+      try {
+        if (existsSync(AGENT_LOG)) {
+          const logData = readFileSync(AGENT_LOG);
+          const slice = logData.slice(logCursor).toString('utf8');
+          for (const line of slice.split('\n')) {
+            // Count [AUDIO] canplay events. Exclude [RATE_TRACE] lines which also
+            // mention 'canplay' but are commentary, not audio element events.
+            if (line.includes('[AUDIO]') && line.includes('canplay') && !line.includes('RATE_TRACE')) { canplayCount++; }
+            if (line.includes('Mutex Safety Timeout')) { mutexTimeouts++; }
+          }
+        }
+      } catch { }
+
+      const pass = canplayCount === 1;
+      const icon = pass ? '\u2705' : canplayCount === 0 ? '\u2b55' : '\u274c';
+      const mutexNote = mutexTimeouts > 0 ? ` | mutex_timeout\u00d7${mutexTimeouts}` : '';
+      process.stdout.write(`${icon}  canplay\u00d7${canplayCount}${mutexNote}\n`);
+      results.push({ i, canplay: canplayCount, mutexTimeouts, pass });
+
+      // Drain before next iteration.
+      await new Promise(r => setTimeout(r, 800));
+    }
+
+    // ── Summary ──
+    const passed = results.filter(r => r.pass).length;
+    const failed = results.filter(r => !r.pass).length;
+    console.log(`\n${'\u2500'.repeat(52)}`);
+    console.log(`Playback Audit Complete | ${iterations} iterations`);
+    console.log(`\u2705 PASS: ${passed}  \u274c FAIL: ${failed}`);
+    if (failed === 0) {
+      console.log('\n\u{1F3AF} CLEAN: Single canplay per sentence. Playback integrity confirmed.');
+    } else {
+      const noPlays = results.filter(r => r.reason === 'NO_PLAY').length;
+      const dupes = results.filter(r => r.canplay > 1).length;
+      if (noPlays > 0) { console.log(`   \u26a0\ufe0f  ${noPlays}\u00d7 NO_PLAY — engine never reached PLAYING state`); }
+      if (dupes > 0)   { console.log(`   \u26a0\ufe0f  ${dupes}\u00d7 DUPLICATE canplay — audio element loaded twice`); }
+      console.log('\nRe-run after your next fix to verify.');
+      process.exit(1);
+    }
+    await b.close();
+  }
   else {
-    console.log('Usage: node scripts/cdp-controller.mjs [shell|status|targets|dispatch|eval|eval-host|wait-for-ready|cleanup-all|stress|test-buffering]');
+    console.log('Usage: node scripts/cdp-controller.mjs [shell|status|targets|dispatch|eval|eval-host|wait-for-ready|cleanup-all|stress|test-buffering|playback-audit [N]]');
   }
 })();

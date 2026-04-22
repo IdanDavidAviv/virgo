@@ -29,28 +29,26 @@ describe('Webview Resilience Integration - Lock Sovereignty', () => {
         delete (global as any).acquireVsCodeApi;
     });
 
-    it('should FORCIBLY release playback lock after 3s safety timeout (Test Env) to prevent system hang', async () => {
+    it('should ABORT the waiting lock acquisition after 3s safety timeout to prevent dual-owner hang', async () => {
         console.log('[TEST] Simulating a "Zombie" lock hold in Webview...');
         
         // 1. Acquire first lock and ZOMBIE IT (never call unlock)
         const unlock1 = await webviewEngine.acquireLock();
         expect(unlock1).toBeDefined();
         
-        // 2. Attempt to acquire second lock - this SHOULD hang indefinitely WITHOUT the safety timeout
+        // 2. Attempt to acquire second lock — should hang without the timeout
         const lockPromise2 = webviewEngine.acquireLock();
-        
-        // Check state at 8s
-        let lockAcquired = false;
-        lockPromise2.then(() => { lockAcquired = true; });
 
         console.log('[TEST] Advancing past 3s safety limit...');
-        await vi.advanceTimersByTimeAsync(4000); // Cross 3s threshold (0s + 4s = 4s)
-        
-        // 3. Verify it unfroze and returned a valid unlock function
+        await vi.advanceTimersByTimeAsync(4000); // Cross 3s threshold
+
+        // 3. Verify the waiter was ABORTED (returns null), not granted the lock.
+        // Granting the lock while the zombie holder is still active causes dual
+        // ownership of HTMLAudioElement → duplicate loadstart + canplay events.
+        // Returning null is safe: the caller treats it as "give up, try later."
         const unlock2 = await lockPromise2;
-        expect(unlock2).toBeDefined();
-        expect(typeof unlock2).toBe('function');
+        expect(unlock2).toBeNull();
         
-        console.log('[TEST] ✅ Lock unblocked by safety timeout.');
+        console.log('[TEST] ✅ Waiter correctly aborted by safety timeout — no dual-owner risk.');
     });
 });
