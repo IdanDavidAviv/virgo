@@ -1,6 +1,7 @@
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { EventEmitter } from 'events';
 import { cleanForSpeech } from './speechProcessor';
+import { StateStore } from './stateStore';
 
 export type EngineMode = 'local' | 'neural';
 
@@ -35,9 +36,6 @@ export class PlaybackEngine extends EventEmitter {
     private _batchAbortController: AbortController | null = null;
     private _prefetchAbortController: AbortController = new AbortController();
 
-    // Hardening: Track monotonic unique playback intents to eject stale/zombie tasks
-    private _playbackIntentId: number = 1;
-    private _batchIntentId: number = 1;
     private _isRateLimited: boolean = false;
     private _watchdogTimer: NodeJS.Timeout | null = null;
     private _isStalled: boolean = false;
@@ -65,7 +63,11 @@ export class PlaybackEngine extends EventEmitter {
     private _resolveTtsReady!: () => void;
 
 
-    constructor(private logger: (msg: string) => void, onCacheUpdate?: () => void) {
+    constructor(
+        private readonly _stateStore: StateStore,
+        private readonly logger: (msg: string) => void, 
+        onCacheUpdate?: () => void
+    ) {
         super();
         this._ttsReady = new Promise(r => { this._resolveTtsReady = r; });
         this._tts = new MsEdgeTTS();
@@ -177,7 +179,7 @@ export class PlaybackEngine extends EventEmitter {
     public get isPlaying() { return this._isPlaying; }
     public get isPaused() { return this._isPaused; }
     public get isStalled() { return this._isStalled; }
-    public get playbackIntentId() { return this._playbackIntentId; }
+    public get playbackIntentId() { return this._stateStore.state.playbackIntentId; }
     public get neuralHealth() { return this._neuralHealth; }
 
     /**
@@ -218,6 +220,9 @@ export class PlaybackEngine extends EventEmitter {
         if (isStalled !== undefined) { this._isStalled = isStalled; }
 
         // Logic: if playing, cannot be paused. If paused, cannot be playing.
+        // [REACTIVE SSOT] Directly update the state store
+        this._stateStore.setPlaybackStatus(this._isPlaying, this._isPaused, this._isStalled);
+
         this.emit('status', {
             isPlaying: this._isPlaying,
             isPaused: this._isPaused,
@@ -240,23 +245,21 @@ export class PlaybackEngine extends EventEmitter {
         this._updateStatus(!val ? this._isPlaying : false, val);
     }
 
-    public get batchIntentId() { return this._batchIntentId; }
+    public get batchIntentId() { return this._stateStore.state.batchIntentId; }
 
     public getAudioFromCache(cacheKey: string): string | undefined { return this._audioCache.get(cacheKey); }
 
     public adoptIntent(id: number) {
-        // [SOVEREIGNTY] Magnitude Protection: Reject stale packets
-        if (id < this._playbackIntentId) {
-            this.logger(`[PlaybackEngine] 🛡️ Ejected stale intent: ${id} < current ${this._playbackIntentId}`);
-            return;
-        }
+        const currentId = this._stateStore.state.playbackIntentId;
+        
+        // [SOVEREIGNTY] Delegate magnitude protection to StateStore for centralized logging.
+        this._stateStore.setPlaybackIntentId(id);
 
-        if (id > this._playbackIntentId) {
-            this.logger(`[PlaybackEngine] 🧬 Adopting Segment Intent: ${id} (Previous: ${this._playbackIntentId})`);
-            this._playbackIntentId = id;
-            this.emit('intent-change', this._playbackIntentId);
+        // [SOVEREIGNTY] Handle engine-specific side-effects only if it's a true forward progress.
+        if (id > currentId) {
+            this.logger(`[PlaybackEngine] 🧬 Adopting Segment Intent: ${id} (Previous: ${currentId})`);
 
-            // [SOVEREIGNTY] Stop the current playing segment, but do NOT kill the batch.
+            // Stop the current playing segment, but do NOT kill the batch.
             if (this._activeSegmentAbortController) {
                 this._activeSegmentAbortController.abort('New Segment Intent');
             }
@@ -265,15 +268,12 @@ export class PlaybackEngine extends EventEmitter {
     }
 
     public adoptBatchIntent(id: number) {
-        // [SOVEREIGNTY] Magnitude Protection: Reject stale packets
-        if (id < this._batchIntentId) {
-            this.logger(`[PlaybackEngine] 🛡️ Ejected stale batch intent: ${id} < current ${this._batchIntentId}`);
-            return;
-        }
+        const currentId = this._stateStore.state.batchIntentId;
 
-        if (id > this._batchIntentId) {
-            this.logger(`[PlaybackEngine] 📦 Adopting Batch Intent: ${id} (Previous: ${this._batchIntentId})`);
-            this._batchIntentId = id;
+        // [SOVEREIGNTY] Magnitude Protection is now handled in StateStore.
+        if (id > currentId) {
+            this.logger(`[PlaybackEngine] 📦 Adopting Batch Intent: ${id} (Previous: ${currentId})`);
+            this._stateStore.setBatchIntentId(id);
 
             // [HARDENING] A new batch means a context shift (e.g. new chapter). 
             // We MUST kill all synthesis tasks (priority AND background) for the old context.
@@ -295,7 +295,7 @@ export class PlaybackEngine extends EventEmitter {
 
 
     public stop(intentId?: number, forceBatchReset: boolean = false, silent: boolean = false) {
-        this.logger(`[ENGINE] Stop (Intent: ${intentId ?? this._playbackIntentId} | ForceBatch: ${forceBatchReset}${silent ? ' | SILENT' : ''})`);
+        this.logger(`[ENGINE] Stop (Intent: ${intentId ?? this._stateStore.state.playbackIntentId} | ForceBatch: ${forceBatchReset}${silent ? ' | SILENT' : ''})`);
 
         this._isPlaying = false;
         this._isPaused = false;
@@ -391,8 +391,8 @@ export class PlaybackEngine extends EventEmitter {
 
     private _addToCache(key: string, data: string, intentId?: number) {
         // [HARDENING] Absolute Intent Guard - Reject data if user has skipped or changed context
-        if (intentId !== undefined && intentId !== this._playbackIntentId) {
-            this.logger(`[CACHE] REJECTED key:${key} | Intent mismatch: ${intentId} vs current ${this._playbackIntentId}`);
+        if (intentId !== undefined && intentId !== this._stateStore.state.playbackIntentId) {
+            this.logger(`[CACHE] REJECTED key:${key} | Intent mismatch: ${intentId} vs current ${this._stateStore.state.playbackIntentId}`);
             return;
         }
 
@@ -428,27 +428,27 @@ export class PlaybackEngine extends EventEmitter {
             return;
         }
 
-        if (batchId < this._batchIntentId) {
+        if (batchId < this._stateStore.state.batchIntentId) {
             this.logger(`[PREFETCH] EJECTED: Batch ${batchId} is stale.`);
             return;
         }
 
         this.logger(`[PREFETCH] key:${cacheKey} | Batch:${batchId}`);
         // Background prefetch should NEVER abort the priority task, but it MUST respect the batch
-        this.speakNeural(text, cacheKey, options, false, this._playbackIntentId, batchId).catch(e => {
+        this.speakNeural(text, cacheKey, options, false, this._stateStore.state.playbackIntentId, batchId).catch(e => {
             if (!e.message.includes('Aborted')) {
                 this.logger(`[PREFETCH] Background task failed: ${e.message}`);
-            }
+            }   
         });
     }
 
     public async speakNeural(text: string, cacheKey: string, options: PlaybackOptions, isPriority: boolean = true, intentId?: number, batchId?: number): Promise<string | null> {
-        const currentBatchId = batchId ?? this._batchIntentId;
-        const currentIntentId = intentId ?? (isPriority ? this._playbackIntentId + 1 : this._playbackIntentId);
+        const currentBatchId = batchId ?? this._stateStore.state.batchIntentId;
+        const currentIntentId = intentId ?? (isPriority ? this._stateStore.state.playbackIntentId + 1 : this._stateStore.state.playbackIntentId);
 
         // [v2.2.2] Dual-Intent Integrity Check
-        if (currentBatchId !== this._batchIntentId && batchId !== undefined) {
-            this.logger(`[NEURAL] EJECTED: Batch context ${currentBatchId} is stale (Current: ${this._batchIntentId})`);
+        if (currentBatchId !== this._stateStore.state.batchIntentId && batchId !== undefined) {
+            this.logger(`[NEURAL] EJECTED: Batch context ${currentBatchId} is stale (Current: ${this._stateStore.state.batchIntentId})`);
             return null;
         }
 
@@ -480,7 +480,7 @@ export class PlaybackEngine extends EventEmitter {
         if (intentId !== undefined) {
             this.adoptIntent(intentId);
         } else if (isPriority) {
-            this._playbackIntentId++;
+            this._stateStore.incrementPlaybackIntent();
         }
 
         if (isPriority) {
@@ -490,7 +490,6 @@ export class PlaybackEngine extends EventEmitter {
             }
             this._activeSegmentAbortController = new AbortController();
 
-            this.emit('intent-change', this._playbackIntentId);
             this._updateStatus(true, false, true);
 
             // [SOVEREIGNTY] Interrupt waiting prefetch tasks ONLY if the pipe is full. 
@@ -551,8 +550,8 @@ export class PlaybackEngine extends EventEmitter {
 
                     if (batchSignal?.aborted) { return onAbort('Batch Synthesis Aborted'); }
                     if (segmentSignal?.aborted) { return onAbort('Segment Aborted'); }
-                    if (currentBatchId !== this._batchIntentId) { return onAbort('Stale Context'); }
-                    if (isPriority && currentIntentId !== this._playbackIntentId) { return onAbort('Stale Intent'); }
+                    if (currentBatchId !== this._stateStore.state.batchIntentId) { return onAbort('Stale Context'); }
+                    if (isPriority && currentIntentId !== this._stateStore.state.playbackIntentId) { return onAbort('Stale Intent'); }
 
                     batchSignal?.addEventListener('abort', () => onAbort('Batch Synthesis Aborted'), { once: true });
                     segmentSignal?.addEventListener('abort', () => onAbort('Segment Aborted'), { once: true });
@@ -608,7 +607,7 @@ export class PlaybackEngine extends EventEmitter {
     private _startWatchdog(intentId: number, onTimeout: () => void) {
         this._clearWatchdog();
         this._watchdogTimer = setTimeout(() => {
-            if (this._playbackIntentId === intentId) {
+            if (this._stateStore.state.playbackIntentId === intentId) {
                 onTimeout();
             }
         }, 10000);
@@ -623,13 +622,13 @@ export class PlaybackEngine extends EventEmitter {
 
     private async _getNeuralAudio(text: string, voiceId: string, retryCount = 1, intentId: number, isPriority: boolean, batchId: number, signal?: AbortSignal): Promise<string | null> {
         // EXIT IMMEDIATELY IF BATCH IS STALE
-        if (batchId !== this._batchIntentId) {
+        if (batchId !== this._stateStore.state.batchIntentId) {
             this.logger(`[NEURAL] EJECTED (Post-lock) - Batch ${batchId} is stale.`);
             return null;
         }
 
         // EXIT IMMEDIATELY IF INTENT IS STALE (Only for priority tasks)
-        if (isPriority && intentId !== this._playbackIntentId) {
+        if (isPriority && intentId !== this._stateStore.state.playbackIntentId) {
             this.logger(`[NEURAL] EJECTED (Post-lock) - Intent ${intentId} is stale.`);
             return null;
         }
@@ -648,7 +647,7 @@ export class PlaybackEngine extends EventEmitter {
 
         try {
             // FINAL STALE CHECK BEFORE API CALL
-            if (intentId !== this._playbackIntentId) {
+            if (intentId !== this._stateStore.state.playbackIntentId) {
                 return null;
             }
 
@@ -830,13 +829,13 @@ export class PlaybackEngine extends EventEmitter {
 
             if (retryCount > 0) {
                 // DO NOT RETRY IF BATCH IS STALE
-                if (batchId !== this._batchIntentId) {
+                if (batchId !== this._stateStore.state.batchIntentId) {
                     this.logger(`[NEURAL] synthesis_cancelled | Batch ${batchId} is stale.`);
                     return null;
                 }
 
                 // DO NOT RETRY IF INTENT IS STALE (For priority)
-                if (isPriority && intentId !== this._playbackIntentId) {
+                if (isPriority && intentId !== this._stateStore.state.playbackIntentId) {
                     this.logger(`[NEURAL] synthesis_cancelled | Intent ${intentId} is stale.`);
                     return null;
                 }

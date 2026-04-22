@@ -13,7 +13,7 @@ export interface AudioBridgeEvents {
     'playbackFinished': () => void;
     'engineStatus': (payload: { status: string }) => void;
     'dataPush': (payload: { cacheKey: string, data: string, intentId: number }) => void;
-    'synthesisReady': (payload: { cacheKey: string, intentId: number }) => void;
+    'synthesisReady': (payload: { cacheKey: string, intentId: number, isPriority: boolean }) => void;
     'speakLocal': (payload: { text: string, voiceId: string, rate: number, volume: number, intentId: number }) => void;
     'uiSyncRequested': () => void;
 }
@@ -29,6 +29,11 @@ export class AudioBridge extends EventEmitter {
     // [Law 7.2] Per-intentId dedup Set for synthesisStarting emissions.
     // Key format: `${cacheKey}::${intentId}`. Cleared on intent increment.
     private _emittedSynthesisStarting: Set<string> = new Set();
+    private _lastIntentId: number = 0;
+    // [SINGLE-SINK] Tracks the cacheKey currently committed to by start().
+    // Used by synthesis-complete to suppress redundant synthesisReady when
+    // _speakNeural() (Path C) is already handling delivery for this key.
+    private _activeCacheKey: string = '';
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -38,13 +43,6 @@ export class AudioBridge extends EventEmitter {
         private readonly _logger: (msg: string) => void
     ) {
         super();
-        // Reactive Sync: Listen to Engine status and update SSOT automatically
-        this._playbackEngine.on('status', (status?: { isPlaying: boolean, isPaused: boolean, isStalled: boolean }) => {
-            const isPlaying = status?.isPlaying ?? this._playbackEngine.isPlaying;
-            const isPaused = status?.isPaused ?? this._playbackEngine.isPaused;
-            const isStalled = status?.isStalled ?? this._playbackEngine.isStalled;
-            this._stateStore.setPlaybackStatus(isPlaying, isPaused, isStalled);
-        });
 
         this._playbackEngine.on('synthesis-starting', (payload) => {
             // [Law 7.2] Route through deduplicated emitter instead of raw _emitWithIntent.
@@ -52,10 +50,13 @@ export class AudioBridge extends EventEmitter {
             this.emitSynthesisStarting(payload.cacheKey, payload.intentId);
         });
 
-        this._playbackEngine.on('intent-change', (id: number) => {
-            this._stateStore.setPlaybackIntentId(id);
-            // [Law 7.2] Clear the dedup set on intent change so the new intent gets fresh signals.
-            this.clearSynthesisStartingDedup();
+        this._stateStore.on('change', (state) => {
+            if (state.playbackIntentId !== this._lastIntentId) {
+                this._logger(`[BRIDGE] Intent change detected: ${this._lastIntentId} -> ${state.playbackIntentId}`);
+                this._lastIntentId = state.playbackIntentId;
+                // [Law 7.2] Clear the dedup set on intent change so the new intent gets fresh signals.
+                this.clearSynthesisStartingDedup();
+            }
         });
 
         // [v2.0.0] Throttled Pushing: Ensure bridge priority for user IPC 
@@ -65,11 +66,18 @@ export class AudioBridge extends EventEmitter {
         this._playbackEngine.on('synthesis-complete', (payload: { cacheKey: string, data: string, intentId: number }) => {
             const currentIntent = this._playbackEngine.playbackIntentId;
 
-            // Optimization: If the payload's intentId matches the current active intent, push immediately
-            // to bypass the throttle for the user's immediate hearing experience.
+            // [SINGLE-SINK] If intentId matches the current active intent, discriminate by key:
+            // - Active key: _speakNeural() (Path C) handles delivery via playAudio — suppress synthesisReady.
+            // - Any other key: pre-fetched segment — push data silently via dataPush (no play trigger).
             if (payload.intentId === currentIntent) {
-                this._logger(`[BRIDGE] NOTIFY_READY (Priority): ${payload.cacheKey} | Intent: ${payload.intentId}`);
-                this._emitWithIntent('synthesisReady', { cacheKey: payload.cacheKey });
+                if (payload.cacheKey === this._activeCacheKey) {
+                    // Path C will emit playAudio with data — synthesisReady here is redundant and causes double-play.
+                    this._logger(`[BRIDGE] NOTIFY_SUPPRESSED (Path C owns delivery): ${payload.cacheKey} | Intent: ${payload.intentId}`);
+                } else {
+                    // Pre-fetched segment: warm the webview cache silently. No play signal.
+                    this._logger(`[BRIDGE] PREFETCH_PUSH: ${payload.cacheKey} | Intent: ${payload.intentId}`);
+                    this._emitWithIntent('dataPush', { cacheKey: payload.cacheKey, data: payload.data });
+                }
                 return;
             }
 
@@ -85,7 +93,7 @@ export class AudioBridge extends EventEmitter {
                 pushTimeout = null;
                 if (results.length > 0) {
                     this._logger(`[BRIDGE] Batch NOTIFYing ${results.length} valid segments.`);
-                    results.forEach(p => this._emitWithIntent('synthesisReady', { cacheKey: p.cacheKey }));
+                    results.forEach(p => this._emitWithIntent('synthesisReady', { cacheKey: p.cacheKey, isPriority: false }));
                 }
             }, this._pushDelayMs);
         });
@@ -101,7 +109,17 @@ export class AudioBridge extends EventEmitter {
                 sentenceIndex: state.currentSentenceIndex
             });
         });
+        this._playbackEngine.on('status', status => {
+            this._logger(`[BRIDGE] Engine status change: isPlaying=${status.isPlaying}, isPaused=${status.isPaused}, isStalled=${status.isStalled}`);
+            let engineStatus = 'idle';
+            if (status.isStalled) { engineStatus = 'stalled'; }
+            else if (status.isPlaying) { engineStatus = 'playing'; }
+            else if (status.isPaused) { engineStatus = 'paused'; }
+
+            this.emit('engineStatus', { status: engineStatus });
+        });
     }
+
 
     public setPushDelay(ms: number) {
         this._pushDelayMs = ms;
@@ -135,7 +153,6 @@ export class AudioBridge extends EventEmitter {
 
         // [SOVEREIGNTY] Adopt the intent provided from the gesture authority
         this._playbackEngine.adoptIntent(finalIntent);
-        this._stateStore.setPlaybackIntentId(finalIntent);
 
         // If it's a new manual start from the host (no IDs provided), or if commitment threshold crossed, we tick the batchId.
         // If it's a resume or webview-driven start, we trust the provided/current batch.
@@ -146,7 +163,6 @@ export class AudioBridge extends EventEmitter {
         }
 
         this._playbackEngine.adoptBatchIntent(resolutionBatch);
-        this._stateStore.setBatchIntentId(resolutionBatch);
 
         // Update latches upon commitment
         this._latchedVoiceId = options.voice;
@@ -214,8 +230,12 @@ export class AudioBridge extends EventEmitter {
             this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
             isNeural
         );
+        // [SINGLE-SINK] Commit this key as the active sentence. The synthesis-complete handler
+        // reads this to suppress redundant synthesisReady (Path B) when Path C is handling delivery.
+        this._activeCacheKey = cacheKey;
 
         if (finalMode === 'neural') {
+
             // [Law 7.2] Reinforce early warming signal to the webview
             this.emitSynthesisStarting(cacheKey, finalIntent);
 
@@ -244,14 +264,11 @@ export class AudioBridge extends EventEmitter {
                 // If only in Webview, emitting 'playAudio' with data:'' will trigger the Pull handshake in the webview.
                 // [DE-DUPLICATION] synthesisReady was redundant here and caused double-playback.
             } else {
-                this._logger(`[BRIDGE] Sovereign Cache MISS: ${cacheKey}. Triggering fresh synth/fetch flow.`);
+                this._logger(`[BRIDGE] Sovereign Cache MISS: ${cacheKey}. Triggering direct synthesis.`);
                 this._stateStore.setLoadType('synth');
-                // [Law 7.3] Only synthesisReady fires on miss — NOT playAudio.
-                // playAudio is emitted exactly once, by _speakNeural, when real data is available.
-                // Emitting playAudio(data:'') here was wrong: it violated the playAudio contract
-                // (emit only when you have data) and caused the webview engine to start two
-                // competing AudioBufferSourceNode decodes → pitch + speed corruption.
-                this._emitWithIntent('synthesisReady', { cacheKey });
+                // [Handshake_v3] Instead of faking a ready signal, we trigger and await synthesis.
+                // This anchors the start() task until the engine has actually processed the segment.
+                await this.synthesize(cacheKey, options, finalIntent, resolutionBatch, true);
             }
 
             if (!this._stateStore.state.isPreviewing) {
@@ -295,7 +312,7 @@ export class AudioBridge extends EventEmitter {
     /**
      * Called when the webview reports a cache miss and needs a fresh synthesis.
      */
-    public async synthesize(cacheKey: string, options: PlaybackOptions, intentId?: number, batchId?: number) {
+    public async synthesize(cacheKey: string, options: PlaybackOptions, intentId?: number, batchId?: number, isPriority: boolean = true) {
         // [PROTOCOL_REPAIR] If the intentId is 0, it means the Webview is likely in an uninitialized state.
         // We adopt the extension's current intent (or generate one if everything is 0) to bridge the gap.
         let intentRepaired = false;
@@ -365,12 +382,15 @@ export class AudioBridge extends EventEmitter {
         const currentIntent = intentId ?? this._playbackEngine.playbackIntentId;
         const currentBatch = batchId ?? this._playbackEngine.batchIntentId;
 
-        this._logger(`[BRIDGE] Webview Cache MISS for ${cacheKey} (Intent: ${currentIntent}, Batch: ${currentBatch}). Starting synthesis...`);
+        this._logger(`[BRIDGE] Webview Cache MISS for ${cacheKey} (Intent: ${currentIntent}, Batch: ${currentBatch}, Priority: ${isPriority}). Starting synthesis...`);
         this._stateStore.setLoadType('synth');
-        await this._speakNeural(sentence, cacheKey, options, state.currentChapterIndex, state.currentSentenceIndex, currentIntent, currentBatch);
+        await this._speakNeural(sentence, cacheKey, options, state.currentChapterIndex, state.currentSentenceIndex, currentIntent, currentBatch, isPriority);
     }
 
     public stop(intentId?: number, batchId?: number) {
+        // [SINGLE-SINK] Clear active key so any late in-flight synthesis-complete
+        // cannot match and will safely route to dataPush (harmless cache warm) instead of synthesisReady.
+        this._activeCacheKey = '';
         this._playbackEngine.stop(intentId, !!batchId);
         this._logger(`[BRIDGE] Playback stopped (Intent: ${intentId ?? 'current'}, BatchReset: ${!!batchId}).`);
     }
@@ -385,13 +405,13 @@ export class AudioBridge extends EventEmitter {
      * Ensures all events sent to the webview carry the authoritative intentId.
      */
     private _emitWithIntent<K extends keyof AudioBridgeEvents>(event: K, payload: any) {
-        const intentId = this._playbackEngine.playbackIntentId;
+        const intentId = payload.intentId !== undefined ? payload.intentId : this._playbackEngine.playbackIntentId;
         this._logger(`[BRIDGE] >> EMIT ${event} | Intent: ${intentId}`);
         (this as any).emit(event, { ...payload, intentId });
     }
 
-    public next(options: PlaybackOptions, manual: boolean = false, autoPlayMode: 'auto' | 'chapter' | 'row' = 'auto', intentId?: number, batchId?: number) {
-        const finalIntent = intentId !== undefined ? intentId : this._playbackEngine.playbackIntentId + 1;
+    public async next(options: PlaybackOptions, manual: boolean = false, autoPlayMode: 'auto' | 'chapter' | 'row' = 'auto', intentId?: number, batchId?: number) {
+        const finalIntent = intentId !== undefined ? intentId : (manual ? this._playbackEngine.playbackIntentId + 1 : this._playbackEngine.playbackIntentId);
         let finalBatch = batchId !== undefined ? batchId : this._playbackEngine.batchIntentId;
 
         // [HARDENING] Prevent Batch 0 leakage
@@ -440,10 +460,10 @@ export class AudioBridge extends EventEmitter {
         }
 
         // 4. Trigger Next
-        this.start(nextPos.chapterIndex, nextPos.sentenceIndex, options);
+        await this.start(nextPos.chapterIndex, nextPos.sentenceIndex, options, false, finalIntent, resolutionBatch);
     }
 
-    public previous(options: PlaybackOptions, intentId?: number, batchId?: number) {
+    public async previous(options: PlaybackOptions, intentId?: number, batchId?: number) {
         if (intentId !== undefined) {
             this._playbackEngine.adoptIntent(intentId);
             this._stateStore.setPlaybackIntentId(intentId);
@@ -451,27 +471,32 @@ export class AudioBridge extends EventEmitter {
         if (batchId !== undefined) {
             this._playbackEngine.adoptBatchIntent(batchId);
         }
+
         const state = this._stateStore.state;
         const chapters = this._docController.chapters;
 
         const prevPos = this._sequenceManager.getPrevious(state.currentChapterIndex, state.currentSentenceIndex, chapters);
 
         if (prevPos) {
-            this.start(prevPos.chapterIndex, prevPos.sentenceIndex, options);
+            await this.start(prevPos.chapterIndex, prevPos.sentenceIndex, options, false, intentId, batchId);
         } else {
             this._logger('[BRIDGE] Already at the start of document.');
         }
     }
 
 
-    private async _speakNeural(sentence: string, cacheKey: string, options: PlaybackOptions, cIdx: number, sIdx: number, intentId: number, batchId?: number) {
+    private async _speakNeural(sentence: string, cacheKey: string, options: PlaybackOptions, cIdx: number, sIdx: number, intentId: number, batchId?: number, isPriority: boolean = true) {
         try {
-            const data = await this._playbackEngine.speakNeural(sentence, cacheKey, options, true, intentId, batchId); // true = priority
+            const data = await this._playbackEngine.speakNeural(sentence, cacheKey, options, isPriority, intentId, batchId);
 
-            // GUARD: Transactional Nonce check - Unify with Engine Intent
-            if (this._playbackEngine.playbackIntentId !== intentId) {
-                this._logger(`[BRIDGE] Transaction Mismatch: Request Intent ${intentId} is stale. Current: ${this._playbackEngine.playbackIntentId}`);
+            // GUARD: Transactional Nonce check - allow current or future intents, reject strictly stale ones.
+            if (this._playbackEngine.playbackIntentId > intentId) {
+                this._logger(`[BRIDGE] 🗑️ Dropping Stale Packet: Intent ${intentId} is older than Engine ${this._playbackEngine.playbackIntentId}`);
                 return;
+            }
+            
+            if (this._playbackEngine.playbackIntentId < intentId) {
+                this._logger(`[BRIDGE] ⚠️ Future Packet Detected: Intent ${intentId} > Engine ${this._playbackEngine.playbackIntentId}. Proceeding with caution.`);
             }
             // If the user jumped again, cIdx/sIdx will no longer match the current state.
             const state = this._stateStore.state;

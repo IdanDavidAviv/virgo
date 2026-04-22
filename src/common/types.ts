@@ -156,6 +156,7 @@ export interface CacheDelta {
     added: string[];
     removed: string[];
     isFullSync: boolean;
+    playbackIntentId?: number;
 }
 
 /**

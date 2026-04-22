@@ -43,6 +43,13 @@ export async function activate(context: vscode.ExtensionContext) {
     // [Self-Healing Protocol] 100% Zero-Friction DNA Sync
     hydrateProtocols((msg) => log(msg));
 
+    logFilePath = path.join(context.extensionPath, 'diagnostics_agent.log');
+    try {
+        fs.appendFileSync(logFilePath, `\n\n--- AGENT SESSION START: ${new Date().toLocaleString()} ---\n`);
+    } catch (e) {
+        console.error('Failed to init log file', e);
+    }
+
     // Standardized log channel with dynamic version detection (Senior Protocol)
     if ('createLogOutputChannel' in (vscode.window as any)) {
         outputChannel = (vscode.window as any).createLogOutputChannel('Read Aloud Diagnostics');
@@ -51,13 +58,6 @@ export async function activate(context: vscode.ExtensionContext) {
         log('[SYSTEM] LogOutputChannel API not found. Falling back to standard OutputChannel.');
     }
     outputChannel.show(true); 
-    
-    logFilePath = path.join(context.extensionPath, 'diagnostics.log');
-    try {
-        fs.writeFileSync(logFilePath, `--- SESSION START: ${new Date().toLocaleString()} ---\n`);
-    } catch (e) {
-        console.error('Failed to init log file', e);
-    }
 
     // [Onboarding & Repair] Environment Sanity Check
     const userProfile = process.env.USERPROFILE || process.env.HOME || '';

@@ -9,6 +9,8 @@ export class DashboardRelay {
     // [Hygiene] Voice scan idempotency — only emit if the voice list has changed since last broadcast.
     private _lastVoiceHash: string = '';
     private _initialHydrationDone: boolean = false;
+    private _isReady: boolean = false;
+    private _playBuffer: any[] = [];
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -32,6 +34,18 @@ export class DashboardRelay {
         if (this._view) {
             this._logger(`[DashboardRelay] 🏳️ Connection severed.`);
             this._view = undefined;
+            this._isReady = false;
+            this._playBuffer = [];
+        }
+    }
+
+    public setReady() {
+        if (!this._isReady) {
+            this._logger(`[DashboardRelay] 🏁 Webview signaled READY. Flushing ${this._playBuffer.length} buffered messages.`);
+            this._isReady = true;
+            const buffer = [...this._playBuffer];
+            this._playBuffer = [];
+            buffer.forEach(msg => this.postMessage(msg));
         }
     }
 
@@ -183,14 +197,51 @@ export class DashboardRelay {
             IncomingCommand.CACHE_STATS_UPDATE,
             IncomingCommand.SPEAK_LOCAL,
             IncomingCommand.VOICES,
-            IncomingCommand.ENGINE_STATUS
+            IncomingCommand.ENGINE_STATUS,
+            IncomingCommand.SYNTHESIS_READY,
+            IncomingCommand.SYNTHESIS_STARTING
         ];
         const isCritical = criticalCommands.includes(message.command);
 
         if (this._view.visible || isCritical) {
-            const result = this._view.webview.postMessage(message);
-            if (!result) {
-                this._logger(`[RELAY] ❌ postMessage returned FALSE for command: ${message.command}`);
+            // [SOVEREIGNTY] Buffer PLAY_AUDIO and DATA_PUSH if the webview isn't READY yet.
+            // This prevents "1-press" failures where synthesis completes before the UI is primed.
+            const needsBuffer = (
+                message.command === IncomingCommand.PLAY_AUDIO || 
+                message.command === IncomingCommand.DATA_PUSH ||
+                message.command === IncomingCommand.SYNTHESIS_READY ||
+                message.command === IncomingCommand.SYNTHESIS_STARTING
+            );
+            if (needsBuffer && !this._isReady) {
+                // [FIFO-HARDENING] Deduplicate buffer: Remove older versions of this command
+                // or any command with a lower intentId to ensure the webview starts with the freshest state.
+                if (message.intentId !== undefined) {
+                    const originalCount = this._playBuffer.length;
+                    this._playBuffer = this._playBuffer.filter(m => {
+                        const isSameCommand = m.command === message.command;
+                        const isStaleIntent = m.intentId !== undefined && m.intentId < message.intentId;
+                        return !isSameCommand && !isStaleIntent;
+                    });
+                    if (this._playBuffer.length < originalCount) {
+                        this._logger(`[RELAY] 🗑️ Evicted ${originalCount - this._playBuffer.length} stale commands from buffer for Intent: ${message.intentId}`);
+                    }
+                }
+
+                this._logger(`[RELAY] ⏳ Buffering command (not READY): ${message.command} | Intent: ${message.intentId || '?'}`);
+                this._playBuffer.push(message);
+                return;
+            }
+
+            this._view.webview.postMessage(message);
+            const isPlaybackSignal = [
+                IncomingCommand.PLAY_AUDIO, 
+                IncomingCommand.DATA_PUSH, 
+                IncomingCommand.SYNTHESIS_READY, 
+                IncomingCommand.SYNTHESIS_STARTING
+            ].includes(message.command);
+
+            if (isPlaybackSignal) {
+                this._logger(`[TELEMETRY] 📤 Command Emitted: ${message.command} | Intent: ${message.intentId || '?'}`);
             }
         } else {
             this._logger(`[RELAY] 🚫 postMessage BLOCKED (Hidden & Non-Critical): ${message.command}`);

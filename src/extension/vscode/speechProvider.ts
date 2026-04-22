@@ -62,7 +62,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._docController = new DocumentLoadController(this._logger);
         this._sequenceManager = new SequenceManager();
         this._stateStore = new StateStore(this._logger);
-        this._playbackEngine = new PlaybackEngine(_logger, () => this._broadcastCacheStats());
+        this._playbackEngine = new PlaybackEngine(this._stateStore, _logger, () => this._broadcastCacheStats());
         this._audioBridge = new AudioBridge(this._stateStore, this._docController, this._playbackEngine, this._sequenceManager, this._logger);
         this._persistenceManager = new PersistenceManager(this._context, this._stateStore, this._logger);
 
@@ -118,10 +118,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
         this._playbackEngine.on('cache-stats-update', payload => {
             this._dashboardRelay.postMessage({ command: IncomingCommand.CACHE_STATS_UPDATE, ...payload });
-        });
-
-        this._playbackEngine.on('intent-change', (intentId: number) => {
-            this._stateStore.setPlaybackIntentId(intentId);
         });
 
         // Initial setup of document context listeners
@@ -358,16 +354,22 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
+
+        // [CRASH-FIX] Set webview options FIRST — before any setView() calls.
+        // SyncManager.setView() immediately calls requestSync(true) → flush → relay.sync() → postMessage().
+        // Calling postMessage() before webview.options.enableScripts=true throws a VS Code internal error
+        // ("An error occurred while loading view"), silently killing the entire webview lifecycle.
+        webviewView.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'dist', 'media')]
+        };
+
         this._dashboardRelay.setView(webviewView);
         this._syncManager.setView(webviewView);
         
         // [DELTA SYNC] Initial handshake happens on 'ready' message
         this._logger('--- ACTIVATING MISSION CONTROL (Sidebar) ---');
-
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'dist', 'media')]
-        };
+        this._logger(`[BOOT] resolveWebviewView called | visible=${webviewView.visible}`);
 
         webviewView.webview.onDidReceiveMessage(async data => {
             if (data.command === 'ready') {
@@ -533,7 +535,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             </script>
         `;
 
-        html = html.replace('</head>', `${bootstrap}\n</head>`);
+        html = html.replace('<head>', `<head>\n${bootstrap}`);
 
         // Replace any remaining ${variable} in HTML
         html = html.replace(/\${extensionVersion}/g, config.extensionVersion);
@@ -577,27 +579,30 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const payload = sanitized; // For brevity in handlers
         this._logger(`[READALOUD <- ${source.toUpperCase()}] Command: ${cmd}`);
 
+        // [RELAY_HARDENING] Implicit readiness — if the webview is talking, it's alive.
+        // This prevents 1-press failures if the READY signal was missed during a reload.
+        this._dashboardRelay.setReady();
 
         // [MONOTONIC GUARD] Only adopt webview-reported intent IDs if they are strictly
-        // higher than the engine's current counter. Unconditional writes allow webview
-        // commands carrying reset/stale intentIds (e.g. 0 or 1) to stomp the StateStore
-        // backward, causing the relay to oscillate between intent=1 and intent=N.
-        if (payload.intentId !== undefined && payload.intentId > this._playbackEngine.playbackIntentId) {
-            this._stateStore.setPlaybackIntentId(payload.intentId);
+        // higher than the engine's current counter. We delegate this to the engine's
+        // adoptIntent methods which handle both state updates and context resets.
+        if (payload.intentId !== undefined) {
+            this._playbackEngine.adoptIntent(payload.intentId);
         }
-        if (payload.batchId !== undefined && payload.batchId > this._playbackEngine.batchIntentId) {
-            this._stateStore.setBatchIntentId(payload.batchId);
+        if (payload.batchId !== undefined) {
+            this._playbackEngine.adoptBatchIntent(payload.batchId);
         }
 
         this._logger(`[READALOUD <- ${source.toUpperCase()}] Command: ${cmd} (Intent: ${payload.intentId}, Batch: ${payload.batchId})`);
         switch (cmd) {
             case OutgoingAction.READY:
+                this._dashboardRelay.setReady();
                 this._sendInitialState(); // Pulse-aware initialization
                 break;
 
             case OutgoingAction.PLAY:
             case OutgoingAction.CONTINUE:
-                this.continue(payload.intentId, payload.batchId);
+                await this.continue(payload.intentId, payload.batchId);
                 break;
 
             case OutgoingAction.PAUSE:
@@ -608,13 +613,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this.stop(payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.JUMP_TO_CHAPTER:
-                this.jumpToChapter(payload.index, payload.intentId, payload.batchId);
+                await this.jumpToChapter(payload.index, payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.NEXT_CHAPTER:
-                this.nextChapter(payload.intentId, payload.batchId);
+                await this.nextChapter(payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.PREV_CHAPTER:
-                this.prevChapter(payload.intentId, payload.batchId);
+                await this.prevChapter(payload.intentId, payload.batchId);
                 break;
 
             case OutgoingAction.RATE_CHANGED:
@@ -677,17 +682,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
             case OutgoingAction.SENTENCE_ENDED:
                 if (!this._playbackEngine.isPaused) {
-                    this._audioBridge.next(this._getOptions(), false, this._stateStore.state.autoPlayMode, payload.intentId, payload.batchId);
+                    await this._audioBridge.next(this._getOptions(), false, this._stateStore.state.autoPlayMode, payload.intentId, payload.batchId);
                 }
                 break;
             case OutgoingAction.NEXT_SENTENCE:
-                this.nextSentence(payload.intentId, payload.batchId);
+                await this.nextSentence(payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.PREV_SENTENCE:
-                this.prevSentence(payload.intentId, payload.batchId);
+                await this.prevSentence(payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.JUMP_TO_SENTENCE:
-                this.jumpToSentence(payload.index, payload.intentId, payload.batchId);
+                await this.jumpToSentence(payload.index, payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.FETCH_AUDIO:
                 const audioData = this._playbackEngine.getAudioFromCache(payload.cacheKey);
@@ -710,22 +715,23 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                         bakedRate
                     });
                 } else {
-                    this._logger(`[BRIDGE_WARN] FETCH_FAILED: ${payload.cacheKey}. Proactively triggering synthesis fallback.`);
-                    // [RESILIENCE] If a fetch fails, we MUST start synthesis to prevent a playback stall.
-                    this._audioBridge.synthesize(payload.cacheKey, this._getOptions(), payload.intentId, payload.batchId);
+                    this._logger(`[BRIDGE_WARN] FETCH_FAILED: ${payload.cacheKey}. Awaiting webview retry or explicit synthesis request.`);
+                    // [RESILIENCE] We no longer proactively fallback to synthesis here.
+                    // The Webview is the boss of synthesis requests (OutgoingAction.REQUEST_SYNTHESIS).
+                    // This prevents the "Synthesis Storm" when rapid intent changes occur.
                 }
                 break;
             case OutgoingAction.TOGGLE_PLAY_PAUSE:
                 if (this._playbackEngine.isPlaying && !this._playbackEngine.isPaused) {
                     this.pause();
                 } else {
-                    this.continue();
+                    await this.continue();
                 }
                 break;
             case OutgoingAction.LOAD_AND_PLAY:
                 const loaded = await this.loadCurrentDocument();
                 if (loaded) {
-                    this.continue();
+                    await this.continue();
                 }
                 break;
             case OutgoingAction.RESET_CONTEXT: this._resetContext(); break;
@@ -733,7 +739,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this.loadCurrentDocument(); 
                 break;
             case OutgoingAction.REQUEST_SYNTHESIS:
-                this._audioBridge.synthesize(payload.cacheKey, this._getOptions(), payload.intentId, payload.batchId);
+                await this._audioBridge.synthesize(payload.cacheKey, this._getOptions(), payload.intentId, payload.batchId, payload.isPriority);
                 break;
             case OutgoingAction.CLEAR_CACHE:
                 this._playbackEngine.clearCache();
@@ -968,13 +974,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             currentSentenceIndex: 0,
             isHydrated: true,
             activeSessionId: this._sessionId // Ensure session is synced early
-        });
+        }, true); // [v2.4.6] SILENT: Suppress sync broadcast until contextual load (Pulse 2) completes.
 
         // [DPG] Mark webview as ready and attempt the one-shot initial load.
         // Once _initialLoadExecuted is true, setActiveEditor will never trigger auto-loads.
         this._webviewIsReady = true;
         this._initialLoadExecuted = true; 
-        this._tryInitialDocumentLoad();
+        await this._tryInitialDocumentLoad();
+
+        // [v2.4.6] Finalize Pulse 1 & 2 structural hydration with a single, authoritative sync.
+        this._syncManager.requestSync(true);
 
         // Pulse 3: Heavy Data Discovery (Background/Async)
         this._logger('[STARTUP] pulse_3_background_discovery_initiated');
@@ -1083,22 +1092,25 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 metadata.relativeDir,
                 metadata.versionSalt,
                 metadata.contentHash,
-                initialProgress
+                initialProgress,
+                isSilent // [v2.4.6] Use isSilent flag to suppress sync storms during boot
             );
 
             if (metadata.uri && !useHydratedProgress) {
                 // Only probe SettingsManager if we're not already use hydrated context
                 const progress = this._settingsManager.loadProgress(metadata.uri, metadata.versionSalt, metadata.contentHash);
                 if (progress) {
-                    this._stateStore.setProgress(progress.chapterIndex, progress.sentenceIndex);
+                    this._stateStore.setProgress(progress.chapterIndex, progress.sentenceIndex, isSilent);
                     this._logger(`[RECOVERY] Resumed ${metadata.uri.path} at C:${progress.chapterIndex} S:${progress.sentenceIndex}`);
                 }
             }
 
-            this._stateStore.setActiveMode('FILE');
+            this._stateStore.setActiveMode('FILE', isSilent);
 
             // [SYNC_HARDENING] Force immediate, exhaustive relay sync to prevent "Dead UI" race conditions.
-            this._syncManager.requestSync(true);
+            if (!isSilent) {
+                this._syncManager.requestSync(true);
+            }
 
             if (chapters.length > 0) {
                 const currentPos = this._stateStore.state;
@@ -1134,7 +1146,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger(`[SPEECH_PROVIDER] action:play | file: ${fileName} | start: ${startFromChapter}`);
         this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
         this._stateStore.setProgress(startFromChapter, 0);
-        this._playbackEngine.setPlaying(true);
+        // [FIX-5] audioBridge.start() → playbackEngine.setPlaying(!previewOnly) is the authoritative sink.
+        // Removed: this._playbackEngine.setPlaying(true); ← was causing 2x engineStatus:playing emissions.
         this._audioBridge.start(startFromChapter, 0, this._getOptions());
     }
 
@@ -1146,10 +1159,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         return !!this._stateStore.state.activeDocumentUri && this._docController.chapters.length > 0;
     }
 
-    public pause(intentId?: string) {
+    public pause(intentId?: number) {
         this._logger(`[SPEECH_PROVIDER] action:pause | intent: ${intentId}`);
-        this._audioBridge.pause(intentId as any);
-        this._playbackEngine.setPaused(true, intentId as any);
+        // [FIX-4] audioBridge.pause() → playbackEngine.setPaused(true) already emits status once.
+        // The extra setPaused call below was causing 2x engineStatus:paused emissions per pause.
+        // Removed: this._playbackEngine.setPaused(true, intentId);
+        this._audioBridge.pause(intentId);
     }
 
     public togglePlayPause() {
@@ -1164,78 +1179,95 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    public stop(intentId?: string, batchId?: string) {
+    public stop(intentId?: number, batchId?: number) {
         this._logger(`[SPEECH_PROVIDER] action:stop | intent: ${intentId} | batch: ${batchId}`);
-        this._audioBridge.stop(intentId as any, batchId as any);
-        this._playbackEngine.setPlaying(false, intentId as any);
-        this._playbackEngine.setPaused(false, intentId as any);
+        // [FIX-3] audioBridge.stop() → playbackEngine.stop() already sets _isPlaying=false,
+        // _isPaused=false, _isStalled=false and emits 'status' once. The two extra calls below
+        // were causing 3x engineStatus:idle emissions per stop (one per setter + one from stop()).
+        // Removed: this._playbackEngine.setPlaying(false, intentId);
+        // Removed: this._playbackEngine.setPaused(false, intentId);
+        this._audioBridge.stop(intentId, batchId);
         this._logger(`[STOP] playback_stop (Intent: ${intentId ?? 'current'}, BatchReset: ${!!batchId})`);
     }
 
-    public continue(intentId?: string, batchId?: string) {
+    public async continue(intentId?: number, batchId?: number) {
         this._logger(`[SPEECH_PROVIDER] action:continue | intent: ${intentId} | batch: ${batchId} | hydrated: ${this.isHydrated()}`);
         this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
         this._stateStore.setPreviewing(false); // Commit to full playback
-        this._playbackEngine.setPlaying(true, intentId as any);
-        this._playbackEngine.setPaused(false, intentId as any);
-        this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions(), false, intentId as any, batchId as any);
+
+        // [PLAY-GATE] If no chapters are loaded, the user pressed Play before DPG finished.
+        // Load the document now (silent) and then proceed — bridge.start() will have chapters.
+        if (this._docController.chapters.length === 0) {
+            this._logger('[SPEECH_PROVIDER] ⚠️ PLAY fired before document load. Triggering silent load...');
+            const loaded = await this.loadCurrentDocument(false, true);
+            if (!loaded) {
+                this._logger('[SPEECH_PROVIDER] ❌ Silent load failed. Cannot start playback.');
+                return;
+            }
+        }
+
+        // [SOVEREIGNTY] Bridge.start handles all necessary engine resets and status updates.
+        // We do not call playbackEngine directly here to avoid redundant event cycles.
+        await this._audioBridge.start(this._stateStore.state.currentChapterIndex, this._stateStore.state.currentSentenceIndex, this._getOptions(), false, intentId, batchId);
     }
 
     public startOver() {
         this.jumpToSentence(0);
     }
 
-    public jumpToSentence(index: number, intentId?: string, batchId?: string) {
+    public async jumpToSentence(index: number, intentId?: number, batchId?: number) {
         this._stateStore.setPreviewing(false); // Navigation often implies intent to play from there
         this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
-        this._playbackEngine.setPlaying(true, intentId as any);
-        this._audioBridge.start(this._stateStore.state.currentChapterIndex, index, this._getOptions(), false, intentId as any, batchId as any);
+        await this._audioBridge.start(this._stateStore.state.currentChapterIndex, index, this._getOptions(), false, intentId, batchId);
     }
 
-    public jumpToChapter(index: number, intentId?: string, batchId?: string) {
+    public async jumpToChapter(index: number, intentId?: number, batchId?: number) {
         const chapters = this._docController.chapters;
         if (index < 0 || index >= chapters.length) { return; }
         this._stateStore.setPreviewing(false);
         this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
-        this._playbackEngine.setPlaying(true, intentId as any);
-        this._audioBridge.start(index, 0, this._getOptions(), false, intentId as any, batchId as any);
+        // [FIX-6] State-preserving navigation: if the engine is currently stopped/paused,
+        // pass previewOnly=true so audioBridge.start() synthesizes audio but does NOT
+        // force isPlaying=true. This mirrors the webview-side FIX-1 (jumpToChapter preservation).
+        const wasPlaying = this._playbackEngine.isPlaying && !this._playbackEngine.isPaused;
+        await this._audioBridge.start(index, 0, this._getOptions(), !wasPlaying, intentId, batchId);
     }
 
-    public nextChapter(intentId?: string, batchId?: string) {
+    public async nextChapter(intentId?: number, batchId?: number) {
         const state = this._stateStore.state;
         const chapters = this._docController.chapters;
         if (!chapters || chapters.length === 0) { return; }
 
         const nextIdx = state.currentChapterIndex + 1;
         if (nextIdx < chapters.length) {
-            this.jumpToChapter(nextIdx, intentId, batchId);
+            await this.jumpToChapter(nextIdx, intentId, batchId);
         } else {
             this._logger('[READALOUD] Already at the last chapter.');
         }
     }
 
-    public prevChapter(intentId?: string, batchId?: string) {
+    public async prevChapter(intentId?: number, batchId?: number) {
         const state = this._stateStore.state;
         const chapters = this._docController.chapters;
         if (!chapters || chapters.length === 0) { return; }
 
         if (state.currentSentenceIndex > 0) {
             // Restart current chapter
-            this.jumpToChapter(state.currentChapterIndex, intentId, batchId);
+            await this.jumpToChapter(state.currentChapterIndex, intentId, batchId);
         } else if (state.currentChapterIndex > 0) {
             // Jump to previous chapter
-            this.jumpToChapter(state.currentChapterIndex - 1, intentId, batchId);
+            await this.jumpToChapter(state.currentChapterIndex - 1, intentId, batchId);
         } else {
             this._logger('[READALOUD] Already at the first chapter.');
         }
     }
 
-    public prevSentence(intentId?: string, batchId?: string) {
-        this._audioBridge.previous(this._getOptions(), intentId as any, batchId as any);
+    public async prevSentence(intentId?: number, batchId?: number) {
+        await this._audioBridge.previous(this._getOptions(), intentId, batchId);
     }
 
-    public nextSentence(intentId?: string, batchId?: string) {
-        this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode, intentId as any, batchId as any);
+    public async nextSentence(intentId?: number, batchId?: number) {
+        await this._audioBridge.next(this._getOptions(), true, this._stateStore.state.autoPlayMode, intentId, batchId);
     }
 
     private _onSelectionChange(chapterIndex: number, sentenceIndex: number) {

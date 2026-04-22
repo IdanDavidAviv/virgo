@@ -11,13 +11,13 @@ export class SyncManager implements vscode.Disposable {
     // [Gate 1] Startup Orchestration — relay must be attached before any flush can proceed.
     // Syncs arriving before setView() are buffered in _needsSync and flushed on first attach.
     private _isRelayAttached: boolean = false;
-    // [Gate 5] Startup Orchestration — debounce coalescer. All requestSync() calls within a 50ms
+    // [Gate 5] Startup Orchestration — debounce coalescer. All requestSync() calls within a 100ms
     // window collapse into a single flush. Prevents 4–6 redundant UI_SYNC packets during boot.
-    private static readonly COALESCE_MS = 50;
+    private static readonly COALESCE_MS = 100;
     // [Gate 5 Addendum] Steady-state playback coalesce: suppress state-equivalent flushes
     // during active playback. Reset to '' on intent change or idle state.
     private _lastFlushHash: string = '';
-    // Tracks playback state for the hash guard — updated via setPlayingState().
+    // Tracks playback state for the critical-transition bypass — derived from StateStore.on('change') in constructor.
     private _isPlaying: boolean = false;
 
     constructor(
@@ -25,8 +25,15 @@ export class SyncManager implements vscode.Disposable {
         private readonly _dashboardRelay: DashboardRelay,
         private readonly _logger: (msg: string) => void
     ) {
-        // Subscribe to StateStore changes reactively
-        this._stateStore.on('change', () => this.requestSync());
+        // Subscribe to StateStore changes reactively.
+        // Also sync _isPlaying so the critical-transition bypass (IDLE→PLAYING / PLAYING→STOPPED)
+        // fires an immediate flush instead of a debounced one. Previously, setPlayingState() was
+        // called manually from speechProvider, but Phase 1.2 removed those call sites without
+        // rewiring this tracker — leaving the critical bypass permanently dead.
+        this._stateStore.on('change', (state) => {
+            this._isPlaying = state.isPlaying;
+            this.requestSync();
+        });
     }
 
     /**
@@ -69,7 +76,13 @@ export class SyncManager implements vscode.Disposable {
             return;
         }
 
-        if (immediate) {
+        // [v2.4.6] Critical Lifecycle Bypass: If this is a transition to PLAYING or STOPPED,
+        // bypass the debounce to ensure instant UI feedback.
+        const state = this._stateStore.state;
+        const isCriticalTransition = !this._isPlaying && state.isPlaying; // IDLE -> PLAYING
+        const isCriticalStop = this._isPlaying && !state.isPlaying; // PLAYING -> STOPPED
+
+        if (immediate || isCriticalTransition || isCriticalStop) {
             this._flush();
             return;
         }
@@ -85,15 +98,12 @@ export class SyncManager implements vscode.Disposable {
     }
 
     /**
-     * Update the isPlaying state so the Gate 5 Addendum hash guard works correctly.
-     * Call this whenever the extension's playback state changes.
+     * @deprecated [Phase 1.2 Reactive Refactor] No longer called externally.
+     * _isPlaying is now derived reactively from StateStore.on('change') in the constructor.
+     * Retained as a safety valve for potential external consumers.
      */
     public setPlayingState(isPlaying: boolean): void {
         this._isPlaying = isPlaying;
-        if (!isPlaying) {
-            // Clear hash on idle — always allow the next flush to pass through
-            this._lastFlushHash = '';
-        }
     }
 
     private _flush() {
@@ -108,21 +118,41 @@ export class SyncManager implements vscode.Disposable {
             return;
         }
 
-        // [Gate 5 Addendum] During active playback, suppress state-equivalent flushes.
-        // This prevents document observer ticks from emitting redundant UI_SYNC packets
-        // when nothing has actually changed (same chapters, intent, hydrated, isPlaying).
-        if (this._isPlaying) {
-            const state = this._stateStore.state;
-            const hash = `v2::${state.activeSessionId}::${state.activeContentHash}::${state.currentChapterIndex}::${state.playbackIntentId}::${state.isHydrated}::${this._dashboardRelay.isPlaybackAuthorized}`;
-            
-            if (hash === this._lastFlushHash) {
-                return; // Absorbed — state is equivalent, no change to broadcast
-            }
-            this._lastFlushHash = hash;
+        // [Gate 5 v2] Suppress state-equivalent flushes using a comprehensive hash.
+        // Applied in ALL states (idle + playing) to prevent load-time UI flicker.
+        // During document loading, the extension emits 4-6 rapid StateStore changes
+        // (title, chapters, hash, hydration) — previously these all fired because hash
+        // suppression was only active during playback. Now the hash de-duplicates in all
+        // states. Since the hash includes `isPlaying`, genuine PLAY/STOP transitions always
+        // produce a new hash and are guaranteed to fire.
+        const hash = this._calculateStateHash();
+        if (hash === this._lastFlushHash) {
+            return; // Absorbed — state is equivalent, no change to broadcast
         }
+        this._lastFlushHash = hash;
 
         this._needsSync = false;
         this._dashboardRelay.sync();
+    }
+
+    private _calculateStateHash(): string {
+        const s = this._stateStore.state;
+        // Specifically aggregate fields that impact the primary UI and synthesis lifecycle.
+        return [
+            s.activeFileName,
+            s.activeContentHash,
+            s.currentChapterIndex,
+            s.currentSentenceIndex,
+            s.isPlaying,
+            s.isPaused,
+            s.playbackStalled,
+            s.isHydrated,
+            s.playbackAuthorized,
+            s.playbackIntentId,
+            s.activeMode,
+            s.selectedVoice,
+            s.versionSalt
+        ].join('|');
     }
 
     public dispose() {

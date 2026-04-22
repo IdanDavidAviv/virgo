@@ -121,14 +121,16 @@ export class StateStore extends EventEmitter {
     /**
      * Updates the passive selection (Focused File).
      */
-    public setFocusedFile(uri: vscode.Uri | undefined, fileName: string, relativeDir: string, isSupported: boolean, versionSalt?: string) {
+    public setFocusedFile(uri: vscode.Uri | undefined, fileName: string, relativeDir: string, isSupported: boolean, versionSalt?: string, silent: boolean = false) {
         this._state.focusedDocumentUri = uri;
         this._state.focusedFileName = fileName || 'No Selection';
         this._state.focusedRelativeDir = relativeDir;
         this._state.focusedIsSupported = isSupported;
         this._state.focusedVersionSalt = versionSalt;
         this._logger(`[STATE] focused_updated: ${this._state.focusedFileName} | salt: ${versionSalt}`);
-        this.emit('change', this.state);
+        if (!silent) {
+            this.emit('change', this.state);
+        }
     }
 
     /**
@@ -140,7 +142,8 @@ export class StateStore extends EventEmitter {
         relativeDir: string, 
         versionSalt?: string,
         contentHash?: string,
-        initialProgress?: { chapterIndex: number, sentenceIndex: number } | null
+        initialProgress?: { chapterIndex: number, sentenceIndex: number } | null,
+        silent: boolean = false
     ) {
         this._state.activeDocumentUri = uri;
         this._state.activeFileName = fileName || 'No File Loaded';
@@ -157,26 +160,32 @@ export class StateStore extends EventEmitter {
         this._state.isPaused = false;
 
         this._logger(`[STATE] active_document_updated (atomic): ${this._state.activeFileName} @ ${this._state.currentChapterIndex}:${this._state.currentSentenceIndex}`);
-        this.emit('change', this.state);
+        if (!silent) {
+            this.emit('change', this.state);
+        }
     }
 
     /**
      * Updates the current reading position.
      */
-    public setProgress(chapterIndex: number, sentenceIndex: number) {
+    public setProgress(chapterIndex: number, sentenceIndex: number, silent: boolean = false) {
         this._state.currentChapterIndex = chapterIndex;
         this._state.currentSentenceIndex = sentenceIndex;
-        this.emit('change', this.state);
+        if (!silent) {
+            this.emit('change', this.state);
+        }
     }
 
     /**
      * Updates playback status flags. [ISSUE 17]
      */
-    public setPlaybackStatus(isPlaying: boolean, isPaused: boolean, playbackStalled: boolean = false) {
+    public setPlaybackStatus(isPlaying: boolean, isPaused: boolean, playbackStalled: boolean = false, silent: boolean = false) {
         this._state.isPlaying = isPlaying;
         this._state.isPaused = isPaused;
         this._state.playbackStalled = playbackStalled;
-        this.emit('change', this.state);
+        if (!silent) {
+            this.emit('change', this.state);
+        }
     }
 
     /**
@@ -249,10 +258,12 @@ export class StateStore extends EventEmitter {
     /**
      * Sets the active UI mode (FILE vs SNIPPET).
      */
-    public setActiveMode(mode: 'FILE' | 'SNIPPET') {
+    public setActiveMode(mode: 'FILE' | 'SNIPPET', silent: boolean = false) {
         this._state.activeMode = mode;
         this._logger(`[STATE] active_mode_updated: ${mode}`);
-        this.emit('change', this.state);
+        if (!silent) {
+            this.emit('change', this.state);
+        }
     }
 
     /**
@@ -299,30 +310,63 @@ export class StateStore extends EventEmitter {
     }
 
     /**
-     * Updates the global playback intent ID.
+     * Updates the global playback intent ID with magnitude protection.
+     * Rejects any ID that is less than the current state to prevent stale synchronization.
      */
     public setPlaybackIntentId(id: number) {
-        if (this._state.playbackIntentId === id) { return; }
+        if (id <= this._state.playbackIntentId) {
+            if (id < this._state.playbackIntentId) {
+                this._logger(`[STATE] playback_intent_rejected: ${id} < ${this._state.playbackIntentId}`);
+            }
+            return;
+        }
         this._state.playbackIntentId = id;
-        this._logger(`[STATE] intent_updated: ${id}`);
+        this._logger(`[STATE] playback_intent_latched: ${id}`);
         this.emit('change', this.state);
     }
 
     /**
-     * Updates the global batch intent ID.
+     * Atomically increments the playback intent ID.
+     */
+    public incrementPlaybackIntent(): number {
+        const nextId = this._state.playbackIntentId + 1;
+        this.setPlaybackIntentId(nextId);
+        return nextId;
+    }
+
+    /**
+     * Updates the global batch intent ID with magnitude protection.
      */
     public setBatchIntentId(id: number) {
-        if (this._state.batchIntentId === id) { return; }
+        if (id <= this._state.batchIntentId) {
+            if (id < this._state.batchIntentId) {
+                this._logger(`[STATE] batch_intent_rejected: ${id} < ${this._state.batchIntentId}`);
+            }
+            return;
+        }
         this._state.batchIntentId = id;
-        this._logger(`[STATE] batch_intent_updated: ${id}`);
+        this._logger(`[STATE] batch_intent_latched: ${id}`);
         this.emit('change', this.state);
+    }
+
+    /**
+     * Atomically increments the batch intent ID.
+     */
+    public incrementBatchIntent(): number {
+        const nextId = this._state.batchIntentId + 1;
+        this.setBatchIntentId(nextId);
+        return nextId;
     }
 
     /**
      * [v2.0.7] Partial state update with automatic notification.
+     * @param patch The state fragment to merge.
+     * @param silent If true, suppresses the 'change' event (useful for bulk initialization).
      */
-    public patchState(patch: Partial<StateMetadata>) {
+    public patchState(patch: Partial<StateMetadata>, silent: boolean = false) {
         this._state = { ...this._state, ...patch };
-        this.emit('change', this.state);
+        if (!silent) {
+            this.emit('change', this.state);
+        }
     }
 }
