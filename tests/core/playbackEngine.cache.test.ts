@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
+import { StateStore } from '@core/stateStore';
 import { EventEmitter } from 'events';
 
 // --- MODULE MOCKS ---
@@ -36,7 +37,8 @@ describe('PlaybackEngine TDD: Cache Optimization & Clearing', () => {
     const defaultOptions: PlaybackOptions = { voice: 'V', rate: 0, volume: 50, mode: 'neural' };
 
     beforeEach(() => {
-        engine = new PlaybackEngine(logger);
+        const stateStore = new StateStore(logger);
+        engine = new PlaybackEngine(stateStore, logger);
         vi.clearAllMocks();
     });
 

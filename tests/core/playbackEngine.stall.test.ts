@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PlaybackEngine } from '@core/playbackEngine';
+import { StateStore } from '@core/stateStore';
 
 // Mock msedge-tts
 vi.mock('msedge-tts', () => {
@@ -22,7 +23,8 @@ describe('PlaybackEngine Stall Detection', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        engine = new PlaybackEngine(logger);
+        const stateStore = new StateStore(logger);
+        engine = new PlaybackEngine(stateStore, logger);
     });
 
     it('should initialize with isStalled as false', () => {

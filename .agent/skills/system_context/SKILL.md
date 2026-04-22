@@ -19,7 +19,7 @@ description: Architectural map and development guidelines for the Read Aloud ext
 
 | Skill | Governs | Last Updated |
 |---|---|---|
-| [`system_context`](../system_context/SKILL.md) | Architectural map, subsystem ownership, synchronization protocols | 2026-04-19 (v2.4.5+) |
+| [`system_context`](../system_context/SKILL.md) | Architectural map, subsystem ownership, synchronization protocols | 2026-04-22 (v2.5.0) |
 | [`loom_meta_governance`](../loom_meta_governance/artifacts/SKILL.md) | **Tier-0** Universal Agent OS / Medium Tier Management | 2026-04-12 |
 | [`startup_orchestration`](../startup_orchestration/SKILL.md) | Boot sequence, Pulse graph, DPG, Phase 1–3 dependencies | 2026-04-10 |
 | [`autoplay_orchestration`](../autoplay_orchestration/SKILL.md) | Playback pipeline, pre-fetch, neural laws, intent baton | 2026-04-09 |
@@ -140,6 +140,42 @@ The extension emphasizes high-quality Neural voices but maintains Local voices a
 - **Automatic Fallback**: If a scan or synthesis fails for a Neural voice, the system ensures local voices remain available in the list, providing "Zero-Delay" fallback.
 - **Sovereignty**: Clicking Refresh triggers `OutgoingAction.REFRESH_VOICES`, which calls `VoiceManager.scanAndSync()` in the Extension Host.
 
+### 2.9 Sovereign Cache Key Pattern (v2.5.0)
+
+The **Sovereign Cache Key** (`_activePlayKey`) in `PlaybackController` is the ground-truth key for HEAD_MATCH resolution. It is set by the extension via `setActivePlayKey(cacheKey)` called from the `CommandDispatcher`.
+
+> [!IMPORTANT]
+> **IPC Ordering Invariant**: `DATA_PUSH` messages can arrive in the webview BEFORE the `playAudio` message, despite being emitted at the same time in the Bridge. This is a structural IPC ordering race. To compensate:
+> - `setActivePlayKey()` MUST be called in the `SYNTHESIS_STARTING` handler (earliest possible signal), not only in the `playAudio` handler.
+> - `DATA_PUSH` handlers MUST NOT assume the sovereign key is set when they arrive.
+> - `FETCH_AUDIO` recovery (triggered on HEAD_MATCH fail) is a symptom of this race — suppressing it without fixing the ordering is incorrect.
+
+**`_activePlayKey` Lifecycle:**
+| Event | Action |
+|---|---|
+| `SYNTHESIS_STARTING` received | `setActivePlayKey(cacheKey)` — EARLY set |
+| `playAudio` received | `setActivePlayKey(cacheKey)` — confirmation/override |
+| `stop()` / `reset()` called | `_activePlayKey = null` — cleared |
+| New intent starts | Previous key is overwritten atomically |
+
+**Rate Sovereignty**: The key includes the baked rate (e.g., `_1.00_`). Prefetch segments synthesized at the *display* rate (e.g., `_1.40_`) will never match the sovereign key for a direct-play session baked at 1.00. This is expected — prefetch segments are stored for cache hits only, not for immediate HEAD play.
+
+### 2.10 Playback Coordination Invariants (v2.5.0)
+
+Confirmed race conditions and invariants discovered during v2.5.x debugging:
+
+#### canplay `{ once: true }` Mandate
+The `canplay` event on the `<audio>` element MUST be registered with `{ once: true }`. Without it, reassigning `audio.src` for a new segment re-fires `canplay`, causing:
+- Multiple `Sovereign Event: PLAYING` emissions per sentence
+- The Extension Host receiving 3× `engineStatus: playing` signals
+- Potential redundant pre-fetch or re-synthesis storms
+
+#### User Intent Gate (Load ≠ Play)
+The Bridge's `playAudio` emission MUST be gated behind an explicit user-initiated play flag (`_isUserInitiatedPlay`). The `synthesisReady` callback path MUST NOT emit `playAudio` without this gate. Loading a file (`LOAD_DOCUMENT`) MUST NOT trigger playback.
+
+#### Prefetch Rate Fence
+When a new play intent starts, all in-flight prefetch tasks whose `bakedRate` diverges from the current synthesis rate MUST be aborted. Orphaned prefetch `DATA_PUSH` messages with mismatched rates cause ingestion failures and FETCH_AUDIO storms.
+
 ### 2.8 CDP Command Prefixing (PowerShell Protocol)
 When simulating command palette interaction via CDP:
 - **Prefix Requirement**: All commands sent via `type` to the VS Code command palette MUST be prefixed with `>`. 
@@ -204,9 +240,13 @@ window: {
 1. **Trigger**: User clicks Play in Webview.
 2. **IPC (Out)**: `MessageClient.postMessage({ command: 'play' })`.
 3. **Internal Logic**: `SpeechProvider.play()` -> `PlaybackEngine.start()`.
+3.5. **SYNTHESIS_STARTING** emitted → `CommandDispatcher` calls `setActivePlayKey(cacheKey)` immediately (sovereign key early-set, before DATA_PUSH arrives).
 4. **State Update**: `StateStore` emits `change`.
 5. **Sync (In)**: `SyncManager` throttles and sends `UI_SYNC` message to Webview via `DashboardRelay`.
 6. **UI Update**: `WebviewStore` updates and React components re-render.
+
+> [!WARNING]
+> `DATA_PUSH` and `playAudio` are emitted simultaneously by the Bridge but `DATA_PUSH` arrives in the webview first. The sovereign key set in step 3.5 (via `SYNTHESIS_STARTING`) is what prevents the HEAD_MATCH failure in `DATA_PUSH` ingestion. Removing step 3.5 reintroduces the silent playback regression (RC-1).
 
 ## 5. Holistic Audio Caching Flow (Visualization)
 
@@ -320,6 +360,10 @@ Key methods available via `window.__debug.audioEngine`:
 | `audioElement.volume = setVolume(n) / 100` | ✅ **Correct normalization** |
 | `store.patchState()` mutations are instant and reflected in next `getState()` | ✅ Confirmed |
 | Dev session baseline: `rate: 7.2`, `volume: 84`, `engineMode: "neural"` | 📊 Reference snapshot |
+| **v2.5.0 RC-1**: `DATA_PUSH` arrives before `playAudio` → HEAD_MATCH fails → FETCH_AUDIO storm | ⚠️ **Mitigated via SYNTHESIS_STARTING early key-set** — `{ once: true }` fix pending |
+| **v2.5.0 RC-2**: Prefetch at rate 1.40 collides with play at rate 1.00 key space | ⚠️ **Known** — Prefetch rate fence needed in Bridge |
+| **v2.5.0 RC-3**: `canplay` fires 3× per sentence → 3× `Sovereign Event: PLAYING` signals | ⚠️ **Known** — `{ once: true }` fix pending in `WebviewAudioEngine` |
+| **v2.5.0 UM-1**: Load-file triggers autoplay without user intent gate | ⚠️ **Known** — `_isUserInitiatedPlay` guard needed in `audioBridge` |
 
 ## 7. Architectural Sovereignty Protocol (SSOA)
 

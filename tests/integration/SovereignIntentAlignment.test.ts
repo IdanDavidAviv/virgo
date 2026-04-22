@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PlaybackEngine } from '../../src/extension/core/playbackEngine';
+import { StateStore } from '../../src/extension/core/stateStore';
 
 /**
  * Sovereign Intent Alignment Test
@@ -13,7 +14,8 @@ describe('Sovereign Intent Alignment (Extension Side)', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
-        engine = new PlaybackEngine(logger);
+        const stateStore = new StateStore(logger);
+        engine = new PlaybackEngine(stateStore, logger);
         vi.clearAllMocks();
     });
 
@@ -25,14 +27,14 @@ describe('Sovereign Intent Alignment (Extension Side)', () => {
         // 1. Establish a high intent (monotonic) representing a running session
         const highIntent = 1000;
         engine.adoptIntent(highIntent);
-        expect((engine as any)._playbackIntentId).toBe(highIntent);
+        expect(engine.playbackIntentId).toBe(highIntent);
 
         // 2. Simulate a stale handshake (Intent 0) from a newly created webview
         engine.adoptIntent(0);
 
         // 3. Verification: Intent should remain at high value
-        expect((engine as any)._playbackIntentId).toBe(highIntent);
-        expect(logger).toHaveBeenCalledWith(expect.stringContaining('Ejected stale intent: 0'));
+        expect(engine.playbackIntentId).toBe(highIntent);
+        expect(logger).toHaveBeenCalledWith(expect.stringContaining('playback_intent_rejected: 0'));
     });
 
     it('should accept higher intent IDs normally', () => {
@@ -40,14 +42,14 @@ describe('Sovereign Intent Alignment (Extension Side)', () => {
         const intent2 = 20;
         engine.adoptIntent(intent1);
         engine.adoptIntent(intent2);
-        expect((engine as any)._playbackIntentId).toBe(intent2);
+        expect(engine.playbackIntentId).toBe(intent2);
     });
 
     it('should correctly Adopt Intent when the engine is fresh (Initial -> New)', () => {
         // Initial state _playbackIntentId is 1 (monotonic baseline)
         const newIntent = 5;
         engine.adoptIntent(newIntent); 
-        expect((engine as any)._playbackIntentId).toBe(newIntent);
+        expect(engine.playbackIntentId).toBe(newIntent);
     });
 
     it('should serialize synthesis requests using the lock (Mutex Logic)', async () => {

@@ -51,7 +51,7 @@ describe('AudioBridge — Bridge Integrity Laws', () => {
             versionSalt: '1'
         } as any);
 
-        playbackEngine = new PlaybackEngine(logger);
+        playbackEngine = new PlaybackEngine(stateStore, logger);
         vi.spyOn(playbackEngine, 'isPlaying', 'get').mockReturnValue(true);
         vi.spyOn(playbackEngine, 'isNeuralViable').mockReturnValue(true);
         vi.spyOn(playbackEngine, 'getCached').mockReturnValue(null);

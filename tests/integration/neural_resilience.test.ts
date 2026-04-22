@@ -67,7 +67,7 @@ describe('Neural Resilience Integration - Extension Layer', () => {
         vi.useFakeTimers();
         logger = vi.fn();
         stateStore = new StateStore(logger);
-        engine = new PlaybackEngine(logger);
+        engine = new PlaybackEngine(stateStore, logger);
         docController = new DocumentLoadController(logger);
         sequenceManager = new SequenceManager();
         bridge = new AudioBridge(stateStore, docController, engine, sequenceManager, logger);

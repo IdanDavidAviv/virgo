@@ -32,7 +32,7 @@ describe('DashboardRelay (Unified Sync)', () => {
     beforeEach(() => {
         stateStore = new StateStore(logger);
         docController = new DocumentLoadController(logger);
-        playbackEngine = new PlaybackEngine(logger);
+        playbackEngine = new PlaybackEngine(stateStore, logger);
         relay = new DashboardRelay(stateStore, docController, playbackEngine, logger);
         
         // Mock the view

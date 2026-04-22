@@ -2,16 +2,6 @@
 /**
  * cdp-controller.mjs
  * Agent-controlled Antigravity automation via Chrome DevTools Protocol (CDP).
- *
- * Pre-requisite:
- *   Antigravity must be running with --remote-debugging-port=9222
- *
- * Usage:
- *   node scripts/cdp-controller.mjs shell                 ← INTERACTIVE: persistent REPL
- *   node scripts/cdp-controller.mjs status                ← Vital sign report
- *   node scripts/cdp-controller.mjs targets               ← List discovery targets
- *   node scripts/cdp-controller.mjs dispatch <cmd>        ← Atomic command execution
- *   node scripts/cdp-controller.mjs eval <expr>           ← JS execution in webview
  */
 
 import { chromium } from 'playwright-core';
@@ -20,6 +10,7 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, unlinkSync, st
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createInterface } from 'readline';
+import http from 'http';
 
 const DIRNAME = dirname(fileURLToPath(import.meta.url));
 const CDP_URL = 'http://localhost:9222';
@@ -36,11 +27,9 @@ function getProjectConfig() {
     const pkg = JSON.parse(readFileSync(PKG_PATH, 'utf8'));
     const launch = existsSync(LAUNCH_PATH) ? JSON.parse(readFileSync(LAUNCH_PATH, 'utf8').replace(/\/\/.*/g, '')) : { configurations: [] };
     
-    // Discovery markers defined by project identity
     return {
       name: pkg.name,
       displayName: pkg.displayName,
-      // Environments are derived from launch configurations
       envs: {
         dev: launch.configurations.find(c => c.name.includes('Dev'))?.name || 'Extension (Dev)',
         prod: launch.configurations.find(c => c.name.includes('Prod'))?.name || 'Extension (Prod)',
@@ -55,7 +44,11 @@ function getProjectConfig() {
     return { 
       name: 'readme-preview-read-aloud', 
       envs: { dev: 'Extension (Dev)', prod: 'Extension (Prod)' },
-      markers: { host: 'Extension Development Host', hostArg: 'extensionDevelopmentPath', workbench: 'readme-preview-read-aloud' } 
+      markers: {
+        host: 'Extension Development Host',
+        hostArg: 'extensionDevelopmentPath',
+        workbench: 'readme-preview-read-aloud'
+      }
     };
   }
 }
@@ -109,7 +102,7 @@ export async function connectToCDP() {
         process.kill(oldPid, 0); // Check if alive
         console.error('╔══════════════════════════════════════════════════════════════╗');
         console.error(`║  [CDP] ✗ Blocked: Persistent shell is active (PID: ${oldPid})   ║`);
-        console.error('║  Use "send_command_input" to talk to the active shell.       ║');
+        console.error('║  Use \"send_command_input\" to talk to the active shell.       ║');
         console.error('╚══════════════════════════════════════════════════════════════╝');
         process.exit(1);
       } catch (e) { unlinkSync(SHELL_LOCK); }
@@ -143,6 +136,81 @@ export async function getAllPages(browser) {
   return results;
 }
 
+/**
+ * [v2.5.0] Proxy for Out-of-Process IFrames (OOPIF)
+ * Since Playwright filters these out of the standard Page/Frame list,
+ * we use raw CDP sessions to evaluate code within them.
+ */
+export class TargetProxy {
+  constructor(browser, targetId, url, frameIndex = null) {
+    this.browser = browser;
+    this.targetId = targetId;
+    this._url = url;
+    this.frameIndex = frameIndex;
+  }
+  url() { return this._url; }
+  async evaluate(fn, arg) {
+    const browserSession = await this.browser.newBrowserCDPSession();
+    const { sessionId } = await browserSession.send('Target.attachToTarget', { targetId: this.targetId, flatten: false });
+    
+    let expression = typeof fn === 'function' 
+      ? `(${fn.toString()})(${JSON.stringify(arg)})`
+      : fn;
+
+    if (this.frameIndex !== null) {
+      // [v2.5.0] OOPIF Content Frame Redirection
+      // If we are targeting the inner engine, we proxy the evaluation through the top window.
+      // Since VS Code webviews are same-origin between wrapper and content, window.frames[0].eval works.
+      expression = `(function() {
+        try {
+          const target = window.frames[${this.frameIndex}];
+          if (!target) return "ERR: FRAME_NOT_FOUND";
+          return target.eval(${JSON.stringify(expression)});
+        } catch (e) {
+          return "ERR: " + e.message;
+        }
+      })()`;
+    }
+
+    const messageId = Math.floor(Math.random() * 1000000);
+    const message = JSON.stringify({
+      id: messageId,
+      method: 'Runtime.evaluate',
+      params: { expression, returnByValue: true, awaitPromise: true }
+    });
+    
+    return new Promise(async (resolve, reject) => {
+      const handler = (params) => {
+        if (params.sessionId === sessionId) {
+          try {
+            const res = JSON.parse(params.message);
+            if (res.id === messageId) {
+              browserSession.off('Target.receivedMessageFromTarget', handler);
+              if (res.error) {reject(new Error(res.error.message));}
+              else if (res.result.exceptionDetails) {reject(new Error(res.result.exceptionDetails.exception.description));}
+              else {resolve(res.result.result.value);}
+            }
+          } catch (e) { /* ignore parse errors for other messages */ }
+        }
+      };
+      browserSession.on('Target.receivedMessageFromTarget', handler);
+      await browserSession.send('Target.sendMessageToTarget', { sessionId, message });
+    });
+  }
+}
+
+export function getRawTargets() {
+  return new Promise((resolve, reject) => {
+    http.get(`${CDP_URL}/json`, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+      });
+    }).on('error', reject);
+  });
+}
+
 export async function findSovereignTarget(browser, type, verbose = false, env = null) {
   const allPages = await getAllPages(browser);
   if (verbose) { console.log(`[CDP] Finding ${type} among ${allPages.length} pages...`); }
@@ -153,105 +221,96 @@ export async function findSovereignTarget(browser, type, verbose = false, env = 
     return p?.page || null;
   }
   if (type === 'workbench') {
-    // [SOVEREIGNTY] Workbench MUST NOT be a host window.
     const p = allPages.find(p => p.url.includes('workbench.html') && !p.url.includes(CONFIG.markers.hostArg) && !p.title.includes(CONFIG.markers.host));
     if (verbose) { console.log(`[CDP] Workbench check: ${p?.title ?? 'NONE'}`); }
     return p?.page || null;
   }
-  if (type === 'webview') {
+  if (type === 'webview' || type === 'engine' || type === 'dashboard') {
     const frames = [];
     for (const { page, title, url } of allPages) {
       const isDevHost = url.includes(CONFIG.markers.hostArg) || title.includes(CONFIG.markers.host);
       if (env === 'dev' && !isDevHost) {continue;}
       if (env === 'main' && isDevHost) {continue;}
-
-      const pageFrames = page.frames();
-      if (verbose) { 
-        console.log(`[CDP] Page: ${title} (${isDevHost ? 'DEV' : 'MAIN'})`);
-        pageFrames.forEach(f => console.log(`  - Frame: ${f.url().substring(0, 80)} (Child of: ${f.parentFrame()?.url().substring(0, 40) ?? 'ROOT'})`));
-      }
-      frames.push(...pageFrames);
+      frames.push(...page.frames());
     }
+    // Fast-path: check Playwright frames for a live, hydrated webview.
     for (const f of frames) {
       try {
-        const hasDebug = await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false);
-        if (hasDebug) {
-          if (verbose) { console.log(`[CDP] Found webview via __debug in ${f.url()}`); }
-          return f;
-        }
+        const hasDebug = await f.evaluate(() => typeof window.__debug !== 'undefined' && window.__debug.isHydrated === true).catch(() => false);
+        if (hasDebug) { return f; }
         const childDebugIndex = await f.evaluate(() => {
           for (let i = 0; i < window.frames.length; i++) {
-             try { if (typeof window.frames[i].__debug !== 'undefined') {return i;} } catch {}
+             try { if (typeof window.frames[i].__debug !== 'undefined' && window.frames[i].__debug.isHydrated === true) {return i;} } catch {}
           }
           return -1;
         }).catch(() => -1);
-        
         if (childDebugIndex !== -1) {
            const children = f.childFrames();
-           if (children[childDebugIndex]) {
-             if (verbose) { console.log(`[CDP] ✅ Found webview via CHILD __debug in ${children[childDebugIndex].url()}`); }
-             return children[childDebugIndex];
-           }
+           if (children[childDebugIndex]) { return children[childDebugIndex]; }
         }
       } catch { }
     }
-    // Tier 2: __BOOTSTRAP_CONFIG__ probe (booting webview)
+    // URL fast-path for non-hydrated but visible frames.
     for (const f of frames) {
       try {
-        if (await f.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__ === 'object').catch(() => false)) {
-          if (verbose) { console.log(`[CDP] Found webview via __BOOTSTRAP_CONFIG__ in ${f.url()}`); }
-          return f;
-        }
+        const url = f.url();
+        if (url.includes('speechEngine.html') || (url.startsWith('vscode-webview://') && !url.includes('fake.html'))) { return f; }
       } catch { }
     }
-    // Tier 3: URL probe (vscode-webview scheme)
-    for (const f of frames) {
-      try {
-        const url = f.url() || await f.evaluate(() => window.location.href).catch(() => '');
-        const hasDebug = await f.evaluate(() => typeof window.__debug !== 'undefined').catch(() => false);
-        
-        if (hasDebug) {
-           if (verbose) { console.log(`[CDP] ✅ Confirmed Dashboard via __debug in ${url}`); }
-           return f;
-        }
 
-        const text = await f.evaluate(() => document.body.innerText).catch(() => '');
-        if (verbose) { console.log(`  - Probe: ${url.substring(0, 80)} | Text Length: ${text.length}`); }
-        
-        if (text.includes('FOCUSED FILE') || text.includes('LOADED FILE') || text.includes('CHAPTERS')) {
-           if (verbose) { console.log(`[CDP] ✅ Confirmed Dashboard via Text Match in ${url}`); }
-           return f;
-        }
+    // [v2.5.0] OOPIF Resolution — ALWAYS runs, even when not hydrated.
+    // VS Code webviews are Out-of-Process IFrames not visible to Playwright's standard frame list.
+    // We deterministically locate them via the raw CDP /json endpoint regardless of hydration state.
+    try {
+      const rawTargets = await getRawTargets();
+      const hostTargets = rawTargets.filter(t => t.title.includes(CONFIG.markers.host));
+      
+      for (const ht of hostTargets) {
+        const isDevHost = ht.url.includes(CONFIG.markers.hostArg) || ht.title.includes(CONFIG.markers.host);
+        if (env === 'dev' && !isDevHost) {continue;}
+        if (env === 'main' && isDevHost) {continue;}
 
-        if (url.includes('speechEngine.html') || (url.startsWith('vscode-webview://') && !url.includes('fake.html'))) {
-           if (verbose) { console.log(`[CDP] Potential Match (URL): ${url}`); }
-           const childDebug = await f.evaluate(() => {
-              for(let i=0; i<window.frames.length; i++){
-                try { if(typeof window.frames[i].__debug !== 'undefined') {return i;} } catch {}
-              }
-              return -1;
-           }).catch(() => -1);
-           
-           if (childDebug !== -1) {
-              const children = f.childFrames();
-              if (children[childDebug]) {return children[childDebug];}
-           }
-           
-           // Fallback if no child has __debug yet
-           if (!url.includes('id=4eac')) { // Exclude the Task webview if we know its ID
-              if (verbose) { console.log(`[CDP] ⚠️ Selecting likely webview (URL only): ${url}`); }
-              return f;
-           }
+        // [DETERMINISTIC] Find all webview iframes for this host.
+        // Prefer speech-engine (webviewView) — that's where our bundle runs.
+        // Fall back to any webview child target if the panel URL isn't available.
+        const webviewTargets = rawTargets.filter(t => 
+          (t.type === 'iframe' || t.type === 'webview') && 
+          t.parentId === ht.id
+        );
+        
+        // Priority 1: our specific sidebar panel (webviewView targets contain 'speech-engine' or 'readme')
+        let webviewTarget = webviewTargets.find(t => t.url.includes('speech-engine') || t.url.includes('readme'));
+        // Priority 2: any webviewView
+        if (!webviewTarget) { webviewTarget = webviewTargets.find(t => t.url.includes('purpose=webviewView')); }
+        // Priority 3: first available
+        if (!webviewTarget) { webviewTarget = webviewTargets[0]; }
+        
+        if (webviewTarget) {
+          if (verbose) { console.log(`[CDP] OOPIF resolved: ${webviewTarget.id} (${webviewTarget.url.substring(0, 80)})`); }
+          
+          // 'engine'/'webview' -> content frame (index 0, where app.js runs inside the iframe)
+          // 'dashboard' -> wrapper frame (null, the VS Code host page)
+          let frameIndex = null;
+          if (type === 'engine' || type === 'webview') { frameIndex = 0; }
+          
+          return new TargetProxy(browser, webviewTarget.id, webviewTarget.url, frameIndex);
         }
-      } catch { }
+      }
+    } catch (e) {
+      if (verbose) { console.warn(`[CDP] OOPIF resolution failed: ${e.message}`); }
     }
   }
-
   return null;
 }
 
-async function shellDispatch(browser, command, payload = {}, env = null) {
-  const frame = await findSovereignTarget(browser, 'webview', false, env);
+async function shellDispatch(browser, command, payload = {}, env = null, retries = 5) {
+  let frame = null;
+  for (let i = 0; i < retries; i++) {
+    frame = await findSovereignTarget(browser, 'webview', false, env);
+    if (frame) {break;}
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  
   if (!frame) { throw new Error('READ_ALOUD_WEBVIEW_NOT_FOUND'); }
   return await frame.evaluate(async ({ cmd, data }) => {
     if (!window.__debug?.dispatcher?.dispatch) { throw new Error('DISPATCHER_NOT_READY'); }
@@ -259,11 +318,83 @@ async function shellDispatch(browser, command, payload = {}, env = null) {
   }, { cmd: command, data: payload });
 }
 
+// ── Shared Utilities ──
+
+let browserInstance = null;
+const getbrowser = async (force = false) => {
+  if (!browserInstance || force) {
+    try { if (browserInstance) {await browserInstance.close();} } catch { }
+    browserInstance = await connectToCDP();
+  }
+  return browserInstance;
+};
+
+const shellWaitForReady = async (maxRetries = 15) => {
+  console.log('[CDP] ⏳ Waiting for System Ready...');
+  await shellExec('readme-preview-read-aloud.show-dashboard');
+  for (let i = 0; i < maxRetries; i++) {
+    const b = await getbrowser();
+    const f = await findSovereignTarget(b, 'webview');
+    if (f) {
+      const isReady = await f.evaluate(() => !!window.__debug?.isHydrated).catch(() => false);
+      if (isReady) {
+        console.log('[CDP] ✅ SYSTEM READY');
+        return true;
+      }
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  console.log('[CDP] ❌ Timeout waiting for ready.');
+  return false;
+};
+
+const shellExec = async (cmd) => {
+  if (!cmd) { return; }
+  const b = await getbrowser();
+  if (cmd.startsWith('readme-preview-read-aloud.') && !cmd.startsWith('>')) {
+    try {
+      await shellDispatch(b, cmd);
+      console.log('[CDP] ✓ Atomic Dispatch Success');
+      return;
+    } catch (e) { console.warn(`[CDP] ⚠ Atomic fail: ${e.message}. Falling back...`); }
+  }
+  const host = await findSovereignTarget(b, 'host');
+  if (!host) {
+    console.log('[CDP] 🛑 SAFEGUARD: Extension Development Host not found.');
+    return;
+  }
+  const page = host;
+  const cleanCmd = cmd.startsWith('>') ? cmd.substring(1) : cmd;
+  await page.bringToFront();
+  await page.keyboard.press('Escape');
+  await new Promise(r => setTimeout(r, 200));
+  await page.keyboard.press('Control+Shift+P');
+  await new Promise(r => setTimeout(r, 400));
+  await page.keyboard.type(cleanCmd, { delay: 20 });
+  await new Promise(r => setTimeout(r, 500));
+  await page.keyboard.press('Enter');
+  console.log('[CDP] ✓ UI Dispatch Success');
+};
+
+const shellPrime = async () => {
+  const b = await getbrowser();
+  const f = await findSovereignTarget(b, 'webview');
+  if (f) {
+    console.log('[CDP] ⚡ Executing Wake Ritual...');
+    await f.evaluate(() => {
+      const event = new MouseEvent('mousedown', { view: window, bubbles: true, cancelable: true });
+      document.dispatchEvent(event);
+    });
+    return true;
+  }
+  return false;
+};
+
 // ── Process Management ──
 
 function snapshotAntigravityPids() {
   try {
-    const raw = execSync("powershell -NoProfile -Command \"Get-Process -Name 'Antigravity' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id\"", { encoding: 'utf8' }).trim();
+    const raw = execSync('powershell -NoProfile -Command "Get-Process -Name \'Antigravity\' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id"', { encoding: 'utf8' }).trim();
     return new Set(raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(Number));
   } catch { return new Set(); }
 }
@@ -273,16 +404,7 @@ async function gracefulClose(devHostPids, protectedPids = new Set(), browser = n
   if (browser) {
     const host = await findSovereignTarget(browser, 'host');
     if (host) {
-      console.log('[CDP] Sending closeWindow to dev host...');
-      await host.bringToFront();
-      
-      await host.keyboard.press('Escape');
-      await new Promise(r => setTimeout(r, 200));
-      await host.keyboard.press('Control+Shift+P');
-      await new Promise(r => setTimeout(r, 400));
-      await host.keyboard.type('workbench.action.closeWindow', { delay: 20 });
-      await new Promise(r => setTimeout(r, 500));
-      await host.keyboard.press('Enter');
+      await shellExec('workbench.action.closeWindow');
     }
   }
   await new Promise(r => setTimeout(r, 2000));
@@ -298,12 +420,9 @@ async function runShell() {
   writeFileSync(SHELL_LOCK, process.pid.toString());
   const mainPids = snapshotAntigravityPids();
   let browser = await connectToCDP();
-  let tailInterval = null;
-  let tailLastSize = 0;
-
+  
   const cleanupAndExit = async () => {
     console.log('\n[SHELL] 🔻 Cleanup...');
-    if (tailInterval) { clearInterval(tailInterval); }
     if (browser) { await browser.close().catch(() => { }); }
     if (existsSync(SHELL_LOCK)) { unlinkSync(SHELL_LOCK); }
     process.exit(0);
@@ -312,208 +431,161 @@ async function runShell() {
   process.on('SIGINT', cleanupAndExit);
   process.on('SIGTERM', cleanupAndExit);
 
-  const getbrowser = async (force = false) => {
-    try {
-      if (force) { throw new Error(); }
-      browser.contexts();
-      return browser;
-    } catch {
-      try { await browser.close(); } catch { }
-      browser = await connectToCDP();
-      return browser;
-    }
-  };
-
-  const shellStatus = async () => {
-    const b = await getbrowser(true);
-    const host = await findSovereignTarget(b, 'host', true);
-    const workbench = await findSovereignTarget(b, 'workbench', true);
-    const mainFrame = await findSovereignTarget(b, 'webview', false, 'main');
-    const devFrame = await findSovereignTarget(b, 'webview', false, 'dev');
-
-    if (mainFrame) {
-      const vitals = await mainFrame.evaluate(() => ({
-        isHydrated: !!window.__debug?.store?.getState()?.activeDocumentUri,
-        isPlaying: !!window.__debug?.store?.getState()?.isPlaying,
-        file: window.__debug?.store?.getState()?.activeFileName || 'None'
-      })).catch(() => ({ error: true }));
-      console.log(`  Webview (MAIN): ✅ ${vitals.isHydrated ? 'HYDRATED' : 'WAITING'} | ${vitals.isPlaying ? '▶️ PLAYING' : '⏹️ STOPPED'}`);
-    } else { console.log(`  Webview (MAIN): ❌ NOT DETECTED`); }
-
-    if (devFrame) {
-      const vitals = await devFrame.evaluate(() => ({
-        isHydrated: !!window.__debug?.store?.getState()?.activeDocumentUri,
-        isPlaying: !!window.__debug?.store?.getState()?.isPlaying,
-        file: window.__debug?.store?.getState()?.activeFileName || 'None'
-      })).catch(() => ({ error: true }));
-      console.log(`  Webview (DEV):  ✅ ${vitals.isHydrated ? 'HYDRATED' : 'WAITING'} | ${vitals.isPlaying ? '▶️ PLAYING' : '⏹️ STOPPED'}`);
-      console.log(`  Document:       "${vitals.file}"`);
-    } else { console.log(`  Webview (DEV):  ❌ NOT DETECTED`); }
-
-    // Add PID scan to status
-    const pids = Array.from(snapshotAntigravityPids());
-    if (pids.length > 0) { console.log(`  Active PIDs:  [${pids.join(', ')}]`); }
-
-    console.log('────────────────────────────────────────────────────────────────\n');
-  };
-
-  const shellWaitForReady = async (maxRetries = 10) => {
-    console.log('[SHELL] ⏳ Waiting for System Ready...');
-    await shellExec('readme-preview-read-aloud.show-dashboard');
-    for (let i = 0; i < maxRetries; i++) {
-      const b = await getbrowser();
-      const f = await findSovereignTarget(b, 'webview');
-      if (f) {
-        const isReady = await f.evaluate(() => !!window.__debug?.store?.getState()?.activeDocumentUri).catch(() => false);
-        if (isReady) {
-          console.log('[SHELL] ✅ SYSTEM READY');
-          return true;
-        }
-      }
-      await new Promise(r => setTimeout(r, 1000));
-    }
-    console.log('[SHELL] ❌ Timeout waiting for ready.');
-    return false;
-  };
-
-  const shellExec = async (cmd) => {
-    if (!cmd) { return; }
-    const b = await getbrowser();
-    if (cmd.startsWith('readme-preview-read-aloud.') && !cmd.startsWith('>')) {
-      try {
-        await shellDispatch(b, cmd);
-        console.log('[SHELL] ✓ Atomic Dispatch Success');
-        return;
-      } catch (e) { console.warn(`[SHELL] ⚠ Atomic fail: ${e.message}. Falling back...`); }
-    }
-    // [SOVEREIGNTY SAFEGUARD] Dispatch is STRICTLY host-only.
-    // Falling back to the main workbench would silently control the developer's IDE.
-    const host = await findSovereignTarget(b, 'host');
-    if (!host) {
-      console.log('[SHELL] 🛑 SAFEGUARD: Extension Development Host not found. Refusing to dispatch to main IDE.');
-      return;
-    }
-    const page = host;
-    const cleanCmd = cmd.startsWith('>') ? cmd.substring(1) : cmd;
-    await page.bringToFront();
-    await page.keyboard.press('Escape');
-    await new Promise(r => setTimeout(r, 200));
-    await page.keyboard.press('Control+Shift+P');
-    await new Promise(r => setTimeout(r, 400));
-    await page.keyboard.type(cleanCmd, { delay: 20 });
-    await new Promise(r => setTimeout(r, 500));
-    await page.keyboard.press('Enter');
-    console.log('[SHELL] ✓ UI Dispatch Success');
-  };
-
-  const shellPrime = async () => {
-    const b = await getbrowser();
-    const f = await findSovereignTarget(b, 'webview');
-    if (f) {
-        console.log('[SHELL] ⚡ Executing Wake Ritual (mousedown)...');
-        await f.evaluate(() => {
-            const event = new MouseEvent('mousedown', {
-                view: window,
-                bubbles: true,
-                cancelable: true
-            });
-            document.dispatchEvent(event);
-            console.log('[CDP] 🔔 Wake Ritual Complete: Interaction simulated.');
-        });
-        return true;
-    }
-    console.log('[SHELL] ❌ Wake Ritual Failed: No webview found.');
-    return false;
-  };
-
-  const shellTargets = async () => {
-    const b = await getbrowser();
-    const pages = await getAllPages(b);
-    console.log(`\n[SHELL] Found ${pages.length} target(s):`);
-    for (const p of pages) {
-      console.log(`  - "${p.title}" [${p.url.substring(0, 80)}...]`);
-      const frames = p.page.frames();
-      if (frames.length > 1) {
-        console.log(`    └─ ${frames.length - 1} sub-frames:`);
-        for (const f of frames) {
-          if (f === p.page.mainFrame()) { continue; }
-          console.log(`       - ${f.url().substring(0, 80)}...`);
-        }
-      }
-    }
-  };
-
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: '\ncdp> ' });
   rl.prompt();
   rl.on('line', async (line) => {
     const [cmd, ...rest] = line.trim().split(/\s+/);
     const arg = rest.join(' ');
     switch (cmd.toLowerCase()) {
-      case 'status': await shellStatus(); break;
-      case 'targets': await shellTargets(); break;
-      case 'scan':
-        const pids = Array.from(snapshotAntigravityPids());
-        console.log(`[SHELL] Active Antigravity PIDs: ${pids.length ? pids.join(', ') : 'None'}`);
+      case 'status': 
+        const b = await getbrowser(true);
+        const host = await findSovereignTarget(b, 'host', true);
+        const wvMain = await findSovereignTarget(b, 'webview', false, 'main');
+        const wvDev = await findSovereignTarget(b, 'engine', false, 'dev');
+        const wvWrap = await findSovereignTarget(b, 'dashboard', false, 'dev');
+        
+        console.log(`[CDP] Host: ${host ? '✅' : '❌'} | Webview (MAIN): ${wvMain ? '✅' : '❌'} | Webview (DEV): ${wvDev ? '✅' : '❌'}`);
+        
+        if (wvDev && wvWrap) {
+          const wrapperB = await wvWrap.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__);
+          const contentB = await wvDev.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__);
+          console.log(`[CDP] Bootstrap -> Wrapper: ${wrapperB === 'object' ? '✅' : '❌'} | Content: ${contentB === 'object' ? '✅' : '❌'}`);
+          
+          const isHydrated = await wvDev.evaluate(() => window.__debug?.isHydrated).catch(() => false);
+          console.log(`[CDP] Hydration: ${isHydrated ? '✅' : '❌'}`);
+        }
+        if (host) {console.log(`[CDP] Active Host ID: ${host.id || 'N/A'}`);}
         break;
-      case 'frames': await shellTargets(); break;
+      case 'launch':
+        const launchB = await getbrowser();
+        const main = await findSovereignTarget(launchB, 'workbench');
+        if (main) {
+          console.log('[CDP] 🚀 Triggering Launch (F5) in Main Editor...');
+          // [META] Direct injection into workbench to avoid Host-Sovereignty check
+          const page = main;
+          await page.bringToFront();
+          await page.keyboard.press('Escape');
+          await new Promise(r => setTimeout(r, 200));
+          await page.keyboard.press('Control+Shift+P');
+          await new Promise(r => setTimeout(r, 400));
+          await page.keyboard.type('workbench.action.debug.start', { delay: 20 });
+          await new Promise(r => setTimeout(r, 500));
+          await page.keyboard.press('Enter');
+        } else {
+          console.error('[CDP] ❌ Main Editor not found. Cannot launch.');
+        }
+        break;
       case 'wait-for-ready': await shellWaitForReady(); break;
       case 'prime': await shellPrime(); break;
-      case 'refresh':
-        console.log('[SHELL] 🔄 Refreshing Window...');
-        await shellExec('workbench.action.reloadWindow');
-        await new Promise(r => setTimeout(r, 2000));
-        await shellWaitForReady();
-        break;
-      case 'verify-state':
-        const verifyBrowser = await getbrowser();
-        const verifyFrame = await findSovereignTarget(verifyBrowser, 'webview');
-        if (verifyFrame) {
-          const state = await verifyFrame.evaluate(() => JSON.stringify(window.__debug?.store?.getState(), null, 2)).catch(() => 'Error: Store not found');
-          console.log(`[STATE]\n${state}`);
-        } else { console.log('[STATE] ❌ No webview.'); }
-        break;
-      case 'cleanup-all':
-        const hostPids = snapshotAntigravityPids();
-        await gracefulClose(hostPids, mainPids, browser);
-        break;
       case 'dispatch':
       case 'exec': await shellExec(arg); break;
       case 'eval':
-        const b = await getbrowser();
-        const f = await findSovereignTarget(b, 'webview');
+        const evalB = await getbrowser();
+        const f = await findSovereignTarget(evalB, 'webview');
         if (f) {
           const res = await f.evaluate(e => { try { return JSON.stringify(eval(e), null, 2); } catch (err) { return `ERR: ${err.message}`; } }, arg);
           console.log(`[EVAL] Result:\n${res}`);
-        } else { console.log('[EVAL] ❌ No webview.'); }
-        break;
-      case 'eval-host':
-        const hostBrowser = await getbrowser();
-        const h = await findSovereignTarget(hostBrowser, 'host');
-        if (h) {
-          const res = await h.evaluate(e => { try { return JSON.stringify(eval(e), null, 2); } catch (err) { return `ERR: ${err.message}`; } }, arg);
-          console.log(`[EVAL-HOST] Result:\n${res}`);
-        } else { console.log('[EVAL-HOST] ❌ No host.'); }
-        break;
-      case 'launch':
-        const wb = await findSovereignTarget(await getbrowser(), 'workbench');
-        if (wb) {
-          await wb.bringToFront();
-          await wb.keyboard.press('Control+Shift+P');
-          await new Promise(r => setTimeout(r, 400));
-          await wb.keyboard.type('Debug: Start Debugging', { delay: 20 });
-          await new Promise(r => setTimeout(r, 500));
-          await wb.keyboard.press('Enter');
-          await new Promise(r => setTimeout(r, 500));
-          await wb.keyboard.press('Enter');
-          console.log('[SHELL] ✓ Launch dispatched.');
         }
         break;
+      case 'stress':
+        const stressB = await getbrowser();
+        const stressWV = await findSovereignTarget(stressB, 'webview');
+        if (stressWV) {
+          console.log('🚀 Starting 100-iteration monotonic stress test...');
+          let failures = 0;
+          for (let i = 1; i <= 100; i++) {
+            process.stdout.write(`[Iteration ${i}/100] `);
+            try {
+              await stressWV.evaluate(async () => {
+                const s = window.__debug.store.getUIState();
+                // Prime on first iteration or if blocked
+                if (window.__debug.playback.isStalled || s.playbackIntent !== 'PLAYING') {
+                  const btn = document.getElementById('btn-play');
+                  if (btn) {btn.click();}
+                } else {
+                  await window.__debug.playback.play();
+                }
+              });
+              
+              let success = false;
+              for (let j = 0; j < 20; j++) { // Increased poll window to 2s
+                const state = await stressWV.evaluate(() => {
+                  const ui = window.__debug.store.getUIState();
+                  return { intent: ui.playbackIntent };
+                });
+                if (state.intent === 'PLAYING') {
+                  process.stdout.write(`✅\n`);
+                  success = true;
+                  break;
+                }
+                await new Promise(r => setTimeout(r, 100));
+              }
+              if (!success) {
+                process.stdout.write(`❌\n`);
+                failures++;
+              }
+            } catch (err) {
+              process.stdout.write(`💥 (${err.message})\n`);
+              failures++;
+            }
+            await new Promise(r => setTimeout(r, 200));
+          }
+          console.log(`\n--- Stress Test Summary ---`);
+          console.log(`Total: 100 | Success: ${100 - failures} | Failures: ${failures}`);
+        }
+        break;
+      // [SURGICAL] click-play: Fires the real btn-play DOM click inside the webview content frame.
+      // Unlike `dispatch`, this triggers the browser's user-gesture gate (userHasInteracted=true).
+      case 'click-play': {
+        const cpB = await getbrowser();
+        const cpF = await findSovereignTarget(cpB, 'webview');
+        if (!cpF) { console.log('[CDP] ❌ Webview content frame not found.'); break; }
+        const cpRes = await cpF.evaluate(() => {
+          const btn = document.getElementById('btn-play');
+          if (!btn) { return 'ERR: btn-play not found'; }
+          btn.click();
+          return `OK: btn-play clicked (userHasInteracted should now be true)`;
+        });
+        console.log(`[CDP] click-play → ${cpRes}`);
+        break;
+      }
+      // [SURGICAL] audit: Dumps live __debug state from the webview content frame.
+      // Shows userHasInteracted, playbackIntent, intentId, audio element state, cache size.
+      case 'audit': {
+        const auB = await getbrowser();
+        const auF = await findSovereignTarget(auB, 'webview');
+        if (!auF) { console.log('[CDP] ❌ Webview content frame not found.'); break; }
+        const auRes = await auF.evaluate(() => {
+          const d = window.__debug;
+          const audio = document.querySelector('audio');
+          return JSON.stringify({
+            isHydrated: d?.isHydrated,
+            userHasInteracted: d?.playback?._userHasInteracted,
+            playbackIntent: d?.store?.getUIState?.()?.playbackIntent,
+            intentId: d?.store?.getState?.()?.playbackIntentId,
+            playbackAuthorized: d?.store?.getState?.()?.playbackAuthorized,
+            cacheCount: d?.store?.getState?.()?.cacheCount,
+            audio: audio ? {
+              src: audio.src || '(empty)',
+              readyState: audio.readyState,
+              paused: audio.paused,
+              duration: audio.duration,
+              error: audio.error?.code ?? null
+            } : 'NO_AUDIO_EL',
+            btns: {
+              play: !!document.getElementById('btn-play'),
+              pause: !!document.getElementById('btn-pause'),
+            }
+          }, null, 2);
+        });
+        console.log(`[AUDIT]\n${auRes}`);
+        break;
+      }
       case 'exit':
       case 'quit': await cleanupAndExit(); break;
       case 'help':
-        console.log('\n  status         - Situation report\n  targets        - List discovery targets\n  scan           - Show active PIDs\n  wait-for-ready - Poll for hydration\n  prime          - Execute Wake Ritual (mousedown)\n  refresh        - Reload window + Wait\n  verify-state   - Dump Redux store\n  dispatch       - VS Code command\n  eval           - JS execution\n  launch         - Start Debugging\n  cleanup-all    - Force close all hosts\n  exit           - Close shell\n');
+        console.log('\n  status         - Situation report\n  launch         - Trigger F5 (Debug)\n  wait-for-ready - Poll for hydration\n  prime          - Execute Wake Ritual\n  click-play     - DOM click btn-play (real gesture, sets userHasInteracted)\n  audit          - Dump __debug state from webview content frame\n  stress         - 100-iter monotonic stress test\n  dispatch       - VS Code command (Ctrl+Shift+P, NOT a gesture)\n  eval           - JS execution in content frame\n  exit           - Close shell\n');
         break;
-      default: if (cmd) { console.log(`Unknown: ${cmd}`); } break;
     }
     rl.prompt();
   });
@@ -521,123 +593,193 @@ async function runShell() {
 
 // ── Entry ──
 
-const flags = {};
-for (let i = 3; i < process.argv.length; i++) {
-  if (process.argv[i] === '--eval' && process.argv[i + 1]) { flags.eval = process.argv[++i]; }
-}
-
 (async () => {
   if (action === 'shell') { await runShell(); }
   else if (action === 'status') {
     const b = await connectToCDP();
     const host = await findSovereignTarget(b, 'host');
     const wvMain = await findSovereignTarget(b, 'webview', false, 'main');
-    const wvDev = await findSovereignTarget(b, 'webview', false, 'dev');
-    console.log(`[CDP] Host: ${host ? '✅' : '❌'} | Webview (MAIN): ${wvMain ? '✅' : '❌'} | Webview (DEV): ${wvDev ? '✅' : '❌'}`);
-    await b.close();
-  }
-  else if (action === 'verify-state') {
-    const b = await connectToCDP();
-    let wv = await findSovereignTarget(b, 'webview', true);
-    if (wv) {
-      console.log(`[CDP] Probing frame: ${wv.url().substring(0, 80)}`);
+    const wvDev = await findSovereignTarget(b, 'engine', false, 'dev');
+    const wvWrap = await findSovereignTarget(b, 'dashboard', false, 'dev');
+    
+    console.log(`Host: ${host ? '✅' : '❌'} | Webview (MAIN): ${wvMain ? '✅' : '❌'} | Webview (DEV): ${wvDev ? '✅' : '❌'}`);
+    
+    if (wvDev && wvWrap) {
+      const wrapperB = await wvWrap.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__);
+      const contentB = await wvDev.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__);
+      console.log(`Bootstrap -> Wrapper: ${wrapperB === 'object' ? '✅' : '❌'} | Content: ${contentB === 'object' ? '✅' : '❌'}`);
       
-      const getReduxState = async (f) => {
-        return await f.evaluate(() => {
-          if (window.__debug?.store) {return JSON.stringify(window.__debug.store.getState(), null, 2);}
-          // Try children
-          for (let i = 0; i < window.frames.length; i++) {
-            try {
-               if (window.frames[i].__debug?.store) {return JSON.stringify(window.frames[i].__debug.store.getState(), null, 2);}
-            } catch {}
-          }
-          return null;
-        }).catch(() => null);
-      };
-
-      const getHtml = async (f) => {
-        return await f.evaluate(() => {
-          if (document.body.innerHTML.length > 100) {return document.body.innerHTML;}
-          for (let i = 0; i < window.frames.length; i++) {
-            try {
-               if (window.frames[i].document.body.innerHTML.length > 100) {return window.frames[i].document.body.innerHTML;}
-            } catch {}
-          }
-          return document.body.innerHTML;
-        }).catch(() => 'ERR_ACCESS_DENIED');
-      };
-
-      const state = await getReduxState(wv);
-      const html = await getHtml(wv);
-      
-      console.log('--- REDUX STATE ---');
-      console.log(state || 'undefined');
-      console.log('--- HTML DUMP (Start) ---');
-      console.log(html.substring(0, 1000));
-    } else {
-      console.log('❌ Webview not found');
+      const isHydrated = await wvDev.evaluate(() => window.__debug?.isHydrated).catch(() => false);
+      console.log(`Hydration: ${isHydrated ? '✅' : '❌'}`);
     }
     await b.close();
   }
   else if (action === 'targets') {
     const b = await connectToCDP();
     const pages = await getAllPages(b);
-    pages.forEach(p => console.log(`- ${p.title} (${p.url.substring(0, 60)})`));
+    console.log('\n--- Active Pages ---');
+    for (const p of pages) {
+      // Find matching raw target to get ID
+      const raw = await getRawTargets();
+      const rt = raw.find(t => t.url === p.url);
+      console.log(`- [${rt?.id || '?'}] ${p.title} (${p.url})`);
+    }
+    
+    console.log('\n--- OOPIF Targets ---');
+    try {
+      const raw = await getRawTargets();
+      for (const t of raw) {
+        if (t.type === 'iframe') {
+          console.log(`- [${t.id}] (Parent: ${t.parentId}) ${t.url.substring(0, 100)}...`);
+        }
+      }
+    } catch (e) { console.error('Failed to fetch raw targets:', e.message); }
     await b.close();
   }
-  else if (action === 'dispatch' || action === 'exec-command') {
-    const b = await connectToCDP();
+  else if (action === 'dispatch') {
     const cmd = process.argv.slice(3).join(' ');
-    if (cmd.startsWith('readme-preview-read-aloud.')) { await shellDispatch(b, cmd); }
-    else {
-      const p = await findSovereignTarget(b, 'workbench');
-      if (p) {
-        await p.bringToFront();
-        await p.keyboard.press('Control+Shift+P');
-        await new Promise(r => setTimeout(r, 400));
-        await p.keyboard.type(cmd, { delay: 20 });
-        await new Promise(r => setTimeout(r, 500));
-        await p.keyboard.press('Enter');
-      }
-    }
-    await b.close();
+    await shellExec(cmd);
+    if (browserInstance) {await browserInstance.close();}
   }
   else if (action === 'eval') {
     const b = await connectToCDP();
-    const f = await findSovereignTarget(b, 'webview');
-    const expr = process.argv.slice(3).join(' ');
+    const env = process.argv.includes('--env') ? process.argv[process.argv.indexOf('--env') + 1] : null;
+    const f = await findSovereignTarget(b, 'webview', false, env);
+    const expr = process.argv.slice(3).filter(a => a !== '--env' && a !== env).join(' ');
     if (f) {
       const res = await f.evaluate(e => { try { return JSON.stringify(eval(e)); } catch (err) { return `ERR: ${err.message}`; } }, expr);
       console.log(res);
     }
     await b.close();
   }
-  else if (action === 'launch') {
+  else if (action === 'eval-host') {
     const b = await connectToCDP();
-    const wb = await findSovereignTarget(b, 'workbench');
-    if (wb) {
-      console.log('[CDP] Launching Extension Host...');
-      await wb.bringToFront();
-      await wb.keyboard.press('Escape');
-      await new Promise(r => setTimeout(r, 200));
-      await wb.keyboard.press('Control+Shift+P');
-      await new Promise(r => setTimeout(r, 400));
-      await wb.keyboard.type('Debug: Start Debugging', { delay: 20 });
-      await new Promise(r => setTimeout(r, 500));
-      await wb.keyboard.press('Enter');
-      await new Promise(r => setTimeout(r, 500));
-      await wb.keyboard.press('Enter');
+    const h = await findSovereignTarget(b, 'host');
+    const expr = process.argv.slice(3).join(' ');
+    if (h) {
+      const res = await h.evaluate(e => { try { return JSON.stringify(eval(e)); } catch (err) { return `ERR: ${err.message}`; } }, expr);
+      console.log(res);
     }
     await b.close();
   }
+  else if (action === 'wait-for-ready') {
+    await shellWaitForReady();
+    if (browserInstance) {await browserInstance.close();}
+  }
   else if (action === 'cleanup-all') {
     const b = await connectToCDP();
-    const mainPids = snapshotAntigravityPids();
-    const hostPids = snapshotAntigravityPids();
-    await gracefulClose(hostPids, mainPids, b);
+    await gracefulClose(snapshotAntigravityPids(), snapshotAntigravityPids(), b);
+    await b.close();
+  }
+  else if (action === 'stress') {
+    const b = await connectToCDP();
+    const wv = await findSovereignTarget(b, 'webview');
+    if (!wv) {
+      console.error('❌ Webview target not found.');
+      await b.close();
+      return;
+    }
+
+    console.log('🚀 Starting 100-iteration monotonic stress test...');
+    let failures = 0;
+    for (let i = 1; i <= 100; i++) {
+      process.stdout.write(`[Iteration ${i}/100] `);
+      try {
+        await wv.evaluate(async () => {
+          const s = window.__debug.store.getUIState();
+          if (window.__debug.playback.isStalled || s.playbackIntent !== 'PLAYING') {
+            const btn = document.getElementById('btn-play');
+            if (btn) {btn.click();}
+          } else {
+            await window.__debug.playback.play();
+          }
+        });
+        
+        let success = false;
+        for (let j = 0; j < 20; j++) {
+          const state = await wv.evaluate(() => {
+            const ui = window.__debug.store.getUIState();
+            return { intent: ui.playbackIntent, intentId: window.__debug.store.getState().playbackIntentId };
+          });
+          if (state.intent === 'PLAYING') {
+            process.stdout.write(`✅ Intent: ${state.intentId}\n`);
+            success = true;
+            break;
+          }
+          await new Promise(r => setTimeout(r, 100));
+        }
+        if (!success) {
+          process.stdout.write(`❌ FAILED\n`);
+          failures++;
+        }
+      } catch (err) {
+        process.stdout.write(`💥 (${err.message})\n`);
+        failures++;
+      }
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    console.log(`\n--- Stress Test Summary ---`);
+    console.log(`Total: 100 | Success: ${100 - failures} | Failures: ${failures}`);
+    if (failures > 0) {
+      console.error('❌ SOVEREIGNTY BREACHED: Stale state or silent failure detected.');
+      process.exit(1);
+    } else {
+      console.log('✅ SOVEREIGNTY MAINTAINED: 100% atomic transitions.');
+    }
+    await b.close();
+  }
+  else if (action === 'test-buffering') {
+    const b = await connectToCDP();
+    const h = await findSovereignTarget(b, 'host', true);
+    const wv = await findSovereignTarget(b, 'webview', true);
+    
+    if (!h || !wv) {
+      console.error('❌ Missing targets for buffering test.');
+      await b.close();
+      return;
+    }
+
+    console.log('🧪 Starting Buffering Integrity Test...');
+    
+    // 1. Ensure visible
+    await shellExec('readme-preview-read-aloud.speech-engine.focus');
+    await new Promise(r => setTimeout(r, 1000));
+
+    // 2. Start Playback
+    console.log('▶ Triggering Play...');
+    await shellExec('readme-preview-read-aloud.play');
+    
+    // 3. IMMEDIATELY Hide Sidebar
+    console.log('🙈 Hiding Sidebar (Buffer Zone)...');
+    await shellExec('workbench.action.closeSidebar');
+    
+    // 4. Wait for synthesis (3 seconds)
+    console.log('⏳ Waiting for background synthesis...');
+    await new Promise(r => setTimeout(r, 5000));
+    
+    // 5. Show Sidebar
+    console.log('👀 Showing Sidebar (Flush Zone)...');
+    await shellExec('readme-preview-read-aloud.speech-engine.focus');
+    
+    // 6. Verify state
+    console.log('🔍 Auditing webview state...');
+    await new Promise(r => setTimeout(r, 2000));
+    const status = await wv.evaluate(() => {
+      const state = window.__debug?.store?.getState();
+      return { isPlaying: state?.isPlaying, intent: state?.playbackIntentId };
+    });
+    
+    console.log(`Result: isPlaying=${status.isPlaying}, intentId=${status.intent}`);
+    if (status.isPlaying) {
+      console.log('✅ SUCCESS: Playback resumed after buffer flush.');
+    } else {
+      console.error('❌ FAILURE: Playback stuck or lost during hidden state.');
+    }
+    
     await b.close();
   }
   else {
-    console.log('Usage: node scripts/cdp-controller.mjs [shell|status|targets|dispatch|eval|launch|cleanup-all]');
+    console.log('Usage: node scripts/cdp-controller.mjs [shell|status|targets|dispatch|eval|eval-host|wait-for-ready|cleanup-all|stress|test-buffering]');
   }
 })();

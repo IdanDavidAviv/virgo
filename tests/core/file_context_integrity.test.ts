@@ -32,7 +32,7 @@ describe('File Context Integrity (Regression Suite)', () => {
     beforeEach(() => {
         stateStore = new StateStore(logger);
         docController = new DocumentLoadController(logger);
-        playbackEngine = new PlaybackEngine(logger);
+        playbackEngine = new PlaybackEngine(stateStore, logger);
         relay = new DashboardRelay(stateStore, docController, playbackEngine, logger);
         
         relay.setView({

@@ -34,7 +34,7 @@ describe('AudioBridge', () => {
         ]);
         vi.spyOn(docController, 'metadata', 'get').mockReturnValue({ fileName: 'test.md', relativeDir: '.', uri: { toString: () => 'test.md' }, versionSalt: '123' } as any);
 
-        playbackEngine = new PlaybackEngine(logger);
+        playbackEngine = new PlaybackEngine(stateStore, logger);
         vi.spyOn(playbackEngine, 'isNeuralViable').mockReturnValue(true);
         vi.spyOn(playbackEngine, 'isPlaying', 'get').mockReturnValue(true);
         vi.spyOn(playbackEngine, 'speakNeural').mockResolvedValue('base64audio');

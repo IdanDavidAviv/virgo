@@ -177,7 +177,7 @@ describe('SpeechProvider (Sync)', () => {
         vi.clearAllMocks();
 
         // Simulate a "stalled" engine status
-        engine.emit('status', { isPlaying: false, isPaused: false, isStalled: true });
+        (engine as any)._updateStatus(false, false, true);
         vi.advanceTimersByTime(200);
 
         const syncCalls = mockWebviewView.webview.postMessage.mock.calls.filter((call: any) => call[0].command === 'UI_SYNC');

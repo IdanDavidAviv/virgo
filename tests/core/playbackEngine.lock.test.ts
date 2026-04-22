@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
+import { StateStore } from '@core/stateStore';
 import { EventEmitter } from 'events';
 
 // --- MODULE MOCKS ---
@@ -28,7 +29,8 @@ describe('PlaybackEngine Lock Integrity', () => {
 
     beforeEach(() => {
         vi.useFakeTimers();
-        engine = new PlaybackEngine(logger);
+        const stateStore = new StateStore(logger);
+        engine = new PlaybackEngine(stateStore, logger);
         vi.clearAllMocks();
     });
 

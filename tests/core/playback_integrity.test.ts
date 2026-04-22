@@ -1,4 +1,5 @@
 import { PlaybackEngine } from '../../src/extension/core/playbackEngine';
+import { StateStore } from '../../src/extension/core/stateStore';
 import { describe, it, expect, vi } from 'vitest';
 
 /**
@@ -8,8 +9,9 @@ import { describe, it, expect, vi } from 'vitest';
 describe('Playback Integrity (Extension Side)', () => {
     
     it('Cache Leakage & Arithmetic Hardening: SHOULD catch and reset NaN cache size', () => {
-        // We need to provide a logger to the constructor.
-        const engine = new PlaybackEngine((msg) => console.log(`[PlaybackEngine Mock] ${msg}`));
+        const logger = (msg: string) => console.log(`[PlaybackEngine Mock] ${msg}`);
+        const stateStore = new StateStore(logger);
+        const engine = new PlaybackEngine(stateStore, logger);
 
         // 1. Manually trigger pruning with garbage data (inducing NaN)
         (engine as any)._cacheSizeBytes = NaN;
@@ -23,7 +25,9 @@ describe('Playback Integrity (Extension Side)', () => {
     });
 
     it('Sovereign Intent Guards: SHOULD reject stale Intent IDs in _addToCache', () => {
-        const engine = new PlaybackEngine((msg) => {});
+        const logger = (msg: string) => {};
+        const stateStore = new StateStore(logger);
+        const engine = new PlaybackEngine(stateStore, logger);
         const initialIntent = (engine as any)._playbackIntentId;
 
         // 1. Testing _addToCache with stale Intent ID

@@ -78,3 +78,17 @@ if (typeof window !== 'undefined') {
         }
     };
 }
+
+// [v2.4.5] Global Mock for msedge-tts (Baseline for Extension tests)
+vi.mock('msedge-tts', () => {
+    class MockMsEdgeTTS {
+        getVoices = vi.fn().mockResolvedValue([]);
+        setMetadata = vi.fn().mockResolvedValue(undefined);
+        toStream = vi.fn().mockReturnValue({ audioStream: new (require('events').EventEmitter)() });
+        close = vi.fn();
+    }
+    return {
+        MsEdgeTTS: MockMsEdgeTTS,
+        OUTPUT_FORMAT: { AUDIO_24KHZ_48KBITRATE_MONO_MP3: 'mp3-format' }
+    };
+});
