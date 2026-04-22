@@ -3,17 +3,18 @@ import { CacheDelta } from '../common/types';
 export class CacheManager {
     private static instance: CacheManager;
     private dbName = 'ReadAloudAudioCache';
-    private storeName = 'audioBlobs';
+    private storeName = 'audio-cache';
     private db: IDBDatabase | null = null;
     private _initPromise: Promise<IDBDatabase> | null = null;
     private _addedKeys: Set<string> = new Set();
     private _deletedKeys: Set<string> = new Set();
     private _onDelta: ((delta: CacheDelta) => void) | null = null;
     private _flushTimer: any = null;
+    private _lastIntentId: number = 0;
 
     // [v2.2.1] Tier-1 Memory Cache (High-Fidelity / Low Latency)
     private _memoryCache: Map<string, { blob: Blob, timestamp: number }> = new Map();
-    private readonly MAX_MEM_ENTRIES = 12;
+    private readonly MAX_MEM_ENTRIES = 50;
 
     constructor() {
         // [SINGLETON] Access via getInstance()
@@ -47,8 +48,8 @@ export class CacheManager {
         if (this._initPromise) {return this._initPromise;}
 
         this._initPromise = new Promise((resolve, reject) => {
-            // [UPGRADE] Move to version 3 for timestamp index
-            const request = indexedDB.open(this.dbName, 3);
+            // [UPGRADE] Move to version 4 for schema stability and migration fix
+            const request = indexedDB.open(this.dbName, 4);
 
             request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
                 const db = (event.target as IDBOpenDBRequest).result;
@@ -59,20 +60,22 @@ export class CacheManager {
                     store.createIndex('timestamp', 'timestamp', { unique: false });
                 }
                 
-                // [PHASE 4] Migration logic: If users are on v1/v2, we need to add the index
-                if (oldVersion > 0 && oldVersion < 3) {
-                    console.log(`[CacheManager] 🔧 Migrating v${oldVersion} -> v3 (Adding Index)`);
+                // [PHASE 4] Migration logic: Ensure index exists and schema is v4
+                if (oldVersion > 0 && oldVersion < 4) {
+                    console.log(`[CacheManager] 🔧 Migrating v${oldVersion} -> v4 (Atomic Refresh)`);
                     // Since we can't easily add an index to an existing store with data without a full 
                     // re-creation or complex migration, and this is still alpha-ish, we do a clean sweep.
-                    db.deleteObjectStore(this.storeName);
+                    try {
+                        db.deleteObjectStore(this.storeName);
+                    } catch (e) {}
                     const store = db.createObjectStore(this.storeName);
                     store.createIndex('timestamp', 'timestamp', { unique: false });
                 }
             };
 
-            request.onsuccess = (event: Event) => {
+            request.onsuccess = async (event: Event) => {
                 this.db = (event.target as IDBOpenDBRequest).result;
-                console.log('[CacheManager] 🚀 Database initialized (v3)');
+                console.log('[CacheManager] 🚀 Database initialized (v4)');
                 
                 // [LIFECYCLE] Handle external closes or upgrades from other tabs
                 this.db.onversionchange = () => {
@@ -81,8 +84,12 @@ export class CacheManager {
                     this._initPromise = null;
                 };
 
-                this._runGC(); // Run GC on boot
-                this.syncFullManifest();
+                try {
+                    await this._runGC(); // Run GC on boot
+                    await this.syncFullManifest();
+                } catch (e) {
+                    console.error('[CacheManager] Initialization tasks failed:', e);
+                }
                 resolve(this.db!);
             };
 
@@ -184,10 +191,14 @@ export class CacheManager {
     /**
      * Saves an audio blob to the cache (Both tiers).
      */
-    public async set(key: string, blob: Blob): Promise<void> {
+    public async set(key: string, blob: Blob, intentId?: number): Promise<void> {
         // [v2.2.1] Update Memory Tier
         this._memoryCache.set(key, { blob, timestamp: Date.now() });
         this._pruneMemory();
+
+        if (intentId !== undefined) {
+            this._lastIntentId = intentId;
+        }
 
         try {
             const db = await this.getDB();
@@ -339,14 +350,17 @@ export class CacheManager {
             request.onsuccess = () => {
                 const keys = (request.result as string[]) || [];
                 console.log(`[CacheManager] 📡 Syncing Full Manifest (${keys.length} keys)`);
-                // Import OutgoingAction dynamically to avoid circular deps if they occur
-                const { MessageClient } = require('./core/MessageClient');
-                const { OutgoingAction } = require('../common/types');
-                MessageClient.getInstance().postAction(OutgoingAction.REPORT_CACHE_DELTA, {
-                    added: keys,
-                    removed: [],
-                    isFullSync: true
-                });
+                
+                if (this._onDelta) {
+                    this._onDelta({
+                        added: keys,
+                        removed: [],
+                        isFullSync: true,
+                        playbackIntentId: this._lastIntentId || 0
+                    });
+                } else {
+                    console.warn('[CacheManager] ⚠️ No delta listener attached. Manifest sync deferred.');
+                }
             };
         } catch (e) {
             console.error('[CacheManager] Full manifest sync failed:', e);
@@ -368,7 +382,12 @@ export class CacheManager {
 
             const transaction = db.transaction(this.storeName, 'readwrite');
             const store = transaction.objectStore(this.storeName);
-            const index = store.index('timestamp');
+            // Ensure index exists (V4 Migration check)
+            try {
+                store.index('timestamp');
+            } catch (e) {
+                console.warn('[CacheManager] ⚠️ Timestamp index missing in GC. This should not happen in v4.');
+            }
             
             let totalSize = 0;
             const entries: { key: string, size: number, timestamp: number }[] = [];
@@ -393,7 +412,7 @@ export class CacheManager {
                             console.warn(`[CacheManager] 🔍 GC Warning: Item ${key} has 0 size. Keys: ${Object.keys(val).join(',')}`);
                         }
                         
-                        console.log(`[CacheManager] 🔍 GC Scan: ${key} | Size: ${Math.round(size/1024)}KB | TS: ${timestamp}`);
+                        // console.log(`[CacheManager] 🔍 GC Scan: ${key} | Size: ${Math.round(size/1024)}KB | TS: ${timestamp}`);
 
                         // 1. Immediate TTL Pruning (7 Days)
                         if (timestamp < now - TTL) {
@@ -424,6 +443,7 @@ export class CacheManager {
                             }
                         }
                         
+                        console.log(`[CacheManager] ✅ GC Finished. Total Items: ${entries.length} | Final Size: ${Math.round(totalSize/1024/1024)}MB`);
                         this._triggerFlush();
                         resolve();
                     }
@@ -432,6 +452,11 @@ export class CacheManager {
             });
         } catch (e) {
             console.error('[CacheManager] GC Failed:', e);
+            if (e instanceof Error) {
+                console.error(`[CacheManager] GC Error Stack: ${e.stack}`);
+            } else {
+                console.error(`[CacheManager] GC Error Detail: ${JSON.stringify(e)}`);
+            }
         }
     }
 
@@ -450,7 +475,8 @@ export class CacheManager {
             this._onDelta({
                 added,
                 removed,
-                isFullSync: false
+                isFullSync: false,
+                playbackIntentId: this._lastIntentId || 0
             });
         }
 

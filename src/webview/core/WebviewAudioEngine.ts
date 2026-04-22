@@ -146,8 +146,12 @@ export class WebviewAudioEngine {
     });
     this.pendingResolvers.add(resolveNext!);
 
+    // [FIX-2] Hoist watchdog handle outside the race so the catch (abort-reject) path
+    // can also cancel it. Previously, the catch block resolved the mutex but never cleared
+    // the 3s timeout — causing ghost "⚠️ Mutex Safety Timeout (intent=N)" warnings to fire
+    // 3s after abort for every queued acquireLock that was preempted by a newer intent.
+    let watchdog: any;
     try {
-      let watchdog: any;
       await Promise.race([
           previousMutex,
           new Promise((_, reject) => {
@@ -158,11 +162,11 @@ export class WebviewAudioEngine {
               watchdog = setTimeout(() => {
                   console.warn(`[AUDIO] ⚠️ Mutex Safety Timeout (intent=${intentId})`);
                   r(null);
-              }, 3000); // [STABILITY] Reduced to 3s to align with bridge churn cycle.
+              }, 3000);
           })
       ]);
       
-      if (watchdog) {clearTimeout(watchdog);}
+      if (watchdog) { clearTimeout(watchdog); }
       
       if (currentSequence !== this.activeSequence || (currentAbortSignal && currentAbortSignal.aborted)) {
           this.pendingResolvers.delete(resolveNext!);
@@ -177,6 +181,9 @@ export class WebviewAudioEngine {
         resolveNext!();
       };
     } catch (err: any) {
+      // [FIX-2] Clear the watchdog in the abort/error path — previously missing,
+      // causing the 3s timer to fire as a ghost warning after the lock was already released.
+      if (watchdog) { clearTimeout(watchdog); }
       this.pendingResolvers.delete(resolveNext!);
       resolveNext!();
       return null;
@@ -186,11 +193,15 @@ export class WebviewAudioEngine {
   public ensureAudioContext(): Promise<void> {
     if (this._isPrimed) {return Promise.resolve();}
     this._audio.muted = true;
-    return this._audio.play().then(() => {
-      this._isPrimed = true;
-      this._audio.muted = false;
-      console.log('[AUDIO] 🔓 Primed');
-    }).catch(() => {});
+    
+    return Promise.race<void>([
+      this._audio.play().then(() => {
+        this._isPrimed = true;
+        this._audio.muted = false;
+        console.log('[AUDIO] 🔓 Primed');
+      }),
+      new Promise<void>(r => setTimeout(r, 1000)) // Safety timeout
+    ]).catch(() => {});
   }
 
   public async playBlob(blob: Blob, key: string, intentId?: number, bakedRate?: number): Promise<void> {
@@ -232,6 +243,15 @@ export class WebviewAudioEngine {
                 // [SEAMLESS_RATE] Apply relative rate before starting playback.
                 this._applyPlaybackRate();
 
+                // [TELEMETRY] Execution Completion Marker
+                const now = performance.now();
+                const startMark = (window as any)._playbackStartMark;
+                if (startMark) {
+                    const delta = now - startMark;
+                    console.log(`[TELEMETRY] 🏁 Audio Execution: ${key} | t=${now.toFixed(2)}ms | Delta: ${delta.toFixed(2)}ms`);
+                    delete (window as any)._playbackStartMark;
+                }
+
                 console.log(`[RATE_TRACE] 🔊 Neural canplay | playbackRate=${this._audio.playbackRate.toFixed(2)} | store.rate=${state.rate} | baked=${this.bakedRate} | vol=${this._audio.volume} | mode=${state.engineMode}`);
                 this._audio.play().catch(e => {
                     if (e.name === 'NotAllowedError') {
@@ -255,7 +275,10 @@ export class WebviewAudioEngine {
             const onError = () => finish('error');
             const onAborted = () => { this._audio.pause(); finish('abort'); };
             
-            this._audio.addEventListener('canplay', onCanPlay);
+            // [RC-3 FIX] Use { once: true } to prevent canplay multi-fire.
+            // Blob URL reassignment on the same element re-fires canplay without this,
+            // causing 3x PLAYING emissions per sentence and triggering IPC storms upstream.
+            this._audio.addEventListener('canplay', onCanPlay, { once: true });
             this._audio.addEventListener('ended', onEnded);
             this._audio.addEventListener('error', onError);
             if (signal) {
@@ -306,9 +329,12 @@ export class WebviewAudioEngine {
     try {
         const buffer = this._base64ToBuffer(base64);
         const blob = new Blob([buffer.buffer as ArrayBuffer], { type: 'audio/mpeg' });
-        await CacheManager.getInstance().set(cacheKey, blob);
-    } catch (e) {
-        console.error(`[AUDIO] ❌ Ingestion failed for ${cacheKey}:`, e);
+        await CacheManager.getInstance().set(cacheKey, blob, intentId);
+    } catch (e: any) {
+        // [UM-4 FIX] Extract the actual error message — passing Error objects to console.error
+        // prints them as '{}' (no enumerable properties), hiding the root cause from logs.
+        const detail = e?.message ?? (typeof e === 'string' ? e : JSON.stringify(e)) ?? 'unknown';
+        console.error(`[AUDIO] ❌ Ingestion failed for ${cacheKey}: ${detail}`);
     }
   }
 

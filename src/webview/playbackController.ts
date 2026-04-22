@@ -33,6 +33,14 @@ export class PlaybackController {
     private readonly MAX_CONCURRENT_SYNTHESIS = 3;
     /** [AUTOPLAY GUARD] True only after the user has explicitly clicked Play/Jump or interacted with the webview. */
     private _userHasInteracted: boolean = false;
+    /** [SOVEREIGN KEY] The cacheKey the extension declared as the HEAD segment via playAudio.
+     *  Used in DATA_PUSH HEAD_MATCH instead of getSentenceKey() to avoid rate-key mismatch. */
+    private _activePlayKey: string | null = null;
+    
+    /** [DIAGNOSTICS] Monotonic counter for incoming synthesis handshakes */
+    public synthesisHandshakeCount: number = 0;
+    /** [DIAGNOSTICS] Monotonic counter for engine events */
+    public engineEventCount: number = 0;
 
     public get userHasInteracted(): boolean {
         return this._userHasInteracted;
@@ -113,8 +121,19 @@ export class PlaybackController {
         store.setIntentIds(0, 0);
         this.intentExpiry = 0;
         this.transitionExpiry = 0;
+        this._activePlayKey = null; // [SOVEREIGN KEY] Reset on intent clear
         store.updateUIState({ isAwaitingSync: false, playbackIntent: 'STOPPED' });
         this.clearWatchdog();
+    }
+
+    /** [SOVEREIGN KEY] Called by CommandDispatcher when the extension's authoritative playAudio
+     *  cacheKey arrives. Stores it so DATA_PUSH HEAD_MATCH uses the extension's key, not the
+     *  locally regenerated one (which may differ by rate or hash). */
+    public setActivePlayKey(key: string): void {
+        if (this._activePlayKey !== key) {
+            console.log(`[PlaybackController] 🔑 Active play key: ${key}`);
+            this._activePlayKey = key;
+        }
     }
 
     private setupListeners(): void {
@@ -122,8 +141,8 @@ export class PlaybackController {
         const store = WebviewStore.getInstance();
 
         // [SOVEREIGNTY] Centralized IPC Handlers
-        client.onCommand(IncomingCommand.SYNTHESIS_READY, (data) => {
-            this.handleSynthesisReady(data.cacheKey, data.intentId);
+        client.onCommand(IncomingCommand.SYNTHESIS_READY, (data: { cacheKey: string, intentId: number, isPriority: boolean }) => {
+            this.handleSynthesisReady(data.cacheKey, data.intentId, data.isPriority);
         });
 
 
@@ -136,8 +155,11 @@ export class PlaybackController {
             // 1. [FIFO] Atomic Ingestion
             engine.ingestData(cacheKey, data, intentId);
 
-            // 2. [INTENT GUARD] 
-            const headKey = store.getSentenceKey();
+            // 2. [INTENT GUARD]
+            // [SOVEREIGN KEY] Use the extension-authoritative key set by setActivePlayKey() rather
+            // than regenerating via getSentenceKey(). Local regeneration uses the user's display
+            // rate which differs from the extension's bakedRate, breaking HEAD_MATCH permanently.
+            const headKey = this._activePlayKey ?? store.getSentenceKey();
             const { playbackIntent } = store.getUIState();
             const currentPlaybackId = store.getState().playbackIntentId;
 
@@ -146,12 +168,14 @@ export class PlaybackController {
             // AND the user has already interacted (gesture gate for browser autoplay policy).
             if (playbackIntent === 'PLAYING' && cacheKey === headKey && intentId === currentPlaybackId) {
                 if (this._userHasInteracted) {
-                    console.log(`[PlaybackController] 🚀 HEAD MATCH: ${cacheKey}. Triggering Engine Play.`);
-                    // [3.2.B] Pass bakedRate so the engine applies the correct effectiveRate.
+                    console.log(`[PlaybackController] 🚀 HEAD MATCH (sovereign key): ${cacheKey}. Triggering Engine Play.`);
                     engine.playFromCache(cacheKey, intentId, bakedRate);
                 } else {
                     console.warn('[PlaybackController] 🚫 HEAD MATCH suppressed — awaiting first user gesture.');
                 }
+            } else if (playbackIntent === 'PLAYING' && this._activePlayKey && cacheKey !== headKey) {
+                // [DIAGNOSTIC] Log mismatches so we can detect key drift
+                console.log(`[PlaybackController] 🔍 Key delta: got ${cacheKey.slice(-8)}, head=${headKey?.slice(-8)}`);
             }
         });
 
@@ -293,15 +317,25 @@ export class PlaybackController {
         const store = WebviewStore.getInstance();
         const currentState = store.getState();
 
-        // 1. [SYNC] Universal Unlocker
-        WebviewAudioEngine.getInstance().ensureAudioContext();
+        // 1. [SYNC] Universal Unlocker — only prime if user has already interacted.
+        if (this._userHasInteracted) {
+            WebviewAudioEngine.getInstance().ensureAudioContext();
+        }
 
         // 2. [SOVEREIGNTY] Authoritative update replacing "optimisticPatch"
+        // [BUG-FIX] Do NOT unconditionally set isPlaying:true.
+        // jumpToChapter() is used both as a user "play chapter" action AND as a
+        // programmatic head-reset (e.g. after file load from a stopped state).
+        // Forcing isPlaying:true caused the extension to auto-start synthesis after every
+        // file load regardless of user intent — the "weird sequence" regression.
+        // We preserve the current playing state: a stopped session stays stopped,
+        // a playing session continues playing at the new chapter position.
+        const wasPlaying = currentState?.playbackIntent === 'PLAYING';
         if (currentState) {
             store.patchState({
                 currentChapterIndex: index,
                 currentSentenceIndex: 0,
-                isPlaying: true,
+                isPlaying: wasPlaying,
                 isPaused: false
             });
         }
@@ -309,7 +343,6 @@ export class PlaybackController {
         // 3. [FIFO] Atomic Flush
         this.flushQueue();
 
-        WebviewAudioEngine.getInstance().ensureAudioContext();
         const batchId = store.resetBatchIntent();
         const intentId = store.resetPlaybackIntent();
         MessageClient.getInstance().postAction(OutgoingAction.JUMP_TO_CHAPTER, { index, intentId, batchId });
@@ -433,7 +466,7 @@ export class PlaybackController {
     /**
      * handleSynthesisReady() - Sovereign fetch orchestration.
      */
-    private handleSynthesisReady(cacheKey: string, intentId: number): void {
+    private handleSynthesisReady(cacheKey: string, intentId: number, isPriority: boolean): void {
         const store = WebviewStore.getInstance();
         const state = store.getState();
         const currentPlaybackId = state.playbackIntentId as number;
@@ -445,16 +478,22 @@ export class PlaybackController {
             return;
         }
 
-        // [COLD-BOOT GATE] Block FETCH_AUDIO until playback is explicitly authorized by a user gesture.
-        // Synthesis still runs on the extension side, warming the cache silently.
-        // Audio data will flow when the user presses play and playbackAuthorized flips to true.
-        if (!state.playbackAuthorized) {
+        // [MONOTONIC HANDSHAKE] Only increment the handshake counter for the priority path.
+        // This ensures a 1:1 ratio between intent starts and handshake completion for the head segment.
+        if (isPriority && intentId === currentPlaybackId) {
+            console.log(`[PlaybackController] 🤝 High-Integrity Handshake: Intent ${intentId}`);
+            this.synthesisHandshakeCount++;
+        }
+
+        // [COLD-BOOT GATE] Block FETCH_AUDIO until playback is explicitly authorized.
+        // We allow if either the extension has synced authorization OR we have a local user gesture.
+        if (!state.playbackAuthorized && !this._userHasInteracted) {
             console.warn(`[PlaybackController] 🔕 SYNTHESIS_READY suppressed — not yet authorized. Cache warming silently for ${cacheKey}.`);
             this.synthesizingKeys.delete(cacheKey);
             return;
         }
 
-        console.log(`[PlaybackController] 🟢 Synthesis ready for intent ${intentId}. Requesting audio fetch...`);
+        console.log(`[PlaybackController] 🟢 Synthesis ready for intent ${intentId} (Priority: ${isPriority}). Requesting audio fetch...`);
         this.synthesizingKeys.delete(cacheKey);
         this.setBuffering(true);
         MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, {
@@ -475,6 +514,7 @@ export class PlaybackController {
         const currentPlaybackId = store.getState().playbackIntentId;
 
         console.log(`[PlaybackController] 🛰️ Sovereign Event: ${event.type} | Intent: ${event.intentId}`);
+        this.engineEventCount++;
 
         // [v2.3.2] Authoritative Intent Adoption
         if (event.intentId !== undefined && event.intentId > currentPlaybackId) {
@@ -544,7 +584,7 @@ export class PlaybackController {
     /**
      * play() - Sovereign orchestration for playback.
      */
-    public play(currentUri?: string): void {
+    public async play(currentUri?: string): Promise<void> {
         console.log('[PlaybackController] 🟢 USER PLAY requested');
         // [AUTOPLAY GUARD] User has explicitly clicked Play — unlock gesture gate.
         this._userHasInteracted = true;
@@ -567,7 +607,8 @@ export class PlaybackController {
         this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
 
         // [GESTURE] Prime the audio context immediately on user interaction.
-        WebviewAudioEngine.getInstance().ensureAudioContext().catch(() => { });
+        // [SOVEREIGNTY] Mandating atomic priming BEFORE IPC emission to prevent silent 1-press failures.
+        await WebviewAudioEngine.getInstance().ensureAudioContext().catch(() => { });
 
         // [SOVEREIGNTY] Optimistic State Flip
         // Note: isAwaitingSync is removed here to prevent "stale sync" release during the extension's stop() handshake.
@@ -883,7 +924,7 @@ export class PlaybackController {
         const queue = store.getUIState().activeQueue;
         const { engineMode, selectedVoice, rate, currentChapterIndex, currentSentenceIndex, activeDocumentUri } = store.getState();
 
-        if (engineMode !== 'neural' || queue.length === 0) { return; }
+        if (engineMode !== 'neural' || queue.length === 0 || !(store.getState().playbackAuthorized || this._userHasInteracted)) { return; }
 
         // Find current index in window
         const currIdx = queue.findIndex(s => s.cIdx === currentChapterIndex && s.sIdx === currentSentenceIndex);
@@ -911,7 +952,8 @@ export class PlaybackController {
                 client.postAction(OutgoingAction.REQUEST_SYNTHESIS, {
                     cacheKey: key,
                     intentId: store.getState().playbackIntentId,
-                    batchId: store.getState().batchIntentId
+                    batchId: store.getState().batchIntentId,
+                    isPriority: s.cIdx === currentChapterIndex && s.sIdx === currentSentenceIndex
                 });
             }
         }

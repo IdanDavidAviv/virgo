@@ -269,6 +269,12 @@ export class MessageClient {
       finalPayload = this.sanitizeUISync(finalPayload);
     }
 
+    // [TELEMETRY] Command Arrival Marker
+    if (command === IncomingCommand.PLAY_AUDIO || command === IncomingCommand.DATA_PUSH) {
+        (window as any)._playbackStartMark = performance.now();
+        console.log(`[TELEMETRY] ⏱️ Command Received: ${command} | t=${(window as any)._playbackStartMark.toFixed(2)}ms`);
+    }
+
     // Update log level if present in sync packet
     if (command === IncomingCommand.UI_SYNC && finalPayload.logLevel) {
       this._logLevel = finalPayload.logLevel;

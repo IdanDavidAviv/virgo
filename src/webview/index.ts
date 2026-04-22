@@ -38,11 +38,27 @@ export function bootstrap() {
   const start = performance.now();
   console.log('[ReadAloud] 🚀 Initializing High-Integrity Webview Engine...');
 
+  // [SSOT] __debug is set immediately from __BOOTSTRAP_CONFIG__ (extension host SSOT),
+  // BEFORE any singleton instantiation. This ensures CDP diagnostics always have a live
+  // object even if the bootstrap crashes mid-flight. Enriched post-singletons below.
+  /* eslint-disable @typescript-eslint/naming-convention */
+  const _config = (window as any).__BOOTSTRAP_CONFIG__;
+  (window as any).__debug = {
+    isHydrated: false,
+    debugMode: _config?.debugMode ?? false,
+    extensionVersion: _config?.extensionVersion ?? 'unknown',
+    store: null,
+    audioEngine: null,
+    playback: null,
+    dispatcher: null,
+  };
+
   // Global Error Boundary (Issue #42)
   window.onerror = (msg, url, line, col) => {
     const errorDetail = `[ReadAloud] CRITICAL ERROR: ${msg} at ${line}:${col}`;
     console.error(errorDetail);
-    MessageClient.getInstance().postAction(OutgoingAction.LOG, errorDetail);
+    // Use safe postMessage to avoid re-entry crash if MessageClient itself failed
+    try { (window as any).vscode?.postMessage({ command: 'log', type: 'error', message: errorDetail }); } catch {}
   };
 
   try {
@@ -58,6 +74,9 @@ export function bootstrap() {
     const interaction = InteractionManager.getInstance();
     const cache = CacheManager.getInstance();
 
+    // [SSOT] Enrich __debug with live singleton references post-instantiation.
+    (window as any).__debug = { ...(window as any).__debug, store, audioEngine, playback, dispatcher };
+
     // 1.1 Link Infrastructure (Decoupled IPC wiring)
     client.attachCacheManager(cache);
     cache.ready().then(() => {
@@ -70,13 +89,10 @@ export function bootstrap() {
       ToastManager.setContainer(toastContainer);
     }
 
-    // Debug Mode Indicator (Serverless Handshake)
-    const config = (window as any).__BOOTSTRAP_CONFIG__;
-    if (config && config.debugMode) {
+    // Debug Mode Indicator — use __debug.debugMode as SSOT (set from __BOOTSTRAP_CONFIG__ above)
+    if ((window as any).__debug.debugMode) {
       const debugTag = document.getElementById('debug-mode-tag');
-      if (debugTag) {
-        debugTag.style.display = 'inline-block';
-      }
+      if (debugTag) { debugTag.style.display = 'inline-block'; }
 
       // [PARITY] Legacy dashboard.js state sync logging
       store.subscribe((state) => state.isPlaying, (isPlaying) => {
@@ -85,13 +101,7 @@ export function bootstrap() {
     }
 
     console.log('[BOOT] Infrastructure OK');
-
-    // [CDP DEBUG] Expose singletons on window for live CDP eval sessions.
-    // Only active when debugMode is set (dev builds via __BOOTSTRAP_CONFIG__).
-    // Usage from cdp:shell: eval window.__debug.store.getState()
-    if ((window as any).__BOOTSTRAP_CONFIG__?.debugMode) {
-      (window as any).__debug = { store, audioEngine, playback, dispatcher };
-    }
+    // [CDP] Usage from cdp:shell: eval window.__debug.store.getState()
 
     // [SOVEREIGNTY] Component Registry for Lifecycle Management
     const registry: { unmount: () => void }[] = [];
@@ -213,7 +223,10 @@ export function bootstrap() {
 
     const duration = (performance.now() - start).toFixed(1);
     console.log(`[ReadAloud] ✅ Webview Handshake Complete (${duration}ms).`);
-    
+
+    // [SSOT] Mark hydration complete — unconditional so CDP can detect it regardless of debugMode.
+    (window as any).__debug.isHydrated = true;
+
     client.postAction(OutgoingAction.READY);
 
   } catch (err) {

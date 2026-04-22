@@ -104,9 +104,16 @@ export class CommandDispatcher {
         const currentActive = audioEngine.activeIntentId;
 
         if (intentId !== undefined && intentId < currentActive && currentActive !== 0) {
-            console.warn(`[Dispatcher] ✋ Ignoring Stale Audio Payload: ${intentId} < ${currentActive}`);
+            console.warn(`[Dispatcher] ✋ Ignoring Stale Audio Payload: intentId=${intentId} < currentActive=${currentActive}. This is the cold-boot rejection point.`);
             playback.releaseLock();
             return;
+        }
+
+        // [SOVEREIGN KEY] Register the extension's authoritative cacheKey immediately.
+        // This must happen before any cache-lookup so DATA_PUSH HEAD_MATCH uses the right key
+        // regardless of the local getSentenceKey() rate mismatch.
+        if (data?.cacheKey) {
+            playback.setActivePlayKey(data.cacheKey);
         }
 
         if (data?.data) {
@@ -139,7 +146,23 @@ export class CommandDispatcher {
 
       case IncomingCommand.SYNTHESIS_STARTING:
         console.log('[Dispatcher] ⚡ SYNTHESIS_STARTING Received', data);
-        // [PASSIVE] Engine no longer manages adaptive wait; handled by PlaybackController watchdog.
+        // [RC-1 FIX] Register the sovereign key at the EARLIEST possible signal.
+        // DATA_PUSH can arrive before playAudio (~30ms IPC ordering delta), so we must
+        // set _activePlayKey here to ensure HEAD_MATCH succeeds when DATA_PUSH ingestion runs.
+        if (data?.cacheKey) {
+            playback.setActivePlayKey(data.cacheKey);
+            console.log(`[Dispatcher] 🗝️ Sovereign key pre-armed via SYNTHESIS_STARTING: ${data.cacheKey}`);
+        }
+        // [COLD-BOOT INTENT ADOPTION] If the extension's intentId is greater than the webview's
+        // current counter (e.g. after a dev-host restart where webview resets to 1 but extension
+        // retains a higher counter), adopt the extension's value to prevent first-play rejection.
+        if (data?.intentId !== undefined) {
+            const currentId = store.getState().playbackIntentId;
+            if (data.intentId > currentId) {
+                console.log(`[Dispatcher] 📈 SYNTHESIS_STARTING intent adoption: ${currentId} → ${data.intentId}`);
+                store.setIntentIds(data.intentId);
+            }
+        }
         break;
 
       case IncomingCommand.SYNTHESIS_READY:
@@ -154,6 +177,15 @@ export class CommandDispatcher {
           MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId: data.intentId });
           break;
         }
+        // [SINGLE-SINK] Defense layer: non-priority signals (batch/queued pre-fetches) only
+        // warm the local cache — they must not trigger play. The upstream audioBridge now routes
+        // most pre-fetches via dataPush, but any that slip through the batch path arrive here
+        // with isPriority:false and must be contained.
+        if (!data.isPriority) {
+          console.log('[Dispatcher] 📦 SYNTHESIS_READY (non-priority) — cache warm only, no play.');
+          MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId: data.intentId });
+          break;
+        }
         const hasLocal = await audioEngine.playFromCache(data.cacheKey, data.intentId, data.bakedRate);
         if (!hasLocal) {
           MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId: data.intentId });
@@ -165,9 +197,19 @@ export class CommandDispatcher {
         console.log(`[Dispatcher] 📥 DATA_PUSH Received at ${pushTime}`, { 
             cacheKey: data.cacheKey, 
             intentId: data.intentId,
-            size: data.data?.length 
+            hasBinary: !!data.data
         });
-        audioEngine.ingestData(data.cacheKey, data.data, data.intentId);
+        // [FIX] VS Code postMessage silently drops large base64 payloads — data.data always
+        // arrives as undefined. Use pull model: FETCH_AUDIO retrieves from the extension cache,
+        // which is the proven delivery path (same as SYNTHESIS_READY non-priority handling).
+        if (data.data) {
+            // Binary arrived (e.g. future transfer mechanism) — ingest directly.
+            audioEngine.ingestData(data.cacheKey, data.data, data.intentId);
+        } else {
+            // Binary was stripped by IPC — pull from extension cache to warm webview cache.
+            console.log(`[Dispatcher] 📥 DATA_PUSH pull: requesting FETCH_AUDIO for ${data.cacheKey}`);
+            MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId: data.intentId });
+        }
         break;
 
       case IncomingCommand.STOP:
