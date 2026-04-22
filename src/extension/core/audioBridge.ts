@@ -371,6 +371,13 @@ export class AudioBridge extends EventEmitter {
         // for this key within the last 200ms, skip synthesis and emit playAudio directly.
         const confirmedAt = this._recentCacheConfirmations.get(cacheKey);
         if (confirmedAt !== undefined && Date.now() - confirmedAt < 200) {
+            // [Fix B] Batch monotonic gate: if the batch has advanced since this FETCH_AUDIO
+            // request was issued, the resolution is stale — drop it silently.
+            const latestBatch = this._playbackEngine.batchIntentId;
+            if (batchId !== undefined && latestBatch > batchId) {
+                this._logger(`[BRIDGE] [FIX-B] Stale FETCH_AUDIO fast-path: Batch ${batchId} < Engine ${latestBatch}. Dropping playAudio.`);
+                return;
+            }
             const isNeural = options.mode === 'neural';
             this._emitWithIntent('playAudio', { cacheKey, data: '', bakedRate: isNeural ? 1.0 : options.rate });
             return;
@@ -479,6 +486,10 @@ export class AudioBridge extends EventEmitter {
         }
 
         // 4. Trigger Next
+        // [Fix 0] Auto-advance is a continuation of an already-authorized play session.
+        // Re-authorize the UM-1 gate so start() calls setPlaying(true) without requiring
+        // a new human gesture. This prevents silent-stop between every auto-advance sentence.
+        this._isUserInitiatedPlay = true;
         await this.start(nextPos.chapterIndex, nextPos.sentenceIndex, options, false, finalIntent, resolutionBatch);
     }
 
@@ -521,6 +532,15 @@ export class AudioBridge extends EventEmitter {
             const state = this._stateStore.state;
             if (state.currentChapterIndex !== cIdx || state.currentSentenceIndex !== sIdx) {
                 this._logger(`[BRIDGE] Ignoring stale synthesis result for ${cIdx}:${sIdx}`);
+                return;
+            }
+
+            // [Fix A] Batch monotonic gate: position check alone is bypassable when the user
+            // skips exactly 1 sentence (sIdx of stale packet matches new position).
+            // A stale batchId is the definitive proof that this synthesis was for a prior
+            // play sequence and must be dropped, even if positions happen to coincide.
+            if (batchId !== undefined && this._playbackEngine.batchIntentId > batchId) {
+                this._logger(`[BRIDGE] 🗑️ [FIX-A] Stale Batch Packet: Batch ${batchId} < Engine ${this._playbackEngine.batchIntentId}. Dropping.`);
                 return;
             }
 
