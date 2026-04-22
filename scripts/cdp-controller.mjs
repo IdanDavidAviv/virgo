@@ -582,10 +582,50 @@ async function runShell() {
         console.log(`[AUDIT]\n${auRes}`);
         break;
       }
+      // [CLOSE-HOST] Gracefully closes the Dev Host window via Tier-1 (closeWindow)
+      // then kills remaining Dev Host PIDs. Does NOT exit the shell script.
+      case 'close-host': {
+        console.log('[CDP] Closing Extension Development Host...');
+        const chB = await getbrowser();
+        const devPids = snapshotAntigravityPids();
+        const mainPidsProtected = snapshotAntigravityPids(); // same snapshot = nothing killed that we shouldn't
+        await gracefulClose(devPids, mainPids, chB);
+        console.log('[CDP] ✅ Dev Host closed.');
+        break;
+      }
+      // [RESTART] Full cold-restart: close Dev Host → wait 2s → F5 launch → wait-for-ready.
+      // Use this for T-006 boot audits to ensure a clean cold-boot window.
+      case 'restart': {
+        console.log('[CDP] 🔄 Cold Restart: closing Dev Host...');
+        const rstB = await getbrowser();
+        const rstPids = snapshotAntigravityPids();
+        await gracefulClose(rstPids, mainPids, rstB);
+        console.log('[CDP] ⏳ Waiting for host to fully exit (2s)...');
+        await new Promise(r => setTimeout(r, 2000));
+        // Re-open via Main Editor F5
+        const rstB2 = await getbrowser();
+        const rstMain = await findSovereignTarget(rstB2, 'workbench');
+        if (rstMain) {
+          console.log('[CDP] 🚀 Launching Dev Host (F5)...');
+          await rstMain.bringToFront();
+          await rstMain.keyboard.press('Escape');
+          await new Promise(r => setTimeout(r, 200));
+          await rstMain.keyboard.press('Control+Shift+P');
+          await new Promise(r => setTimeout(r, 400));
+          await rstMain.keyboard.type('workbench.action.debug.start', { delay: 20 });
+          await new Promise(r => setTimeout(r, 500));
+          await rstMain.keyboard.press('Enter');
+          console.log('[CDP] ⏳ Waiting for system ready...');
+          await shellWaitForReady();
+        } else {
+          console.error('[CDP] ❌ Main Editor not found — cannot relaunch. Run `launch` manually.');
+        }
+        break;
+      }
       case 'exit':
       case 'quit': await cleanupAndExit(); break;
       case 'help':
-        console.log('\n  status         - Situation report\n  launch         - Trigger F5 (Debug)\n  wait-for-ready - Poll for hydration\n  prime          - Execute Wake Ritual\n  click-play     - DOM click btn-play (real gesture, sets userHasInteracted)\n  audit          - Dump __debug state from webview content frame\n  stress         - 100-iter monotonic stress test\n  dispatch       - VS Code command (Ctrl+Shift+P, NOT a gesture)\n  eval           - JS execution in content frame\n  exit           - Close shell\n');
+        console.log('\n  status         - Situation report\n  launch         - Trigger F5 (Debug)\n  close-host     - Gracefully close the Dev Host window + kill its PIDs\n  restart        - Cold restart: close-host → launch → wait-for-ready\n  wait-for-ready - Poll for hydration\n  prime          - Execute Wake Ritual\n  click-play     - DOM click btn-play (real gesture, sets userHasInteracted)\n  audit          - Dump __debug state from webview content frame\n  stress         - 100-iter monotonic stress test\n  dispatch       - VS Code command (Ctrl+Shift+P, NOT a gesture)\n  eval           - JS execution in content frame\n  exit           - Close shell (does NOT close Dev Host — use close-host first)\n');
         break;
     }
     rl.prompt();
@@ -824,9 +864,10 @@ async function runShell() {
     // ── Pre-flight: verify a document is loaded and has content to play ──
     const preflight = await wv.evaluate(() => {
       const state = window.__debug?.store?.getState?.();
+      // Use correct WebviewStore field names: currentSentences (not sentences), activeFileName (not activeDocument)
       return {
-        sentences: state?.sentences?.length ?? 0,
-        activeDoc: state?.activeDocumentPath ?? state?.activeDocument ?? null,
+        sentences: state?.currentSentences?.length ?? state?.windowSentences?.length ?? 0,
+        activeDoc: state?.activeFileName ?? state?.focusedFileName ?? null,
         cacheCount: state?.cacheCount ?? 0,
         isHydrated: window.__debug?.isHydrated ?? false,
       };
@@ -855,23 +896,37 @@ async function runShell() {
         if (existsSync(AGENT_LOG)) { logCursor = statSync(AGENT_LOG).size; }
       } catch { }
 
-      // ── Unlock browser autoplay gate, then trigger play ──
-      // The browser blocks audio.play() until the frame has received a real user gesture.
-      // shellPrime() fires a native mousedown on the webview frame via Playwright —
-      // this IS counted as a user gesture and unlocks the audio context.
-      // We then dispatch the play command 100ms later once the gate is open.
-      await shellPrime();
-      await new Promise(r => setTimeout(r, 100));
-      await shellExec('readme-preview-read-aloud.play');
+      // ── Trigger play directly in the webview context ──
+      // WHY NOT shellExec('readme-preview-read-aloud.play'):
+      //   That fires the VS Code command → extension host → IPC roundtrip.
+      //   The webview's _userHasInteracted gate blocks PLAY_AUDIO delivery unless
+      //   it was set by a real DOM click. shellPrime()'s mousedown on the frame
+      //   does NOT satisfy PlaybackController._userHasInteracted.
+      // WHY wv.evaluate:
+      //   Runs inside the webview JS context. playback.play() sets _userHasInteracted = true
+      //   and calls ensureAudioContext() before posting the IPC action — complete path.
+      await wv.evaluate(() => {
+        const playback = window.__debug?.playback;
+        if (playback) {
+          // Set the interaction gate manually (CDP is acting as the user gesture)
+          playback._userHasInteracted = true;
+          playback.play();
+        }
+      }).catch(() => {});
 
-      // ── Poll for PLAYING state (max 5 s) ──
-
+      // ── Poll for PLAYING state (max 8 s) ──
+      // Check both isPlaying (audio element) and playbackIntent (store intent) —
+      // there is a lag window where the store hasn't reflected the audio element state yet.
       let playing = false;
-      for (let j = 0; j < 50; j++) {
-        const state = await wv.evaluate(() => ({
-          isPlaying: window.__debug?.store?.getState?.()?.isPlaying ?? false
-        })).catch(() => ({ isPlaying: false }));
-        if (state.isPlaying) { playing = true; break; }
+      for (let j = 0; j < 80; j++) {
+        const state = await wv.evaluate(() => {
+          const s = window.__debug?.store?.getState?.();
+          return {
+            isPlaying: s?.isPlaying ?? false,
+            playbackIntent: s?.playbackIntent ?? 'STOPPED',
+          };
+        }).catch(() => ({ isPlaying: false, playbackIntent: 'STOPPED' }));
+        if (state.isPlaying || state.playbackIntent === 'PLAYING') { playing = true; break; }
         await new Promise(r => setTimeout(r, 100));
       }
 
@@ -893,23 +948,30 @@ async function runShell() {
       // ── Read log slice from cursor and extract diagnostics ──
       let canplayCount = 0;
       let mutexTimeouts = 0;
+      let playingEvents = 0;
       try {
         if (existsSync(AGENT_LOG)) {
           const logData = readFileSync(AGENT_LOG);
           const slice = logData.slice(logCursor).toString('utf8');
           for (const line of slice.split('\n')) {
-            // Count [AUDIO] canplay events. Exclude [RATE_TRACE] lines which also
-            // mention 'canplay' but are commentary, not audio element events.
-            if (line.includes('[AUDIO]') && line.includes('canplay') && !line.includes('RATE_TRACE')) { canplayCount++; }
+            // [DETECTOR FIX] The canplay log is emitted inside onCanPlay as:
+            //   "[RATE_TRACE] 🎵 Neural canplay | playbackRate=..."
+            // The old check looked for "[AUDIO] canplay" which never matched.
+            // Now we match the actual pattern: RATE_TRACE + Neural canplay.
+            if (line.includes('RATE_TRACE') && line.includes('Neural canplay')) { canplayCount++; }
+            // Secondary signal: Sovereign PLAYING event — confirms audio element fired playing
+            if (line.includes('Sovereign Event: PLAYING')) { playingEvents++; }
             if (line.includes('Mutex Safety Timeout')) { mutexTimeouts++; }
           }
         }
       } catch { }
 
-      const pass = canplayCount === 1;
-      const icon = pass ? '\u2705' : canplayCount === 0 ? '\u2b55' : '\u274c';
+      // Pass if: exactly 1 canplay AND at least 1 PLAYING sovereign event (no double-fire, no silence)
+      const pass = canplayCount === 1 && playingEvents >= 1;
+      const icon = pass ? '\u2705' : (canplayCount === 0 && playingEvents === 0) ? '\u2b55' : canplayCount > 1 ? '\u274c' : '\u26a0\ufe0f';
       const mutexNote = mutexTimeouts > 0 ? ` | mutex_timeout\u00d7${mutexTimeouts}` : '';
-      process.stdout.write(`${icon}  canplay\u00d7${canplayCount}${mutexNote}\n`);
+      const playNote = playingEvents > 0 ? ` | playing\u00d7${playingEvents}` : '';
+      process.stdout.write(`${icon}  canplay\u00d7${canplayCount}${playNote}${mutexNote}\n`);
       results.push({ i, canplay: canplayCount, mutexTimeouts, pass });
 
       // Drain before next iteration.
