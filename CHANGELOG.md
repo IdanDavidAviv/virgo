@@ -7,6 +7,19 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.5.1] - 2026-04-22
+
+### Fixed
+- **Phantom Sovereign Events (Intent 0)**: Replaced the in-place `_audio.play()` priming call with a throwaway `Audio` element, isolating the silent prime from the main audio element's event stream and eliminating ghost `PLAYING`/`PAUSED` Sovereign Events before the first user interaction.
+- **Double-Fired IPC Handlers**: Removed duplicate `SYNTHESIS_READY`, `DATA_PUSH`, `CLEAR_CACHE_WIPE`, and `PURGE_MEMORY` listeners from `PlaybackController.setupListeners()`. These were already exclusively registered by `CommandDispatcher.mount()`, causing 2× `FETCH_AUDIO` per synthesis and double `canplay` events.
+- **Pause Intent Corruption**: Refactored `PlaybackController.pause()` to read `store.getState().playbackIntentId` instead of calling `store.resetPlaybackIntent()`. Pause is a continuation, not a cancellation — bumping the intent counter caused in-flight `PLAY_AUDIO` packets to be rejected mid-sentence.
+- **UI_SYNC Lock Destruction**: Added a guard in `PlaybackController.handleSync()` to only call `releaseLock()` when the engine is not actively playing. Previously, every 2-second `UI_SYNC` heartbeat unconditionally released the `isAwaitingSync` protection, flipping the play button back to ▶ during live synthesis.
+
+### Hardened
+- **CDP Audit Pre-Flight**: Added `close-host` and `restart` shell commands to `cdp-controller.mjs`, enabling a fully autonomous cold-boot sequence (close → wait → launch → wait-for-ready) as a mandatory pre-flight reflex before all lifecycle audit sessions.
+
+
+
 ## [2.5.0] - 2026-04-20
 
 ### Fixed
