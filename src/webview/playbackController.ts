@@ -128,22 +128,14 @@ export class PlaybackController {
         const client = MessageClient.getInstance();
         const store = WebviewStore.getInstance();
 
-        // [SOVEREIGNTY] Centralized IPC Handlers
-        client.onCommand(IncomingCommand.SYNTHESIS_READY, (data: { cacheKey: string, intentId: number, isPriority: boolean }) => {
-            this.handleSynthesisReady(data.cacheKey, data.intentId, data.isPriority);
-        });
-
-
-        // --- IPC & LOGIC HELPERS ---
-
-        // [SIMPLIFICATION] DATA_PUSH is cache-warm ONLY. No play trigger.
-        // PLAY_AUDIO in CommandDispatcher is the single authority for playBlob().
-        // Removing HEAD_MATCH eliminates the 3× concurrent playBlob() calls that
-        // caused the Mutex Safety Timeout and duplicate canplay events.
-        client.onCommand<{ cacheKey: string, data: string, intentId: number }>(IncomingCommand.DATA_PUSH, ({ cacheKey, data, intentId }) => {
-            const engine = WebviewAudioEngine.getInstance();
-            engine.ingestData(cacheKey, data, intentId);
-        });
+        // [IPC-DEDUP] SYNTHESIS_READY and DATA_PUSH are handled exclusively by CommandDispatcher.dispatch().
+        // Registering them here caused EVERY message to fire TWICE:
+        //   1) CommandDispatcher.mount() registers all IncomingCommand values via client.onCommand()
+        //   2) setupListeners() registered them again independently
+        // Result: 2× FETCH_AUDIO per synthesis, 2× ingestData() per DATA_PUSH, double canplay.
+        // REMOVED: SYNTHESIS_READY handler (was lines 132-134)
+        // REMOVED: DATA_PUSH handler (was lines 143-146)
+        // Both are now sole-authority of CommandDispatcher.
 
         // Unified Cache Stats handler
         const handleCacheStats = (data: { count: number, sizeBytes?: number, size?: number }) => {
@@ -169,15 +161,10 @@ export class PlaybackController {
         // Registering a second handler here caused double-firing on every packet,
         // leading to a cascading !hasChanges guard exit that silenced all UI updates.
 
-        client.onCommand(IncomingCommand.CLEAR_CACHE_WIPE, () => {
-            console.log('[PlaybackController] 🧹 Cache wipe requested');
-            WebviewAudioEngine.getInstance().wipeCache();
-        });
-
-        client.onCommand(IncomingCommand.PURGE_MEMORY, () => {
-            console.log('[PlaybackController] 🧠 Memory purge requested');
-            WebviewAudioEngine.getInstance().purgeMemory();
-        });
+        // [IPC-DEDUP] CLEAR_CACHE_WIPE and PURGE_MEMORY also handled by CommandDispatcher.
+        // REMOVED: CLEAR_CACHE_WIPE handler
+        // REMOVED: PURGE_MEMORY handler
+        // Kept only the handlers NOT present in CommandDispatcher:
 
         client.onCommand(IncomingCommand.SNIPPET_SAVED, () => {
             console.log('[PlaybackController] 💾 Snippet saved. Refreshing history...');
@@ -204,7 +191,7 @@ export class PlaybackController {
         // 1. [SYNC] Universal Unlocker: Any jump is a gesture that primes the engine.
         // [AUTOPLAY GUARD] Jump is also a user gesture — unlock the gesture gate.
         this._userHasInteracted = true;
-        WebviewAudioEngine.getInstance().ensureAudioContext();
+        WebviewAudioEngine.getInstance().ensureAudioContext(); // single call — promise-gated, safe to call once
 
         // 2. [SYNC] Authoritative State Patch
         if (currentState) {
@@ -220,8 +207,7 @@ export class PlaybackController {
         // 3. [FIFO] Atomic Flush
         this.flushQueue();
 
-        // 4. [IPC] Sovereign Emission
-        WebviewAudioEngine.getInstance().ensureAudioContext();
+        // 4. [IPC] Sovereign Emission — single ensureAudioContext call above handles priming
         const intentId = store.resetPlaybackIntent();
         MessageClient.getInstance().postAction(OutgoingAction.JUMP_TO_SENTENCE, {
             index,
@@ -601,8 +587,11 @@ export class PlaybackController {
     public pause(): void {
         console.log('[PlaybackController] ⏸️ USER PAUSE requested');
         const store = WebviewStore.getInstance();
-        const intentId = store.resetPlaybackIntent();
-        this.intentExpiry = Date.now() + this.INTENT_TIMEOUT_MS;
+        // [INTENT-DISCIPLINE] Pause is a CONTINUATION, not a cancellation.
+        // Do NOT call resetPlaybackIntent() — that bumps the counter, which causes
+        // any in-flight PLAY_AUDIO (with the previous intentId) to be rejected.
+        // Pause must use the current intentId unchanged.
+        const intentId = store.getState().playbackIntentId;
 
         // [SYNC] Universal Unlocker: Priming on Pause
         WebviewAudioEngine.getInstance().ensureAudioContext();
@@ -841,7 +830,13 @@ export class PlaybackController {
             WebviewAudioEngine.getInstance().ensureAudioContext().catch(() => { });
         }
 
-        this.releaseLock();
+        // [LOCK-DISCIPLINE] Only release the play-protection lock if we are NOT actively playing.
+        // Without this gate, every UI_SYNC heartbeat (~2s) calls releaseLock() unconditionally,
+        // destroying the isAwaitingSync guard set by play() and flipping the button back to ▶.
+        const uiState = store.getUIState();
+        if (uiState.playbackIntent !== 'PLAYING' || packet.isPlaying) {
+            this.releaseLock();
+        }
     }
 
     public getState() {

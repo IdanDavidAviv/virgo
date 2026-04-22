@@ -101,8 +101,10 @@ export class PlaybackControls extends BaseComponent<PlaybackControlsElements> {
         }
         const isAudiblyPlaying = !!state.isPlaying;
         const isActuallyPaused = !!state.isPaused;
-        const isActuallyActive = (playbackIntent === 'PLAYING' || (isAudiblyPlaying && !isActuallyPaused));
         const isStalled = !!state.playbackStalled;
+        // isActuallyActive: show pause button when playing, stalling between sentences (buffering),
+        // or when the store has a PLAYING intent (covers the gap between sentences where isPlaying briefly dips).
+        const isActuallyActive = (playbackIntent === 'PLAYING' || isStalled || (isAudiblyPlaying && !isActuallyPaused));
 
         // 1. Play/Pause Visibility
         if (btnPlay) {

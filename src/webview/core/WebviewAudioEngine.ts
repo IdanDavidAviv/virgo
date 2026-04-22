@@ -12,7 +12,7 @@ export class WebviewAudioEngine {
   private _audio: HTMLAudioElement;
   private get _speechSynth(): SpeechSynthesis { return window.speechSynthesis; }
   private _utterance: SpeechSynthesisUtterance | null = null;
-  private _isPrimed: boolean = false;
+  private _primingPromise: Promise<void> | null = null; // [PRIME-GATE] Coalesces concurrent prime calls onto one operation
   
   // [RATE_SOVEREIGNTY] 🎯 v2.3.2
   // Stores the original synthesis rate of the neural audio segment.
@@ -94,7 +94,8 @@ export class WebviewAudioEngine {
     this._audio.addEventListener('waiting', () => this.emit(AudioEngineEventType.BUFFERING));
     this._audio.addEventListener('stalled', () => this.emit(AudioEngineEventType.STALLED));
     this._audio.addEventListener('loadstart', () => console.log('[AUDIO] 🏁 loadstart'));
-    this._audio.addEventListener('canplay', () => console.log('[AUDIO] ✅ canplay'));
+    // NOTE: No global canplay listener here — it fires on every audio.src reassignment (once per playBlob).
+    // The authoritative {once:true} onCanPlay handler in playBlob() is the single canonical listener.
   }
 
   private setupStoreListeners(): void {
@@ -195,21 +196,32 @@ export class WebviewAudioEngine {
     }
   }
 
-  public async ensureAudioContext(): Promise<void> {
-    if (this._isPrimed) { return; }
-    // Prime the audio context with a silent play on a muted element.
-    // This unlocks the browser's autoplay gate before the first real playBlob() arrives.
-    // [CRITICAL] muted = false and _isPrimed MUST be set AFTER the race — not inside .then().
-    // If the 500ms timeout wins (autoplay policy blocks play()), .then() never fires and
-    // the element stays permanently muted. Every playBlob() after that is silent.
-    this._audio.muted = true;
-    await Promise.race<void>([
-      this._audio.play(),
-      new Promise<void>(r => setTimeout(r, 500))
-    ]).catch(() => {});
-    this._audio.muted = false; // Always unmute — whether play() resolved or timed out
-    this._isPrimed = true;
-    console.log('[AUDIO] 🔓 Primed');
+  public ensureAudioContext(): Promise<void> {
+    // [PRIME-GATE] If already primed or priming is in-flight, return the existing promise.
+    // Concurrent callers (e.g. jumpToSentence calling twice, handleSync on playbackAuthorized)
+    // coalesce here instead of running parallel muted-play races that emit phantom PLAYING events.
+    if (this._primingPromise) { return this._primingPromise; }
+
+    this._primingPromise = (async () => {
+      // Use a throwaway element so the main _audio element's event stream is NOT polluted.
+      // Previously: priming called this._audio.play() → fired canplay/playing/buffering events
+      // at Intent 0 before user interaction, causing phantom Sovereign Events in PlaybackController.
+      const throwaway = new Audio();
+      throwaway.muted = true;
+      // Tiny silent WAV — guaranteed to load and satisfy the browser gesture gate.
+      throwaway.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+      await Promise.race<void>([
+        throwaway.play().catch(() => {}),
+        new Promise<void>(r => setTimeout(r, 500))
+      ]);
+      throwaway.pause();
+      throwaway.src = '';
+      // Ensure the real audio element is unmuted for actual playback.
+      this._audio.muted = false;
+      console.log('[AUDIO] 🔓 Primed (throwaway)');
+    })();
+
+    return this._primingPromise;
   }
 
 
