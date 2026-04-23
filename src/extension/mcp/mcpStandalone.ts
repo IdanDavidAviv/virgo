@@ -2,6 +2,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as path from "path";
 import { createReadAloudMcpServer } from "./core/mcpFactory";
 import { PendingInjectionStore } from "./core/sharedStore";
+// eslint-disable-next-line @typescript-eslint/naming-convention
+declare const __APP_VERSION__: string;
 
 /**
  * Portless MCP Server for Read Aloud (Standalone)
@@ -27,10 +29,10 @@ async function main() {
     const store = new PendingInjectionStore(persistencePath);
     const server = createReadAloudMcpServer({
         persistencePath,
-        brainRoot: sessionsRoot,
+        sessionsRoot,
         logger,
         store,
-        version: "2.2.0"
+        version: __APP_VERSION__
     });
 
     // 4. Connect Transport

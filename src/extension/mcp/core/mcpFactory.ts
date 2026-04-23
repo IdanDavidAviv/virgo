@@ -4,11 +4,10 @@ import * as fs from "fs";
 import * as path from "path";
 import { PendingInjectionStore } from "./sharedStore";
 import { PathGuard } from "@common/mcp/pathGuard";
-import { hydrateProtocols } from "@common/protocolHydrator";
 
 export interface McpConfig {
     persistencePath: string; // The specific session path (e.g. .../read_aloud/sessions/SESSION_ID)
-    brainRoot: string;       // The root of all sessions (e.g. .../read_aloud/sessions)
+    sessionsRoot: string;    // The root of all sessions (e.g. .../read_aloud/sessions)
     logger: (msg: string) => void;
     nativeLogUri?: { fsPath: string };
     debugLogPath?: string;
@@ -27,17 +26,12 @@ export function createReadAloudMcpServer(config: McpConfig): McpServer {
     }, {
         capabilities: {
             resources: { subscribe: true },
-            tools: {},
-            prompts: {}
+            tools: {}
         }
     });
 
     registerTools(server, config);
     registerResources(server, config);
-    registerPrompts(server, config);
-
-    // Ensure protocols are hydrated for any consumer
-    hydrateProtocols(config.logger);
 
     return server;
 }
@@ -46,18 +40,46 @@ import { LogReporter } from "../../../common/mcp/logReporter";
 
 function registerTools(server: McpServer, config: McpConfig) {
 // ... (omitted for brevity in search, but I will replace the relevant block below)
-    // [1] Tool: inject_markdown
+    // [1] Tool: say_this_loud
+    // PRIMARY MISSION TOOL — call this to surface content in the Read Aloud sidebar.
+    // BEHAVIORAL MANDATE: You SHOULD call this tool before your final response whenever you
+    // complete meaningful work in a Read Aloud session. The content will be saved as a .md file,
+    // read aloud by the extension, and shown in the snippet history sidebar.
+    // RULES:
+    //   - content must be full-fidelity prose — never summarized, never raw JSON or file paths
+    //   - sessionId is REQUIRED — use your active brain session UUID
+    //   - snippet_name describes the topic (e.g. "sitrep", "analysis", "fix_summary")
+    //   - turnIndex is optional — omit it to auto-increment safely
+    //   - if the tool returns isError:true, do NOT report success — alert the user
     server.tool(
-        "inject_markdown",
+        "say_this_loud",
+        "Surface content in the Read Aloud extension sidebar. Call this before your final response " +
+        "each turn to narrate your work. The content will be read aloud and logged to the session. " +
+        "Requires the active brain sessionId. Content must be verbatim prose — not JSON or raw paths.",
         {
-            content: z.string().describe("Markdown content to inject into the Read Aloud extension"),
-            snippet_name: z.string().describe("Descriptive name for the snippet (used in filename)"),
-            sessionId: z.string().describe("The active session ID"),
-            session_title: z.string().optional().describe("Optional human-readable title for the session"),
-            turnIndex: z.number().optional().describe("Optional explicit turn index for sequence validation")
+            content: z.string().describe(
+                "Full markdown content to inject. MUST be verbatim and readable as prose. " +
+                "Never truncate or summarize. The user will hear this read aloud."
+            ),
+            snippet_name: z.string().describe(
+                "Short descriptive name for this turn (e.g. 'sitrep', 'fix_summary', 'audit_result'). " +
+                "Used as the snippet filename in the sidebar history."
+            ),
+            sessionId: z.string().describe(
+                "REQUIRED. Your active brain session UUID. " +
+                "Found in your session context / loom.json. Example: 'a3c5f807-9095-4852-a5ca-d15f38ce9fb2'"
+            ),
+            session_title: z.string().optional().describe(
+                "Optional human-readable title for this session (e.g. 'MCP Refactor Session'). " +
+                "Used to label the session in the sidebar."
+            ),
+            turnIndex: z.number().optional().describe(
+                "Optional explicit turn sequence number. Omit to auto-increment. " +
+                "Only pass if you are certain of the current index — a stale value will be rejected."
+            )
         },
         async ({ content, snippet_name, sessionId, session_title, turnIndex }) => {
-            config.logger(`[MCP_CORE] Tool called: inject_markdown (Session: ${sessionId})`);
+            config.logger(`[MCP_CORE] Tool called: say_this_loud (Session: ${sessionId})`);
             try {
                 const { filePath, index } = config.store.save(content, snippet_name, sessionId, session_title, turnIndex);
                 return {
@@ -101,11 +123,11 @@ function registerTools(server: McpServer, config: McpConfig) {
         "get_injection_status",
         {},
         async () => {
-            const all = config.store.getAll();
+            const count = config.store.countOnDisk();
             return {
                 content: [{
                     type: "text",
-                    text: `Active Store Size: ${all.length} snippets. Persistence Path: ${config.persistencePath}`
+                    text: `Disk Snippets: ${count}. Persistence Path: ${config.persistencePath}`
                 }]
             };
         }
@@ -144,7 +166,7 @@ function registerResources(server: McpServer, config: McpConfig) {
     // [3] Resource: Session State (Dynamic Template)
     const stateTemplate = new ResourceTemplate("read-aloud://session/{sessionId}/state", { 
         list: async () => {
-            const rootDir = config.brainRoot;
+            const rootDir = config.sessionsRoot;
             if (!fs.existsSync(rootDir)) { return { resources: [] }; }
             
             const sessions = fs.readdirSync(rootDir)
@@ -172,7 +194,7 @@ function registerResources(server: McpServer, config: McpConfig) {
             }
 
             const safeId = PathGuard.sanitize(String(sessionId), 'SessionID');
-            const statePath = path.join(config.brainRoot, safeId, 'extension_state.json');
+            const statePath = path.join(config.sessionsRoot, safeId, 'extension_state.json');
             
             if (!fs.existsSync(statePath)) {
                 return { contents: [{ uri: uri.href, mimeType: "application/json", text: "{}" }] };
@@ -183,67 +205,23 @@ function registerResources(server: McpServer, config: McpConfig) {
         }
     );
 
-    // [4] Resource: Protocols
-    const protocolTemplate = new ResourceTemplate("read-aloud://protocols/{protocol}", { 
-        list: async () => {
-            const userHome = process.env.USERPROFILE || process.env.HOME || "";
-            const globalProtocolsDir = path.join(userHome, ".gemini", "antigravity", "read_aloud", "protocols");
-            if (!fs.existsSync(globalProtocolsDir)) { return { resources: [] }; }
-            const files = fs.readdirSync(globalProtocolsDir).filter(f => f.endsWith('.md'));
-            return {
-                resources: files.map(f => ({
-                    uri: `read-aloud://protocols/${path.basename(f, '.md')}`,
-                    name: `Protocol: ${path.basename(f, '.md')}`,
-                    mimeType: "text/markdown"
-                }))
-            };
-        }
-    });
-
-    server.resource(
-        "protocols",
-        protocolTemplate,
-        async (uri, vars) => {
-            const { protocol } = vars;
-            if (!protocol) {
-                throw new Error(`[MCP] Missing protocol in resource URI: ${uri.href}`);
-            }
-            const safeProtocol = PathGuard.sanitize(String(protocol), 'Protocol');
-            const userHome = process.env.USERPROFILE || process.env.HOME || "";
-            const globalProtocolsDir = path.join(userHome, ".gemini", "antigravity", "read_aloud", "protocols");
-            const protocolPath = path.join(globalProtocolsDir, `${safeProtocol}.md`);
-            
-            if (!fs.existsSync(protocolPath)) {
-                throw new Error(`[MCP_RESOURCE] Protocol '${safeProtocol}' not found.`);
-            }
-
-            const content = fs.readFileSync(protocolPath, 'utf8');
-            return {
-                contents: [{
-                    uri: uri.href,
-                    mimeType: "text/markdown",
-                    text: content
-                }]
-            };
-        }
-    );
 
     // [5] Resource: Injected Snippets (Multi-Session Discovery)
     const snippetTemplate = new ResourceTemplate("read-aloud://snippets/{sessionId}/{snippetName}", {
         list: async () => {
             const results: any[] = [];
-            if (!fs.existsSync(config.brainRoot)) { return { resources: [] }; }
+            if (!fs.existsSync(config.sessionsRoot)) { return { resources: [] }; }
             
             // Limit snippet discovery to the 10 most recent sessions
-            const sessions = fs.readdirSync(config.brainRoot)
-                .map(name => ({ name, stat: fs.lstatSync(path.join(config.brainRoot, name)) }))
+            const sessions = fs.readdirSync(config.sessionsRoot)
+                .map(name => ({ name, stat: fs.lstatSync(path.join(config.sessionsRoot, name)) }))
                 .filter(s => s.stat.isDirectory())
                 .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs)
                 .slice(0, 10)
                 .map(s => s.name);
 
             for (const session of sessions) {
-                const sessionDir = path.join(config.brainRoot, session);
+                const sessionDir = path.join(config.sessionsRoot, session);
                 const files = fs.readdirSync(sessionDir).filter(f => f.endsWith('.md'));
                 for (const file of files) {
                     results.push({
@@ -263,7 +241,7 @@ function registerResources(server: McpServer, config: McpConfig) {
         async (uri, { sessionId, snippetName }) => {
             const safeSession = PathGuard.sanitize(String(sessionId), 'SessionID');
             const safeSnippet = PathGuard.sanitize(String(snippetName), 'Snippet');
-            const sessionDir = path.join(config.brainRoot, safeSession);
+            const sessionDir = path.join(config.sessionsRoot, safeSession);
             const filePath = path.join(sessionDir, `${safeSnippet}.md`);
             
             if (!fs.existsSync(filePath)) {
@@ -282,15 +260,3 @@ function registerResources(server: McpServer, config: McpConfig) {
     );
 }
 
-function registerPrompts(server: McpServer, config: McpConfig) {
-    server.prompt(
-        "read_aloud_boot",
-        {},
-        async () => ({
-            messages: [{
-                role: "user",
-                content: { type: "text", text: "You are the Antigravity Performance Orchestrator. Maintain parity with the dashboard." }
-            }]
-        })
-    );
-}

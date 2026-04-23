@@ -16,9 +16,8 @@ export class McpBridge extends EventEmitter {
     private _store: PendingInjectionStore;
     private _httpServer: any = null;
     private _transports = new Map<string, SSEServerTransport>();
-    private _activeServers = new Set<McpServer>();
+    private _server: McpServer | null = null;
     private static readonly SERVER_NAME = 'read-aloud';
-    private static _instanceCounter = 0;
     // [Gate 2] Startup Orchestration — coalesce SSE probes for the FULL session lifetime.
     // Gate opens on first connection and closes ONLY when the SSE connection closes (req 'close' event).
     // This prevents Gemini's MCP client from triggering eviction loops on every retry.
@@ -31,7 +30,8 @@ export class McpBridge extends EventEmitter {
         private readonly _logger: (msg: string) => void,
         private readonly _nativeLogUri?: { fsPath: string },
         private readonly _debugLogPath?: string,
-        private readonly _extensionMode: number = 1 // Default to Production
+        private readonly _extensionMode: number = 1, // Default to Production
+        private readonly _version: string = "0.0.0"
     ) {
         super();
         
@@ -46,62 +46,57 @@ export class McpBridge extends EventEmitter {
 
     public async reinitialize() {
         this._logger(`[MCP_BRIDGE] Hub Re-Sync Initiated...`);
-        this._notifyAll(server => {
+        if (this._server) {
             try {
-                server.sendResourceListChanged();
-                server.sendToolListChanged();
-                server.sendPromptListChanged();
+                this._server.sendResourceListChanged();
+                this._server.sendToolListChanged();
             } catch (e) {}
-        });
+        }
         this._logger(`[MCP_BRIDGE] Hub Re-Sync Complete.`);
     }
 
     private _initializeServer() {
-        this._logger(`[MCP_BRIDGE] Initializing Service Registry (Multi-Instance Hub)`);
+        this._logger(`[MCP_BRIDGE] Initializing Service Registry`);
         
         this._store.onInjected(({ content, name, index, filePath }) => {
             this.emit("injected", { content, name, index, filePath });
-            this._notifyAll(server => {
-                try { server.sendResourceListChanged(); } catch (e) {}
-            });
+            if (this._server) {
+                try { this._server.sendResourceListChanged(); } catch (e) {}
+            }
         });
     }
 
     public pivotSession(newSessionId: string) {
         this._logger(`[MCP_BRIDGE] PIVOTING to session: ${newSessionId}`);
-        const brainRoot = path.dirname(this._persistencePath);
-        this._persistencePath = path.join(brainRoot, newSessionId);
+        const sessionsRoot = path.dirname(this._persistencePath);
+        this._persistencePath = path.join(sessionsRoot, newSessionId);
         this._store.setBasePath(this._persistencePath);
         
         this.reinitialize();
     }
 
     private _createNewServer(): McpServer {
-        const instanceId = ++McpBridge._instanceCounter;
-        this._logger(`[MCP_BRIDGE] Spawning New Server Instance (ID: ${instanceId})`);
+        this._logger(`[MCP_BRIDGE] Spawning New Server Instance`);
         
         const server = createReadAloudMcpServer({
             persistencePath: this._persistencePath,
-            brainRoot: path.dirname(this._persistencePath),
+            sessionsRoot: path.dirname(this._persistencePath),
             logger: this._logger,
             nativeLogUri: this._nativeLogUri,
             debugLogPath: this._debugLogPath,
             store: this._store,
-            version: "2.4.5"
+            version: this._version
         });
 
-        (server as any)._readAloudInstanceId = instanceId;
         return server;
     }
 
     private _notifyAll(callback: (server: McpServer) => void) {
-        this._activeServers.forEach(server => {
-            try {
-                callback(server);
-            } catch (err) {
+        if (this._server) {
+            try { callback(this._server); } catch (err) {
                 this._logger(`[MCP_BRIDGE] Broadcast Error: ${err}`);
             }
-        });
+        }
     }
 
     /**
@@ -120,7 +115,7 @@ export class McpBridge extends EventEmitter {
         this._app.use(cors());
 
         this._app.get("/health", (req, res) => {
-            res.json({ status: "ok", mcp: "read-aloud", version: "2.4.5" });
+            res.json({ status: "ok", mcp: "read-aloud", version: this._version });
         });
 
 
@@ -151,9 +146,6 @@ export class McpBridge extends EventEmitter {
             };
 
             try {
-                // [Gate 3] Storm Debounce
-                await new Promise(resolve => setTimeout(resolve, 100));
-
                 this._logger(`[MCP_BRIDGE] New SSE connection attempt from ${req.ip}`);
                 
                 this._handshakeTimeout = setTimeout(() => {
@@ -175,33 +167,33 @@ export class McpBridge extends EventEmitter {
             }
 
             const server = this._createNewServer();
-            const instanceId = (server as any)._readAloudInstanceId;
-            this._activeServers.add(server);
+            this._server = server;
+            this._transports = new Map(); // reset transport map for new session
 
             const transport = new SSEServerTransport("/messages", res);
 
-            this._logger(`[MCP_BRIDGE] Connecting Instance ${instanceId} to Transport (Pending Handshake)...`);
+            this._logger(`[MCP_BRIDGE] Connecting to Transport (Pending Handshake)...`);
 
             server.connect(transport).then(() => {
                 cleanupHandshake();
                 const sid = (transport as any).sessionId || (transport as any)._sessionId;
                 if (sid) {
                     this._transports.set(sid, transport);
-                    this._logger(`[MCP_BRIDGE] ✅ session_active: ${sid} (Instance: ${instanceId})`);
+                    this._logger(`[MCP_BRIDGE] ✅ session_active: ${sid}`);
 
                     // Critical Handshake: Force immediate resource/tool sync after handshake
                     setTimeout(() => {
                         try {
                             server.sendResourceListChanged();
                             server.sendToolListChanged();
-                            this._logger(`[MCP_BRIDGE] Post-Handshake Broadcast Complete (Instance: ${instanceId})`);
+                            this._logger(`[MCP_BRIDGE] Post-Handshake Broadcast Complete`);
                         } catch (e) {}
                     }, 500);
                 }
             }).catch(err => {
-                this._logger(`[MCP_BRIDGE] ❌ Handshake FAILED (Instance: ${instanceId}): ${err.message}`);
+                this._logger(`[MCP_BRIDGE] ❌ Handshake FAILED: ${err.message}`);
                 cleanupHandshake();
-                this._activeServers.delete(server);
+                this._server = null;
                 try { transport.close(); } catch (e) {}
                 if (!res.writableEnded) {
                     try { res.end(); } catch (e) {}
@@ -213,10 +205,10 @@ export class McpBridge extends EventEmitter {
                 if (sid) {
                     this._transports.delete(sid);
                 }
-                this._activeServers.delete(server);
+                this._server = null;
                 cleanupHandshake();
                 try { transport.close(); } catch (e) {}
-                this._logger(`[MCP_BRIDGE] session_closed (Instance: ${instanceId}, Remaining: ${this._activeServers.size})`);
+                this._logger(`[MCP_BRIDGE] session_closed`);
             });
         });
 
@@ -236,7 +228,7 @@ export class McpBridge extends EventEmitter {
                         res.status(500).send(err.message);
                     }
                 }
-            } else if (req.body?.method === 'tools/call' && req.body.params?.name === 'inject_markdown') {
+            } else if (req.body?.method === 'tools/call' && req.body.params?.name === 'say_this_loud') {
                 const { content, snippet_name: snippetName, sessionId: toolSessionId, session_title: sessionTitle, turnIndex } = req.body.params.arguments || {};
                 const targetSession = toolSessionId || sessionId || 'default';
                 if (content && snippetName) {

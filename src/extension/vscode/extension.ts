@@ -110,7 +110,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // [MP-001 T-015] Session persistence now routes to sessions/<id>/ — the canonical session root.
     // McpWatcher watches sessionsRoot, so injected files are immediately discoverable by the UI.
     const sessionPersistencePath = path.join(sessionsRoot, sessionId);
-    const mcpBridge = new McpBridge(sessionPersistencePath, log, (outputChannel as any).logUri, logFilePath, context.extensionMode);
+    const mcpBridge = new McpBridge(sessionPersistencePath, log, (outputChannel as any).logUri, logFilePath, context.extensionMode, context.extension.packageJSON.version as string);
     context.subscriptions.push(mcpBridge);
     
     // [SOVEREIGNTY] Authoritative Playback Interruption on Bridge Churn

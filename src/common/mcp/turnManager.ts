@@ -3,12 +3,12 @@ import * as path from "path";
 
 /**
  * High-integrity Turn State Management for Antigravity Sessions.
- * Ensures sequence integrity and prevents drift via the [TurnSentinel] protocol.
+ * The [TurnSentinel] logs a warning on stale indices but never rejects an injection.
  */
 export class TurnManager {
     /**
-     * Atomically get and update the turn index from extension_state.json
-     * @throws Error if [TurnSentinel] drift is detected.
+     * Atomically get and update the turn index from extension_state.json.
+     * If incomingIndex is stale (≤ current), logs a warning and auto-increments instead.
      */
     public static updateTurnIndex(sessionPath: string, options: { 
         sessionTitle?: string, 
@@ -30,11 +30,12 @@ export class TurnManager {
             if (options.incomingIndex !== undefined) {
                 const current = currentState.current_turn_index || 0;
                 if (options.incomingIndex <= current) {
-                    const errorMsg = `[TurnSentinel] Stale turn index (${options.incomingIndex} <= ${current}). Possible sequence drift detected.`;
-                    if (options.logger) {options.logger(errorMsg);}
-                    throw new Error(errorMsg);
+                    const warnMsg = `[TurnSentinel] Stale turn index (${options.incomingIndex} <= ${current}) — auto-incrementing to ${index}.`;
+                    if (options.logger) { options.logger(warnMsg); }
+                    // index already set to current+1 above — honour auto-increment, not the stale value
+                } else {
+                    index = options.incomingIndex; // Honor the explicit turn index
                 }
-                index = options.incomingIndex; // Honor the explicit turn index
             }
             
             const newState = {
@@ -46,12 +47,9 @@ export class TurnManager {
             fs.writeFileSync(stateFile, JSON.stringify(newState, null, 2));
             return index;
         } catch (err) {
-            if (err instanceof Error && err.message.includes('[TurnSentinel]')) {
-                throw err;
-            }
             const errMsg = `[TURN_MANAGER] Failed to update state.json: ${err}`;
-            if (options.logger) {options.logger(errMsg);}
-            return index; // Fallback to calculated index on non-sentinel error
+            if (options.logger) { options.logger(errMsg); }
+            return index; // Fallback to calculated index on any error
         }
     }
 }

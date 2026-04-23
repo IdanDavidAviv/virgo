@@ -8,7 +8,6 @@ import { TurnManager } from "../../../common/mcp/turnManager";
  * Shared between SSE (Bridge) and Stdio (Standalone) transports.
  */
 export class PendingInjectionStore extends EventEmitter {
-    private _injections: { timestamp: number, content: string, name: string, filePath?: string }[] = [];
 
     constructor(private _basePath: string) {
         super();
@@ -62,7 +61,6 @@ export class PendingInjectionStore extends EventEmitter {
         }
 
         fs.writeFileSync(filePath, finalContent);
-        this._injections.push({ timestamp, content: finalContent, name, filePath });
         this.emit('injected', { content: finalContent, name, index, filePath });
         return { filePath, index };
     }
@@ -71,15 +69,27 @@ export class PendingInjectionStore extends EventEmitter {
         this.on('injected', callback);
     }
 
-    public getAll() {
-        return [...this._injections];
-    }
-
-    public getLatest() {
-        return this._injections[this._injections.length - 1];
-    }
-
-    public clear() {
-        this._injections = [];
+    /**
+     * Returns the number of injected snippets in the current base path (on disk).
+     */
+    public countOnDisk(): number {
+        try {
+            if (!fs.existsSync(this._basePath)) { return 0; }
+            let count = 0;
+            // Count .md files at basePath level
+            count += fs.readdirSync(this._basePath)
+                .filter(f => f.endsWith('.md'))
+                .length;
+            // Also recurse one level into session subdirectories
+            for (const entry of fs.readdirSync(this._basePath)) {
+                const sub = path.join(this._basePath, entry);
+                if (fs.statSync(sub).isDirectory()) {
+                    count += fs.readdirSync(sub).filter(f => f.endsWith('.md')).length;
+                }
+            }
+            return count;
+        } catch {
+            return 0;
+        }
     }
 }
