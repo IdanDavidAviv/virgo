@@ -68,6 +68,17 @@ A **reload** restarts the extension in-place. For a true cold-boot audit (T-006)
 - *Rationale*: Extension commands are asynchronous. The UI might confirm "OK" while the underlying state is still syncing.
 - *Action*: `dispatch Readme Preview: Play` -> `wait-for-ready` (or manual poll) -> `verify-state`.
 
+### 🛠 Phase 4: Mandatory Playback Stop Before Exit ⭐
+> [!CAUTION]
+> **NEVER leave a playback running when exiting the CDP shell.** Free-running audio after shell exit floods `diagnostics_agent.log` with noise that makes subsequent forensic reads ambiguous and cursor-unsafe.
+
+**MANDATORY — before every `exit`:**
+1. Send `dispatch Readme Preview: Stop` OR `eval document.getElementById('btn-stop')?.click()`
+2. Confirm playback has stopped (no more `canplay`/`EMIT playAudio` lines appearing in log)
+3. THEN send `exit`
+
+If no stop button is available, use `dispatch workbench.action.reloadWindow` to reset the host state before exiting.
+
 ## 3. Command Pipeline: Discovery Ritual
 To prevent cross-pollution, always audit the field before acting.
 
@@ -97,6 +108,7 @@ When closing the dev host, the script follows a polite 3-tier ladder:
 | **State Dump** | `verify-state` | Dumps the current Redux store |
 | **Dispatch** | `dispatch <cmd>` | Atomic command triggering |
 | **Eval** | `eval <expr>` | JS execution in webview context |
+| **Stop Playback** | `eval document.getElementById('btn-stop')?.click()` | **MANDATORY before exit** |
 | **Exit Shell** | `exit` | Closes shell script only (Dev Host stays open) |
 
 ## 5. Troubleshooting the Signal
