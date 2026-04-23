@@ -51,8 +51,8 @@ describe('SnippetLookup', () => {
 
         sendSync({
             snippetHistory: [
-                { id: 'session-1', sessionName: 'Session 1', snippets: [{ fsPath: '/test/s1.md' }, { fsPath: '/test/s2.md' }] },
-                { id: 'session-2', sessionName: 'Session 2', snippets: [{ fsPath: '/test/s3.md' }] }
+                { id: 'session-1', sessionName: 'Session 1', snippets: [{ fsPath: '/test/s1.md', timestamp: Date.now() }, { fsPath: '/test/s2.md', timestamp: Date.now() }] },
+                { id: 'session-2', sessionName: 'Session 2', snippets: [{ fsPath: '/test/s3.md', timestamp: Date.now() }] }
             ]
         });
 
@@ -92,20 +92,23 @@ describe('SnippetLookup', () => {
         expect(items[2].querySelector('.snippet-icon').textContent).toBe('📝');
     });
 
-    it('should navigate back to sessions when back button is clicked', () => {
+    it('should toggle accordion open and closed on repeated card clicks', () => {
         const lookup = new SnippetLookup(elements);
         lookup.mount();
 
         sendSync({
-            snippetHistory: [{ id: 's1', sessionName: 'S1', snippets: [{ name: 'f1', fsPath: '/test/f1.md' }] }]
+            snippetHistory: [{ id: 's1', sessionName: 'S1', snippets: [{ name: 'f1', fsPath: '/test/f1.md', timestamp: Date.now() }] }]
         });
 
-        // Enter snippets layer
-        elements.container.querySelector('.snippet-session-card').click();
-        expect(elements.container.querySelector('.snippet-layer-snippets')).not.toBeNull();
+        const card = elements.container.querySelector('.snippet-session-card') as HTMLElement;
 
-        // Click back
-        elements.container.querySelector('.snippet-back-button').click();
-        expect(elements.container.querySelector('.snippet-layer-sessions')).not.toBeNull();
+        // First click — expands
+        card.click();
+        expect(elements.container.querySelector('.snippet-session-card.is-expanded')).not.toBeNull();
+        expect(elements.container.querySelector('.snippet-inline-list')).not.toBeNull();
+
+        // Second click — collapses
+        elements.container.querySelector('.snippet-session-card.is-expanded').click();
+        expect(elements.container.querySelector('.snippet-session-card.is-expanded')).toBeNull();
     });
 });

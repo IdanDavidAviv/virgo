@@ -884,9 +884,9 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
             expect(sessionCard.classList.contains('is-active')).toBe(true);
             expect(sessionCard.textContent).toContain('2 snippets');
 
-            // 4. Navigate into session
+            // 4. Navigate into session (accordion expand)
             sessionCard.click();
-            expect(elements.snippetLookupContainer.querySelector('.snippet-layer-snippets')).not.toBeNull();
+            expect(elements.snippetLookupContainer.querySelector('.snippet-session-card.is-expanded')).not.toBeNull();
             expect(elements.snippetLookupContainer.textContent).toContain('Fragment_A');
             expect(elements.snippetLookupContainer.textContent).toContain('Fragment_B');
 
@@ -904,10 +904,10 @@ describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
                 expect.objectContaining({ path: 'c:/Fragment_A.md', intentId: expect.any(Number) })
             );
 
-            // 7. Test Back Button
-            const backBtn = elements.snippetLookupContainer.querySelector('.snippet-back-button') as HTMLElement;
-            backBtn.click();
-            expect(elements.snippetLookupContainer.querySelector('.snippet-layer-sessions')).not.toBeNull();
+            // 7. Click same card again — accordion collapses
+            const expandedCard = elements.snippetLookupContainer.querySelector('.snippet-session-card.is-expanded') as HTMLElement;
+            expandedCard.click();
+            expect(elements.snippetLookupContainer.querySelector('.snippet-session-card.is-expanded')).toBeNull();
         });
     });
 
