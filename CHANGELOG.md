@@ -2,10 +2,19 @@
 
 All notable changes to the "Readme Preview Read Aloud" extension will be documented in this file.
 
-## [Unreleased]
+## [2.5.9] - 2026-04-23
 
-### Added
-- 
+### Refactored
+- **Workspace Claim Gate (Multi-IDE Playback Sovereignty)**: Replaced the stateful PID-based injection gate (`_knownMcpPid` + cold-start learning logic) and the subsequent workspace-tag-in-filename approach with a clean, deterministic `.workspace_claim` file protocol. At construction and at every session pivot, `McpWatcher` writes its VS Code workspace folder path to `sessions/<id>/.workspace_claim`. On every incoming snippet, it reads the claim — if the claim matches this window's workspace path, process; if not, reject as sibling IDE traffic. First-window-wins: unclaimed sessions are claimed and processed atomically. This is correct-by-design because VS Code physically enforces that no two windows can share the same workspace folder path, making it a self-enforcing, zero-configuration, per-instance discriminator. Removes all stateful PID learning, cold-start logic, and the hardcoded `READ_ALOUD_WORKSPACE` global env var from `mcp_config.json`.
+- **MCP Filename Format Simplified**: Snippet filenames reverted to clean `<timestamp>.<name>.md` — no workspace tag slot. Ownership is entirely determined by the claim file, not by filename contents. The gate is format-agnostic.
+
+### Removed
+- **PID Gate Eradicated**: `_knownMcpPid` field, cold-start learning branch, MCP-restart re-learning branch — all deleted from `McpWatcher.ts`. Zero stateful cross-process tracking remains.
+- **`READ_ALOUD_WORKSPACE` env var**: Removed from `mcp_config.json`. The MCP standalone process no longer attempts to embed workspace identity into filenames — it has no per-window awareness and cannot do so reliably.
+- **`McpBridge` import from E2E tests**: Removed dead `McpBridge` instantiation from `mcp_injection_e2e.test.ts`. T-023 is fully integrated; the bridge class exists only as a source artifact pending deletion (T-024).
+
+### Hardened
+- **Release Prestige SKILL.md**: Added explicit Authorization Gate with `[!CAUTION]` block — agent is strictly forbidden from running `release:patch` without an explicit scoped GO. Prevents accidental version bumps from passive acceptance signals.
 
 ## [2.5.7] - 2026-04-23
 
