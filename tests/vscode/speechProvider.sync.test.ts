@@ -200,7 +200,7 @@ describe('SpeechProvider (Sync)', () => {
             cacheKey: 'test-key'
         });
 
-        expect(synthSpy).toHaveBeenCalledWith('test-key', expect.anything(), 0, 0, undefined);
+        expect(synthSpy).toHaveBeenCalledWith('test-key', expect.anything(), 0, 0, undefined, undefined);
     });
 
     it('should handle CLEAR_CACHE and trigger playbackEngine.clearCache', async () => {

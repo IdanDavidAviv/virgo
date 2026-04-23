@@ -739,7 +739,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this.loadCurrentDocument(); 
                 break;
             case OutgoingAction.REQUEST_SYNTHESIS:
-                await this._audioBridge.synthesize(payload.cacheKey, this._getOptions(), payload.intentId, payload.batchId, payload.isPriority);
+                await this._audioBridge.synthesize(payload.cacheKey, this._getOptions(), payload.intentId, payload.batchId, payload.isPriority, payload.text);
                 break;
             case OutgoingAction.CLEAR_CACHE:
                 this._playbackEngine.clearCache();

@@ -38,6 +38,11 @@ export class AudioBridge extends EventEmitter {
     // start() is allowed to call setPlaying(true). Prevents LOAD_DOCUMENT and
     // synthesisReady callbacks from auto-triggering the playing state.
     private _isUserInitiatedPlay: boolean = false;
+    // [PLAY-ONCE] Backstop gate: tracks the last cacheKey for which playAudio was emitted.
+    // Suppresses a second playAudio for the exact same sentence (same cacheKey) if a duplicate
+    // synthesis path slips through the root fix (_processQueue head-exclusion + RC-2 schema fix).
+    // Keyed by cacheKey (not intentId) so different sentences always play unobstructed.
+    private _lastPlayAudioCacheKey: string = '';
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -60,6 +65,8 @@ export class AudioBridge extends EventEmitter {
                 this._lastIntentId = state.playbackIntentId;
                 // [Law 7.2] Clear the dedup set on intent change so the new intent gets fresh signals.
                 this.clearSynthesisStartingDedup();
+                // [PLAY-ONCE] Reset playAudio gate on intent change so every new session starts clean.
+                this._lastPlayAudioCacheKey = '';
             }
         });
 
@@ -339,7 +346,7 @@ export class AudioBridge extends EventEmitter {
     /**
      * Called when the webview reports a cache miss and needs a fresh synthesis.
      */
-    public async synthesize(cacheKey: string, options: PlaybackOptions, intentId?: number, batchId?: number, isPriority: boolean = true) {
+    public async synthesize(cacheKey: string, options: PlaybackOptions, intentId?: number, batchId?: number, isPriority: boolean = true, text?: string) {
         // [PROTOCOL_REPAIR] If the intentId is 0, it means the Webview is likely in an uninitialized state.
         // We adopt the extension's current intent (or generate one if everything is 0) to bridge the gap.
         let intentRepaired = false;
@@ -405,13 +412,21 @@ export class AudioBridge extends EventEmitter {
         const chapter = chapters[state.currentChapterIndex];
         if (!chapter || !chapter.sentences) { return; }
 
-        if (state.currentSentenceIndex < 0 || state.currentSentenceIndex >= chapter.sentences.length) {
-            this._logger(`[BRIDGE] synthesis_blocked | Stale sentence index: ${state.currentSentenceIndex}`);
-            return;
+        // [CACHE-POISON FIX] If the webview passed explicit text (prefetch path), use it directly.
+        // Previously, synthesize() always resolved from state.currentSentenceIndex (HEAD=0),
+        // so every prefetch key (N+1, N+2, N+3) received HEAD audio — poisoning the cache.
+        // The priority path (start() → HEAD synthesis) correctly omits text and uses state position.
+        let sentence: string;
+        if (text && text.trim()) {
+            sentence = text;
+        } else {
+            if (state.currentSentenceIndex < 0 || state.currentSentenceIndex >= chapter.sentences.length) {
+                this._logger(`[BRIDGE] synthesis_blocked | Stale sentence index: ${state.currentSentenceIndex}`);
+                return;
+            }
+            sentence = chapter.sentences[state.currentSentenceIndex];
+            if (!sentence) { return; }
         }
-
-        const sentence = chapter.sentences[state.currentSentenceIndex];
-        if (!sentence) { return; }
 
         const currentIntent = intentId ?? this._playbackEngine.playbackIntentId;
         const currentBatch = batchId ?? this._playbackEngine.batchIntentId;
@@ -427,6 +442,8 @@ export class AudioBridge extends EventEmitter {
         this._activeCacheKey = '';
         // [UM-1] Revoke any pending user authorization on stop.
         this._isUserInitiatedPlay = false;
+        // [PLAY-ONCE] Reset playAudio gate on stop so the next play session starts clean.
+        this._lastPlayAudioCacheKey = '';
         this._playbackEngine.stop(intentId, !!batchId);
         this._logger(`[BRIDGE] Playback stopped (Intent: ${intentId ?? 'current'}, BatchReset: ${!!batchId}).`);
     }
@@ -442,6 +459,17 @@ export class AudioBridge extends EventEmitter {
      */
     private _emitWithIntent<K extends keyof AudioBridgeEvents>(event: K, payload: any) {
         const intentId = payload.intentId !== undefined ? payload.intentId : this._playbackEngine.playbackIntentId;
+        // [PLAY-ONCE GATE] Backstop: suppress duplicate playAudio for the exact same sentence.
+        // Keyed by cacheKey so only a repeated emission for the same segment is blocked —
+        // different sentences (different cacheKeys) always pass through unobstructed.
+        if (event === 'playAudio') {
+            const cacheKey = (payload as any).cacheKey || '';
+            if (cacheKey && this._lastPlayAudioCacheKey === cacheKey) {
+                this._logger(`[BRIDGE] PLAYAUDIO_SUPPRESSED: Duplicate key ${cacheKey.substring(0, 15)}... blocked. Backstop active.`);
+                return;
+            }
+            this._lastPlayAudioCacheKey = cacheKey;
+        }
         this._logger(`[BRIDGE] >> EMIT ${event} | Intent: ${intentId}`);
         (this as any).emit(event, { ...payload, intentId });
     }
@@ -557,6 +585,14 @@ export class AudioBridge extends EventEmitter {
             // [SOVEREIGNTY] Decoupled emission: We push data if we have it. 
             // The Webview is the final gate for playback and will ignore stale intents.
             if (data) {
+                if (!isPriority) {
+                    // [PREFETCH-ONLY] Non-priority synthesis completes: audio is already stored in
+                    // PlaybackEngine cache by speakNeural(). DO NOT emit playAudio — that is the
+                    // sovereign right of the priority path (start() / next()) only.
+                    // Emitting playAudio here caused simultaneous multi-sentence playback (audio mess).
+                    this._logger(`[BRIDGE] PREFETCH_PUSH: ${cacheKey.substring(0, 20)}... | Intent: ${intentId}`);
+                    return;
+                }
                 this._emitWithIntent('playAudio', {
                     cacheKey,
                     data, // Restore Push Mode for performance

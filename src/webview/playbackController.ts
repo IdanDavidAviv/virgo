@@ -891,8 +891,11 @@ export class PlaybackController {
         const currIdx = queue.findIndex(s => s.cIdx === currentChapterIndex && s.sIdx === currentSentenceIndex);
         if (currIdx === -1) { return; }
 
-        // [Windowed Policy] Window Size: 5 (Current + Next 4)
-        const candidates = queue.slice(currIdx, currIdx + 5);
+        // [HEAD-EXCLUSION] Window starts at currIdx+1: the HEAD sentence (N+0) is the extension's
+        // sovereign domain — audioBridge.start() handles it on every play(). _processQueue() is
+        // strictly a prefetch scheduler for N+1 onward. Including currIdx caused dual synthesis
+        // authority (RC-1) and was the root cause of the double-playback regression.
+        const candidates = queue.slice(currIdx + 1, currIdx + 5);
 
         const engine = WebviewAudioEngine.getInstance();
         const client = MessageClient.getInstance();
@@ -900,11 +903,16 @@ export class PlaybackController {
         for (const s of candidates) {
             if (this.synthesizingKeys.size >= this.MAX_CONCURRENT_SYNTHESIS) { break; }
 
+            // [SCHEMA-FIX] Pass isNeural so the key matches the extension's cache key exactly.
+            // Neural audio is always synthesized at rate=1.0 regardless of the UI rate slider;
+            // omitting this flag caused a hash mismatch (RC-2) that bypassed all dedup guards.
+            const isNeural = engineMode === 'neural';
             const key = generateCacheKey(
                 s.text,
                 selectedVoice || 'default',
                 rate,
-                activeDocumentUri
+                activeDocumentUri,
+                isNeural
             );
 
             if (!engine.isSegmentReady(key) && !this.synthesizingKeys.has(key)) {
@@ -912,6 +920,10 @@ export class PlaybackController {
                 this.synthesizingKeys.add(key);
                 client.postAction(OutgoingAction.REQUEST_SYNTHESIS, {
                     cacheKey: key,
+                    // [CACHE-POISON FIX] Pass the sentence text so the extension synthesizes the
+                    // correct segment. Without this, synthesize() always reads state.currentSentenceIndex
+                    // (HEAD=0) and stores HEAD audio under every prefetch key — poisoning N+1/N+2/N+3.
+                    text: s.text,
                     intentId: store.getState().playbackIntentId,
                     batchId: store.getState().batchIntentId,
                     isPriority: s.cIdx === currentChapterIndex && s.sIdx === currentSentenceIndex
