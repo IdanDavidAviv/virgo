@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -17,6 +17,7 @@ import { execSync, spawn } from 'child_process';
 const LOG_FILE = 'c:\\Users\\Idan4\\Desktop\\readme-preview-read-aloud\\diagnostics.log';
 
 // Backoff state for reconnect loop
+// eslint-disable-next-line @typescript-eslint/naming-convention
 let _reconnectAttempts = 0;
 
 function logTraffic(direction, payload) {
@@ -119,7 +120,7 @@ async function main() {
         return; // Exit main, let the child handle stdio
     }
 
-    logTraffic(`[PROXY] Bridging Stdio to SSE: ${instance.url}`);
+    logTraffic(`[PROXY] Bridging Stdio to StreamableHTTP: ${instance.url}`);
 
     const server = new Server(
         { name: "read-aloud", version: "2.1.3" },
@@ -145,7 +146,7 @@ async function main() {
         logTraffic(`[PROXY] Connecting to bridge at ${url}...`);
 
         try {
-            clientTransport = new SSEClientTransport(new URL(url));
+            clientTransport = new StreamableHTTPClientTransport(new URL(url));
             client = new Client(
                 { name: "proxy-relay", version: "1.2.4" },
                 { 
@@ -171,8 +172,7 @@ async function main() {
                 logTraffic(`[PROXY] Forwarding bridge notification: ${notification.method}`);
                 server.notification(notification);
             };
-            const transportSid = clientTransport.sessionId || clientTransport._sessionId;
-            logTraffic(`[PROXY] Bridge Handshake: SUCCESS (Session: ${transportSid}, Proxy PID: ${process.pid})`);
+            logTraffic(`[PROXY] Bridge Handshake: SUCCESS (StreamableHTTP, Proxy PID: ${process.pid})`);
         } catch (err) {
             // Exponential backoff with jitter: 5s → 10s → 20s → 40s → 60s (cap)
             _reconnectAttempts++;
@@ -215,12 +215,12 @@ async function main() {
     // When the dev host tears down, the extension's stdout/stderr pipe breaks.
     // EPIPE on stdout/stderr is not a fatal error for a proxy — it means the
     // consumer is gone. We silence it rather than crashing.
-    process.stdout.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
-    process.stderr.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
+    process.stdout.on('error', (err) => { if (err.code !== 'EPIPE') {throw err;} });
+    process.stderr.on('error', (err) => { if (err.code !== 'EPIPE') {throw err;} });
 
     // Global Error Guard - Log everything to diagnostics.log (file only, no stderr)
     process.on("uncaughtException", (err) => {
-        if (err.code === 'EPIPE') return; // EPIPE is always safe to ignore in a proxy
+        if (err.code === 'EPIPE') {return;} // EPIPE is always safe to ignore in a proxy
         logTraffic(`[PROXY_FATAL] Uncaught Exception: ${err.message}\n${err.stack}`);
         process.exit(1);
     });
