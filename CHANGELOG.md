@@ -4,8 +4,32 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [Unreleased]
 
-### Added
-- 
+
+## [2.5.4] - 2026-04-23
+
+### Changed
+- **Renamed `inject_markdown` → `say_this_loud`**: The primary MCP tool has been renamed to better reflect its purpose — surfacing agent narration in the Read Aloud sidebar. All call sites, tests, and documentation updated.
+- **Renamed `brainRoot` → `sessionsRoot` in `McpConfig`**: Eliminated conceptual drift — the field always pointed to the sessions root, not the brain governance directory. Updated in `mcpFactory.ts`, `mcpBridge.ts`, and `mcpStandalone.ts`.
+
+### Removed
+- **`registerPrompts()` and all MCP Prompts**: Removed the `read_aloud_boot` prompt and its registration logic. MCP prompts are not auto-executed by Gemini agents; behavioral governance is now enforced exclusively via `GEMINI.md` §12 directives.
+- **`protocols` resource**: Deleted the `read_aloud://protocols/...` resource serving pipeline. Protocol files remain on disk for reference but are no longer registered as MCP resources.
+- **`_injections` in-memory array**: Removed `PendingInjectionStore._injections[]` — a leaky, redundant in-memory cache. Replaced with `countOnDisk()` which reads directly from the filesystem, eliminating the source of truth split.
+- **`_activeServers: Set<McpServer>`**: Collapsed the aspirational multi-instance server set into a single `_server: McpServer | null` field. The MCP bridge always hosts exactly one server instance.
+- **`_instanceCounter` and monkey-patching**: Removed `McpBridge._instanceCounter` and the `(server as any)._readAloudInstanceId` property assignment — dead code with no callers.
+- **100ms SSE storm debounce (`[Gate 3]`)**: Removed the artificial `setTimeout(resolve, 100)` delay on every SSE connection. The `_isHandshaking` 204-gate already provides storm protection without adding latency.
+- **`hydrateProtocols()` side-effect in factory**: Removed the call to `hydrateProtocols()` inside `createReadAloudMcpServer`. This was a boot-time side-effect with no callers in the production path.
+- **`sendPromptListChanged()` from `reinitialize()`**: Removed prompt list broadcast since prompts are no longer registered.
+
+### Fixed
+- **Dynamic version in `McpBridge`**: The `/health` endpoint and server metadata previously reported a hardcoded `"2.4.5"`. Version is now sourced from `context.extension.packageJSON.version` at runtime and passed via the `McpBridge` constructor.
+- **Dynamic version in `mcpStandalone.ts`**: Replaced `require('../../../package.json')` (incompatible with esbuild bundling) with a build-time `__APP_VERSION__` constant injected via `esbuild.js` `define`.
+- **`TurnSentinel` blocking on index drift**: The turn manager previously threw a hard exception when detecting a non-sequential turn index, silently breaking injection recovery. Downgraded to a non-blocking warning with auto-increment, preserving injection continuity.
+- **`get_injection_status` memory leak**: The tool previously relied on the (now-removed) in-memory `_injections` array for its count. Now reads from `countOnDisk()` — filesystem-authoritative and always accurate.
+
+### Documentation
+- **Enriched `say_this_loud` tool description**: The tool definition now contains a comprehensive behavioral mandate, ensuring connected agents understand session ID discovery, verbatim parity rules, and turn-index semantics without requiring separate skill files.
+- **`GEMINI.md` §12 — Read Aloud MCP Narration Mandate**: Formalized a "Boot Ritual" (diagnostic + state read) and "Per-Turn Narration Loop" as mandatory agent directives, replacing the unreliable MCP Prompts boot mechanism.
 
 ## [2.5.3] - 2026-04-23
 

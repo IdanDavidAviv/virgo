@@ -1,6 +1,7 @@
 const esbuild = require('esbuild');
 const fs = require('fs');
 const path = require('path');
+const { version } = require('./package.json');
 
 const watch = process.argv.includes('--watch');
 const mode = process.argv.find(arg => arg.startsWith('--mode='))?.split('=')[1] || (watch ? 'development' : 'production');
@@ -90,6 +91,9 @@ async function build() {
         sourcemap: true,
         banner: {
             js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+        },
+        define: {
+            '__APP_VERSION__': JSON.stringify(version)
         },
     };
 
