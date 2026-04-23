@@ -14,6 +14,7 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 - **Double Path Concatenation in `updateSessionContext()`**: `SpeechProvider.updateSessionContext()` was appending `read_aloud` to an already-resolved root, producing malformed paths like `sessions/<id>/read_aloud/<id>/`. Fixed by passing the pre-resolved `sessionsRoot` directly from the extension bootstrap.
 - **Metadata File Leakage in Sidebar**: `extension_state.json` and other non-snippet metadata files were appearing as playable items in the Snippet History sidebar. Added a strict `.md`/`.markdown`-only filter in `_getSnippetHistory()`.
 - **`injected` Event Orphaned**: The `mcpBridge.on('injected')` listener was silently decommissioned in a previous refactor, breaking real-time sidebar refresh on injection. Re-wired to call `speechProvider.refreshView()` — a lightweight history-only sync that does not interrupt active playback.
+- **Focused File Area Frozen on Tab Switch**: `SyncManager._calculateStateHash()` did not include `focusedFileName` or `focusedVersionSalt`. Tab switches mutated focused file state but produced an identical dedup hash → sync was silently absorbed → Focused File area never updated. Fixed by adding both fields to the hash.
 
 ### Refactored
 - **Canonical Session Root (`sessions/`)**: All session-scoped data (snippets, `extension_state.json`) now lives exclusively under `read_aloud/sessions/<sessionId>/`. The `read_aloud/` root contains only non-session shared resources (`protocols/`, `tempmediaStorage/`, `active_servers.json`).
