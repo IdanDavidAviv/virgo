@@ -21,6 +21,7 @@ export class McpWatcher implements vscode.Disposable {
     private _disposables: vscode.Disposable[] = [];
     private _recentlyProcessed = new Map<string, number>(); // [DE-DUPLICATION_PROTOCOL] Prevent multiple events for same path
     private readonly COOLDOWN_MS = 500;
+    private _knownMcpPid: number | null = null;
 
     constructor(
         private _antigravityRoot: string,
@@ -31,7 +32,7 @@ export class McpWatcher implements vscode.Disposable {
     ) {
         const globalPattern = new vscode.RelativePattern(this._antigravityRoot, `**/*.md`);
         this._watcher = vscode.workspace.createFileSystemWatcher(globalPattern, false, true, true);
-        
+
         this._disposables.push(this._watcher.onDidCreate(async uri => {
             await this._handleInboundSnippet(uri);
         }));
@@ -53,7 +54,7 @@ export class McpWatcher implements vscode.Disposable {
                     if (filename && filename.endsWith('.md')) {
                         // [WINDOWS_LONG_PATH] On Windows, filename can be absolute or relative and may include long path prefix
                         const fullPath = path.isAbsolute(filename) ? filename : path.join(this._antigravityRoot, filename);
-                        
+
                         // Small delay to ensure the file is fully written/unlocked on Windows
                         setTimeout(async () => {
                             if (fs.existsSync(fullPath)) {
@@ -77,7 +78,7 @@ export class McpWatcher implements vscode.Disposable {
         this._antigravityRoot = root;
         this._currentSessionId = sessionId;
         this._logger(`[MCP_WATCHER] Pivoted to session ${sessionId} in ${root}`);
-        
+
         if (rootChanged) {
             this._setupExternalWatcher();
         }
@@ -103,7 +104,7 @@ export class McpWatcher implements vscode.Disposable {
         const normalize = (p: string) => p.replace(/^\\\\\?\\\//, '').replace(/^\\\\\?\\/, '').replace(/\//g, path.sep);
         const cleanRoot = normalize(this._antigravityRoot);
         const cleanPath = normalize(uri.fsPath);
-        
+
         // [MCP_TRACE] Trace incoming file event before processing
         this._logger(`[MCP_TRACE] Incoming snippet event: ${cleanPath}`);
 
@@ -118,7 +119,7 @@ export class McpWatcher implements vscode.Disposable {
 
         const relativePath = path.relative(cleanRoot, cleanPath);
         const pathParts = relativePath.split(path.sep).filter(p => !!p);
-        
+
         // [MCP_TRACE] Relative path resolution
         this._logger(`[MCP_TRACE] Resolved relative path: ${relativePath} (Parts: ${pathParts.length})`);
 
@@ -130,14 +131,43 @@ export class McpWatcher implements vscode.Disposable {
 
         const detectedSessionId = pathParts[0];
 
-        // 1. Dynamic Session Pivot: Ensure context is aligned
-        if (detectedSessionId !== this._currentSessionId) {
-            this._logger(`[MCP_TRACE] SNEAKY_PIVOT: Detected activity in sibling session ${detectedSessionId}`);
-            // [T-023] Update currentSessionId BEFORE firing listeners.
-            // Prevents race: pivot listeners trigger async state resets that would
-            // interfere with the loadSnippet call below if session state was still stale.
-            this._currentSessionId = detectedSessionId;
-            this._onSessionPivotListeners.forEach(cb => cb(detectedSessionId));
+        // [MULTI-IDE GATE] Parse MCP server PID from filename slot 2: <timestamp>_<pid>_<name>.md
+        // Same MCP process = our IDE. Different pid + different session = sibling IDE, reject.
+        const fileNameParts = path.basename(cleanPath, '.md').split('_');
+        const detectedPid = fileNameParts.length >= 2 ? parseInt(fileNameParts[1], 10) : null;
+
+        if (detectedPid !== null && !isNaN(detectedPid)) {
+            if (this._knownMcpPid === null) {
+                // Cold start — learn the MCP pid from the first injection.
+                this._knownMcpPid = detectedPid;
+                this._logger(`[MCP_TRACE] Learned MCP pid: ${detectedPid}`);
+                // Pivot immediately if this first injection targets a different session.
+                if (detectedSessionId !== this._currentSessionId) {
+                    this._logger(`[MCP_TRACE] PIVOT (cold start): New session ${detectedSessionId}.`);
+                    this._currentSessionId = detectedSessionId;
+                    this._onSessionPivotListeners.forEach(cb => cb(detectedSessionId));
+                }
+            } else if (detectedPid === this._knownMcpPid) {
+                // Same MCP process = always ours. Pivot if session changed.
+                if (detectedSessionId !== this._currentSessionId) {
+                    this._logger(`[MCP_TRACE] PIVOT: Same MCP pid ${detectedPid}, new session ${detectedSessionId}.`);
+                    this._currentSessionId = detectedSessionId;
+                    this._onSessionPivotListeners.forEach(cb => cb(detectedSessionId));
+                }
+            } else {
+                if (detectedSessionId !== this._currentSessionId) {
+                    // Different pid + different session = sibling IDE. Reject.
+                    this._logger(`[MCP_TRACE] REJECTED: pid ${detectedPid} != known ${this._knownMcpPid}, session differs. Sibling IDE.`);
+                    return;
+                }
+                // Different pid + same session = MCP restarted. Re-learn.
+                this._logger(`[MCP_TRACE] MCP restarted (pid ${this._knownMcpPid} -> ${detectedPid}). Re-learning.`);
+                this._knownMcpPid = detectedPid;
+            }
+        } else if (detectedSessionId !== this._currentSessionId) {
+            // Legacy filename (no pid slot) — fall back to session-only gate.
+            this._logger(`[MCP_TRACE] REJECTED (legacy): Session ${detectedSessionId} != ${this._currentSessionId}.`);
+            return;
         }
 
         // 2. Load the snippet into the controller
@@ -145,7 +175,7 @@ export class McpWatcher implements vscode.Disposable {
         const success = await this._docController.loadSnippet(cleanPath);
         if (success) {
             const metadata = this._docController.metadata;
-            
+
             // 3. Update StateStore to point to this snippet
             this._logger(`[MCP_TRACE] Updating state_store with snippet metadata.`);
             this._stateStore.setActiveDocument(
@@ -173,7 +203,7 @@ export class McpWatcher implements vscode.Disposable {
         }
         if (this._disposables) {
             this._disposables.forEach(d => {
-                try { d?.dispose(); } catch (e) {}
+                try { d?.dispose(); } catch (e) { }
             });
         }
         this._onSessionPivotListeners = [];
