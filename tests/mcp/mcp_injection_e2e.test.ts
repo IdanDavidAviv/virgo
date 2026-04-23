@@ -107,7 +107,8 @@ describe('MCP Injection E2E Integration', () => {
             pivotedSessionId = id;
         });
 
-        const newFilePath = path.join(otherSessionPath, 'pivot_test.md');
+        // Use the new PID-stamped filename format so McpWatcher can identify the calling process
+        const newFilePath = path.join(otherSessionPath, `${Date.now()}_${process.pid}_pivot_test.md`);
         console.log(`[TEST] Writing pivot file to ${newFilePath}`);
         fs.writeFileSync(newFilePath, '# New Session Content');
 

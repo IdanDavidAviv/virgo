@@ -97,7 +97,8 @@ describe('McpWatcher (TDD Phase 1)', () => {
         const pivotSpy = vi.fn();
         watcher.onSessionPivot(pivotSpy);
 
-        const newSnippetUri = { fsPath: path.join('/antigravity', 'session-2', 'snippet.md') };
+        // Use the new PID-stamped filename format: <timestamp>_<pid>_<name>.md
+        const newSnippetUri = { fsPath: path.join('/antigravity', 'session-2', `${Date.now()}_${process.pid}_snippet.md`) };
         
         // Trigger the listener
         await onCreateListener(newSnippetUri);
