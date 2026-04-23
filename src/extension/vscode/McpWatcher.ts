@@ -133,6 +133,10 @@ export class McpWatcher implements vscode.Disposable {
         // 1. Dynamic Session Pivot: Ensure context is aligned
         if (detectedSessionId !== this._currentSessionId) {
             this._logger(`[MCP_TRACE] SNEAKY_PIVOT: Detected activity in sibling session ${detectedSessionId}`);
+            // [T-023] Update currentSessionId BEFORE firing listeners.
+            // Prevents race: pivot listeners trigger async state resets that would
+            // interfere with the loadSnippet call below if session state was still stale.
+            this._currentSessionId = detectedSessionId;
             this._onSessionPivotListeners.forEach(cb => cb(detectedSessionId));
         }
 

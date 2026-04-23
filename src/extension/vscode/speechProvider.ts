@@ -81,7 +81,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             await this.refreshView();
             if (this._stateStore.state.autoPlayOnInjection) {
                 this._logger('[EXTENSION] Playback started via autoPlayOnInjection signal');
-                this.continue();
+                // [T-023] continue() is correct: it calls authorizePlayback() (cold-boot gate)
+                // and starts from currentSentenceIndex which is reset to 0 by setActiveDocument(null)
+                // inside McpWatcher._handleInboundSnippet before this callback fires.
+                await this.continue();
             }
         });
         this._context.subscriptions.push(this._mcpWatcher);

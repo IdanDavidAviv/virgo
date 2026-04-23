@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import { SpeechProvider } from '@vscode/speechProvider';
 import { hydrateProtocols } from '@common/protocolHydrator';
 import { findChapterAtLine, findSentenceAtLine, parseChapters } from '@core/documentParser';
-import { McpBridge } from '../mcp/mcpBridge';
+// [T-023] McpBridge removed — MCP now runs via dist/mcp-standalone.js (stdio, no HTTP).
 
 let mainStatusBarItem: vscode.StatusBarItem;
 let outputChannel: any; // Using any to support LogOutputChannel on systems with older types
@@ -106,34 +106,10 @@ export async function activate(context: vscode.ExtensionContext) {
     log(`[ANTIGRAVITY] Session: ${sessionId} | Root: ${sessionsRoot}`);
     
 
-    // --- MCP BRIDGE (Agentic Integration) ---
-    // [MP-001 T-015] Session persistence now routes to sessions/<id>/ — the canonical session root.
-    // McpWatcher watches sessionsRoot, so injected files are immediately discoverable by the UI.
-    const sessionPersistencePath = path.join(sessionsRoot, sessionId);
-    const mcpBridge = new McpBridge(sessionPersistencePath, log, (outputChannel as any).logUri, logFilePath, context.extensionMode, context.extension.packageJSON.version as string);
-    context.subscriptions.push(mcpBridge);
-    
-    // [SOVEREIGNTY] Authoritative Playback Interruption on Bridge Churn
-    // v2.4.6: Decoupled. Bridge session churn should NOT kill active audio.
-    /*
-    mcpBridge.on('stale_eviction', () => {
-        log('[MCP_BRIDGE] Stale eviction detected. Informing SpeechProvider to stop audio.');
-        speechProvider.stop();
-    });
-    */
-
-    // [MP-001 T-015] Re-wire injected event: trigger UI history refresh on new snippet arrival.
-    // Lightweight relay — does NOT stop playback. History-only sync.
-    mcpBridge.on('injected', async () => {
-        if (speechProvider) {
-            log('[MCP_BRIDGE] Snippet injected — triggering UI history refresh.');
-            await speechProvider.refreshView();
-        }
-    });
-
-    mcpBridge.start().catch((err: any) => {
-        log(`[MCP_ERROR] Bridge failed to start: ${err.message}`);
-    });
+    // --- MCP (Agentic Integration) ---
+    // [T-023] McpBridge removed. MCP runs via dist/mcp-standalone.js (pure stdio).
+    // Snippet injection detected by McpWatcher (fs.watch on sessions/) → loadSnippet → play.
+    log('[MCP] Standalone stdio server active. McpWatcher handles injection events.');
 
     // --- BRAIN SENSITIVITY PROTOCOL ---
     // Monitor for new session directories in the brain root
@@ -150,7 +126,6 @@ export async function activate(context: vscode.ExtensionContext) {
             // Wait 500ms to ensure the agent has finished directory setup
             setTimeout(() => {
                 speechProvider.pivotSession(newSessionId);
-                mcpBridge.pivotSession(newSessionId);
             }, 500);
         }
     });
@@ -289,14 +264,9 @@ export async function activate(context: vscode.ExtensionContext) {
         }),
 
         vscode.commands.registerCommand('readme-preview-read-aloud.restart-mcp', async () => {
-            log('[MCP] Manual bridge reconstruction requested.');
-            try {
-                await mcpBridge.reinitialize();
-                vscode.window.showInformationMessage('Read Aloud: MCP Bridge Restarted Successfully.');
-            } catch (err: any) {
-                log(`[MCP_ERROR] Restart failed: ${err.message}`);
-                vscode.window.showErrorMessage(`Read Aloud: MCP Bridge Restart Failed: ${err.message}`);
-            }
+            // [T-023] Bridge removed. MCP now runs as an external stdio process (mcp-standalone.js).
+            // Reconnect via Gemini settings if needed.
+            vscode.window.showInformationMessage('Read Aloud: MCP runs via standalone stdio server. Reconnect via Gemini MCP settings if needed.');
         }),
         
         vscode.commands.registerCommand('readme-preview-read-aloud.restart-extension', async () => {
