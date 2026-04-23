@@ -141,8 +141,47 @@ async function main() {
 
     let client = null;
     let clientTransport = null;
+    let _currentBridgeUrl = null;
+
+    // [RESILIENCE] Self-healing wrapper for all bridge client calls.
+    // When the bridge restarts, the SDK session is invalidated (-32001).
+    // We immediately re-initialize and retry ONCE — the agent sees no failure.
+    const withBridgeResilience = async (op) => {
+        try {
+            return await op();
+        } catch (err) {
+            const isSessionMiss = err.message?.includes('Session not found') || err.message?.includes('-32001');
+            if (isSessionMiss && _currentBridgeUrl) {
+                logTraffic(`[PROXY] Session expired (bridge restarted). Re-initializing...`);
+                // Reconnect immediately (no backoff) then retry the operation once.
+                try {
+                    clientTransport = new StreamableHTTPClientTransport(new URL(_currentBridgeUrl));
+                    client = new Client(
+                        { name: "proxy-relay", version: "1.2.4" },
+                        { capabilities: { resources: { subscribe: true }, resourceTemplates: true, tools: {} } }
+                    );
+                    clientTransport.onclose = () => {
+                        logTraffic("[PROXY] Bridge connection LOST. Initiating Re-Discovery...");
+                        _reconnectAttempts = 0;
+                        setTimeout(reconnect, 5000 + Math.floor(Math.random() * 2000));
+                    };
+                    await client.connect(clientTransport);
+                    client.onnotification = (notification) => {
+                        server.notification(notification);
+                    };
+                    logTraffic(`[PROXY] Session Recovery: SUCCESS. Retrying operation...`);
+                    return await op(); // retry once
+                } catch (reconnectErr) {
+                    logTraffic(`[PROXY] Session Recovery FAILED: ${reconnectErr.message}`);
+                    throw reconnectErr;
+                }
+            }
+            throw err;
+        }
+    };
 
     const connectToBridge = async (url) => {
+        _currentBridgeUrl = url;
         logTraffic(`[PROXY] Connecting to bridge at ${url}...`);
 
         try {
@@ -237,7 +276,7 @@ async function main() {
         }
         try {
             const start = Date.now();
-            const result = await client.listResources();
+            const result = await withBridgeResilience(() => client.listResources());
             const duration = Date.now() - start;
 
             // [STABILITY GUARD] Filter out un-interpolated templates (e.g. URI contains '{')
@@ -268,7 +307,7 @@ async function main() {
         if (!client) {
             return { resourceTemplates: [] };
         }
-        const result = await client.listResourceTemplates();
+        const result = await withBridgeResilience(() => client.listResourceTemplates());
         logTraffic(`[PROXY] response: listResourceTemplates (${result.resourceTemplates?.length || 0} items)`);
         return result;
     });
@@ -278,7 +317,7 @@ async function main() {
         if (!client) {
             throw new Error("Bridge Offline");
         }
-        const result = await client.readResource({ uri: request.params.uri });
+        const result = await withBridgeResilience(() => client.readResource({ uri: request.params.uri }));
         logTraffic(`[PROXY] response: readResource (Length: ${JSON.stringify(result).length})`);
         return result;
     });
@@ -288,7 +327,7 @@ async function main() {
         if (!client) {
             return { tools: [] };
         }
-        const result = await client.listTools();
+        const result = await withBridgeResilience(() => client.listTools());
         logTraffic(`[PROXY] response: listTools (${result.tools?.length || 0} items)`);
         return result;
     });
@@ -298,10 +337,10 @@ async function main() {
         if (!client) {
             throw new Error("Bridge Offline");
         }
-        return await client.callTool({
+        return await withBridgeResilience(() => client.callTool({
             name: request.params.name,
             arguments: request.params.arguments
-        });
+        }));
     });
 
     await connectToBridge(instance.url);
