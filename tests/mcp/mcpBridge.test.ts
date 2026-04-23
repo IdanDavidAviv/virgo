@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import { McpBridge } from '../../src/extension/mcp/mcpBridge';
 import { PendingInjectionStore } from '../../src/extension/mcp/core/sharedStore';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 // Mock vscode
 vi.mock('vscode', () => ({
@@ -32,7 +32,6 @@ describe('McpBridge Tests', () => {
         }
         fs.mkdirSync(testPersistencePath, { recursive: true });
     });
-
 
     let activePort: number;
 
@@ -63,9 +62,10 @@ describe('McpBridge Tests', () => {
         });
     });
 
-    describe('McpBridge Integration (SSE + Tools)', () => {
-        it('should allow tool discovery and execution over SSE', async () => {
-            const transport = new SSEClientTransport(new URL(`http://127.0.0.1:${activePort}/sse`));
+    describe('McpBridge Integration (StreamableHTTP + Tools)', () => {
+        it('should allow tool discovery and execution over StreamableHTTP', async () => {
+            // [T-021] Bridge now uses StreamableHTTP (stateless). No SSE, no session IDs.
+            const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${activePort}/mcp`));
             const client = new Client(
                 { name: "test-runner", version: "1.0.0" },
                 { capabilities: {} }
@@ -103,37 +103,6 @@ describe('McpBridge Tests', () => {
             expect(statusResult.content[0].text).toContain('Disk Snippets:');
 
             await transport.close();
-            // Allow Gate 2 handshake lock to clear via SSE req.on('close')
-            await new Promise(r => setTimeout(r, 100));
-        }, 30000); // Higher timeout for CI/Windows throughput (v2.2.2 stabilization)
-
-        it.skip('should absorb duplicate concurrent SSE probes via Gate 2', async () => {
-            // [Gate 2] Validation: When a second SSE connection is attempted while
-            // the handshake of the first is still in-flight, the bridge must absorb
-            // the duplicate probe (HTTP 429) and keep the first session alive.
-            const t1 = new SSEClientTransport(new URL(`http://127.0.0.1:${activePort}/sse`));
-            const c1 = new Client({ name: "cli-primary", version: "1" }, { capabilities: {} });
-
-            // 1. Start primary connection handshake (non-blocking)
-            const connectPromise = c1.connect(t1);
-
-            // Wait for Gate 3 storm debounce (100ms) + margin to ensure _isHandshaking = true
-            await new Promise(r => setTimeout(r, 200));
-
-            // 2. A second simultaneous probe should be absorbed by Gate 3 (204 No Content)
-            // while the first handshake is still in-flight (_isHandshaking = true)
-            const probeResponse = await fetch(`http://127.0.0.1:${activePort}/sse`);
-            expect(probeResponse.status).toBe(204);
-
-            // 3. Complete primary handshake
-            await connectPromise;
-
-            // Verify primary session is fully functional
-            const r1 = await c1.callTool({ name: 'get_injection_status', arguments: {} }) as any;
-            expect(r1.isError).toBeFalsy();
-            expect(r1.content[0].text).toBeTruthy();
-
-            await t1.close();
         }, 30000);
     });
 });
