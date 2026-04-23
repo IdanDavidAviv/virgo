@@ -58,10 +58,7 @@ export class PlaybackEngine extends EventEmitter {
     private _synthesisActive: number = 0;
     private _pendingReinit: boolean = false;
     // [Gate 4] Startup Orchestration — TTS warm-up gate.
-    // MsEdgeTTS opens its WebSocket lazily on first setMetadata(). This gate resolves once
-    // the client is confirmed ready so that real synthesis never races against the WS handshake.
-    private _resolveTtsReady!: () => void;
-
+    // Removed _resolveTtsReady - we no longer pre-warm the WebSocket.
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -69,11 +66,9 @@ export class PlaybackEngine extends EventEmitter {
         onCacheUpdate?: () => void
     ) {
         super();
-        this._ttsReady = new Promise(r => { this._resolveTtsReady = r; });
+        this._ttsReady = Promise.resolve(); // No longer pre-warming
         this._tts = new MsEdgeTTS();
         this._onCacheUpdate = onCacheUpdate;
-        // [Gate 4] Warm up the TTS client immediately so the WebSocket is open before first use.
-        this._warmUpTts();
     }
 
     public setLogLevel(level: number) {
@@ -168,13 +163,6 @@ export class PlaybackEngine extends EventEmitter {
         }
     }
 
-    private async _warmUpTts() {
-        this.logger('[NEURAL] 🟢 Warming up TTS client...');
-        const voice = 'en-US-SteffanNeural'; // Default
-        const format = OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3;
-        await this._setTtsMetadata(voice, format);
-        this._resolveTtsReady();
-    }
 
     public get isPlaying() { return this._isPlaying; }
     public get isPaused() { return this._isPaused; }
@@ -669,6 +657,8 @@ export class PlaybackEngine extends EventEmitter {
             // Ensure client exists
             if (!this._tts) { this._reinitTTS(true); }
 
+            const handshakeStartTime = Date.now();
+
             try {
                 // [Gate 4] Await TTS warm-up gate before calling setMetadata.
                 // Prevents 'readyState' TypeError on cold-boot first synthesis request.
@@ -698,7 +688,9 @@ export class PlaybackEngine extends EventEmitter {
                 }
                 throw e; // Bubble up for retry logic
             }
-            this.logger(`[TTS REQ] text:"${escapedText.substring(0, 30)}..." | voice:${voiceId} | Intent:${intentId}`);
+            const handshakeDelta = Date.now() - handshakeStartTime;
+            this.logger(`[TTS REQ] text:"${escapedText.substring(0, 30)}..." | voice:${voiceId} | Intent:${intentId} | [DELTA] ${handshakeDelta}ms`);
+
 
             return await new Promise<string>((resolve, reject) => {
                 if (signal?.aborted) {

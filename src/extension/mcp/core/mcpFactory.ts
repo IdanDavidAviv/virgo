@@ -42,20 +42,31 @@ function registerTools(server: McpServer, config: McpConfig) {
 // ... (omitted for brevity in search, but I will replace the relevant block below)
     // [1] Tool: say_this_loud
     // PRIMARY MISSION TOOL — call this to surface content in the Read Aloud sidebar.
-    // BEHAVIORAL MANDATE: You SHOULD call this tool before your final response whenever you
-    // complete meaningful work in a Read Aloud session. The content will be saved as a .md file,
-    // read aloud by the extension, and shown in the snippet history sidebar.
+    // BEHAVIORAL MANDATE: Fire ONLY on these 4 strategic triggers — NOT every turn.
+    //   Canonical SSOT: GEMINI.md §12.2 — if this comment diverges, GEMINI.md wins.
+    //   1. Turn-ending SITREPs and session summaries
+    //   2. Implementation plan proposals (presenting a plan before GO)
+    //   3. Phase completions (handoff to user at end of an implementation plan phase)
+    //   4. Major milestones or blocking questions requiring user attention
+    // CHAT/AUDIO PARITY (CRITICAL): Whatever content you send here MUST also appear
+    //   verbatim as plain text in your chat response. The agent cannot narrate content
+    //   it does not display. This lets the user read along with the audio.
     // RULES:
-    //   - content must be full-fidelity prose — never summarized, never raw JSON or file paths
+    //   - content must be natural-language prose — never raw JSON, file paths, or code blocks
     //   - sessionId is REQUIRED — use your active brain session UUID
-    //   - snippet_name describes the topic (e.g. "sitrep", "analysis", "fix_summary")
+    //   - snippet_name: short slug (e.g. "sitrep", "plan_proposal", "phase_complete")
     //   - turnIndex is optional — omit it to auto-increment safely
     //   - if the tool returns isError:true, do NOT report success — alert the user
     server.tool(
         "say_this_loud",
         "Surface content in the Read Aloud extension sidebar. Call this before your final response " +
-        "each turn to narrate your work. The content will be read aloud and logged to the session. " +
-        "Requires the active brain sessionId. Content must be verbatim prose — not JSON or raw paths.",
+        "only on these triggers: (1) turn-ending SITREPs or session summaries, " +
+        "(2) implementation plan proposals (before requesting GO), " +
+        "(3) phase completions (handoff to user), " +
+        "(4) major milestones or blocking questions. " +
+        "Requires the active brain sessionId. Content must be verbatim prose — not JSON or raw paths. " +
+        "CRITICAL: Whatever content you send here MUST also appear verbatim as plain text in your " +
+        "chat response (Chat/Audio Parity). The agent cannot narrate content it does not display.",
         {
             content: z.string().describe(
                 "Full markdown content to inject. MUST be verbatim and readable as prose. " +
