@@ -4,10 +4,34 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-04-24
+
 ### Added
 - **Shift+Arrow Chapter Navigation**: `Shift+ArrowLeft` jumps to the previous chapter; `Shift+ArrowRight` jumps to the next chapter. Plain `ArrowLeft`/`ArrowRight` continue to navigate sentences as before. Implemented in `InteractionManager.ts` via a `shiftKey` branch in the existing keyboard handler. Closes [#39](https://github.com/IdanDavidAviv/readme-preview-read-aloud/issues/39).
 
+## [2.6.0] - 2026-04-24
+
+> **Cumulative Milestone Release — MCP Sovereignty Arc (v2.5.1 → v2.5.12)**
+> This entry retroactively marks the boundary between the foundational 2.5.x stabilization cycle and the 2.6.x feature track. No new code — this is a summary of everything shipped across the arc.
+
+### Hardened
+- **Sovereign Reactive Core** (`v2.5.1`): Refactored the entire webview runtime into a reactive state machine. Eliminated phantom priming, IPC deduplication, pause intent tracking, and UI_SYNC lock guard. `WebviewStore`, `PlaybackController`, and `CommandDispatcher` rebuilt as SSOT components.
+- **Neural Prefetch Cache Sovereignty** (`v2.5.2`): Eliminated cache-poisoning regression where `AudioBridge.synthesize()` resolved text from HEAD state instead of the request payload. Added position-based deduping and a play-once backstop gate.
+- **Snippet Storage Unification — MP-001** (`v2.5.3`): Migrated all MCP snippet storage from flat `read_aloud/<session>/` to canonical `read_aloud/sessions/<session>/` root. `McpWatcher` updated with pivot-aware session detection. Fixed focused-file area freezing on tab switch.
+- **MCP Architecture Stabilization** (`v2.5.4`): Stabilized the MCP factory, renamed the primary tool to `say_this_loud`, hardened `TurnSentinel` sovereignty, and cleaned the `TurnManager` IPC contract.
+- **StreamableHTTP Migration** (`v2.5.6`): Eliminated a 60-second agent hang caused by SSE connection backpressure. Migrated MCP transport from SSE to StreamableHTTP. Silenced `/mcp` keepalive log spam.
+- **Multi-IDE Gate** (`v2.5.7`): Replaced PID-based gating with workspace-name tagging in `McpWatcher`. Added `[WS:<name>]` filename stamps to prevent cross-IDE playback contamination between sibling VS Code windows.
+- **Workspace Claim Gate** (`v2.5.9` / `v2.5.10`): Introduced `.workspace_claim` file-based ownership for multi-IDE isolation. Prevented sibling windows from stomping each other's claim on construction (non-destructive write; first-window-wins).
+- **CDP Shell Lifecycle** (`v2.5.11`): Pre-flight HTTP probe before CDP WebSocket upgrade. Smart Start (auto-detects open Dev Host), Smart Restart (skips close if nothing open), Exit Ritual (stops playback → closes host → releases lock).
+- **Playback Latency Elimination** (`v2.5.11`): Removed `_warmUpTts()` pre-warming that caused Azure to silently drop the WebSocket, producing a 10-second hang on first synthesis. TTS now initializes lazily. CDP-verified: handshake Delta = 0ms.
+- **McpBridge Tombstone — T-023** (`v2.5.11`): Deleted `mcpBridge.ts` HTTP server, removed `express`/`cors` dependencies. Extension now runs exclusively on `dist/mcp-standalone.js` via stdio.
+- **Release Authority Unification**: Merged `release_prestige` and `version_sentinel` into a single `release_authority` meta-skill. All release npm scripts migrated to the unified entry point.
+
+### Fixed
+- **XOR Window Sovereignty** (`v2.5.12`): Closed a "first-window-wins" leak in `McpWatcher._isSessionOwnedByMe` where any sibling IDE watching the Antigravity root would auto-claim and process foreign unclaimed sessions. `allowClaim=false` now enforced for any session that is not the watcher's own `_currentSessionId`. Foreign windows are completely silent — no sidebar, no context save, no playback.
+
 ## [2.5.12] - 2026-04-23
+
 
 ### Fixed
 - **XOR Window Sovereignty — Complete Isolation**: Closed a gap in the workspace claim gate where a sibling VS Code window (window4) would silently process and load snippets intended for another window's session. Root cause: `_isSessionOwnedByMe` applied "first-window-wins" auto-claim logic to *all* unclaimed sessions, including foreign ones it had no business touching. Fix: the call site now passes `allowClaim=false` for any session that is not the watcher's own `_currentSessionId`. Foreign unclaimed sessions are now hard-rejected at the gate — no sidebar update, no context save, no playback. Sibling windows remain completely silent.
