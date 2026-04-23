@@ -93,13 +93,15 @@ export class InteractionManager {
             case 'ArrowLeft':
                 event.preventDefault();
                 this.lastNavTime = Date.now();
-                playback.prevSentence();
+                // [#39] Shift+ArrowLeft → prev chapter, plain ArrowLeft → prev sentence
+                if (event.shiftKey) { playback.prevChapter(); } else { playback.prevSentence(); }
                 break;
 
             case 'ArrowRight':
                 event.preventDefault();
                 this.lastNavTime = Date.now();
-                playback.nextSentence();
+                // [#39] Shift+ArrowRight → next chapter, plain ArrowRight → next sentence
+                if (event.shiftKey) { playback.nextChapter(); } else { playback.nextSentence(); }
                 break;
 
             case 'ArrowUp':
