@@ -15,7 +15,8 @@ task.md
 cto_review.md
 forensic_audit.js
 check_html.js
-diagnostic.log
+diagnostics.log
+diagnostics_agent.log
 test.md
 node_modules/**
 !dist/**

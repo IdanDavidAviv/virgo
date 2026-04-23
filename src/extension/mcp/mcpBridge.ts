@@ -123,7 +123,11 @@ export class McpBridge extends EventEmitter {
         this._logger(`[MCP_BRIDGE] ✅ StreamableHTTP transport connected (stateful, SDK-managed sessions).`);
 
         this._app.all("/mcp", express.json(), async (req, res) => {
-            this._logger(`[MCP_TRACE] ${req.method} /mcp | method: ${req.body?.method ?? 'n/a'}`);
+            // GET /mcp = StreamableHTTP SSE notification channel (keepalive poll, ~60s).
+            // No method payload — silence it to keep logs clean.
+            if (req.method === 'POST') {
+                this._logger(`[MCP_TRACE] POST /mcp | method: ${req.body?.method ?? 'n/a'}`);
+            }
             try {
                 await this._transport!.handleRequest(req as any, res as any, req.body);
             } catch (err: any) {
