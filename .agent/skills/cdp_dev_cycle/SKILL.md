@@ -21,13 +21,16 @@ description: # Dev Cycle Protocol: CDP Shell Sovereignty (v2.5.1)
    $cursor = (Get-Item diagnostics_agent.log).Length
    ```
 2. **Open CDP shell** (if not already open): `npm run cdp:shell`
-3. **Send `restart`** — this autonomously runs: `close-host` → 2s wait → `launch` → `wait-for-ready`
-4. **Confirm `✅ SYSTEM READY`** before proceeding
-5. **All log reads MUST use `$cursor` as the start offset** — never read the full log
+   - *Smart Start*: shell auto-detects if Dev Host is open.
+     - **Host found** → logs `🟢 Dev Host already open — connected.`
+     - **No host** → auto-fires `launch` + `wait-for-ready` before dropping to prompt.
+3. **Confirm `✅ SYSTEM READY`** before issuing any audit commands.
+4. **All log reads MUST use `$cursor` as the start offset** — never read the full log.
 
 > [!NOTE]
-> The `restart` command is wired in the shell (`close-host` + `launch` + `wait-for-ready`).
-> It is the ONLY sanctioned way to begin a cold-boot observation window.
+> For a true **cold-boot** audit window, send `restart` after the shell opens.
+> `restart` is smart: if Dev Host is already open it closes it first, then re-launches.
+> If no host is open it skips the close step and just launches fresh.
 
 ## 1. Sovereignty Hierarchy
 - **Tier 1 (Host):** `[Extension Development Host]` — The primary target for verification.
@@ -60,24 +63,27 @@ A **reload** restarts the extension in-place. For a true cold-boot audit (T-006)
 3. Read the log slice from the cursor to capture all boot-window events.
 
 > [!IMPORTANT]
-> `exit` closes the **shell script** only — the Dev Host VS Code window stays open.
-> To close the Dev Host: use `close-host` (or `restart` for a full cycle).
+> `exit` closes the **shell script AND the Dev Host** — it is a full cleanup ritual.
+> It stops any running playback first, then gracefully closes the Dev Host, then exits.
+> To close the Dev Host without exiting the shell: use `close-host`.
 
 ### 🛠 Phase 3: The Audit-Audit Ritual
 **DISPATCH-AUDIT MIRROR**: Every `dispatch` (or `exec`) action MUST be followed by a state verification.
 - *Rationale*: Extension commands are asynchronous. The UI might confirm "OK" while the underlying state is still syncing.
 - *Action*: `dispatch Readme Preview: Play` -> `wait-for-ready` (or manual poll) -> `verify-state`.
 
-### 🛠 Phase 4: Mandatory Playback Stop Before Exit ⭐
+### 🛠 Phase 4: Exit Ritual ⭐
 > [!CAUTION]
-> **NEVER leave a playback running when exiting the CDP shell.** Free-running audio after shell exit floods `diagnostics_agent.log` with noise that makes subsequent forensic reads ambiguous and cursor-unsafe.
+> **Always use `exit` to terminate the shell — never Ctrl+C or kill the process.**
+> `exit` is a full cleanup ritual: stop playback → close Dev Host → release lock → exit process.
 
-**MANDATORY — before every `exit`:**
-1. Send `dispatch Readme Preview: Stop` OR `eval document.getElementById('btn-stop')?.click()`
-2. Confirm playback has stopped (no more `canplay`/`EMIT playAudio` lines appearing in log)
-3. THEN send `exit`
+**What `exit` does automatically:**
+1. Clicks `btn-stop` in the webview (stops any running playback)
+2. Calls `gracefulClose` to shut down the Extension Development Host
+3. Releases the `.cdp_shell.lock` file
+4. Exits the Node process cleanly
 
-If no stop button is available, use `dispatch workbench.action.reloadWindow` to reset the host state before exiting.
+If the Dev Host is already closed (e.g. crashed), the exit ritual handles it gracefully and still exits cleanly.
 
 ## 3. Command Pipeline: Discovery Ritual
 To prevent cross-pollution, always audit the field before acting.
@@ -104,12 +110,11 @@ When closing the dev host, the script follows a polite 3-tier ladder:
 | **Ready Up** | `wait-for-ready` | Polls for system hydration signal |
 | **Reload Ext** | `dispatch workbench.action.reloadWindow` | Restarts extension host in-place |
 | **Close Host** | `close-host` | Gracefully closes Dev Host window + PIDs |
-| **Cold Restart** | `restart` | close-host → launch → wait-for-ready |
+| **Smart Restart** | `restart` | close-host (if open) → launch → wait-for-ready |
 | **State Dump** | `verify-state` | Dumps the current Redux store |
 | **Dispatch** | `dispatch <cmd>` | Atomic command triggering |
 | **Eval** | `eval <expr>` | JS execution in webview context |
-| **Stop Playback** | `eval document.getElementById('btn-stop')?.click()` | **MANDATORY before exit** |
-| **Exit Shell** | `exit` | Closes shell script only (Dev Host stays open) |
+| **Full Exit** | `exit` | Stop playback + close Dev Host + exit shell |
 
 ## 5. Troubleshooting the Signal
 - **"NOT FOUND" (Webview)**: If `status` shows `Webview: ❌`, run `dispatch ...show-dashboard`. Webviews are lazily loaded.

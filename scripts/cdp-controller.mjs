@@ -109,10 +109,54 @@ export async function connectToCDP() {
       } catch (e) { unlinkSync(SHELL_LOCK); }
     }
   }
+
+  // ── Pre-flight HTTP Probe ──
+  // Before attempting the WebSocket upgrade, verify the CDP HTTP endpoint is
+  // actually responding. This distinguishes "port open but not CDP" from a
+  // real CDP host. Timeout: 3s.
+  console.log(`[CDP] 🔍 Pre-flight probe → ${CDP_URL}/json/version ...`);
+  const probeOk = await new Promise((resolve) => {
+    const req = http.get(`${CDP_URL}/json/version`, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try {
+          const v = JSON.parse(data);
+          console.log(`[CDP] ✅ Probe OK — Browser: ${v.Browser || '?'} | WS: ${v.webSocketDebuggerUrl || '?'}`);
+          resolve(true);
+        } catch (e) {
+          console.error(`[CDP] ⚠ Probe connected but response is not JSON: ${data.substring(0, 200)}`);
+          resolve(false);
+        }
+      });
+    });
+    req.setTimeout(3000, () => {
+      req.destroy();
+      console.error(`[CDP] ✗ Probe TIMEOUT — port 9222 is bound but not responding to HTTP (not a CDP host?).`);
+      resolve(false);
+    });
+    req.on('error', (e) => {
+      console.error(`[CDP] ✗ Probe ERROR — ${e.code}: ${e.message}`);
+      resolve(false);
+    });
+  });
+
+  if (!probeOk) {
+    console.error('[CDP] ✗ Cannot proceed — pre-flight probe failed. Check that Antigravity was launched with --remote-debugging-port=9222 and the debug port is not blocked by another process.');
+    process.exit(1);
+  }
+
+  // ── WebSocket Upgrade ──
   try {
-    return await chromium.connectOverCDP(CDP_URL);
-  } catch {
-    console.error('[CDP] ✗ Cannot connect. Is Antigravity running with --remote-debugging-port=9222?');
+    console.log(`[CDP] 🔌 Connecting via Playwright WebSocket...`);
+    const browser = await chromium.connectOverCDP(CDP_URL);
+    console.log(`[CDP] ✅ Connected — ${browser.contexts().length} context(s) active.`);
+    return browser;
+  } catch (e) {
+    console.error(`[CDP] ✗ Playwright connectOverCDP FAILED`);
+    console.error(`[CDP]   Error type : ${e.constructor?.name || 'unknown'}`);
+    console.error(`[CDP]   Message    : ${e.message}`);
+    if (e.stack) { console.error(`[CDP]   Stack      : ${e.stack.split('\n').slice(0,4).join(' | ')}`); }
     process.exit(1);
   }
 }
@@ -202,13 +246,18 @@ export class TargetProxy {
 
 export function getRawTargets() {
   return new Promise((resolve, reject) => {
-    http.get(`${CDP_URL}/json`, (res) => {
+    const req = http.get(`${CDP_URL}/json`, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+        try { resolve(JSON.parse(data)); } catch (e) { reject(new Error(`getRawTargets: JSON parse failed — ${e.message}`)); }
       });
-    }).on('error', reject);
+    });
+    req.setTimeout(5000, () => {
+      req.destroy();
+      reject(new Error('getRawTargets: HTTP timeout after 5000ms'));
+    });
+    req.on('error', reject);
   });
 }
 
@@ -421,16 +470,50 @@ async function runShell() {
   writeFileSync(SHELL_LOCK, process.pid.toString());
   const mainPids = snapshotAntigravityPids();
   let browser = await connectToCDP();
-  
+
+  // ── Exit Ritual: stop playback → close Dev Host → exit shell ──
   const cleanupAndExit = async () => {
-    console.log('\n[SHELL] 🔻 Cleanup...');
-    if (browser) { await browser.close().catch(() => { }); }
+    console.log('\n[SHELL] 🔻 Exit Ritual: stopping playback...');
+    try {
+      const ef = await findSovereignTarget(browser, 'webview');
+      if (ef) { await ef.evaluate(() => document.getElementById('btn-stop')?.click()).catch(() => {}); }
+      await new Promise(r => setTimeout(r, 500));
+    } catch {}
+    console.log('[SHELL] 🔻 Closing Dev Host...');
+    try {
+      const devPids = snapshotAntigravityPids();
+      await gracefulClose(devPids, mainPids, browser);
+    } catch {}
+    if (browser) { await browser.close().catch(() => {}); }
     if (existsSync(SHELL_LOCK)) { unlinkSync(SHELL_LOCK); }
+    console.log('[SHELL] ✅ Done.');
     process.exit(0);
   };
 
   process.on('SIGINT', cleanupAndExit);
   process.on('SIGTERM', cleanupAndExit);
+
+  // ── Smart Start: auto-launch Dev Host if not already open ──
+  const bootHost = await findSovereignTarget(browser, 'host');
+  if (bootHost) {
+    console.log('[CDP] 🟢 Dev Host already open — connected.');
+  } else {
+    console.log('[CDP] 🚀 No Dev Host found — auto-launching...');
+    const bootMain = await findSovereignTarget(browser, 'workbench');
+    if (bootMain) {
+      await bootMain.bringToFront();
+      await bootMain.keyboard.press('Escape');
+      await new Promise(r => setTimeout(r, 200));
+      await bootMain.keyboard.press('Control+Shift+P');
+      await new Promise(r => setTimeout(r, 400));
+      await bootMain.keyboard.type('workbench.action.debug.start', { delay: 20 });
+      await new Promise(r => setTimeout(r, 500));
+      await bootMain.keyboard.press('Enter');
+      await shellWaitForReady();
+    } else {
+      console.error('[CDP] ❌ Main Editor not found — cannot auto-launch. Open VS Code first.');
+    }
+  }
 
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: '\ncdp> ' });
   rl.prompt();
@@ -593,16 +676,20 @@ async function runShell() {
         console.log('[CDP] ✅ Dev Host closed.');
         break;
       }
-      // [RESTART] Full cold-restart: close Dev Host → wait 2s → F5 launch → wait-for-ready.
-      // Use this for T-006 boot audits to ensure a clean cold-boot window.
+      // [RESTART] Smart cold-restart: close Dev Host only if open → F5 launch → wait-for-ready.
+      // Guards against blind close when no Dev Host is running.
       case 'restart': {
-        console.log('[CDP] 🔄 Cold Restart: closing Dev Host...');
         const rstB = await getbrowser();
-        const rstPids = snapshotAntigravityPids();
-        await gracefulClose(rstPids, mainPids, rstB);
-        console.log('[CDP] ⏳ Waiting for host to fully exit (2s)...');
-        await new Promise(r => setTimeout(r, 2000));
-        // Re-open via Main Editor F5
+        const existingHost = await findSovereignTarget(rstB, 'host');
+        if (existingHost) {
+          console.log('[CDP] 🔄 Restart: Dev Host found — closing...');
+          const rstPids = snapshotAntigravityPids();
+          await gracefulClose(rstPids, mainPids, rstB);
+          console.log('[CDP] ⏳ Waiting for host to fully exit (2s)...');
+          await new Promise(r => setTimeout(r, 2000));
+        } else {
+          console.log('[CDP] 🚀 Restart: No Dev Host open — launching fresh...');
+        }
         const rstB2 = await getbrowser();
         const rstMain = await findSovereignTarget(rstB2, 'workbench');
         if (rstMain) {
@@ -625,7 +712,7 @@ async function runShell() {
       case 'exit':
       case 'quit': await cleanupAndExit(); break;
       case 'help':
-        console.log('\n  status         - Situation report\n  launch         - Trigger F5 (Debug)\n  close-host     - Gracefully close the Dev Host window + kill its PIDs\n  restart        - Cold restart: close-host → launch → wait-for-ready\n  wait-for-ready - Poll for hydration\n  prime          - Execute Wake Ritual\n  click-play     - DOM click btn-play (real gesture, sets userHasInteracted)\n  audit          - Dump __debug state from webview content frame\n  stress         - 100-iter monotonic stress test\n  dispatch       - VS Code command (Ctrl+Shift+P, NOT a gesture)\n  eval           - JS execution in content frame\n  exit           - Close shell (does NOT close Dev Host — use close-host first)\n');
+        console.log('\n  status         - Situation report\n  launch         - Trigger F5 (Debug)\n  close-host     - Gracefully close the Dev Host window + kill its PIDs\n  restart        - Smart restart: close-host (if open) → launch → wait-for-ready\n  wait-for-ready - Poll for hydration\n  prime          - Execute Wake Ritual\n  click-play     - DOM click btn-play (real gesture, sets userHasInteracted)\n  audit          - Dump __debug state from webview content frame\n  stress         - 100-iter monotonic stress test\n  dispatch       - VS Code command (Ctrl+Shift+P, NOT a gesture)\n  eval           - JS execution in content frame\n  exit           - Stop playback + close Dev Host + exit shell (full cleanup)\n');
         break;
     }
     rl.prompt();

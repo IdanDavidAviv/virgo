@@ -6,20 +6,23 @@ description: Protocol for high-integrity conversational AI injections and sensor
 # Read Aloud Injection Guard
 
 > [!IMPORTANT]
-> **Current State (v2.5.3)**: The MCP server has ONE core function — `say_this_loud`. The auto-SITREP loop, `autoInjectSITREP` flag, and protocol-reading boot sequence were aspirational and are **not reliably triggered**. Do NOT assume these work automatically. The agent must call `say_this_loud` explicitly when it wants to surface content in the sidebar.
+> **Current State (v2.5.10)**: The MCP server has ONE core function — `say_this_loud`. It runs as a **stdio standalone process** (`dist/mcp-standalone.js`) — not an HTTP service. The auto-SITREP loop, `autoInjectSITREP` flag, and protocol-reading boot sequence were aspirational and are **not reliably triggered**. Do NOT assume these work automatically. The agent must call `say_this_loud` explicitly when it wants to surface content in the sidebar.
 
 ---
 
 ## 1. What The MCP Actually Does (SSOT)
 
-The Read Aloud MCP server is a **sidecar HTTP service** (SSE + REST) running inside the VS Code extension process. Its sole production mission:
+The Read Aloud MCP server is a **stdio standalone process** (`dist/mcp-standalone.js`) — not an HTTP service. It runs outside VS Code and communicates with the extension via file-based polling (McpWatcher). Its sole production mission:
 
 ```
-Agent calls say_this_loud
-  → PendingInjectionStore.save() writes <timestamp>_<name>.md to sessions/<id>/
-  → McpBridge emits 'injected'
-  → SpeechProvider.refreshView() is called
-  → Snippet History sidebar updates in real time
+Agent calls say_this_loud (via stdio → mcp-standalone.js)
+  → PendingInjectionStore.save() writes <timestamp>.<name>.md to sessions/<id>/
+  → McpWatcher [McpWatcher.ts] detects new file:
+      PRIMARY: vscode.workspace.createFileSystemWatcher (VS Code FileSystemWatcher)
+      SUPPLEMENTAL: fs.watch on antigravityRoot (for paths outside VS Code workspace)
+  → McpWatcher._handleInboundSnippet() fires
+  → onSnippetLoaded callbacks notify SpeechProvider
+  → DocumentLoadController.loadSnippet() → StateStore updates → UI syncs
 ```
 
 **No other behavior is guaranteed to be active.**
@@ -56,6 +59,25 @@ Injected Turn 5 into session abc123 successfully at /path/to/file.md
 
 ---
 
+## 2.5 When To Use `say_this_loud` (Strategic Triggers)
+> **Canonical SSOT**: [GEMINI.md §12.2](../../../../GEMINI.md) — this section summarizes; defer to GEMINI.md if they diverge.
+
+Fire `say_this_loud` **only** on these 4 triggers — **NOT every turn**:
+
+| # | Trigger | Example |
+|---|---|---|
+| 1 | Turn-ending SITREPs and session summaries | End of a major work block |
+| 2 | Implementation plan proposals | Before requesting GO from the user |
+| 3 | Phase completions | Handoff to user at end of a plan phase |
+| 4 | Major milestones or blocking questions | Strategic decision required |
+
+**Never fire for:**
+- ❌ Minor progress notes or interim tool-call results
+- ❌ Simple GO/approval acknowledgements
+- ❌ Every turn by default
+
+---
+
 ## 3. Session ID Discovery
 
 The agent must supply the correct `sessionId`. The canonical session ID is:
@@ -75,6 +97,7 @@ When you inject content, it will be read aloud by the extension. Therefore:
 - **Rule 4.1**: Content injected via `say_this_loud` MUST be meaningful and readable as prose — not raw JSON, file paths, or internal telemetry.
 - **Rule 4.2**: Do not truncate or summarize user messages if injecting a SITREP — the user hears what you inject.
 - **Rule 4.3**: If the injection fails (tool returns `isError: true`), do NOT report it as success. Alert the user.
+- **Rule 4.4 — Chat/Audio Parity (CRITICAL)**: Whatever content you send to `say_this_loud` MUST also appear **verbatim** as plain text in your chat response. The agent cannot narrate content it does not display. This lets the user read along with the audio. A response that narrates hidden content is a parity violation.
 
 ---
 
@@ -100,15 +123,21 @@ These files remain as aspirational documentation. When the agent-boot mechanism 
 ## 6. Sync Architecture (How Injection Reaches The UI)
 
 ```
-say_this_loud tool call
+say_this_loud tool call (via stdio → dist/mcp-standalone.js)
   ↓
 PendingInjectionStore.save()  [sharedStore.ts]
-  ↓ emits 'injected'
-McpBridge  [mcpBridge.ts]
-  ↓ emits 'injected' to EventEmitter
-extension.ts listener (mcpBridge.on('injected'))
+  ↓ writes <timestamp>.<name>.md to sessions/<id>/
+McpWatcher  [McpWatcher.ts]
+  ├─ PRIMARY: vscode.workspace.createFileSystemWatcher (** /*.md glob)
+  └─ SUPPLEMENTAL: fs.watch on antigravityRoot {recursive:true} (Windows/external path fallback)
+  ↓ both call _handleInboundSnippet(uri)
+  ↓ ownership check via .workspace_claim (XOR gate — rejects sibling IDE sessions)
   ↓ calls
-SpeechProvider.refreshView()  [speechProvider.ts]
+DocumentLoadController.loadSnippet()  [documentLoadController.ts]
+  ↓
+StateStore.setActiveDocument() + setActiveMode('SNIPPET')
+  ↓
+onSnippetLoaded callbacks → SpeechProvider [speechProvider.ts]
   ↓ calls
 _getSnippetHistory()  — scans sessions/<id>/*.md only
   ↓
