@@ -12,7 +12,7 @@ vi.mock('vscode', () => ({
     }
 }));
 
-describe('McpBridge Logging Unit Tests', () => {
+describe('LogReporter Unit Tests', () => {
     const logger = (msg: string) => console.log(`[UNIT_TEST_LOG] ${msg}`);
     const testDir = path.resolve('./tests/mcp/unit_logs_tmp');
     const nativeLogPath = path.join(testDir, 'native.log');
