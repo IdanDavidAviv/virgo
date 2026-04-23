@@ -5,7 +5,7 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ## [Unreleased]
 
 ### Added
-- 
+- **Shift+Arrow Chapter Navigation**: `Shift+ArrowLeft` jumps to the previous chapter; `Shift+ArrowRight` jumps to the next chapter. Plain `ArrowLeft`/`ArrowRight` continue to navigate sentences as before. Implemented in `InteractionManager.ts` via a `shiftKey` branch in the existing keyboard handler. Closes [#39](https://github.com/IdanDavidAviv/readme-preview-read-aloud/issues/39).
 
 ## [2.5.12] - 2026-04-23
 
