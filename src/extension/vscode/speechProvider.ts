@@ -53,7 +53,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         private readonly _context: vscode.ExtensionContext,
         private readonly _logger: (msg: string) => void,
         private readonly _statusBarItem: vscode.StatusBarItem,
-        private _antigravityRoot: string,
+        private _readAloudRoot: string,
         private _sessionId: string,
         public onVisibilityChanged?: () => void
     ) {
@@ -69,7 +69,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         // [PHASE 1 REFACTOR] Modularized MCP Watcher
         this._mcpWatcher = new McpWatcher(
-            this._antigravityRoot,
+            this._readAloudRoot,
             this._sessionId,
             this._stateStore,
             this._docController,
@@ -91,7 +91,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._context,
             this._stateStore,
             msg => this._logger(msg),
-            this._antigravityRoot,
+            this._readAloudRoot,
             this._sessionId
         );
         this._settingsManager.initialize();
@@ -166,14 +166,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public updateSessionContext(root: string, sessionId: string) {
-        this._antigravityRoot = path.join(root, 'read_aloud');
+        // [MP-001 T-015] root IS sessionsRoot — do NOT re-append 'read_aloud'.
+        // Callers now pass the pre-resolved sessions/ root directly.
+        this._readAloudRoot = root;
         this._sessionId = sessionId;
         this._settingsManager.pivotSession(root, sessionId);
         this._mcpWatcher?.pivot(root, sessionId);
     }
 
     private _ensureSessionState() {
-        const sessionPath = path.join(this._antigravityRoot, this._sessionId);
+        const sessionPath = path.join(this._readAloudRoot, this._sessionId);
         const stateFile = path.join(sessionPath, 'extension_state.json');
 
         if (!fs.existsSync(sessionPath)) {
@@ -191,7 +193,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _bridgeAgentState(autoInjectSITREP: boolean) {
-        const stateFile = path.join(this._antigravityRoot, this._sessionId, 'extension_state.json');
+        const stateFile = path.join(this._readAloudRoot, this._sessionId, 'extension_state.json');
         if (fs.existsSync(stateFile)) {
             try {
                 const content = fs.readFileSync(stateFile, 'utf8');
@@ -867,21 +869,20 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private async _getSnippetHistory(): Promise<SnippetHistory> {
-        const rootUri = vscode.Uri.file(this._antigravityRoot);
+        const rootUri = vscode.Uri.file(this._readAloudRoot);
         
         try {
             // 1. Get all session directories 
             const entries = await vscode.workspace.fs.readDirectory(rootUri);
 
-            // [SCANNER_EXCLUSION] System-only directories that must never appear in the Discovery Sidebar.
-            // These are anti-gravity internal dirs and must be filtered before session enumeration.
-            const EXCLUDED_DIRS = new Set(['brain', 'protocols', 'tempmediaStorage']);
+            // [MP-001 T-015] EXCLUDED_DIRS: sessions/ root only contains UUID session directories.
+            // System dirs (protocols, tempmediaStorage, brain) live under read_aloud/ root —
+            // they are NOT reachable from here. Filter reserved for future non-UUID entries.
+            const EXCLUDED_DIRS = new Set<string>();
 
             const allDirs = (await Promise.all(entries.map(async ([name, type]) => {
                 if (type !== vscode.FileType.Directory) { return null; }
                 
-                // [BRAIN_ISOLATION] Filter out system/agent directories from Discovery Sidebar
-                // We keep discovery strictly for user-facing 'read_aloud' sessions.
                 if (EXCLUDED_DIRS.has(name)) {
                     return null;
                 }
@@ -917,6 +918,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 const sessionEntries = await vscode.workspace.fs.readDirectory(sessionUri);
                 const files = (await Promise.all(sessionEntries.map(async ([f, type]) => {
                     if (type !== vscode.FileType.File) { return null; }
+                    // [MP-001 T-015] Only surface markdown files — exclude extension_state.json
+                    // and any other metadata files that are not user-facing snippets.
+                    if (!f.endsWith('.md') && !f.endsWith('.markdown')) { return null; }
 
                     const fileUri = vscode.Uri.joinPath(sessionUri, f);
                     const stats = await vscode.workspace.fs.stat(fileUri);

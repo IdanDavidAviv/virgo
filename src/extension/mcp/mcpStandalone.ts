@@ -5,29 +5,29 @@ import { PendingInjectionStore } from "./core/sharedStore";
 
 /**
  * Portless MCP Server for Read Aloud (Standalone)
- * Communicates via Stdio and synchronizes via the Brain directory.
+ * Communicates via Stdio and synchronizes via the sessions directory.
  */
 
 async function main() {
     // 1. Environment Discovery
     const userHome = process.env.USERPROFILE || process.env.HOME || "";
-    const defaultBrainRoot = path.join(userHome, ".gemini", "antigravity", "read_aloud");
-    const brainRoot = process.env.READ_ALOUD_DATA_DIR || defaultBrainRoot;
+    // [MP-001 T-015] Canonical sessions root: read_aloud/sessions/
+    // Override via READ_ALOUD_DATA_DIR env var for custom deployments.
+    const defaultSessionsRoot = path.join(userHome, ".gemini", "antigravity", "read_aloud", "sessions");
+    const sessionsRoot = process.env.READ_ALOUD_DATA_DIR || defaultSessionsRoot;
     
-    // Standalone usually targets the last active session if none is specified, 
-    // but the factory handles specific session IDs via tool arguments.
-    // We'll set the persistencePath to the brainRoot for general discovery.
-    const persistencePath = brainRoot; 
+    // Standalone targets the sessions root; the factory handles specific session IDs via tool arguments.
+    const persistencePath = sessionsRoot;
 
     const logger = (msg: string) => console.error(`[MCP_STANDALONE] ${msg}`);
     
-    logger(`Brain Root: ${brainRoot}`);
+    logger(`Sessions Root: ${sessionsRoot}`);
 
     // 3. Setup Store & Factory
     const store = new PendingInjectionStore(persistencePath);
     const server = createReadAloudMcpServer({
         persistencePath,
-        brainRoot,
+        brainRoot: sessionsRoot,
         logger,
         store,
         version: "2.2.0"

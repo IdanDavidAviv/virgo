@@ -7,8 +7,8 @@ import { PathGuard } from "@common/mcp/pathGuard";
 import { hydrateProtocols } from "@common/protocolHydrator";
 
 export interface McpConfig {
-    persistencePath: string; // The specific session path (e.g. .../read_aloud/SESSION_ID)
-    brainRoot: string;       // The root of all sessions (e.g. .../read_aloud)
+    persistencePath: string; // The specific session path (e.g. .../read_aloud/sessions/SESSION_ID)
+    brainRoot: string;       // The root of all sessions (e.g. .../read_aloud/sessions)
     logger: (msg: string) => void;
     nativeLogUri?: { fsPath: string };
     debugLogPath?: string;

@@ -21,8 +21,8 @@ function log(msg: string) {
     }
 }
 
-function resolveLatestSessionId(antigravityRoot: string, brainRoot?: string): string {
-    const searchDirs = [antigravityRoot];
+function resolveLatestSessionId(readAloudRoot: string, brainRoot?: string): string {
+    const searchDirs = [readAloudRoot];
     if (brainRoot) { searchDirs.unshift(brainRoot); } // Brain is higher priority for "New" sessions
 
     for (const root of searchDirs) {
@@ -61,18 +61,20 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // [Onboarding & Repair] Environment Sanity Check
     const userProfile = process.env.USERPROFILE || process.env.HOME || '';
-    const antigravityRoot = path.join(userProfile, '.gemini', 'antigravity', 'read_aloud');
+    const readAloudRoot = path.join(userProfile, '.gemini', 'antigravity', 'read_aloud');
+    // [MP-001 T-015] Canonical session root — all session data lives under sessions/<id>/
+    const sessionsRoot = path.join(readAloudRoot, 'sessions');
     try {
-        if (!fs.existsSync(antigravityRoot)) {
-            fs.mkdirSync(antigravityRoot, { recursive: true });
+        if (!fs.existsSync(sessionsRoot)) {
+            fs.mkdirSync(sessionsRoot, { recursive: true });
         }
-        // Test write permission
-        const testFile = path.join(antigravityRoot, '.write_test');
+        // Test write permission on the canonical sessions root
+        const testFile = path.join(sessionsRoot, '.write_test');
         fs.writeFileSync(testFile, 'test');
         fs.unlinkSync(testFile);
     } catch (err: any) {
         vscode.window.showErrorMessage(
-            `Read Aloud Extension cannot write to its data directory: ${err.message}. Please check permissions for ${antigravityRoot}.`,
+            `Read Aloud Extension cannot write to its data directory: ${err.message}. Please check permissions for ${sessionsRoot}.`,
             'Repair Permissions'
         ).then(selection => {
             if (selection === 'Repair Permissions') {
@@ -93,17 +95,21 @@ export async function activate(context: vscode.ExtensionContext) {
     // Standard path for high-integrity agent memory
     const brainRoot = path.join(userProfile, '.gemini', 'antigravity', 'brain');
     
-    // Dynamic Session Discovery (Check brain first for real-time parity)
-    const sessionId = resolveLatestSessionId(antigravityRoot, brainRoot); 
-    const persistencePath = path.join(antigravityRoot, sessionId);
+    // [MP-001 T-015] Dynamic Session Discovery — brain takes priority for new agent sessions,
+    // sessions/ is the canonical fallback for established sessions.
+    const sessionId = resolveLatestSessionId(sessionsRoot, brainRoot); 
 
-    speechProvider = new SpeechProvider(context, log, mainStatusBarItem, antigravityRoot, sessionId, () => syncSelection());
+    // [MP-001 T-015] SpeechProvider receives sessionsRoot so McpWatcher and _getSnippetHistory
+    // both scan read_aloud/sessions/ — the single canonical location for user-facing session data.
+    speechProvider = new SpeechProvider(context, log, mainStatusBarItem, sessionsRoot, sessionId, () => syncSelection());
     log('--- PORTLESS SYNC ACTIVE (Filesystem Watcher) ---');
-    log(`[ANTIGRAVITY] Session: ${sessionId}`);
+    log(`[ANTIGRAVITY] Session: ${sessionId} | Root: ${sessionsRoot}`);
     
 
     // --- MCP BRIDGE (Agentic Integration) ---
-    const sessionPersistencePath = path.join(brainRoot, sessionId);
+    // [MP-001 T-015] Session persistence now routes to sessions/<id>/ — the canonical session root.
+    // McpWatcher watches sessionsRoot, so injected files are immediately discoverable by the UI.
+    const sessionPersistencePath = path.join(sessionsRoot, sessionId);
     const mcpBridge = new McpBridge(sessionPersistencePath, log, (outputChannel as any).logUri, logFilePath, context.extensionMode);
     context.subscriptions.push(mcpBridge);
     
@@ -115,6 +121,15 @@ export async function activate(context: vscode.ExtensionContext) {
         speechProvider.stop();
     });
     */
+
+    // [MP-001 T-015] Re-wire injected event: trigger UI history refresh on new snippet arrival.
+    // Lightweight relay — does NOT stop playback. History-only sync.
+    mcpBridge.on('injected', async () => {
+        if (speechProvider) {
+            log('[MCP_BRIDGE] Snippet injected — triggering UI history refresh.');
+            await speechProvider.refreshView();
+        }
+    });
 
     mcpBridge.start().catch((err: any) => {
         log(`[MCP_ERROR] Bridge failed to start: ${err.message}`);
