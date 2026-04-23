@@ -7,6 +7,18 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.5.2] - 2026-04-23
+
+### Fixed
+- **Cache-Poisoned Prefetch (Root Fix)**: `synthesize()` was always resolving sentence text from `state.currentSentenceIndex` (HEAD=0) regardless of the `cacheKey` received. All three concurrent prefetch calls for N+1, N+2, N+3 therefore stored HEAD audio under wrong keys — user heard the first sentence 4 times before the document advanced. Fixed by passing `text` alongside `cacheKey` in `REQUEST_SYNTHESIS` from `_processQueue()` and using it directly in `synthesize()`.
+- **Prefetch `playAudio` Flooding**: Prefetch synthesis completions in `_speakNeural()` were emitting `playAudio` unconditionally regardless of `isPriority`. All N+1/N+2/N+3 completions triggered simultaneous audio — causing the "audio mess" regression. Fixed with an `if (!isPriority) return` guard: non-priority paths now push to cache only and never emit `playAudio`.
+- **Head-Exclusion Enforcement (RC-1)**: `_processQueue()` included the HEAD sentence (N+0) in its prefetch candidate window, creating dual synthesis authority with `audioBridge.start()`. Fixed by advancing the window to `slice(currIdx + 1)`.
+- **Cache Key Schema Mismatch (RC-2)**: `_processQueue()` did not pass the `isNeural` flag to `generateCacheKey()`, producing a different hash than the extension and bypassing all dedup guards. Fixed by explicitly passing `isNeural`.
+
+### Hardened
+- **AudioBridge Play-Once Backstop Gate**: Added `_lastPlayAudioCacheKey` tracking to `_emitWithIntent()`. Suppresses any duplicate `playAudio` emission for the same cache key (defense-in-depth after root fixes). Resets on intent change and `stop()`.
+- **CDP Dev Cycle — Mandatory Stop Before Exit**: Codified a Phase 4 protocol in `cdp_dev_cycle` SKILL.md requiring playback to be stopped before `exit` to prevent log pollution from free-running audio.
+
 ## [2.5.1] - 2026-04-22
 
 ### Fixed
