@@ -7,6 +7,23 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.5.3] - 2026-04-23
+
+### Fixed
+- **Orphaned Snippet Regression (Root Fix — MP-001)**: MCP injections were writing to `brain/<sessionId>/` while `McpWatcher` and `_getSnippetHistory()` scanned `read_aloud/sessions/<sessionId>/` — a path mismatch that caused all AI-injected snippets to silently disappear from the sidebar. Unified the canonical storage root to `read_aloud/sessions/<id>/` across the full pipeline (`extension.ts`, `speechProvider.ts`, `mcpStandalone.ts`).
+- **Double Path Concatenation in `updateSessionContext()`**: `SpeechProvider.updateSessionContext()` was appending `read_aloud` to an already-resolved root, producing malformed paths like `sessions/<id>/read_aloud/<id>/`. Fixed by passing the pre-resolved `sessionsRoot` directly from the extension bootstrap.
+- **Metadata File Leakage in Sidebar**: `extension_state.json` and other non-snippet metadata files were appearing as playable items in the Snippet History sidebar. Added a strict `.md`/`.markdown`-only filter in `_getSnippetHistory()`.
+- **`injected` Event Orphaned**: The `mcpBridge.on('injected')` listener was silently decommissioned in a previous refactor, breaking real-time sidebar refresh on injection. Re-wired to call `speechProvider.refreshView()` — a lightweight history-only sync that does not interrupt active playback.
+
+### Refactored
+- **Canonical Session Root (`sessions/`)**: All session-scoped data (snippets, `extension_state.json`) now lives exclusively under `read_aloud/sessions/<sessionId>/`. The `read_aloud/` root contains only non-session shared resources (`protocols/`, `tempmediaStorage/`, `active_servers.json`).
+- **Renamed `antigravityRoot` → `readAloudRoot`**: Clarified internal variable naming in `extension.ts` and `SpeechProvider` to accurately reflect what the path points to.
+- **Cleared `EXCLUDED_DIRS`**: The now-empty exclusion set in `_getSnippetHistory()` is correct — system directories are no longer reachable from `sessions/`, making the filter redundant. Retained as an empty typed set for future extensibility.
+
+### Migration
+- **Idempotent Data Migration**: Executed a PowerShell migration script (`migrate_sessions.ps1`) consolidating 22 legacy flat `read_aloud/<id>/` session directories into `read_aloud/sessions/<id>/`. Result: 20 moved, 2 merged (duplicate-safe), 0 data loss, 0 errors.
+
+
 ## [2.5.2] - 2026-04-23
 
 ### Fixed
