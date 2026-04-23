@@ -11,6 +11,12 @@ To ensure the ".vsix" file is always production-ready and free of regressions. T
 ## 1. Phase A: Discovery & Preparation (Manual Gate)
 Before triggering any automated release, the agent or human **MUST** establish the full spectrum of the current delta to inform the representation story.
 
+> [!CAUTION]
+> **ABSOLUTE AUTHORIZATION GATE — NON-NEGOTIABLE**
+> The agent is **STRICTLY FORBIDDEN** from executing `npm run release:patch`, `release:minor`, `release:major`, or any version-bumping command without an **explicit, scoped GO** that directly references the release action.
+> A "go" or "approve" from a prior discussion about testing, analysis, or an unrelated topic is **NOT** authorization to release. The user must say something unambiguous like "release it", "run the patch", or "GO for release".
+> **Violation of this rule is a critical protocol breach.**
+
 1.  **Full-Spectrum Audit**: Run `npm run release:audit`. 
     -   This captures **unpushed commits**, **staged changes**, and **unstaged working directory delta**.
 2.  **Contextual Synthesis**: Use the audit output to identify the "Representative Story" of the release.
