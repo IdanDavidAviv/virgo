@@ -122,14 +122,23 @@ export class McpWatcher implements vscode.Disposable {
 
     /**
      * Check if this window owns the session via .workspace_claim.
-     * First-window-wins: if no claim exists yet, we claim it and return true.
+     * 
+     * @param sessionId    The session to check ownership of.
+     * @param allowClaim   If true (default for our own session), an unclaimed session will be
+     *                     claimed by this window (first-window-wins). If false (foreign session),
+     *                     an unclaimed session is REJECTED — we never steal a foreign session.
+     *
      * Fail-open on read errors (don't block audio on transient FS issues).
      */
-    private _isSessionOwnedByMe(sessionId: string): boolean {
+    private _isSessionOwnedByMe(sessionId: string, allowClaim = true): boolean {
         if (!this._myWorkspacePath) { return true; } // no workspace context — pass through
         const claimFile = path.join(this._antigravityRoot, sessionId, '.workspace_claim');
         if (!fs.existsSync(claimFile)) {
-            // Unclaimed — first-window-wins: write our claim and process
+            if (!allowClaim) {
+                // Foreign session with no claim — do NOT touch it. Let its real owner claim it.
+                return false;
+            }
+            // Our session, unclaimed — first-window-wins: write our claim and process.
             this._writeWorkspaceClaim(sessionId);
             return true;
         }
@@ -192,8 +201,11 @@ export class McpWatcher implements vscode.Disposable {
         // Reads .workspace_claim from the session folder. If it matches this window's
         // workspace path, process the snippet. If not, reject (sibling IDE's session).
         // First-window-wins: unclaimed sessions are claimed and processed.
-        if (!this._isSessionOwnedByMe(detectedSessionId)) {
-            this._logger(`[MCP_TRACE] REJECTED: session ${detectedSessionId} claimed by another workspace.`);
+        // [XOR GATE] Only allow auto-claim if this is our own current session.
+        // Foreign sessions with no claim must NOT be claimed by a sibling window — reject silently.
+        const isOurSession = detectedSessionId === this._currentSessionId;
+        if (!this._isSessionOwnedByMe(detectedSessionId, isOurSession)) {
+            this._logger(`[MCP_TRACE] REJECTED: session ${detectedSessionId} is foreign — no claim, not our session.`);
             return;
         }
 
