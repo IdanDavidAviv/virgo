@@ -21,7 +21,7 @@ export class McpWatcher implements vscode.Disposable {
     private _disposables: vscode.Disposable[] = [];
     private _recentlyProcessed = new Map<string, number>(); // [DE-DUPLICATION_PROTOCOL] Prevent multiple events for same path
     private readonly COOLDOWN_MS = 500;
-    private _knownMcpPid: number | null = null;
+    private readonly _myWorkspacePath: string;
 
     constructor(
         private _antigravityRoot: string,
@@ -30,6 +30,11 @@ export class McpWatcher implements vscode.Disposable {
         private _docController: DocumentLoadController,
         private _logger: (msg: string) => void
     ) {
+        // [WORKSPACE CLAIM GATE] Use VS Code's own enforcement: each window MUST have a
+        // unique workspace folder (VS Code physically prevents same-dir in two windows).
+        // This path is the per-instance, per-window, self-enforcing discriminator.
+        this._myWorkspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+
         const globalPattern = new vscode.RelativePattern(this._antigravityRoot, `**/*.md`);
         this._watcher = vscode.workspace.createFileSystemWatcher(globalPattern, false, true, true);
 
@@ -40,7 +45,10 @@ export class McpWatcher implements vscode.Disposable {
         // [ROBUST_WATCHER] Supplement with fs.watch for paths outside the VS Code workspace
         this._setupExternalWatcher();
 
-        this._logger(`[MCP_WATCHER] Listening for ALL sessions in ${this._antigravityRoot}`);
+        // Claim the initial session at startup so we own it before any snippet arrives
+        this._writeWorkspaceClaim(this._currentSessionId);
+
+        this._logger(`[MCP_WATCHER] Listening for ALL sessions in ${this._antigravityRoot} | workspace=${this._myWorkspacePath.split(/[/\\]/).pop() ?? 'unknown'}`);
     }
 
     private _setupExternalWatcher() {
@@ -77,10 +85,50 @@ export class McpWatcher implements vscode.Disposable {
         const rootChanged = this._antigravityRoot !== root;
         this._antigravityRoot = root;
         this._currentSessionId = sessionId;
+        // Claim new session immediately so we own it before any snippet arrives
+        this._writeWorkspaceClaim(sessionId);
         this._logger(`[MCP_WATCHER] Pivoted to session ${sessionId} in ${root}`);
 
         if (rootChanged) {
             this._setupExternalWatcher();
+        }
+    }
+
+    /**
+     * Write a .workspace_claim file into the session directory.
+     * This atomically asserts that this VS Code window owns the session.
+     */
+    private _writeWorkspaceClaim(sessionId: string): void {
+        if (!this._myWorkspacePath) { return; } // no workspace open — skip
+        const sessionDir = path.join(this._antigravityRoot, sessionId);
+        const claimFile = path.join(sessionDir, '.workspace_claim');
+        try {
+            if (!fs.existsSync(sessionDir)) { fs.mkdirSync(sessionDir, { recursive: true }); }
+            fs.writeFileSync(claimFile, this._myWorkspacePath);
+            this._logger(`[MCP_WATCHER] Claimed session ${sessionId} for workspace: ${this._myWorkspacePath.split(/[/\\]/).pop()}`);
+        } catch (e) {
+            this._logger(`[MCP_WATCHER_ERR] Failed to write claim for ${sessionId}: ${e}`);
+        }
+    }
+
+    /**
+     * Check if this window owns the session via .workspace_claim.
+     * First-window-wins: if no claim exists yet, we claim it and return true.
+     * Fail-open on read errors (don't block audio on transient FS issues).
+     */
+    private _isSessionOwnedByMe(sessionId: string): boolean {
+        if (!this._myWorkspacePath) { return true; } // no workspace context — pass through
+        const claimFile = path.join(this._antigravityRoot, sessionId, '.workspace_claim');
+        if (!fs.existsSync(claimFile)) {
+            // Unclaimed — first-window-wins: write our claim and process
+            this._writeWorkspaceClaim(sessionId);
+            return true;
+        }
+        try {
+            const owner = fs.readFileSync(claimFile, 'utf8').trim();
+            return owner === this._myWorkspacePath;
+        } catch {
+            return true; // Fail open — don't block audio on transient FS errors
         }
     }
 
@@ -131,43 +179,20 @@ export class McpWatcher implements vscode.Disposable {
 
         const detectedSessionId = pathParts[0];
 
-        // [MULTI-IDE GATE] Parse MCP server PID from filename slot 2: <timestamp>_<pid>_<name>.md
-        // Same MCP process = our IDE. Different pid + different session = sibling IDE, reject.
-        const fileNameParts = path.basename(cleanPath, '.md').split('_');
-        const detectedPid = fileNameParts.length >= 2 ? parseInt(fileNameParts[1], 10) : null;
-
-        if (detectedPid !== null && !isNaN(detectedPid)) {
-            if (this._knownMcpPid === null) {
-                // Cold start — learn the MCP pid from the first injection.
-                this._knownMcpPid = detectedPid;
-                this._logger(`[MCP_TRACE] Learned MCP pid: ${detectedPid}`);
-                // Pivot immediately if this first injection targets a different session.
-                if (detectedSessionId !== this._currentSessionId) {
-                    this._logger(`[MCP_TRACE] PIVOT (cold start): New session ${detectedSessionId}.`);
-                    this._currentSessionId = detectedSessionId;
-                    this._onSessionPivotListeners.forEach(cb => cb(detectedSessionId));
-                }
-            } else if (detectedPid === this._knownMcpPid) {
-                // Same MCP process = always ours. Pivot if session changed.
-                if (detectedSessionId !== this._currentSessionId) {
-                    this._logger(`[MCP_TRACE] PIVOT: Same MCP pid ${detectedPid}, new session ${detectedSessionId}.`);
-                    this._currentSessionId = detectedSessionId;
-                    this._onSessionPivotListeners.forEach(cb => cb(detectedSessionId));
-                }
-            } else {
-                if (detectedSessionId !== this._currentSessionId) {
-                    // Different pid + different session = sibling IDE. Reject.
-                    this._logger(`[MCP_TRACE] REJECTED: pid ${detectedPid} != known ${this._knownMcpPid}, session differs. Sibling IDE.`);
-                    return;
-                }
-                // Different pid + same session = MCP restarted. Re-learn.
-                this._logger(`[MCP_TRACE] MCP restarted (pid ${this._knownMcpPid} -> ${detectedPid}). Re-learning.`);
-                this._knownMcpPid = detectedPid;
-            }
-        } else if (detectedSessionId !== this._currentSessionId) {
-            // Legacy filename (no pid slot) — fall back to session-only gate.
-            this._logger(`[MCP_TRACE] REJECTED (legacy): Session ${detectedSessionId} != ${this._currentSessionId}.`);
+        // [WORKSPACE CLAIM GATE] Format-agnostic ownership check.
+        // Reads .workspace_claim from the session folder. If it matches this window's
+        // workspace path, process the snippet. If not, reject (sibling IDE's session).
+        // First-window-wins: unclaimed sessions are claimed and processed.
+        if (!this._isSessionOwnedByMe(detectedSessionId)) {
+            this._logger(`[MCP_TRACE] REJECTED: session ${detectedSessionId} claimed by another workspace.`);
             return;
+        }
+
+        // Pivot internal pointer if the agent moved to a new session
+        if (detectedSessionId !== this._currentSessionId) {
+            this._logger(`[MCP_TRACE] PIVOT: workspace owns session, switching to ${detectedSessionId}.`);
+            this._currentSessionId = detectedSessionId;
+            this._onSessionPivotListeners.forEach(cb => cb(detectedSessionId));
         }
 
         // 2. Load the snippet into the controller

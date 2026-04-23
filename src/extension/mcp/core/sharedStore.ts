@@ -50,10 +50,9 @@ export class PendingInjectionStore extends EventEmitter {
         const index = this.updateSessionState(sessionPath, sessionTitle, turnIndex);
         const timestamp = Date.now();
         const safeName = name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        // [MULTI-IDE GATE] Embed MCP server process.pid as slot 2 of the filename.
-        // Format: <timestamp>_<pid>_<name>.md
-        // McpWatcher reads this to confirm the injection came from the paired MCP process.
-        const fileName = `${timestamp}_${process.pid}_${safeName}.md`;
+        // [SESSION GATE] Simple, format-agnostic filename: <timestamp>.<name>.md
+        // Ownership is determined by McpWatcher's .workspace_claim file — not by filename slots.
+        const fileName = `${timestamp}.${safeName}.md`;
         const filePath = path.join(sessionPath, fileName);
 
         // Prepend Turn Header if missing

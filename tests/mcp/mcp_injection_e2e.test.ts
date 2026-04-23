@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { McpBridge } from '../../src/extension/mcp/mcpBridge';
 import { PendingInjectionStore } from '../../src/extension/mcp/core/sharedStore';
 import { McpWatcher } from '../../src/extension/vscode/McpWatcher';
 
@@ -57,8 +56,7 @@ describe('MCP Injection E2E Integration', () => {
         vi.clearAllMocks();
     });
 
-    it('should detect a file saved by the bridge and trigger the watcher', async () => {
-        const bridge = new McpBridge(testBrainRoot, logger);
+    it('should detect a file saved by the store and trigger the watcher', async () => {
         const store = new PendingInjectionStore(testBrainRoot);
         const watcher = new McpWatcher(testBrainRoot, sessionId, stateStore, docController, logger);
 
@@ -68,8 +66,8 @@ describe('MCP Injection E2E Integration', () => {
         });
 
         const testSnippetName = 'test-snippet';
-        // Note: The real store.save prepends a timestamp: ${timestamp}_${safeName}.md
-        // We'll use a glob-like check or just wait for the watcher since we are testing E2E.
+        // Note: store.save now generates dot-delimited format: <ts>.<wsTag>.<name>.md
+        // _myWorkspaceTag is '' in this test context (no workspaceFolders mock) → tag gate skipped → session gate applies.
         const sessionDir = path.join(testBrainRoot, sessionId);
         
         console.log(`[TEST] Saving snippet to session ${sessionId}`);
@@ -107,8 +105,9 @@ describe('MCP Injection E2E Integration', () => {
             pivotedSessionId = id;
         });
 
-        // Use the new PID-stamped filename format so McpWatcher can identify the calling process
-        const newFilePath = path.join(otherSessionPath, `${Date.now()}_${process.pid}_pivot_test.md`);
+        // [CLAIM GATE] Simple 2-slot format: <ts>.<name>.md
+        // vscode mock has no workspaceFolders → _myWorkspacePath is '' → claim gate passes through → session routing handles the pivot.
+        const newFilePath = path.join(otherSessionPath, `${Date.now()}.pivot_test.md`);
         console.log(`[TEST] Writing pivot file to ${newFilePath}`);
         fs.writeFileSync(newFilePath, '# New Session Content');
 
