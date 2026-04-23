@@ -213,9 +213,13 @@ describe('McpWatcher (Workspace Claim Gate)', () => {
 
     // ── pivot() method ────────────────────────────────────────────────────────
 
-    it('should write a claim when pivot() is called', () => {
+    it('should write a claim when pivot() is called (no prior claim)', () => {
         vi.clearAllMocks();
-        (fs.existsSync as any).mockReturnValue(true);
+        // No claim exists for session-3 — write is allowed
+        (fs.existsSync as any).mockImplementation((p: string) => {
+            if (p.endsWith('.workspace_claim')) { return false; }
+            return true;
+        });
 
         watcher.pivot('/antigravity', 'session-3');
 
@@ -224,6 +228,31 @@ describe('McpWatcher (Workspace Claim Gate)', () => {
             MY_WORKSPACE
         );
     });
+
+    it('[NON-DESTRUCTIVE] should NOT overwrite a foreign claim at pivot()', () => {
+        vi.clearAllMocks();
+        // Claim already exists, owned by OTHER_WORKSPACE
+        (fs.existsSync as any).mockImplementation(() => true);
+        (fs.readFileSync as any).mockReturnValue(OTHER_WORKSPACE);
+
+        watcher.pivot('/antigravity', 'session-3');
+
+        // writeFileSync must NOT be called — back off, don't stomp foreign claim
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('[NON-DESTRUCTIVE] should NOT overwrite a foreign claim at construction', () => {
+        vi.clearAllMocks();
+        // Foreign claim already present for session-1 at startup
+        (fs.existsSync as any).mockImplementation(() => true);
+        (fs.readFileSync as any).mockReturnValue(OTHER_WORKSPACE);
+
+        // Rebuild the watcher — constructor calls _writeWorkspaceClaim(session-1)
+        new McpWatcher('/antigravity', 'session-1', mockStateStore, mockDocController, mockLogger);
+
+        expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
 
     // ── Core Behaviour ────────────────────────────────────────────────────────
 

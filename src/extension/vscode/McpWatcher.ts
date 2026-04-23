@@ -104,6 +104,15 @@ export class McpWatcher implements vscode.Disposable {
         const claimFile = path.join(sessionDir, '.workspace_claim');
         try {
             if (!fs.existsSync(sessionDir)) { fs.mkdirSync(sessionDir, { recursive: true }); }
+            // [NON-DESTRUCTIVE] Respect an existing foreign claim — never overwrite another window's ownership.
+            // Prevents a later-starting sibling IDE from stomping the first window's claim at construction time.
+            if (fs.existsSync(claimFile)) {
+                const existing = fs.readFileSync(claimFile, 'utf8').trim();
+                if (existing && existing !== this._myWorkspacePath) {
+                    this._logger(`[MCP_WATCHER] Session ${sessionId} already claimed by another workspace — backing off.`);
+                    return;
+                }
+            }
             fs.writeFileSync(claimFile, this._myWorkspacePath);
             this._logger(`[MCP_WATCHER] Claimed session ${sessionId} for workspace: ${this._myWorkspacePath.split(/[/\\]/).pop()}`);
         } catch (e) {
