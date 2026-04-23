@@ -37,7 +37,7 @@ In `speechProvider.ts`, use `_getSnippetHistory()` to resolve the `displayName`:
 3. If absent or empty, fallback to the `sessionId` (truncated).
 
 ### 4.2 MCP Injection
-In `mcpStandalone.ts` or `mcpBridge.ts`, the `inject_markdown` tool must accept an optional `session_title`:
+In `mcpStandalone.ts` or `mcpBridge.ts`, the `say_this_loud` tool must accept an optional `session_title`:
 1. Update `extension_state.json` with the new title if provided.
 2. Increment `current_turn_index` atomically.
 3. **Guard**: Adhere strictly to the verbatim parity rules defined in [read_aloud_injection_guard](../read_aloud_injection_guard/SKILL.md).
@@ -88,11 +88,11 @@ These are filtered automatically by the `type !== FileType.Directory` check:
 | Path | Purpose | Scanner Reads It? |
 |---|---|---|
 | `brain/<sessionId>/` | Agent artifacts (`task.md`, `implementation_plan.md`, media, scratch) | ❌ NOT scanned by `_getSnippetHistory()` |
-| `read_aloud/<sessionId>/` | User-playable snippet `.md` files injected via MCP `inject_markdown` | ✅ YES — this is where `_getSnippetHistory()` reads from |
+| `read_aloud/<sessionId>/` | User-playable snippet `.md` files injected via MCP `say_this_loud` | ✅ YES — this is where `_getSnippetHistory()` reads from |
 
 ### Implication for MCP Injection
 
-When `inject_markdown` is called by the AI agent (via `mcp_read-aloud_inject_markdown`):
+When `say_this_loud` is called by the AI agent (via `mcp_read-aloud_say_this_loud`):
 - The `.md` file MUST be written to `read_aloud/<sessionId>/<timestamp>_<snippet_name>.md`
 - If instead it is written to `brain/<sessionId>/`, it will NEVER appear in the Snippet Discovery UI
 
@@ -102,4 +102,4 @@ If the Snippet tab shows "No injected snippets found" for the **current session*
 1. The MCP injection tool wrote the file to `brain/<sessionId>/` instead of `read_aloud/<sessionId>/`
 2. The session directory exists in `read_aloud/` but contains only `extension_state.json` (no `.md` files)
 
-**Remedy:** Verify that `inject_markdown` writes to the correct `read_aloud/` path before troubleshooting the scanner.
+**Remedy:** Verify that `say_this_loud` writes to the correct `read_aloud/` path before troubleshooting the scanner.

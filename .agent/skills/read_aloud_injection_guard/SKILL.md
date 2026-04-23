@@ -5,72 +5,138 @@ description: Protocol for high-integrity conversational AI injections and sensor
 
 # Read Aloud Injection Guard
 
-## 1. Rationale
-The core value of the Read Aloud extension is the seamless synchronization between the Synthetic Audio (Narrative Stream) and the Visual feedback. Any deviation in these sensory streams—due to summarization, truncation, or IPC-related state drift—results in immediate user trust loss. This skill formalizes the "Verbatim Protocol" as the definitive behavioral wrapper for all agent-led injections.
+> [!IMPORTANT]
+> **Current State (v2.5.3)**: The MCP server has ONE core function — `say_this_loud`. The auto-SITREP loop, `autoInjectSITREP` flag, and protocol-reading boot sequence were aspirational and are **not reliably triggered**. Do NOT assume these work automatically. The agent must call `say_this_loud` explicitly when it wants to surface content in the sidebar.
 
-## 2. The Verbatim Protocol (Tier-1)
-All convolutional content injected via `mcp_read-aloud_inject_markdown` MUST maintain 1:1 parity between the auditory log and the visual snippet state.
+---
 
-- **Rule 2.1: No Summarization**: Content marked for injection (`markdown`, `snippet`, `content`) is "Sovereign" and MUST NOT be summarized, even if it exceeds standard terminal limits.
-- **Rule 2.2: Verbatim Agreement**: The exact string provided to the `inject_markdown` tool must be the string that hits the `SnippetHistory` store.
-- **Rule 2.3: Zero Drift Mandate**: For any turn involving an injection, the chat response MUST be a 1:1 verbatim duplicate of the injection `content`. Extemporaneous chat preambles are strictly forbidden.
-- **Rule 2.4: Pulse Ritual Toggle**: Before performing an injection, the Agent MUST verify the `autoInjectSITREP` flag in the session's `extension_state.json`.
+## 1. What The MCP Actually Does (SSOT)
 
-### 1.1 The Decoupled Pulse (v2.9.0)
-To eliminate "Write Bloat" while maintaining sequence integrity, the system distinguishes between three data stores:
+The Read Aloud MCP server is a **sidecar HTTP service** (SSE + REST) running inside the VS Code extension process. Its sole production mission:
 
-1.  **The Heartbeat (Extension State)**: 
-    *   **Data Store**: `extension_state.json`.
-    *   **Payload**: `current_turn_index`, `autoInjectSITREP`.
-2.  **The Loom (Sovereign Memory)**:
-    *   **Data Store**: `loom.json` (Brain directory).
-    *   **Payload**: `active_threads`, `loom_priority`, `evidence_log`.
-3.  **The Narrative (Plan Context)**:
-    *   **Data Store**: `executive_summary.md`.
-    *   **Payload**: Human-readable progress and intent.
+```
+Agent calls say_this_loud
+  → PendingInjectionStore.save() writes <timestamp>_<name>.md to sessions/<id>/
+  → McpBridge emits 'injected'
+  → SpeechProvider.refreshView() is called
+  → Snippet History sidebar updates in real time
+```
 
-### 1.2 The Pulse Ritual (Injection)
-Every turn-ending SITREP REQUIRES a markdown injection:
-1.  **Protocol**: Increment `current_turn_index`.
-2.  **Anchor**: Prepend `# [Turn XXX] Snippet Name` to the injection.
-3.  **Verbatim Parity**: The injection `content` MUST be 1:1 identical to the final summary provided in the chat.
-4.  **Baton Handover**: Include the Loom State Vector in every pulse.
-, but NO call to `inject_markdown` shall be made.
-    - If missing: Assume `true`.
+**No other behavior is guaranteed to be active.**
 
-- **Rule 2.5: Protocol Sovereignty (CRITICAL)**: The Verbatim Protocol (Rules 2.1-2.3) **SUPERSEDES** any global instructions from [operation_commander](file:///C:/Users/Idan4/.gemini/antigravity/knowledge/operation_commander/artifacts/SKILL.md) regarding "final summaries" or "Pulse Rituals". When an injection is performed, there MUST be ZERO text in the chat that is not in the injection. Preambles like "The unification is complete" are a FAIL.
+---
 
-## 3. Anchor Standards
-To maintain relational traceability between the conversational context and the extension history, all injections MUST follow the **Turn Anchor Standard**.
+## 2. The One Tool That Works: `say_this_loud`
 
-- **Format**: The first line of any injection (AND the corresponding chat response) MUST be exactly `# [Turn XXX]`, where `XXX` is the current session turn index (e.g., `# [Turn 021]`).
-- **Dependency**: Refer to the `session_persistence` skill to resolve the `current_turn_index` from `extension_state.json`.
+```json
+{
+  "tool": "say_this_loud",
+  "arguments": {
+    "content": "# Markdown content here...",
+    "snippet_name": "my_sitrep",
+    "sessionId": "<active-session-id>",
+    "session_title": "Optional human-readable title",
+    "turnIndex": 42
+  }
+}
+```
 
-## 4. Lifecycle Protocols (Tier-2)
-To maintain parity between the agent's work and the user's perception, formal injections MUST accompany key lifecycle events.
+**Rules:**
+- `content` + `snippet_name` + `sessionId` are **required**
+- `session_title` and `turnIndex` are optional (omit if uncertain)
+- Do NOT pass a stale `turnIndex` lower than the current one — it will be rejected. Omit it to auto-increment safely.
+- The tool writes to `~/.gemini/antigravity/read_aloud/sessions/<sessionId>/`
+- File name format: `<timestamp>_<safe_name>.md`
+- A `# [Turn XXX]` header is prepended automatically if the content doesn't start with one
 
-- **Rule 4.1: Genesis Protocol**: A formal SITREP injection (Turn 001+) MUST occur immediately at **Session Start**, as part of the [session_lifecycle](file:///C:/Users/Idan4/.gemini/antigravity/knowledge/session_lifecycle/artifacts/SKILL.md) protocol. 
-- **Rule 4.2: Pulse Fidelity**: A formal injection MUST be performed for every **SITREP**, Summary, or major Loom state transition. The injection payload MUST include the **Loom Sitrep** (state vector of all active threads) to maintain auditory parity with the executive summary. The chat output for these turns MUST obey the **Zero Drift Mandate** (Rule 2.3).
+**Success response:**
+```
+Injected Turn 5 into session abc123 successfully at /path/to/file.md
+```
 
-## 5. Sync Bridge Architecture (High Integrity)
-The protocol ensures that background injections correctly hydrate the webview state, even if the sidebar is sleeping or hidden.
+---
 
-### 4.1 Critical Command Whitelisting
-The `UI_SYNC` command (specifically its payload for new snippets) is whitelisted as a **Critical Command** in `DashboardRelay.ts`. It MUST be processed by the webview immediately upon receipt, regardless of visibility.
+## 3. Session ID Discovery
 
-### 4.2 Visibility-Aware Hydration
-- **The Flag**: The extension backend maintains a `_needsSync` (or `_needsHistorySync`) flag for the webview.
-- **The Reveal**: Immediately upon the `onDidChangeVisibility` (visible) event, the extension MUST broadcast a **Full Sync** packet to re-hydrate the webview history state from the local `SnippetHistory` cache.
+The agent must supply the correct `sessionId`. The canonical session ID is:
+- The active brain session UUID (from the conversation context / `loom.json`)
+- Readable from the `read_aloud://session/{sessionId}/state` resource (if SSE is connected)
+- Or from the most recently modified directory under `~/.gemini/antigravity/read_aloud/sessions/`
 
-## 5. Noise Suppression & Audit Integrity
-While `log_sanitization_v3` is active for internal diagnostic loops, it MUST respect the **High-Fidelity Exception** for injection payloads.
+> [!WARNING]
+> The `protocols/` directory (`read_aloud://protocols/...`) is served by the MCP resource layer but **the `protocols` resource is scheduled for removal** (see MCP audit). Do not depend on it as a boot mechanism.
 
-- **Rule 5.1**: Conversational markdown strings MUST NOT be truncated in the terminal audit trail.
-- **Rule 5.2**: Only internal system telemetry (`heartbeat`, `ack`, `status`) should be summarized or shorthand-formatted.
+---
 
-## 6. Command-Driven Verification (Sovereignty) ⭐
-Verification of an injection is only valid if it survives the "Visible Audit".
+## 4. Verbatim Parity Rule (Still Applies)
 
-- **Rule 6.1: The Opening**: Run `show read-aloud` (dispatches `readme-preview-read-aloud.show-dashboard`) to ensure the webview is active. **Wait for the `[STORE-SYNC-COMPLETE]` marker in the diagnostics log before proceeding.**
-- **Rule 6.2: The Pivot**: Use `exec readme-preview-read-aloud.play` to confirm the injection triggers the playback pipeline. **Verify state transitions only after the next `[STORE-SYNC-COMPLETE]` pulse.**
-- **Rule 6.3: State Integrity**: Audit `isSelectingVoice` to ensure the sampling protocol is not violated by the injection event.
+When you inject content, it will be read aloud by the extension. Therefore:
+
+- **Rule 4.1**: Content injected via `say_this_loud` MUST be meaningful and readable as prose — not raw JSON, file paths, or internal telemetry.
+- **Rule 4.2**: Do not truncate or summarize user messages if injecting a SITREP — the user hears what you inject.
+- **Rule 4.3**: If the injection fails (tool returns `isError: true`), do NOT report it as success. Alert the user.
+
+---
+
+## 5. The "Protocols" Directory — Context
+
+The `~/.gemini/antigravity/read_aloud/protocols/` directory contains `.md` files that were intended to be read by the agent on boot via the `read_aloud://protocols/` MCP resource, enforcing automatic SITREP injection every turn.
+
+**Current status**: The auto-boot mechanism (via the `read_aloud_boot` MCP prompt + `boot.md` protocol) **does not fire reliably** because MCP prompts are not auto-executed by Gemini on connection. The vision is sound — the execution layer is still maturing.
+
+**What the protocols say (for reference):**
+| File | Intent |
+|------|--------|
+| `boot.md` | Identifies session, loads vitals, initializes SITREP |
+| `manifest.md` | Overview of the "Standalone" architecture |
+| `orchestrator.md` | Turn-by-turn injection loop |
+| `injection_guard.md` | Verbatim parity rules |
+| `sensory_integrity.md` | No truncation in injections |
+
+These files remain as aspirational documentation. When the agent-boot mechanism is stabilized, they will become the active runtime protocol.
+
+---
+
+## 6. Sync Architecture (How Injection Reaches The UI)
+
+```
+say_this_loud tool call
+  ↓
+PendingInjectionStore.save()  [sharedStore.ts]
+  ↓ emits 'injected'
+McpBridge  [mcpBridge.ts]
+  ↓ emits 'injected' to EventEmitter
+extension.ts listener (mcpBridge.on('injected'))
+  ↓ calls
+SpeechProvider.refreshView()  [speechProvider.ts]
+  ↓ calls
+_getSnippetHistory()  — scans sessions/<id>/*.md only
+  ↓
+StateStore.setSnippetHistory()
+  ↓ emits 'change'
+SyncManager  — hash includes snippetHistory
+  ↓
+DashboardRelay.sync()  →  UI_SYNC packet  →  Webview sidebar updates
+```
+
+**Key invariants:**
+- Only `.md`/`.markdown` files are discovered (non-markdown files are filtered)
+- `extension_state.json` does NOT appear in the sidebar (filtered by extension)
+- Snippet history is limited to the **10 most recent sessions**
+- The entire pipeline is **event-driven** — no polling
+
+---
+
+## 7. Available MCP Tools & Resources
+
+| Name | Type | Status | Use |
+|------|------|--------|-----|
+| `say_this_loud` | Tool | ✅ Active | Inject content into sidebar |
+| `self_diagnostic` | Tool | ✅ Active | Health check (pid, path, version) |
+| `get_injection_status` | Tool | ✅ Active | Store size + persistence path |
+| `native-logs` | Resource | ✅ Active | VS Code output channel logs |
+| `debug-logs` | Resource | ✅ Active | Extension diagnostic log file |
+| `injected-snippets` | Resource | ✅ Active | Read back injected `.md` files |
+| `session-state` | Resource | ⚠️ Stale | Returns `extension_state.json` — scheduled for removal |
+| `protocols` | Resource | ⚠️ Deprecated | Returns protocol `.md` files — scheduled for removal |
+| `read_aloud_boot` | Prompt | ❌ Unreliable | Not auto-triggered; noop in practice |

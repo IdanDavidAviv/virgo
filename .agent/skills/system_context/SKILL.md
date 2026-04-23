@@ -19,7 +19,7 @@ description: Architectural map and development guidelines for the Read Aloud ext
 
 | Skill | Governs | Last Updated |
 |---|---|---|
-| [`system_context`](../system_context/SKILL.md) | Architectural map, subsystem ownership, synchronization protocols | 2026-04-22 (v2.5.0) |
+| [`system_context`](../system_context/SKILL.md) | Architectural map, subsystem ownership, synchronization protocols | 2026-04-23 (v2.5.3) |
 | [`loom_meta_governance`](../loom_meta_governance/artifacts/SKILL.md) | **Tier-0** Universal Agent OS / Medium Tier Management | 2026-04-12 |
 | [`startup_orchestration`](../startup_orchestration/SKILL.md) | Boot sequence, Pulse graph, DPG, Phase 1–3 dependencies | 2026-04-10 |
 | [`autoplay_orchestration`](../autoplay_orchestration/SKILL.md) | Playback pipeline, pre-fetch, neural laws, intent baton | 2026-04-09 |
@@ -35,7 +35,7 @@ description: Architectural map and development guidelines for the Read Aloud ext
 | [`skill_coherence_loop`](../skill_coherence_loop/SKILL.md) | Skill lifecycle, bidirectional read/write protocol, harvest gate | 2026-04-10 |
 | [`dev_cycle`](../dev_cycle/SKILL.md) | Build, package, VSIX install, process kill/restart for Antigravity editor | 2026-04-10 |
 
-## 1. Architectural Map (Snapshot: 2026-04-09)
+## 1. Architectural Map (Snapshot: 2026-04-23 / v2.5.3)
 
 ### 1.1 Core Backend (VS Code Extension)
 - **`StateStore.ts`**: The central, reactive **EventEmitter** storing all document and playback status. Tracks `isSelectingVoice` for sampling mode.
@@ -44,7 +44,7 @@ description: Architectural map and development guidelines for the Read Aloud ext
 - **`DocController.ts`**: Document intelligence. Manages chunking, metadata extraction, and position tracking.
 - **`SettingsManager.ts`**: The authority on configuration and persistence. Bridges `settings.json`, `globalState`, and the Agent's `extension_state.json`.
 - **`DashboardRelay.ts`**: The IPC "Switchboard" for post-message communication with the Webview.
-- **`McpWatcher.ts` / `McpBridge.ts`**: High-integrity integration with the agent's brain environment for real-time SITREP and command mirroring.
+- **`McpBridge.ts`**: SSE + REST HTTP server (port 7413+) that receives `say_this_loud` tool calls from the AI agent and writes `.md` snippets to `sessions/<id>/`. Emits an `'injected'` event on each write, which is wired to `SpeechProvider.refreshView()` for real-time sidebar updates. The legacy `McpWatcher.ts` (filesystem polling) has been superseded by this event-driven relay.
 
 ### 1.2 Frontend (Webview Sidebar)
 - **`WebviewStore.ts`**: Global reactive store (Redux-lite). Maintained by `UI_SYNC` packets from `SyncManager`. Includes `isRefreshing` flag.
@@ -83,6 +83,11 @@ Located in `extension.ts`, the `syncSelection()` function tracks document focus 
 > **Status:** ✅ Issue #26 RESOLVED (2026-04-10)
 > - DPG persistence yield guard added to `_tryInitialDocumentLoad()` in `speechProvider.ts`.
 > - Focused file version salt now renders correctly via `innerHTML`.
+>
+> **Status:** ✅ Focused File frozen on tab switch RESOLVED (2026-04-23 / v2.5.3)
+> - `SyncManager._calculateStateHash()` was missing `focusedFileName` and `focusedVersionSalt`.
+> - Tab switches mutated focused file state but produced an identical dedup hash → `_flush()` returned early → no `UI_SYNC` sent → Focused File area never updated.
+> - Fix: both fields added to the hash array in `SyncManager.ts`.
 
 
 ### 2.2 Brain Sensitivity Protocol
@@ -110,7 +115,7 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
 - **Abortable Intent Pattern**: `WebviewAudioEngine` manages an internal `AbortController` linked to the active intent. New intents call `abort()` on the previous controller, which immediately releases locks and cancels async playback/fetch tasks.
 - **Authoritative Stop**: The `stop()` command is universal. It triggers a cascade of aborts across all active segments, pre-fetch batches, and the primary synthesis lock in the `WebviewAudioEngine`.
 - **Handshake Gate**: The Webview MUST block all synthesis requests and pre-fetching until the `isHandshakeComplete` flag is true in the store. This ensures the intent baseline has synced.
-- **Handshake Lock (McpBridge)**: To prevent "429 Handshake Storms", the `McpBridge` uses an internal `_isHandshaking` lock. Parallel probes arriving during an active handshake are absorbed and return `204 No Content`. The lock MUST be released upon successful connection or a 5s fallback timeout. Every successful handshake spawns a unique `Instance ID` for traceability.
+- **Handshake Lock (McpBridge)**: To prevent "429 Handshake Storms", the `McpBridge` uses an internal `_isHandshaking` lock. Parallel probes arriving during an active handshake are absorbed and return `204 No Content`. The lock is released upon successful connection or a 10s fallback timeout. The multi-instance Hub model (`_activeServers` Set) is present but effectively single-instance in practice — Gemini opens one SSE connection at a time.
 - **Log-Based Verification (v2.4.2)**: To enable robust automated testing via CDP, the `WebviewStore.patchState` method emits a specific ASCII marker `[STORE-SYNC-COMPLETE]` after every non-identical state update. This signal is the authoritative "Done" marker for automation scripts to stop polling and verify state.
 - **Voice Decoupling**: To optimize IPC performance, `availableVoices` is excluded from the high-frequency `DEFAULT_SYNC_PACKET`. It is updated exclusively via dedicated `VOICES` commands during initialization or explicit voice scans.
 - **Control Sovereignty**: User actions in the Webview are authoritative. Upon a user click, the system enters a **Sovereign Window (5s)**:
@@ -123,15 +128,27 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
     - **Auto-Advance**: Persists `batchId` to maintain sequence continuity.
     - **Batch 0**: Prevented globally; minimum valid `batchId` is 1. Synthesis requests with 0-value IDs auto-adopt current authoritative IDs.
 
-### 2.6 Snippet Data Sovereignty 
-- **Directory Redirection**: To ensure the playback experience remains focused on content, the extension's data root is redirected to the `antigravity/read_aloud/` subdirectory.
-- **Sovereign Isolation**:
-    - **User Content**: All playback snippets, session metadata (`extension_state.json`), and transitory audio files MUST reside in `/read_aloud/<sessionId>`.
-    - **Agent Process**: Internal agent artifacts (e.g., `task.md`, `implementation_plan.md`, `walkthrough.md`, `.log`) reside in `/brain/<sessionId>`.
-    - **UI Visibility & Privacy Shield (Sovereignty Protocol)**:
-    - **Focus Sovereignty**: Focus state is the ultimate authority. If an agent artifact (e.g., `task.md`, `diag.log`) is focused in the VS Code editor, the system MUST load the document and allow synthesis. 
-    - **Discovery-only Isolation (The Brain Exception)**: The Webview Sidebar (Snippet Lookup) MUST filter ONLY the `brain/` directory. Directories like `knowledge/` and `protocols/` are permissible for discovery. This ensures UI history hygiene while maintaining permissive authoritative focus.
-    - **Limit**: Snippet history is strictly limited to the **10 most recent** non-system sessions to prevent performance degradation.
+### 2.6 Snippet Data Sovereignty (Updated: MP-001 / v2.5.3)
+
+> [!IMPORTANT]
+> **MP-001 Canonical Path Change**: All session data now lives under `read_aloud/sessions/<sessionId>/`. The legacy flat `read_aloud/<sessionId>/` layout is decommissioned.
+
+- **Canonical Root**: `~/.gemini/antigravity/read_aloud/` is the extension's data root.
+- **Session Data** (per-session, under `read_aloud/sessions/<sessionId>/`):
+    - Injected snippets (`.md` files)
+    - `extension_state.json` (turn index + session title)
+- **Shared Non-Session Data** (under `read_aloud/` root, not session-scoped):
+    - `active_servers.json` — MCP bridge global registry
+    - `protocols/` — aspirational boot protocol files (see injection guard skill)
+    - `tempmediaStorage/` — ephemeral audio scratch space
+- **Agent Brain** (separate tree, `~/.gemini/antigravity/brain/<sessionId>/`):
+    - `task.md`, `implementation_plan.md`, `loom.json`, etc. — agent governance artifacts
+    - These NEVER appear in the snippet sidebar (filtered by path)
+- **Snippet Discovery Rules**:
+    - `_getSnippetHistory()` scans `sessions/` only — strict `.md`/`.markdown` filter
+    - `extension_state.json` is **excluded** from sidebar results
+    - History capped at **10 most recent sessions**
+- **Focus Sovereignty**: If an agent artifact (e.g., `task.md`) is the active VS Code editor, the system MUST allow loading and synthesis of it — focus overrides discovery filtering.
 
 ### 2.7 Unified Voice Discovery & Manual Refresh (v2.4.4)
 The extension emphasizes high-quality Neural voices but maintains Local voices as a reliable baseline.
@@ -360,10 +377,12 @@ Key methods available via `window.__debug.audioEngine`:
 | `audioElement.volume = setVolume(n) / 100` | ✅ **Correct normalization** |
 | `store.patchState()` mutations are instant and reflected in next `getState()` | ✅ Confirmed |
 | Dev session baseline: `rate: 7.2`, `volume: 84`, `engineMode: "neural"` | 📊 Reference snapshot |
-| **v2.5.0 RC-1**: `DATA_PUSH` arrives before `playAudio` → HEAD_MATCH fails → FETCH_AUDIO storm | ⚠️ **Mitigated via SYNTHESIS_STARTING early key-set** — `{ once: true }` fix pending |
-| **v2.5.0 RC-2**: Prefetch at rate 1.40 collides with play at rate 1.00 key space | ⚠️ **Known** — Prefetch rate fence needed in Bridge |
-| **v2.5.0 RC-3**: `canplay` fires 3× per sentence → 3× `Sovereign Event: PLAYING` signals | ⚠️ **Known** — `{ once: true }` fix pending in `WebviewAudioEngine` |
-| **v2.5.0 UM-1**: Load-file triggers autoplay without user intent gate | ⚠️ **Known** — `_isUserInitiatedPlay` guard needed in `audioBridge` |
+| **v2.5.0 RC-1**: `DATA_PUSH` arrives before `playAudio` → HEAD_MATCH fails → FETCH_AUDIO storm | ✅ **Resolved (v2.5.2)** — `SYNTHESIS_STARTING` early key-set + `{ once: true }` canplay fix |
+| **v2.5.0 RC-2**: Prefetch at rate 1.40 collides with play at rate 1.00 key space | ✅ **Resolved (v2.5.2)** — Prefetch rate fence + text-payload decoupling in `REQUEST_SYNTHESIS` |
+| **v2.5.0 RC-3**: `canplay` fires 3× per sentence → 3× `Sovereign Event: PLAYING` signals | ✅ **Resolved (v2.5.2)** — `{ once: true }` enforced in `WebviewAudioEngine` |
+| **v2.5.0 UM-1**: Load-file triggers autoplay without user intent gate | ✅ **Resolved (v2.5.2)** — `_isUserInitiatedPlay` gate active in `audioBridge` |
+| **MP-001**: MCP injections wrote to `brain/<id>/`, sidebar scanned `sessions/<id>/` — snippets disappeared | ✅ **Resolved (v2.5.3)** — Unified canonical root: `read_aloud/sessions/<id>/` |
+| **Focused File frozen on tab switch** | ✅ **Resolved (v2.5.3)** — `focusedFileName` + `focusedVersionSalt` added to `SyncManager` hash |
 
 ## 7. Architectural Sovereignty Protocol (SSOA)
 

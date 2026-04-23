@@ -39,6 +39,14 @@ The `npm run release` script is a high-integrity sequence that automates the fol
 4.  **Packaging**: `npm run package` (vsce artifact generation).
 5.  **Prestige Audit**: `verify_artifact.js` (Signature check for VSIX creation).
 
+### 2.3 Pipeline Failure & Version Rollback (MANDATORY)
+If the release pipeline fails at **ANY** of the Quality Gates (Lint, Types, Tests, Build), the `package.json` and `CHANGELOG.md` will have already been bumped. 
+**You MUST NOT run `npm run release:patch` (or minor/major) again to retry.** Doing so will incorrectly bump the version a second time.
+Instead, if a failure occurs:
+1. Fix the underlying issue.
+2. Run `npm run release` (without the `:patch` suffix) to re-run the pipeline on the *already bumped* version.
+If you must abandon the release entirely, manually revert `package.json` and `CHANGELOG.md` before proceeding.
+
 ## 3. Final Gate: Git Strategy (Unbroken Chain)
 **MANDATORY**: The execution pipeline is an unbroken automated chain. If the `npm run release:patch` (or minor/major) exits with code 0, all static and runtime gates are deemed secure, and the VSIX is validated. 
 
