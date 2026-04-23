@@ -2,6 +2,19 @@
 
 All notable changes to the "Readme Preview Read Aloud" extension will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- 
+
+## [2.5.10] - 2026-04-23
+
+### Fixed
+- **Non-Destructive Workspace Claim Write**: Fixed a race condition where a later-starting VS Code window sharing the same session ID would overwrite the first window's `.workspace_claim` file at construction time. Both windows then briefly passed the ownership check, causing both to start audio simultaneously before one stopped. `_writeWorkspaceClaim` now reads the existing claim before writing — if a foreign workspace path already owns the session, it backs off silently and respects the established ownership. First-window-wins is preserved for genuinely unclaimed sessions.
+
+### Hardened
+- **Claim Gate Tests**: Added 2 `[NON-DESTRUCTIVE]` test cases — one for `pivot()` backing off on a foreign claim, one for the constructor backing off. 392/392 tests passing.
+
 ## [2.5.9] - 2026-04-23
 
 ### Refactored
