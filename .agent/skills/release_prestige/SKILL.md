@@ -26,26 +26,25 @@ The execution pipeline is a deterministic process that burns the primed changelo
 3.  **Major Release**: `npm run release:major`
 
 ### 2.2 Internal Order of Operations (The Orchestrated Chain)
-The `npm run release` script is a high-integrity sequence that automates the following chain:
-1.  **Consistency Gate**: `npm run release:verify` (ensures 1:1 parity between package and changelog version strings).
-2.  **Quality Gates**:
-    | Step | Gate | Command | v2.4.0 Requirement |
-    | :--- | :--- | :--- | :--- |
-    | 2.1 | Linting | `npm run lint` | Ensures static analysis parity (Restored: .eslintrc.json) |
-    | 2.2 | Type Safety | `tsc --noEmit` | Resolves `executeCommand().catch` Thenable regressions |
-    | 2.3 | Build Integrity | `npm run build` | Verifies `dist/mcp-standalone.mjs` artifact generation |
-    | 2.4 | Test Suite | `npm run test` | 100% pass rate for unit and bridge tests |
-3.  **Production Compile**: `npm run build` (Production mode bundling).
-4.  **Packaging**: `npm run package` (vsce artifact generation).
-5.  **Prestige Audit**: `verify_artifact.js` (Signature check for VSIX creation).
+The `npm run release:patch` script is a high-integrity sequence that automates the following chain:
+1.  **Quality Gates (`release:gates`)**:
+    - `release:verify` (ensures 1:1 parity between package and changelog version strings).
+    - `lint` (Ensures static analysis parity)
+    - `typecheck` (TypeScript checks)
+    - `test` (100% pass rate for unit and bridge tests)
+    - `build` (Production mode bundling)
+2.  **Version Sentinel Bump (`--bump patch`)**: Automatically increments the version ONLY if all Quality Gates pass.
+3.  **Packaging (`release:package`)**: 
+    - `package` (vsce artifact generation)
+    - `verify_artifact.js` (Signature check for VSIX creation).
 
-### 2.3 Pipeline Failure & Version Rollback (MANDATORY)
-If the release pipeline fails at **ANY** of the Quality Gates (Lint, Types, Tests, Build), the `package.json` and `CHANGELOG.md` will have already been bumped. 
-**You MUST NOT run `npm run release:patch` (or minor/major) again to retry.** Doing so will incorrectly bump the version a second time.
-Instead, if a failure occurs:
-1. Fix the underlying issue.
-2. Run `npm run release` (without the `:patch` suffix) to re-run the pipeline on the *already bumped* version.
-If you must abandon the release entirely, manually revert `package.json` and `CHANGELOG.md` before proceeding.
+### 2.3 Pipeline Failure & Safe Retry (MANDATORY)
+The execution pipeline is designed to be **safe**. The `release:patch` (and minor/major) scripts will ONLY bump the version in `package.json` and `CHANGELOG.md` **AFTER** all Quality Gates (Lint, Types, Tests, Build) have passed.
+If a failure occurs during the Quality Gates:
+1. The version is **NOT** bumped.
+2. Fix the underlying issue.
+3. You can safely run `npm run release:patch` again without risking a double-bump.
+If a failure occurs *after* the bump (e.g., during packaging), the version is already bumped. In this rare case, run `npm run release` (without the `:patch` suffix) to resume the process without double-bumping.
 
 ## 3. Final Gate: Git Strategy (Unbroken Chain)
 **MANDATORY**: The execution pipeline is an unbroken automated chain. If the `npm run release:patch` (or minor/major) exits with code 0, all static and runtime gates are deemed secure, and the VSIX is validated. 

@@ -4,6 +4,21 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [Unreleased]
 
+### Added
+- 
+
+## [2.5.6] - 2026-04-23
+
+### Fixed
+- **MCP Transport: Eliminated 60-Second Agent Hang (StreamableHTTP Migration)**: Replaced the legacy `SSEServerTransport` with `StreamableHTTPServerTransport` (stateless mode) in `mcpBridge.ts`. The root cause was an architectural mismatch — the MCP SSE client discards the POST response body (`await response.body?.cancel()`) and waits for results on a persistent SSE stream. When that stream was evicted or stale, the agent hung for the full 60-second timeout. StreamableHTTP is stateless: every POST contains the full request and the response body contains the full result. No sessions, no eviction, no hangs.
+- **MCP Proxy: Matched Transport to Bridge**: Updated `mcp-stdio-proxy.mjs` to use `StreamableHTTPClientTransport` instead of `SSEClientTransport`, completing the end-to-end transport upgrade. The proxy now connects to `/mcp` instead of `/sse`.
+- **Removed Session Management Complexity**: Deleted the `_transports` session map, the handshake gate (`_isHandshaking`), the handshake timeout, and the absorbed-probe counter from `mcpBridge.ts`. ~120 lines of session churn logic eliminated.
+
+## [2.5.5] - 2026-04-23
+
+### Fixed
+- **MCP Bridge Audio Engine Hang**: Fixed a critical race condition where the `mcpBridge` direct-execution fallback double-emitted the `injected` event, causing the Webview engine to stall during session-less tool calls.
+- **Release Prestige Pipeline (Double Bumping)**: Re-architected the `package.json` release scripts so that Quality Gates (`lint`, `test`, `build`) run *before* the version is bumped. This prevents the version from incrementing if tests fail, allowing safe retries with `npm run release:patch`.
 
 ## [2.5.4] - 2026-04-23
 
