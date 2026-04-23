@@ -61,7 +61,7 @@ async function main() {
     // [REMOVED] Destructive stealing protocol.
     // We now rely on Port Roaming in the bridge and multiple proxies can coexist if needed.
     fs.writeFileSync(lockFile, process.pid.toString());
-    process.on('exit', () => { try { fs.unlinkSync(lockFile); } catch (e) {} });
+    process.on('exit', () => { try { fs.unlinkSync(lockFile); } catch (e) { } });
 
     logTraffic(`[PROXY] Gateway Starting (PID: ${process.pid})`);
 
@@ -72,7 +72,7 @@ async function main() {
     while (!instance && attempts < maxAttempts) {
         try {
             const registry = await safeReadManifest(registryPath);
-            
+
             // [PRIORITIZATION] Filter for current workspace and sort by recency
             const validInstances = registry.filter(s => {
                 const root = (s.workspaceRoot || "").toLowerCase();
@@ -80,9 +80,9 @@ async function main() {
             }).sort((a, b) => b.timestamp - a.timestamp);
 
             // [DEV PRECEDENCE] Favor Development instance if it exists, otherwise use most recent Production
-            instance = validInstances.find(s => s.extensionMode === "Development") 
-                    || validInstances.find(s => s.extensionMode === "Production")
-                    || (registry.length > 0 ? registry[registry.length - 1] : null);
+            instance = validInstances.find(s => s.extensionMode === "Development")
+                || validInstances.find(s => s.extensionMode === "Production")
+                || (registry.length > 0 ? registry[registry.length - 1] : null);
 
         } catch (e) {
             logTraffic(`[PROXY] Registry error: ${e.message}`);
@@ -97,7 +97,7 @@ async function main() {
 
     if (!instance) {
         logTraffic("[PROXY] No active Read Aloud bridge found. Falling back to STANDALONE mode...");
-        
+
         // Resolve path to mcp-standalone.js in the dist folder
         const scriptDir = path.dirname(new URL(import.meta.url).pathname);
         const projectRoot = path.join(scriptDir, '..');
@@ -115,7 +115,7 @@ async function main() {
             stdio: 'inherit',
             env: { ...process.env, READ_ALOUD_STANDALONE: 'true' }
         });
-        
+
         child.on('exit', (code) => process.exit(code || 0));
         return; // Exit main, let the child handle stdio
     }
@@ -124,16 +124,16 @@ async function main() {
 
     const server = new Server(
         { name: "read-aloud", version: "2.1.3" },
-        { 
-            capabilities: { 
-                resources: { 
+        {
+            capabilities: {
+                resources: {
                     subscribe: true,
-                    listChanged: true 
-                }, 
+                    listChanged: true
+                },
                 tools: {
                     listChanged: true
                 }
-            } 
+            }
         }
     );
 
@@ -141,6 +141,7 @@ async function main() {
 
     let client = null;
     let clientTransport = null;
+    // eslint-disable-next-line @typescript-eslint/naming-convention
     let _currentBridgeUrl = null;
 
     // [RESILIENCE] Self-healing wrapper for all bridge client calls.
@@ -188,12 +189,12 @@ async function main() {
             clientTransport = new StreamableHTTPClientTransport(new URL(url));
             client = new Client(
                 { name: "proxy-relay", version: "1.2.4" },
-                { 
-                    capabilities: { 
-                        resources: { subscribe: true }, 
-                        resourceTemplates: true, 
-                        tools: {} 
-                    } 
+                {
+                    capabilities: {
+                        resources: { subscribe: true },
+                        resourceTemplates: true,
+                        tools: {}
+                    }
                 }
             );
 
@@ -227,15 +228,15 @@ async function main() {
         try {
             logTraffic("[PROXY] Re-Discovery Triggered...");
             const registry = await safeReadManifest(registryPath);
-            
+
             const validInstances = registry.filter(s => {
                 const root = (s.workspaceRoot || "").toLowerCase();
                 return currentDir.startsWith(root);
             }).sort((a, b) => b.timestamp - a.timestamp);
 
-            const nextInstance = validInstances.find(s => s.extensionMode === "Development") 
-                    || validInstances.find(s => s.extensionMode === "Production")
-                    || (registry.length > 0 ? registry[registry.length - 1] : null);
+            const nextInstance = validInstances.find(s => s.extensionMode === "Development")
+                || validInstances.find(s => s.extensionMode === "Production")
+                || (registry.length > 0 ? registry[registry.length - 1] : null);
 
             if (nextInstance) {
                 await connectToBridge(nextInstance.url);
@@ -254,12 +255,12 @@ async function main() {
     // When the dev host tears down, the extension's stdout/stderr pipe breaks.
     // EPIPE on stdout/stderr is not a fatal error for a proxy — it means the
     // consumer is gone. We silence it rather than crashing.
-    process.stdout.on('error', (err) => { if (err.code !== 'EPIPE') {throw err;} });
-    process.stderr.on('error', (err) => { if (err.code !== 'EPIPE') {throw err;} });
+    process.stdout.on('error', (err) => { if (err.code !== 'EPIPE') { throw err; } });
+    process.stderr.on('error', (err) => { if (err.code !== 'EPIPE') { throw err; } });
 
     // Global Error Guard - Log everything to diagnostics.log (file only, no stderr)
     process.on("uncaughtException", (err) => {
-        if (err.code === 'EPIPE') {return;} // EPIPE is always safe to ignore in a proxy
+        if (err.code === 'EPIPE') { return; } // EPIPE is always safe to ignore in a proxy
         logTraffic(`[PROXY_FATAL] Uncaught Exception: ${err.message}\n${err.stack}`);
         process.exit(1);
     });
@@ -290,7 +291,7 @@ async function main() {
             });
 
             logTraffic(`[PROXY] response: listResources (${absoluteResources.length} absolute items, ${result.resources?.length - absoluteResources.length} filtered) in ${duration}ms`);
-            
+
             return {
                 ...result,
                 resources: absoluteResources
