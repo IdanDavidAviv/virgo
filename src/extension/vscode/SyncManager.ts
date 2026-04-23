@@ -138,6 +138,8 @@ export class SyncManager implements vscode.Disposable {
     private _calculateStateHash(): string {
         const s = this._stateStore.state;
         // Specifically aggregate fields that impact the primary UI and synthesis lifecycle.
+        // [FIX] focusedFileName + focusedVersionSalt were absent — tab switches produced identical
+        // hashes and were silently absorbed, preventing the Focused File area from updating.
         return [
             s.activeFileName,
             s.activeContentHash,
@@ -151,7 +153,9 @@ export class SyncManager implements vscode.Disposable {
             s.playbackIntentId,
             s.activeMode,
             s.selectedVoice,
-            s.versionSalt
+            s.versionSalt,
+            s.focusedFileName,
+            s.focusedVersionSalt
         ].join('|');
     }
 
