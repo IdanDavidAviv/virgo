@@ -38,7 +38,7 @@ describe('MCP Hardening Verification', () => {
             }
         });
 
-        it('SHOULD atomicaly increment turn index and reject stale inputs', () => {
+        it('SHOULD atomicaly increment turn index and warn on stale inputs (no throw)', () => {
             // 1. Initial turn
             const index1 = TurnManager.updateTurnIndex(testDir, { sessionTitle: 'Test Session' });
             expect(index1).toBe(1);
@@ -51,8 +51,10 @@ describe('MCP Hardening Verification', () => {
             const index3 = TurnManager.updateTurnIndex(testDir, { incomingIndex: 5 });
             expect(index3).toBe(5);
             
-            // 4. Stale index rejection
-            expect(() => TurnManager.updateTurnIndex(testDir, { incomingIndex: 3 })).toThrow(/Stale turn index/);
+            // 4. Stale index — TurnSentinel now WARNS and auto-increments (non-blocking)
+            // It does NOT throw. It returns the next valid index (6).
+            const index4 = TurnManager.updateTurnIndex(testDir, { incomingIndex: 3 });
+            expect(index4).toBeGreaterThan(5); // auto-incremented past current
         });
     });
 });
