@@ -7,6 +7,13 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.5.12] - 2026-04-23
+
+### Fixed
+- **XOR Window Sovereignty — Complete Isolation**: Closed a gap in the workspace claim gate where a sibling VS Code window (window4) would silently process and load snippets intended for another window's session. Root cause: `_isSessionOwnedByMe` applied "first-window-wins" auto-claim logic to *all* unclaimed sessions, including foreign ones it had no business touching. Fix: the call site now passes `allowClaim=false` for any session that is not the watcher's own `_currentSessionId`. Foreign unclaimed sessions are now hard-rejected at the gate — no sidebar update, no context save, no playback. Sibling windows remain completely silent.
+
+
+
 ## [2.5.11] - 2026-04-23
 
 ### Fixed
