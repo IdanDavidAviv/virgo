@@ -7,15 +7,10 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
-## [2.5.8] - 2026-04-23
-
-### Added
-- 
-
 ## [2.5.7] - 2026-04-23
 
-### Added
-- 
+### Fixed
+- **Multi-IDE Gate: Eliminated Cross-IDE Playback Contamination**: Resolved a critical regression where two open VS Code windows would both play audio when only one IDE's agent injected a snippet. Root cause: `McpWatcher` auto-pivoted (`SNEAKY_PIVOT`) to any detected session regardless of origin. Fix: `PendingInjectionStore` now embeds the MCP server's `process.pid` as slot 2 of the snippet filename (`<timestamp>_<pid>_<name>.md`). `McpWatcher` reads this PID on every injection and maintains a `_knownMcpPid` registry. Injections from a different PID in a different session are hard-rejected as sibling IDE traffic. Same PID with a new session triggers an authorized pivot. Zero filesystem writes — pure in-flight check.
 
 ## [2.5.6] - 2026-04-23
 
