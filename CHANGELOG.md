@@ -7,6 +7,20 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.5.11] - 2026-04-23
+
+### Fixed
+- **Playback Latency Regression (10-Second Hang)**: Eliminated a dead-socket race condition introduced in v2.5.10 where `PlaybackEngine._warmUpTts()` pre-initialized the MsEdgeTTS WebSocket too early, causing Azure to silently drop the connection. On first real synthesis, the engine hit a 10-second watchdog timeout before recovering. Fix: removed `_warmUpTts` entirely. The TTS client now initializes lazily on the first `toStream()` call. CDP-verified: TTS handshake `[DELTA]` is now 0ms, audio execution Delta is ~10ms.
+
+### Hardened
+- **Neural Synthesis Latency Telemetry**: Injected permanent `[DELTA] Xms` timestamping into `_getNeuralAudio` to surface TTS handshake duration on every synthesis request, preventing silent regressions.
+- **CDP Controller — Pre-Flight Probe Logging**: Added HTTP pre-flight probe to `connectToCDP` that validates port 9222 is a live CDP host (not a dead socket from an Electron child process) before attempting Playwright WebSocket upgrade. Dead sockets now report actionable errors instead of silent hangs.
+- **CDP Shell — Smart Start**: Shell now detects whether the Extension Development Host is already open on launch. If found, connects immediately. If not found, auto-fires `launch` + `wait-for-ready` before dropping to the prompt.
+- **CDP Shell — Smart Restart**: `restart` command now checks if a Dev Host is actually running before attempting to close it, eliminating noise from blind `gracefulClose` calls on an empty environment.
+- **CDP Shell — Exit Ritual**: `exit` is now a full cleanup ritual: stops playback (btn-stop click), gracefully closes the Dev Host, releases the `.cdp_shell.lock` file, then exits the Node process. Dev Host no longer leaks on shell exit.
+
+
+
 ## [2.5.10] - 2026-04-23
 
 ### Fixed
