@@ -80,6 +80,8 @@ Before triggering any automated release:
 
 ### 5.1 Automated Workflows
 
+#### Full Pipeline (default — all gates included)
+
 | Command | Action |
 |---|---|
 | `npm run release:patch` | Full pipeline: gates → bump patch → package |
@@ -87,10 +89,26 @@ Before triggering any automated release:
 | `npm run release:major` | Full pipeline: gates → bump major → package |
 | `npm run release` | Gates + package only (no bump — use when version already set manually) |
 
+#### Fast Pipeline (agent use only — gates already passed this session)
+
+| Command | Action |
+|---|---|
+| `npm run release:patch:fast` | `release:verify` → bump patch → package (skips lint/typecheck/test/build) |
+| `npm run release:minor:fast` | `release:verify` → bump minor → package |
+| `npm run release:major:fast` | `release:verify` → bump major → package |
+
+> [!IMPORTANT]
+> **When to use `:fast`:** Only when ALL of the following are true in the **same agent session**:
+> 1. `npm run lint` passed explicitly
+> 2. `npm run typecheck` passed explicitly
+> 3. `npm run test` passed with 100% green
+> 4. No files were modified after those runs
+>
+> **Never use `:fast` as the first action in a session.** `release:verify` still runs to confirm version parity.
+
 ### 5.2 Internal Order of Operations
 
-`release:patch` executes this chain automatically:
-
+**Full pipeline** (`release:patch`):
 ```
 1. release:gates
    ├─ release:verify  → version_parity(package.json == CHANGELOG latest)
@@ -102,6 +120,15 @@ Before triggering any automated release:
 3. release:package
    ├─ vsce package    → generates .vsix artifact
    └─ verify_artifact.js → confirms .vsix exists + non-zero size
+```
+
+**Fast pipeline** (`release:patch:fast`) — agent session only:
+```
+1. release:verify  → version_parity check only (gates already passed this session)
+2. manage_version.js --bump patch
+3. release:package
+   ├─ vsce package
+   └─ verify_artifact.js
 ```
 
 ### 5.3 Pipeline Failure & Safe Retry
