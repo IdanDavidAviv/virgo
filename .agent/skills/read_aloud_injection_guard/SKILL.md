@@ -98,8 +98,44 @@ When you inject content, it will be read aloud by the extension. Therefore:
 - **Rule 4.2**: Do not truncate or summarize user messages if injecting a SITREP — the user hears what you inject.
 - **Rule 4.3**: If the injection fails (tool returns `isError: true`), do NOT report it as success. Alert the user.
 - **Rule 4.4 — Chat/Audio Parity (CRITICAL)**: Whatever content you send to `say_this_loud` MUST also appear **verbatim** as plain text in your chat response. The agent cannot narrate content it does not display. This lets the user read along with the audio. A response that narrates hidden content is a parity violation.
+- **Rule 4.5 — Markdown Formatting (MANDATORY)**: Content MUST use rich markdown structure — **never a single block of unformatted prose**. The sidebar renders markdown. The agent must write for both the eye (visual reader) and the ear (audio listener).
+- **Rule 4.6 — Prose Rule**: Each paragraph or bullet must be a self-contained, speakable sentence. No run-on blocks. No walls of text.
 
 ---
+
+### §4.5 Sensory Handoff Formatting Standard
+
+Every `say_this_loud` injection must follow this template structure:
+
+```markdown
+## 🎯 [Descriptive Title] — [Version or Context]
+
+### What Shipped
+- **Feature name** — one sentence describing what it does and why it matters.
+- **Feature name** — one sentence.
+
+### How It Works
+One short paragraph (2–4 sentences max) explaining the mechanism in plain language.
+
+### What's Next
+- **T-036** — Short description of next thread.
+- Or: The core work is done. Remaining threads are optional.
+
+---
+> **Version:** vX.Y.Z | **Tests:** N/N passing | **Status:** Installed ✅
+```
+
+**Formatting rules:**
+| Rule | Requirement |
+|---|---|
+| Always start with `##` heading | Never start with raw prose |
+| Use `###` sections to group | What Shipped / How It Works / What's Next |
+| Bullet each shipped item | One bullet = one feature, one sentence |
+| End with a metadata footer | Version, test count, status |
+| Max paragraph length | 3–4 sentences before a new section or bullet |
+| No raw paths or JSON | Human-readable names only |
+
+
 
 ## 5. The "Protocols" Directory — Context
 
