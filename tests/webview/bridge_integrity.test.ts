@@ -50,7 +50,7 @@ describe('Bridge Integrity & Sanitization [v2.3.1]', () => {
         expect(store.getState()?.isPlaying).toBe(false);
     });
 
-    it('T9.3 — Snippet History filters out "brain" artifacts (Privacy Shield)', async () => {
+    it('T9.3 — Snippet History renders all valid sessions (brain-path filter removed, T-038)', async () => {
         const lookup = new SnippetLookup({
             container: document.getElementById('snippet-lookup-container') as HTMLElement
         });
@@ -67,9 +67,10 @@ describe('Bridge Integrity & Sanitization [v2.3.1]', () => {
         } as any);
 
         const container = document.getElementById('snippet-lookup-container')!;
-        // Should only show 1 session (user-session)
-        expect(container.querySelectorAll('.snippet-session-card').length).toBe(1);
+        // [T-038] brain-path UI filter removed — MCP snippets legitimately live in brain/ dirs.
+        // Both sessions are valid (have an id) and must be rendered.
+        expect(container.querySelectorAll('.snippet-session-card').length).toBe(2);
         expect(container.textContent).toContain('My Snippets');
-        expect(container.textContent).not.toContain('Agent Brain');
+        expect(container.textContent).toContain('Agent Brain');
     });
 });
