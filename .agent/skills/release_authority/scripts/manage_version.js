@@ -48,6 +48,7 @@ function manageVersion() {
     const bumpType = args.includes('--bump') ? args[args.indexOf('--bump') + 1] : null;
     const isDryRun = args.includes('--dry-run');
     const isAudit = args.includes('--audit');
+    const isCheck = args.includes('--check');
 
     if (isAudit) {
         // PROXY TO AUDIT TOOL
@@ -55,6 +56,33 @@ function manageVersion() {
         const { audit } = require('./git_history_audit.js');
         audit();
         return;
+    }
+
+    if (isCheck) {
+        // CHANGELOG CONTENT GUARD
+        // Finds the top versioned section and verifies it has at least one real bullet.
+        if (!fs.existsSync(changelogPath)) {
+            console.error('\u274c CHANGELOG.md not found.');
+            process.exit(1);
+        }
+        const cl = fs.readFileSync(changelogPath, 'utf8');
+        const topMatch = cl.match(/## \[([\d]+\.[\d]+\.[\d]+)\][^\n]*\n([\s\S]*?)(?=\n## \[|\s*$)/);
+        if (!topMatch) {
+            console.error('\u274c No versioned section found in CHANGELOG.md. Add a ## [x.y.z] header with content.');
+            process.exit(1);
+        }
+        const topVersion = topMatch[1];
+        const topContent = topMatch[2];
+        const hasRealContent = topContent.split('\n').some(line => {
+            const t = line.trim();
+            return t.length > 2 && t.startsWith('-');
+        });
+        if (!hasRealContent) {
+            console.error(`\u274c CHANGELOG [${topVersion}] is empty. Add release notes before packaging.`);
+            process.exit(1);
+        }
+        console.log(`\u2705 CHANGELOG content check passed: [${topVersion}] has release notes.`);
+        process.exit(0);
     }
 
     if (!fs.existsSync(packageJsonPath)) {
@@ -114,22 +142,7 @@ function manageVersion() {
     const newVersion = versionParts.join('.');
     const today = new Date().toISOString().split('T')[0];
 
-    // 1. Update Changelog (Handle [Unreleased])
-    const unreleasedHeader = '## [Unreleased]';
-    if (!changelog.includes(unreleasedHeader)) {
-        console.error(`❌ FAILED: CHANGELOG.md must contain a "${unreleasedHeader}" section.`);
-        process.exit(1);
-    }
-
-    const newHeader = `## [${newVersion}] - ${today}`;
-    changelog = changelog.replace(unreleasedHeader, newHeader);
-
-    // 2. Add new empty [Unreleased] section for future
-    const insertionPoint = changelog.indexOf(newHeader);
-    const unreleasedTemplate = `## [Unreleased]\n\n### Added\n- \n\n`;
-    changelog = changelog.slice(0, insertionPoint) + unreleasedTemplate + changelog.slice(insertionPoint);
-
-    // 3. Prepare Package.json
+    // Update package.json version only — CHANGELOG is managed manually by the agent.
     packageJson.version = newVersion;
 
     if (isDryRun) {
@@ -139,9 +152,8 @@ function manageVersion() {
         process.exit(0);
     }
 
-    // WRITE CHANGES
+    // WRITE CHANGES (package.json only — CHANGELOG is agent-managed)
     fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n');
-    fs.writeFileSync(changelogPath, changelog);
 
     console.log(`✅ SUCCESS: Version bumped to ${newVersion} and CHANGELOG.md updated.`);
 }

@@ -62,17 +62,26 @@ Before any release, classify the change:
 
 ---
 
-## 4. Phase A — Audit & Preparation (Manual Gate)
+## 4. Phase A — Audit & Preparation (Mandatory Gate)
 
 Before triggering any automated release:
 
 1. **Full-Spectrum Audit**: Run `npm run release:audit`.
    - Captures unpushed commits, staged changes, and unstaged working directory delta.
    - Identifies the "Representative Story" of the release.
-2. **Dry Run** (optional): `node .agent/skills/release_authority/scripts/manage_version.js --dry-run`
-   - Preview version and changelog changes without writing to disk.
-3. **Priming**: Manually populate `## [Unreleased]` in `CHANGELOG.md` with the story.
-4. **Authorization Gate**: Review the primed changelog — wait for explicit GO (§3 above).
+2. **Classify & Dry-Run**: Determine the bump type (MAJOR / MINOR / PATCH).
+   - `node .agent/skills/release_authority/scripts/manage_version.js --bump <type> --dry-run`
+   - Output shows the exact next version (e.g., `2.6.5`).
+3. **Write CHANGELOG Entry** (MANDATORY before any release command):
+   - Add `## [x.y.z] - YYYY-MM-DD` at the **top** of `CHANGELOG.md` with real content.
+   - No `## [Unreleased]` placeholder — write the dated section directly.
+   - `release:changelog-check` will block packaging if the top section is empty.
+4. **Authorization Gate**: Review the written entry — wait for explicit GO (§3 above).
+
+> [!CAUTION]
+> **DO NOT run any `release:*` command before completing Step 3.**
+> `release:changelog-check` enforces this at pipeline level, but the agent must
+> write the entry before invoking the pipeline — not after.
 
 ---
 
@@ -108,27 +117,36 @@ Before triggering any automated release:
 
 ### 5.2 Internal Order of Operations
 
-**Full pipeline** (`release:patch`):
+**Full pipeline** (`release:patch`) — agent pre-populates CHANGELOG before running:
 ```
-1. release:gates
-   ├─ release:verify  → version_parity(package.json == CHANGELOG latest)
+1. release:quality-gates
    ├─ lint            → ESLint static analysis
    ├─ typecheck       → tsc --noEmit
    ├─ test            → vitest run (100% pass rate required)
    └─ build           → production esbuild bundle
-2. manage_version.js --bump patch  → increments version, burns [Unreleased] → [x.y.z]
-3. release:package
+2. release:changelog-check
+   └─ manage_version.js --check  → top CHANGELOG section must have ≥1 real bullet
+3. manage_version.js --bump patch  → increments package.json version ONLY
+4. release:verify  → version_parity(package.json == top CHANGELOG entry)
+5. release:package
    ├─ vsce package    → generates .vsix artifact
    └─ verify_artifact.js → confirms .vsix exists + non-zero size
 ```
 
-**Fast pipeline** (`release:patch:fast`) — agent session only:
+**Fast pipeline** (`release:patch:fast`) — agent session only, gates already passed:
 ```
-1. release:verify  → version_parity check only (gates already passed this session)
-2. manage_version.js --bump patch
-3. release:package
-   ├─ vsce package
-   └─ verify_artifact.js
+1. release:changelog-check  → top CHANGELOG section must have content
+2. manage_version.js --bump patch  → package.json only
+3. release:verify  → parity check
+4. release:package
+```
+
+**No-bump pipeline** (`release`) — version already set manually:
+```
+1. release:gates
+   ├─ release:verify  → parity check
+   └─ release:quality-gates (lint/typecheck/test/build)
+2. release:package
 ```
 
 ### 5.3 Pipeline Failure & Safe Retry
