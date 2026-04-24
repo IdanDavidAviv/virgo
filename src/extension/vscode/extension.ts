@@ -55,9 +55,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Standardized log channel with dynamic version detection (Senior Protocol)
     if ('createLogOutputChannel' in (vscode.window as any)) {
-        outputChannel = (vscode.window as any).createLogOutputChannel('Read Aloud Diagnostics');
+        outputChannel = (vscode.window as any).createLogOutputChannel('Virgo Diagnostics');
     } else {
-        outputChannel = vscode.window.createOutputChannel('Read Aloud Diagnostics');
+        outputChannel = vscode.window.createOutputChannel('Virgo Diagnostics');
         log('[SYSTEM] LogOutputChannel API not found. Falling back to standard OutputChannel.');
     }
     outputChannel.show(true); 
@@ -77,22 +77,23 @@ export async function activate(context: vscode.ExtensionContext) {
         fs.unlinkSync(testFile);
     } catch (err: any) {
         vscode.window.showErrorMessage(
-            `Read Aloud Extension cannot write to its data directory: ${err.message}. Please check permissions for ${sessionsRoot}.`,
+            `Virgo cannot write to its data directory: ${err.message}. Please check permissions for ${sessionsRoot}.`,
             'Repair Permissions'
         ).then(selection => {
             if (selection === 'Repair Permissions') {
-                vscode.env.openExternal(vscode.Uri.parse('https://github.com/IdanDavidAviv/readme-preview-read-aloud/wiki/Troubleshooting#permissions'));
+                vscode.env.openExternal(vscode.Uri.parse('https://github.com/IdanDavidAviv/virgo/wiki/Troubleshooting#permissions'));
+
             }
         });
     }
 
-    log('--- BOOTING READ ALOUD ENGINE ---');
+    log('--- BOOTING VIRGO ENGINE ---');
 
     // Single Consolidated Status Bar Item
     mainStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    mainStatusBarItem.command = 'readme-preview-read-aloud.show-quick-controls';
-    mainStatusBarItem.text = '$(unmute) Read Aloud';
-    mainStatusBarItem.tooltip = 'Click for Read Aloud Controls';
+    mainStatusBarItem.command = 'virgo.show-quick-controls';
+    mainStatusBarItem.text = '$(unmute) Virgo';
+    mainStatusBarItem.tooltip = 'Click for Virgo Controls';
     mainStatusBarItem.show();
 
     // Standard path for high-integrity agent memory
@@ -137,7 +138,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
-            'readme-preview-read-aloud.speech-engine',
+            'virgo.speech-engine',
             speechProvider,
             
             { webviewOptions: { retainContextWhenHidden: true } }
@@ -147,19 +148,19 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         mainStatusBarItem,
         
-        vscode.commands.registerCommand('readme-preview-read-aloud.show-dashboard', () => {
-            log('[CMD_RECV] readme-preview-read-aloud.show-dashboard');
-            vscode.commands.executeCommand('readme-preview-read-aloud.speech-engine.focus');
+        vscode.commands.registerCommand('virgo.show-dashboard', () => {
+            log('[CMD_RECV] virgo.show-dashboard');
+            vscode.commands.executeCommand('virgo.speech-engine.focus');
             speechProvider.refresh();
         }),
 
-        vscode.commands.registerCommand('readme-preview-read-aloud.refresh-voices', () => {
-            log('[CMD_RECV] readme-preview-read-aloud.refresh-voices');
+        vscode.commands.registerCommand('virgo.refresh-voices', () => {
+            log('[CMD_RECV] virgo.refresh-voices');
             speechProvider.refreshVoices();
         }),
 
-        vscode.commands.registerCommand('readme-preview-read-aloud.show-quick-controls', async () => {
-            log('[CMD_RECV] readme-preview-read-aloud.show-quick-controls');
+        vscode.commands.registerCommand('virgo.show-quick-controls', async () => {
+            log('[CMD_RECV] virgo.show-quick-controls');
             const isPlaying = speechProvider.isPlaying();
             const isPaused = speechProvider.isPaused();
 
@@ -168,10 +169,10 @@ export async function activate(context: vscode.ExtensionContext) {
                 const action = await vscode.window.showQuickPick([
                     { label: '$(play) Start Reading', id: 'play' },
                     { label: '$(layout-sidebar-right) Open Dashboard', id: 'dashboard' }
-                ], { placeHolder: 'Read Aloud Mission Control' });
+                ], { placeHolder: 'Virgo Mission Control' });
 
-                if (action?.id === 'play') { vscode.commands.executeCommand('readme-preview-read-aloud.play'); }
-                if (action?.id === 'dashboard') { vscode.commands.executeCommand('readme-preview-read-aloud.show-dashboard'); }
+                if (action?.id === 'play') { vscode.commands.executeCommand('virgo.play'); }
+                if (action?.id === 'dashboard') { vscode.commands.executeCommand('virgo.show-dashboard'); }
                 return;
             }
 
@@ -182,7 +183,7 @@ export async function activate(context: vscode.ExtensionContext) {
             ];
 
             const selection = await vscode.window.showQuickPick(items, {
-                placeHolder: 'Read Aloud Controls'
+                placeHolder: 'Virgo Controls'
             });
 
             if (selection?.id === 'toggle') {
@@ -191,13 +192,13 @@ export async function activate(context: vscode.ExtensionContext) {
             } else if (selection?.id === 'stop') {
                 speechProvider.stop();
             } else if (selection?.id === 'dashboard') {
-                vscode.commands.executeCommand('readme-preview-read-aloud.show-dashboard');
+                vscode.commands.executeCommand('virgo.show-dashboard');
             }
         }),
 
-        vscode.commands.registerCommand('readme-preview-read-aloud.play', async () => {
+        vscode.commands.registerCommand('virgo.play', async () => {
             const editor = vscode.window.activeTextEditor;
-            log(`[CMD_RECV] readme-preview-read-aloud.play | hasEditor: ${!!editor}`);
+            log(`[CMD_RECV] virgo.play | hasEditor: ${!!editor}`);
             if (editor) {
                 const text = editor.selection.isEmpty ? editor.document.getText() : editor.document.getText(editor.selection);
                 speechProvider.play(text, 0, editor.document.fileName);
@@ -209,43 +210,43 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         }),
 
-        vscode.commands.registerCommand('readme-preview-read-aloud.pause', () => {
-            log('[CMD_RECV] readme-preview-read-aloud.pause');
+        vscode.commands.registerCommand('virgo.pause', () => {
+            log('[CMD_RECV] virgo.pause');
             speechProvider.pause();
         }),
-        vscode.commands.registerCommand('readme-preview-read-aloud.stop', () => {
-            log('[CMD_RECV] readme-preview-read-aloud.stop');
+        vscode.commands.registerCommand('virgo.stop', () => {
+            log('[CMD_RECV] virgo.stop');
             speechProvider.stop();
         }),
-        vscode.commands.registerCommand('readme-preview-read-aloud.start-over', () => {
-            log('[CMD_RECV] readme-preview-read-aloud.start-over');
+        vscode.commands.registerCommand('virgo.start-over', () => {
+            log('[CMD_RECV] virgo.start-over');
             speechProvider.startOver();
         }),
-        vscode.commands.registerCommand('readme-preview-read-aloud.refresh-view', () => {
-            log('[CMD_RECV] readme-preview-read-aloud.refresh-view');
+        vscode.commands.registerCommand('virgo.refresh-view', () => {
+            log('[CMD_RECV] virgo.refresh-view');
             speechProvider.refreshView();
         }),
-        vscode.commands.registerCommand('readme-preview-read-aloud.next-chapter', () => {
-            log('[CMD_RECV] readme-preview-read-aloud.next-chapter');
+        vscode.commands.registerCommand('virgo.next-chapter', () => {
+            log('[CMD_RECV] virgo.next-chapter');
             speechProvider.nextChapter();
         }),
-        vscode.commands.registerCommand('readme-preview-read-aloud.prev-chapter', () => {
-            log('[CMD_RECV] readme-preview-read-aloud.prev-chapter');
+        vscode.commands.registerCommand('virgo.prev-chapter', () => {
+            log('[CMD_RECV] virgo.prev-chapter');
             speechProvider.prevChapter();
         }),
-        vscode.commands.registerCommand('readme-preview-read-aloud.next-sentence', () => {
-            log('[CMD_RECV] readme-preview-read-aloud.next-sentence');
+        vscode.commands.registerCommand('virgo.next-sentence', () => {
+            log('[CMD_RECV] virgo.next-sentence');
             speechProvider.nextSentence();
         }),
-        vscode.commands.registerCommand('readme-preview-read-aloud.prev-sentence', () => {
-            log('[CMD_RECV] readme-preview-read-aloud.prev-sentence');
+        vscode.commands.registerCommand('virgo.prev-sentence', () => {
+            log('[CMD_RECV] virgo.prev-sentence');
             speechProvider.prevSentence();
         }),
 
 
-        vscode.commands.registerCommand('readme-preview-read-aloud.read-from-cursor', async () => {
+        vscode.commands.registerCommand('virgo.read-from-cursor', async () => {
             const editor = vscode.window.activeTextEditor;
-            log(`[CMD_RECV] readme-preview-read-aloud.read-from-cursor | hasEditor: ${!!editor}`);
+            log(`[CMD_RECV] virgo.read-from-cursor | hasEditor: ${!!editor}`);
             if (!editor) {return;}
             const text = editor.document.getText();
             const cursorLine = editor.selection.active.line;
@@ -266,13 +267,13 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         }),
 
-        vscode.commands.registerCommand('readme-preview-read-aloud.restart-mcp', async () => {
+        vscode.commands.registerCommand('virgo.restart-mcp', async () => {
             // [T-023] Bridge removed. MCP now runs as an external stdio process (mcp-standalone.js).
             // Reconnect via Gemini settings if needed.
-            vscode.window.showInformationMessage('Read Aloud: MCP runs via standalone stdio server. Reconnect via Gemini MCP settings if needed.');
+            vscode.window.showInformationMessage('Virgo: MCP runs via standalone stdio server. Reconnect via Gemini MCP settings if needed.');
         }),
         
-        vscode.commands.registerCommand('readme-preview-read-aloud.restart-extension', async () => {
+        vscode.commands.registerCommand('virgo.restart-extension', async () => {
             log('[EXTENSION] Full extension restart requested (Reloading Window).');
             await vscode.commands.executeCommand('workbench.action.reloadWindow');
         })

@@ -1,6 +1,6 @@
 # Change Log
 
-All notable changes to the "Readme Preview Read Aloud" extension will be documented in this file.
+All notable changes to the "Virgo" extension will be documented in this file.
 
 ## [2.6.4] - 2026-04-24
 

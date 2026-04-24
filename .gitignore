@@ -12,4 +12,9 @@ implementation_plan.md
 
 dist/
 coverage/
-tests/mcp/test_storage/
+tests/mcp/test_storage/
+tests/mcp/test_brain/
+tests/mcp/new_active-session/
+
+# Security guards
+.env*

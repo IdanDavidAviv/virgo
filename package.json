@@ -1,7 +1,7 @@
 {
-  "name": "readme-preview-read-aloud",
-  "displayName": "README Preview Read Aloud",
-  "description": "Reads markdown previews aloud using speech synthesis",
+  "name": "virgo",
+  "displayName": "Virgo",
+  "description": "AI that talks to YOU. Neural narration, MCP-powered, for VS Code.",
   "version": "2.6.4",
   "publisher": "IdanDavidAviv",
   "engines": {
@@ -9,17 +9,18 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/IdanDavidAviv/readme-preview-read-aloud.git"
+    "url": "https://github.com/IdanDavidAviv/virgo.git"
   },
   "enabledApiProposals": [
     "chatContextProvider",
     "chatProvider"
   ],
-  "homepage": "https://github.com/IdanDavidAviv/readme-preview-read-aloud#readme",
+  "homepage": "https://github.com/IdanDavidAviv/virgo#readme",
   "bugs": {
-    "url": "https://github.com/IdanDavidAviv/readme-preview-read-aloud/issues"
+    "url": "https://github.com/IdanDavidAviv/virgo/issues"
   },
   "categories": [
+    "AI",
     "Education",
     "Other"
   ],
@@ -40,8 +41,23 @@
     "read aloud",
     "accessibility",
     "speech",
-    "preview"
+    "preview",
+    "mcp",
+    "ai",
+    "neural",
+    "agent",
+    "cursor",
+    "copilot",
+    "narration",
+    "text to speech"
   ],
+  "sponsor": {
+    "url": "https://www.buymeacoffee.com/idandavidaviv"
+  },
+  "galleryBanner": {
+    "color": "#0d0d1a",
+    "theme": "dark"
+  },
   "icon": "assets/icon.png",
   "main": "./dist/extension.js",
   "activationEvents": [
@@ -51,79 +67,79 @@
   "contributes": {
     "commands": [
       {
-        "command": "readme-preview-read-aloud.play",
-        "title": "Read Aloud",
+        "command": "virgo.play",
+        "title": "Virgo: Play",
         "icon": "$(play)"
       },
       {
-        "command": "readme-preview-read-aloud.pause",
+        "command": "virgo.pause",
         "title": "Pause",
         "icon": "$(debug-pause)"
       },
       {
-        "command": "readme-preview-read-aloud.stop",
+        "command": "virgo.stop",
         "title": "Stop",
         "icon": "$(debug-stop)"
       },
       {
-        "command": "readme-preview-read-aloud.show-dashboard",
-        "title": "Show Read Aloud Dashboard",
+        "command": "virgo.show-dashboard",
+        "title": "Show Virgo Dashboard",
         "icon": "$(layout-sidebar-right)"
       },
       {
-        "command": "readme-preview-read-aloud.read-from-cursor",
-        "title": "Read Aloud From Here",
+        "command": "virgo.read-from-cursor",
+        "title": "Read From Here",
         "icon": "$(debug-start-from-here)"
       },
       {
-        "command": "readme-preview-read-aloud.prev-chapter",
+        "command": "virgo.prev-chapter",
         "title": "Previous Chapter",
         "icon": "$(arrow-left)"
       },
       {
-        "command": "readme-preview-read-aloud.next-chapter",
+        "command": "virgo.next-chapter",
         "title": "Next Chapter",
         "icon": "$(arrow-right)"
       },
       {
-        "command": "readme-preview-read-aloud.prev-sentence",
+        "command": "virgo.prev-sentence",
         "title": "Previous Sentence",
         "icon": "$(triangle-left)"
       },
       {
-        "command": "readme-preview-read-aloud.next-sentence",
+        "command": "virgo.next-sentence",
         "title": "Next Sentence",
         "icon": "$(triangle-right)"
       },
       {
-        "command": "readme-preview-read-aloud.restart-mcp",
-        "title": "Read Aloud: Restart MCP Bridge",
+        "command": "virgo.restart-mcp",
+        "title": "Virgo: Restart MCP Bridge",
         "icon": "$(refresh)"
       },
       {
-        "command": "readme-preview-read-aloud.restart-extension",
-        "title": "Read Aloud: Full Extension Restart",
+        "command": "virgo.restart-extension",
+        "title": "Virgo: Full Extension Restart",
         "icon": "$(sync)"
       },
       {
-        "command": "readme-preview-read-aloud.refresh-voices",
-        "title": "Read Aloud: Refresh Voices",
+        "command": "virgo.refresh-voices",
+        "title": "Virgo: Refresh Voices",
         "icon": "$(refresh)"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "readme-read-aloud",
-          "title": "Read Aloud",
+          "id": "virgo",
+          "title": "Virgo",
           "icon": "dist/icon.svg"
         }
       ]
     },
     "views": {
-      "readme-read-aloud": [
+      "virgo": [
         {
-          "id": "readme-preview-read-aloud.speech-engine",
+          "id": "virgo.speech-engine",
           "type": "webview",
           "name": "Audio Engine",
           "icon": "$(unmute)"
@@ -134,21 +150,21 @@
       "view/title": [],
       "editor/title": [
         {
-          "command": "readme-preview-read-aloud.play",
+          "command": "virgo.play",
           "when": "editorLangId == markdown",
           "group": "navigation@1"
         }
       ],
       "editor/context": [
         {
-          "command": "readme-preview-read-aloud.read-from-cursor",
+          "command": "virgo.read-from-cursor",
           "group": "modification",
           "when": "editorLangId == markdown"
         }
       ]
     },
     "configuration": {
-      "title": "Read Aloud",
+      "title": "Virgo",
       "properties": {
         "readAloud.logging.level": {
           "type": "string",
@@ -220,7 +236,7 @@
         "readAloud.agent.autoInjectSITREP": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically inject a SITREP/Summary into the Read Aloud extension when a task is completed (Multimodal Parity)."
+          "description": "Automatically inject a SITREP/Summary into Virgo when a task is completed (Multimodal Parity)."
         },
         "readAloud.playback.globalShortcuts": {
           "type": "boolean",
@@ -231,36 +247,36 @@
     },
     "keybindings": [
       {
-        "command": "readme-preview-read-aloud.play",
+        "command": "virgo.play",
         "key": "alt+r",
         "when": "editorLangId == markdown"
       },
       {
-        "command": "readme-preview-read-aloud.stop",
+        "command": "virgo.stop",
         "key": "alt+s"
       },
       {
-        "command": "readme-preview-read-aloud.read-from-cursor",
+        "command": "virgo.read-from-cursor",
         "key": "alt+shift+r",
         "when": "editorLangId == markdown"
       },
       {
-        "command": "readme-preview-read-aloud.prev-chapter",
+        "command": "virgo.prev-chapter",
         "key": "shift+left",
         "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
       },
       {
-        "command": "readme-preview-read-aloud.next-chapter",
+        "command": "virgo.next-chapter",
         "key": "shift+right",
         "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
       },
       {
-        "command": "readme-preview-read-aloud.prev-sentence",
+        "command": "virgo.prev-sentence",
         "key": "left",
         "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
       },
       {
-        "command": "readme-preview-read-aloud.next-sentence",
+        "command": "virgo.next-sentence",
         "key": "right",
         "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
       }

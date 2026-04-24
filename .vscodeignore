@@ -21,6 +21,11 @@ test.md
 node_modules/**
 !dist/**
 .agent/
+tests/**
+scripts/**
+coverage/**
+vitest.config.ts
+.eslintrc.json
 !package.json
 !README.md
 !LICENSE

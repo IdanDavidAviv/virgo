@@ -43,12 +43,12 @@ function getProjectConfig() {
     };
   } catch (e) {
     return { 
-      name: 'readme-preview-read-aloud', 
+      name: 'virgo', 
       envs: { dev: 'Extension (Dev)', prod: 'Extension (Prod)' },
       markers: {
         host: 'Extension Development Host',
         hostArg: 'extensionDevelopmentPath',
-        workbench: 'readme-preview-read-aloud'
+        workbench: 'virgo'
       }
     };
   }
@@ -381,7 +381,7 @@ const getbrowser = async (force = false) => {
 
 const shellWaitForReady = async (maxRetries = 15) => {
   console.log('[CDP] ⏳ Waiting for System Ready...');
-  await shellExec('readme-preview-read-aloud.show-dashboard');
+  await shellExec('virgo.show-dashboard');
   for (let i = 0; i < maxRetries; i++) {
     const b = await getbrowser();
     const f = await findSovereignTarget(b, 'webview');
@@ -401,7 +401,7 @@ const shellWaitForReady = async (maxRetries = 15) => {
 const shellExec = async (cmd) => {
   if (!cmd) { return; }
   const b = await getbrowser();
-  if (cmd.startsWith('readme-preview-read-aloud.') && !cmd.startsWith('>')) {
+  if (cmd.startsWith('virgo.') && !cmd.startsWith('>')) {
     try {
       await shellDispatch(b, cmd);
       console.log('[CDP] ✓ Atomic Dispatch Success');
@@ -871,12 +871,12 @@ async function runShell() {
     console.log('🧪 Starting Buffering Integrity Test...');
     
     // 1. Ensure visible
-    await shellExec('readme-preview-read-aloud.speech-engine.focus');
+    await shellExec('virgo.speech-engine.focus');
     await new Promise(r => setTimeout(r, 1000));
 
     // 2. Start Playback
     console.log('▶ Triggering Play...');
-    await shellExec('readme-preview-read-aloud.play');
+    await shellExec('virgo.play');
     
     // 3. IMMEDIATELY Hide Sidebar
     console.log('🙈 Hiding Sidebar (Buffer Zone)...');
@@ -888,7 +888,7 @@ async function runShell() {
     
     // 5. Show Sidebar
     console.log('👀 Showing Sidebar (Flush Zone)...');
-    await shellExec('readme-preview-read-aloud.speech-engine.focus');
+    await shellExec('virgo.speech-engine.focus');
     
     // 6. Verify state
     console.log('🔍 Auditing webview state...');
@@ -984,7 +984,7 @@ async function runShell() {
       } catch { }
 
       // ── Trigger play directly in the webview context ──
-      // WHY NOT shellExec('readme-preview-read-aloud.play'):
+      // WHY NOT shellExec('virgo.play'):
       //   That fires the VS Code command → extension host → IPC roundtrip.
       //   The webview's _userHasInteracted gate blocks PLAY_AUDIO delivery unless
       //   it was set by a real DOM click. shellPrime()'s mousedown on the frame

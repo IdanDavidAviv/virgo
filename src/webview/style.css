@@ -649,11 +649,45 @@ input[type="range"]::-webkit-slider-thumb:hover {
     padding-top: 12px;
     letter-spacing: 0.05em;
     font-weight: 600;
-    display: flex;
-    justify-content: center;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    gap: 8px;
 }
+
+.footer-right {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    justify-self: end;
+}
+
+.settings-anchor {
+    justify-self: start;
+}
+
+
+.version-tag {
+    opacity: 0.6;
+    letter-spacing: 0.04em;
+}
+
+.bmac-link {
+    font-size: 10px;
+    text-decoration: none;
+    opacity: 0.35;
+    cursor: pointer;
+    transition: opacity 0.2s ease, transform 0.15s ease;
+    margin-right: 3px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+}
+
+.bmac-link:hover {
+    opacity: 1;
+    transform: scale(1.15);
+}
+
 
 #engine-status-tag {
     background: rgba(255, 255, 255, 0.05);

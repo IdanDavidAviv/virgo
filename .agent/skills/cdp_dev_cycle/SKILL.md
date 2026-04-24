@@ -35,7 +35,7 @@ description: # Dev Cycle Protocol: CDP Shell Sovereignty (v2.5.1)
 ## 1. Sovereignty Hierarchy
 - **Tier 1 (Host):** `[Extension Development Host]` — The primary target for verification.
 - **Tier 2 (Meta):** `[Main Editor]` — **PROTECTED**. Authorized ONLY for meta-commands (`launch`).
-- **Tier 3 (Webview):** `[readme-preview-read-aloud]` — The isolated execution context. Often nested and requires specific targeting.
+- **Tier 3 (Webview):** `[virgo]` — The isolated execution context. Often nested and requires specific targeting.
 
 ## 2. The Persistent CDP Shell Workflow
 To maintain high-integrity state awareness, the agent SHOULD keep a single `cdp:shell` open for the duration of the session.

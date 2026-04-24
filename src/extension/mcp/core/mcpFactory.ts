@@ -41,7 +41,7 @@ import { LogReporter } from "../../../common/mcp/logReporter";
 function registerTools(server: McpServer, config: McpConfig) {
 // ... (omitted for brevity in search, but I will replace the relevant block below)
     // [1] Tool: say_this_loud
-    // PRIMARY MISSION TOOL — call this to surface content in the Read Aloud sidebar.
+    // PRIMARY MISSION TOOL — call this to surface content in the Virgo sidebar.
     // BEHAVIORAL MANDATE: Fire ONLY on these 4 strategic triggers — NOT every turn.
     //   Canonical SSOT: GEMINI.md §12.2 — if this comment diverges, GEMINI.md wins.
     //   1. Turn-ending SITREPs and session summaries
@@ -59,7 +59,7 @@ function registerTools(server: McpServer, config: McpConfig) {
     //   - if the tool returns isError:true, do NOT report success — alert the user
     server.tool(
         "say_this_loud",
-        "Surface content in the Read Aloud extension sidebar. Call this before your final response " +
+        "Surface content in the Virgo sidebar. Call this before your final response " +
         "only on these triggers: (1) turn-ending SITREPs or session summaries, " +
         "(2) implementation plan proposals (before requesting GO), " +
         "(3) phase completions (handoff to user), " +
