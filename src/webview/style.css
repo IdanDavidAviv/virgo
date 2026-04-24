@@ -1060,13 +1060,35 @@ input[type="range"]::-webkit-slider-thumb:hover {
     background: rgba(255, 255, 255, 0.05);
 }
 
+/* Refresh button — inside mode-toggle-group capsule, left of FILE pill */
+.btn-refresh-snippets {
+    background: transparent;
+    border: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    padding: 2px 6px 2px 4px;
+    margin-right: 2px;
+    transition: color 0.15s ease, opacity 0.15s ease;
+}
+.btn-refresh-snippets:hover:not(:disabled) {
+    color: rgba(56, 189, 248, 0.9);
+}
+.btn-refresh-snippets:disabled {
+    opacity: 0.2;
+    cursor: default;
+}
+
 /* --- Snippet Lookup --- */
 .snippet-lookup {
     display: flex;
     flex-direction: column;
     gap: 4px;
     margin-top: 10px;
-    max-height: 280px;
+    max-height: 210px;
     overflow-y: auto;
     padding-right: 4px;
 }
@@ -1100,8 +1122,13 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .snippet-session-card.is-active {
-    border-color: rgba(56, 189, 248, 0.3);
-    background: rgba(56, 189, 248, 0.04);
+    /* neutral — glow only fires when also expanded */
+}
+
+.snippet-session-card.is-active.is-expanded {
+    border-color: rgba(56, 189, 248, 0.35);
+    background: rgba(56, 189, 248, 0.06);
+    box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.12) inset;
 }
 
 .snippet-session-card.is-expanded {
@@ -1113,7 +1140,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 10px;
+    padding: 5px 8px;
     user-select: none;
 }
 

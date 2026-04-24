@@ -25,11 +25,14 @@ function resolveLatestSessionId(readAloudRoot: string, brainRoot?: string): stri
     const searchDirs = [readAloudRoot];
     if (brainRoot) { searchDirs.unshift(brainRoot); } // Brain is higher priority for "New" sessions
 
+    // [T-038] VS Code internal temp dirs that must never be treated as agent sessions
+    const EXCLUDED_SESSION_DIRS = new Set(['tempmediaStorage', '.write_test']);
+
     for (const root of searchDirs) {
         if (!fs.existsSync(root)) { continue; }
         try {
             const sessions = fs.readdirSync(root)
-                .filter(f => fs.statSync(path.join(root, f)).isDirectory())
+                .filter(f => !EXCLUDED_SESSION_DIRS.has(f) && fs.statSync(path.join(root, f)).isDirectory())
                 .map(f => ({ id: f, mtime: fs.statSync(path.join(root, f)).mtimeMs }))
                 .sort((a, b) => b.mtime - a.mtime);
             

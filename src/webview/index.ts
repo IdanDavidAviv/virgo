@@ -187,6 +187,23 @@ export function bootstrap() {
     }));
     if (snippetLookup) {registry.push(snippetLookup);}
 
+    // [T-038] Refresh button — context-aware: SNIPPET mode re-fetches history, FILE mode stays disabled
+    const btnRefreshSnippets = document.getElementById('btn-refresh-snippets') as HTMLButtonElement | null;
+    if (btnRefreshSnippets) {
+        const controller = PlaybackController.getInstance();
+        btnRefreshSnippets.addEventListener('click', () => {
+            if (store.getUIState().activeMode === 'SNIPPET') {
+                controller.requestSnippetHistory();
+            }
+        });
+        store.subscribeUI((ui) => ui.activeMode, (mode) => {
+            btnRefreshSnippets.disabled = mode !== 'SNIPPET';
+            btnRefreshSnippets.title = mode === 'SNIPPET'
+                ? 'Refresh snippet history'
+                : 'Refresh not available in file mode';
+        });
+    }
+
     const voiceSelector = safeMount('voiceSelector', document.getElementById('voice-list-container'), (el) => new VoiceSelector({
         voiceList: el,
         searchInput: document.getElementById('voice-search') as HTMLInputElement

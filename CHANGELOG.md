@@ -4,6 +4,18 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 
 ## [Unreleased]
 
+### Added
+- 
+
+## [2.6.2] - 2026-04-24
+
+### Fixed
+- **Snippet History Hydration — T-038 (3-Bug Chain)**: Resolved a compounded failure that caused the Snippet History sidebar to show zero sessions when switching to SNIPPET mode, despite sessions existing on disk.
+  - **Stat Crash Hardening** (`speechProvider.ts`): `vscode.workspace.fs.stat()` was called inside a `Promise.all` with no `try/catch`. A single failing stat (e.g., a metadata file with a locked handle) silently resolved the entire session's file collection to `null`, zeroing the snippet count and excluding the session from the UI. Each file stat is now individually guarded.
+  - **Filename Parsing Fix** (`speechProvider.ts`): The snippet name extractor used a legacy `firstUnderscore` strategy that was incompatible with the current `<timestamp>.<name>.md` format (dot-separated, introduced in v2.5.9). All snippets were parsed as raw timestamp strings. Fixed with `f.replace(/^\d+\./, '')`.
+  - **SyncManager Dedup Bypass** (`SyncManager.ts`): `_calculateStateHash()` did not include `snippetHistory.length` or `activeSessionId`. When `setHistory()` was called after the IPC scan, the state change emitted a hash identical to the last flush — and was silently absorbed as a no-op. The webview store was never updated. Added both fields to the hash to guarantee every `setHistory()` call reaches the webview.
+
+
 ## [2.6.1] - 2026-04-24
 
 ### Added
