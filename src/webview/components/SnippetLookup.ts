@@ -26,13 +26,14 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
             const activeSessionId = state.activeSessionId;
             const activeDocumentUri = state.activeDocumentUri;
 
-            // [PRIVACY_SHIELD] Ensure 'brain' paths never leak to UI and limit to 10 most recent sessions
+            // [PRIVACY_SHIELD] Filter sessions without a valid ID, limit to 10 most recent
+            // NOTE: fsPath brain-filter removed — MCP snippets legitimately live in brain/ dirs
             const filteredHistory = history
-                .filter((s: SnippetSession) => s && s.id && !s.id.toLowerCase().includes('brain'))
-                .slice(0, 10) // [SSOT] Limit to 10 most recent non-brain sessions
+                .filter((s: SnippetSession) => s && s.id)
+                .slice(0, 10)
                 .map((s: SnippetSession) => ({
                     ...s,
-                    snippets: (s.snippets || []).filter((sn: SnippetEntry) => sn && sn.fsPath && !sn.fsPath.toLowerCase().includes('brain'))
+                    snippets: (s.snippets || []).filter((sn: SnippetEntry) => sn && sn.fsPath)
                 }));
             this._lastHistory = filteredHistory;
             this.renderHistory(filteredHistory, activeSessionId, activeDocumentUri);

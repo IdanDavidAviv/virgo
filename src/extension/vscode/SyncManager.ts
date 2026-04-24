@@ -155,7 +155,9 @@ export class SyncManager implements vscode.Disposable {
             s.selectedVoice,
             s.versionSalt,
             s.focusedFileName,
-            s.focusedVersionSalt
+            s.focusedVersionSalt,
+            s.snippetHistory.length,   // [T-038] Ensure setHistory() flushes correctly
+            s.activeSessionId          // [T-038] Session change must re-render
         ].join('|');
     }
 

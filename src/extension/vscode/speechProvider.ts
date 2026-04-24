@@ -873,15 +873,17 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     private async _getSnippetHistory(): Promise<SnippetHistory> {
         const rootUri = vscode.Uri.file(this._readAloudRoot);
+        this._logger(`[SNIPPET_HISTORY] Scanning root: ${this._readAloudRoot}`);
         
         try {
             // 1. Get all session directories 
             const entries = await vscode.workspace.fs.readDirectory(rootUri);
+            this._logger(`[SNIPPET_HISTORY] Found ${entries.length} entries in root`);
 
             // [MP-001 T-015] EXCLUDED_DIRS: sessions/ root only contains UUID session directories.
             // System dirs (protocols, tempmediaStorage, brain) live under read_aloud/ root —
             // they are NOT reachable from here. Filter reserved for future non-UUID entries.
-            const EXCLUDED_DIRS = new Set<string>();
+            const EXCLUDED_DIRS = new Set<string>(['tempmediaStorage', '.write_test']);
 
             const allDirs = (await Promise.all(entries.map(async ([name, type]) => {
                 if (type !== vscode.FileType.Directory) { return null; }
@@ -926,22 +928,23 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     if (!f.endsWith('.md') && !f.endsWith('.markdown')) { return null; }
 
                     const fileUri = vscode.Uri.joinPath(sessionUri, f);
-                    const stats = await vscode.workspace.fs.stat(fileUri);
-                    
-                    const firstUnderscore = f.indexOf('_');
-                    let snippetName = firstUnderscore !== -1 ? f.substring(firstUnderscore + 1) : f;
-                    snippetName = snippetName.replace(/\.(md|markdown|txt|log|resolved\.\d+)$/i, '');
-                    
-                    return {
-                        name: snippetName,
-                        fsPath: fileUri.fsPath,
-                        uri: fileUri.toString(),
-                        timestamp: stats.mtime
-                    };
+                    try {
+                        const stats = await vscode.workspace.fs.stat(fileUri);
+                        // [T-038] New filename format: <timestamp>.<name>.md (dot-separated)
+                        // Extract name: strip leading timestamp prefix (e.g. "1776987443088.")
+                        let snippetName = f.replace(/^\d+\./, '').replace(/\.(md|markdown)$/i, '');
+                        return {
+                            name: snippetName,
+                            fsPath: fileUri.fsPath,
+                            uri: fileUri.toString(),
+                            timestamp: stats.mtime
+                        };
+                    } catch { return null; }
                 })))
                 .filter((x): x is { name: string; fsPath: string; uri: string; timestamp: number } => x !== null)
                 .sort((a, b) => b.timestamp - a.timestamp);
 
+                this._logger(`[SNIPPET_HISTORY] Session ${session.id.slice(0, 8)}: ${files.length} snippets`);
                 if (files.length > 0) {
                     result.push({
                         id: session.id,
