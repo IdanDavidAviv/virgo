@@ -2,6 +2,13 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.6.5] - 2026-04-24
+
+### Changed
+- **Brand Evolution**: Officially rebranded the extension from "Read Aloud" to "Virgo", shifting focus towards agent-driven narration and task handoffs.
+- **Documentation Overhaul**: Completely rewrote the `README.md` to highlight the Agent Narrator capabilities and formally pledge a Zero-Telemetry privacy standard.
+- **Development Stability**: Fixed F5 debugging collisions in `launch.json` caused by legacy namespace overlaps, ensuring a clean development loop.
+
 ## [2.6.4] - 2026-04-24
 
 ### Added
