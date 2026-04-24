@@ -7,10 +7,17 @@ All notable changes to the "Readme Preview Read Aloud" extension will be documen
 ### Added
 - 
 
+## [2.6.4] - 2026-04-24
+
+### Added
+- **Aggregate Session Metadata Index — T-035 (#42)**: Replaced O(N×M) filesystem scan in `_getSnippetHistory` with a single O(1) read from `sessions_index.json`. The index is written atomically by `McpWatcher` on every snippet injection (tmp + rename pattern). A cold-start fallback scan still runs on first boot or index corruption, after which it rebuilds the index automatically. Eliminates I/O stalls and title-resolution flicker on sidebar open at scale. Introduces `SessionIndexManager` as a standalone injectable helper.
+- **Release Pipeline Optimization**: Added `release:patch:fast`, `release:minor:fast`, `release:major:fast` npm scripts. These skip the full gate re-run (lint + typecheck + test + build) when gates have already passed in the same agent session, reducing release time from ~45 s to ~7 s. `release:verify` (version sentinel) always runs.
+
 ## [2.6.3] - 2026-04-24
 
 ### Added
-- 
+- **Artifact Change Detection / Rehydration — T-034 (#56)**: Implemented a scoped `FileSystemWatcher` in `SpeechProvider` that monitors the currently focused file and its `.metadata.json` sidecar for external disk changes. A salt-diff guard (`_onFocusedFileDiskChange`) prevents redundant IPC traffic — only triggers a `setFocusedFile` store update when the version salt actually changes. Watcher is torn down on every focus change and on `dispose()` (lifecycle-guard compliant).
+- **Document mtime Enrichment**: Added `lastStatMtime?: number` to `DocumentMetadata` in `DocumentLoadController`, captured via `fs.statSync().mtimeMs` on load. Provides the foundation for future stale-load detection (T-035).
 
 ## [2.6.2] - 2026-04-24
 
