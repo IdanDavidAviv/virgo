@@ -15,6 +15,7 @@ import { VoiceManager } from '@vscode/VoiceManager';
 import { SettingsManager } from '@vscode/SettingsManager';
 import { SyncManager } from '@vscode/SyncManager';
 import { PersistenceManager } from './PersistenceManager';
+import { SessionIndexManager } from '@core/SessionIndexManager';
 
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
@@ -28,6 +29,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     private _audioBridge: AudioBridge;
     private _dashboardRelay: DashboardRelay;
     private _mcpWatcher: McpWatcher;
+    private _indexManager!: SessionIndexManager;
 
 
     // Selection state (passive) - Moved to StateStore
@@ -72,12 +74,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
 
         // [PHASE 1 REFACTOR] Modularized MCP Watcher
+        // [T-035] SessionIndexManager must be created before McpWatcher (injected as dep)
+        this._indexManager = new SessionIndexManager(this._readAloudRoot, this._logger);
+
         this._mcpWatcher = new McpWatcher(
             this._readAloudRoot,
             this._sessionId,
             this._stateStore,
             this._docController,
-            this._logger
+            this._logger,
+            this._indexManager
         );
         this._mcpWatcher.onSessionPivot(id => this.pivotSession(id));
         this._mcpWatcher.onSnippetLoaded(async () => {
@@ -918,6 +924,26 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private async _getSnippetHistory(): Promise<SnippetHistory> {
+        // [T-035] Tier 1: O(1) index read — skips all filesystem scans
+        const fromIndex = this._indexManager.toSnippetHistory();
+        if (fromIndex.length > 0) {
+            this._logger(`[SNIPPET_HISTORY] Index hit: ${fromIndex.length} session(s)`);
+            return fromIndex;
+        }
+
+        // [T-035] Tier 2: Cold-start fallback — full scan (index missing or empty)
+        this._logger(`[SNIPPET_HISTORY] Index miss — falling back to full scan`);
+        const scanned = await this._getSnippetHistoryByScan();
+
+        // Prime the index from scan result so next call is O(1)
+        if (scanned.length > 0) {
+            this._indexManager.rebuildFromHistory(scanned);
+        }
+
+        return scanned;
+    }
+
+    private async _getSnippetHistoryByScan(): Promise<SnippetHistory> {
         const rootUri = vscode.Uri.file(this._readAloudRoot);
         this._logger(`[SNIPPET_HISTORY] Scanning root: ${this._readAloudRoot}`);
         

@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { StateStore } from '@core/stateStore';
 import { DocumentLoadController } from '@core/documentLoadController';
+import { SessionIndexManager } from '@core/SessionIndexManager';
 
 export type SessionPivotCallback = (sessionId: string) => void;
 export type SnippetLoadedCallback = () => void;
@@ -28,7 +29,8 @@ export class McpWatcher implements vscode.Disposable {
         private _currentSessionId: string,
         private _stateStore: StateStore,
         private _docController: DocumentLoadController,
-        private _logger: (msg: string) => void
+        private _logger: (msg: string) => void,
+        private _indexManager?: SessionIndexManager
     ) {
         // [WORKSPACE CLAIM GATE] Use VS Code's own enforcement: each window MUST have a
         // unique workspace folder (VS Code physically prevents same-dir in two windows).
@@ -235,6 +237,19 @@ export class McpWatcher implements vscode.Disposable {
 
             // 4. Update mode and notify listeners
             this._stateStore.setActiveMode('SNIPPET');
+
+            // [T-035] Update aggregate index — O(1) history reads on next sidebar open
+            this._indexManager?.upsertSession(
+                detectedSessionId,
+                undefined, // resolved lazily from extension_state.json on first encounter
+                {
+                    name: metadata.fileName,
+                    timestamp: Date.now(),
+                    fsPath: cleanPath,
+                    uri: vscode.Uri.file(cleanPath).toString()
+                }
+            );
+
             this._onSnippetLoadedListeners.forEach(cb => cb());
             this._logger(`[MCP_TRACE] Load Complete: ${metadata.fileName}`);
         } else {
