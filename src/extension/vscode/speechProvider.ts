@@ -43,6 +43,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     private _lastHandshakeTime?: number;
     private _debounceTimers: Map<string, NodeJS.Timeout> = new Map();
+
+    // [T-034] Focused-file disk-change watcher
+    private _focusedFileWatcher?: vscode.Disposable;
+    private _lastFocusedSalt?: string;
     private _isLoadingDocument = false;
     // [DPG] Dual-Precondition Gate flags
     private _webviewIsReady = false;
@@ -239,6 +243,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
      * Updates the passive selection (Focused File) whenever the editor focus changes.
      */
     public setActiveEditor(uri: vscode.Uri | undefined) {
+        // [T-034] Tear down previous watcher on every focus change
+        this._focusedFileWatcher?.dispose();
+        this._focusedFileWatcher = undefined;
+
         if (!uri) {
             this._stateStore.setFocusedFile(undefined, 'No Selection', '', false);
             return;
@@ -263,8 +271,45 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
 
         const versionSalt = isSupported ? this._docController.getFileVersionSalt(uri) : undefined;
+        this._lastFocusedSalt = versionSalt;
         this._stateStore.setFocusedFile(uri, fileName, relativeDir, isSupported, versionSalt);
         this._logger(`[DEBUG] setActiveEditor | file: ${fileName} | scheme: ${uri.scheme} | supported: ${isSupported} | salt: ${versionSalt}`);
+
+        // [T-034] Arm disk-change watcher for supported files with a real fsPath
+        if (isSupported && uri.fsPath) {
+            this._setupFocusedFileWatcher(uri);
+        }
+    }
+
+    /** [T-034] Creates a FileSystemWatcher scoped to the focused file + its .metadata.json sidecar. */
+    private _setupFocusedFileWatcher(uri: vscode.Uri): void {
+        const fsPath = uri.fsPath;
+        const dir = path.dirname(fsPath);
+        const base = path.basename(fsPath);
+        const pattern = new vscode.RelativePattern(
+            vscode.Uri.file(dir),
+            `{${base},${base}.metadata.json}`
+        );
+        const watcher = vscode.workspace.createFileSystemWatcher(pattern, true, false, true);
+        watcher.onDidChange(() => this._onFocusedFileDiskChange(uri));
+        this._focusedFileWatcher = watcher;
+        this._logger(`[T-034] FileSystemWatcher armed: ${base}`);
+    }
+
+    /** [T-034] Fires on external disk write. Re-computes salt; no-ops if unchanged. */
+    private _onFocusedFileDiskChange(uri: vscode.Uri): void {
+        const newSalt = this._docController.getFileVersionSalt(uri);
+        if (newSalt === this._lastFocusedSalt) { return; } // No change — absorb
+        this._lastFocusedSalt = newSalt;
+        const s = this._stateStore.state;
+        this._stateStore.setFocusedFile(
+            uri,
+            s.focusedFileName || path.basename(uri.fsPath),
+            s.focusedRelativeDir || '',
+            s.focusedIsSupported ?? true,
+            newSalt
+        );
+        this._logger(`[T-034] Disk change → salt: ${newSalt || '(empty)'}`);
     }
 
     private _isFormatSupported(fileName: string): boolean {
@@ -276,6 +321,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._voiceManager?.dispose();
         this._settingsManager?.dispose();
         this._syncManager?.dispose();
+        this._focusedFileWatcher?.dispose(); // [T-034]
         if (this._updateDocumentInfoTimer) {
             clearTimeout(this._updateDocumentInfoTimer);
         }

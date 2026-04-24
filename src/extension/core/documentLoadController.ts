@@ -10,6 +10,7 @@ export interface DocumentMetadata {
     uri: vscode.Uri | undefined;
     versionSalt: string;
     contentHash: string; // Hidden, internal fingerprint for persistence
+    lastStatMtime?: number; // [T-034] disk mtime at load time — used for stale-load detection
 }
 
 export class DocumentLoadController {
@@ -161,12 +162,21 @@ export class DocumentLoadController {
             }
         }
 
+        // [T-034] Capture disk mtime for stale-load detection
+        let lastStatMtime: number | undefined;
+        try {
+            if (uri.scheme === 'file' && uri.fsPath) {
+                lastStatMtime = fs.statSync(uri.fsPath).mtimeMs;
+            }
+        } catch { /* virtual or inaccessible file — omit mtime */ }
+
         this._metadata = {
             fileName: fileName.includes('Untitled') ? (uri.path.split('/').pop() || fileName) : fileName,
             relativeDir,
             uri,
             versionSalt: this.getFileVersionSalt(uri),
-            contentHash: contentHash || this._metadata.contentHash
+            contentHash: contentHash || this._metadata.contentHash,
+            lastStatMtime
         };
     }
 
