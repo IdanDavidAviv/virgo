@@ -2,7 +2,7 @@
   "name": "readme-preview-read-aloud",
   "displayName": "README Preview Read Aloud",
   "description": "Reads markdown previews aloud using speech synthesis",
-  "version": "2.6.2",
+  "version": "2.6.3",
   "publisher": "IdanDavidAviv",
   "engines": {
     "vscode": "^1.80.0"
@@ -288,6 +288,9 @@
     "release:patch": "npm run release:gates && node .agent/skills/release_authority/scripts/manage_version.js --bump patch && npm run release:package",
     "release:minor": "npm run release:gates && node .agent/skills/release_authority/scripts/manage_version.js --bump minor && npm run release:package",
     "release:major": "npm run release:gates && node .agent/skills/release_authority/scripts/manage_version.js --bump major && npm run release:package",
+    "release:patch:fast": "npm run release:verify && node .agent/skills/release_authority/scripts/manage_version.js --bump patch && npm run release:package",
+    "release:minor:fast": "npm run release:verify && node .agent/skills/release_authority/scripts/manage_version.js --bump minor && npm run release:package",
+    "release:major:fast": "npm run release:verify && node .agent/skills/release_authority/scripts/manage_version.js --bump major && npm run release:package",
     "onboard": "node scripts/read_aloud_setup.js",
     "cdp:shell": "node scripts/cdp-controller.mjs shell",
     "cdp:status": "node scripts/cdp-controller.mjs status",
