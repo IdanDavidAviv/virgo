@@ -1,44 +1,66 @@
-# 🎙️ README Preview Read Aloud
+<div align="center">
+  <img src="assets/icon.png" alt="Virgo Logo" width="128" />
+  <h1>🎙️ Virgo — AI that talks to YOU</h1>
+  <p><b>Give your AI coding assistant a voice. Cure reading fatigue, listen to architecture plans, and turn your IDE into an active collaborator.</b></p>
+  
+  [![Installs](https://img.shields.io/visual-studio-marketplace/i/IdanDavidAviv.virgo?style=flat-square)](https://marketplace.visualstudio.com/items?itemName=IdanDavidAviv.virgo)
+  [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=flat-square&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/idandavidaviv)
+</div>
 
-**Transform your Markdown documentation into a premium, immersive listening experience directly inside VS Code.**
+---
 
-<img src="assets/icon_img.png" width="128" alt="Readme Preview Read Aloud Icon" />
+## The "Reading Fatigue" Trap
 
-## ✨ Features
+If you code with an AI agent (like Cursor, Claude Desktop, or Antigravity), you know the loop: 
+You ask for a feature. The AI generates a massive implementation plan. You stop what you're doing, read it, and approve it. Then you ask for the next feature. *Another* massive plan. 
 
-- **Mission Control Dashboard**: A high-fidelity, interactive interface to manage your reading session.
-- **AST-Powered Parsing**: Precise sentence tracking using `markdown-it`, ensuring accurate playback and highlighting.
-- **Smart Navigation**: Skip by sentence, jump between chapters, or read from a specific cursor position.
-- **Cross-Platform Support**: Built-in support for Windows, macOS, and Linux native voices.
-- **Premium Aesthetics**: Glassmorphism UI with smooth transitions and real-time progress tracking.
+After an hour, **reading fatigue** sets in. You stop reading the plans. You just skim them, blindly type `"GO"`, and hope for the best. 
 
-## 🚀 Getting Started
+Eventually, the AI hallucinates or breaks the system—and you are stuck in a 2-day rollback loop trying to un-f*** what it just did.
 
-### Installation
-Install the extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=IdanDavidAviv.readme-preview-read-aloud).
+## The Virgo Solution
 
-### Usage
-- `Alt + R`: Start reading from the beginning or resume.
-- `Alt + S`: Stop playback and clear the engine.
-- `Alt + Shift + R`: Start reading from the current cursor position.
-- **Show Dashboard**: Click the 🔄 icon in the editor title bar to open Mission Control.
+**Virgo** solves the fatigue trap by turning your AI into a vocal collaborator. Instead of stopping to read a wall of text, Virgo reads the plan to you out loud using highly natural Neural Voices. 
 
-## 🛠️ Dashboard: Mission Control
+You can keep your eyes on the codebase, review the actual diffs, and listen to the agent's strategy at the exact same time. 
 
-The "Mission Control" dashboard provides a centralized hub for your audio experience:
-- **Chapter Navigation**: Click any chapter header to jump.
-- **Volume & Pitch Control**: Tune the voice to your preference.
-- **Live Scripting**: See exactly what's being read in real-time.
+*(More sections coming...)*
 
-![Dashboard Preview](assets/dashboard_preview.png)
+## Core Use Cases
 
-## 🛡️ Privacy & Telemetry
+**1. The Agent Narrator**
+Listen to implementation plans and code reviews while keeping your eyes on the codebase. Skip skimming long text blocks and let your AI agent read its strategy aloud.
 
-We value your privacy.
-- **No Data Collection**: This extension does not send your document content to any external servers.
-- **Local Synthesis**: All speech synthesis is performed locally on your machine or via direct browser APIs.
-- **Anonymized Telemetry**: We collect minimal, anonymized usage data (e.g., successful synthesis events, errors) to improve extension stability. No PII (Personally Identifiable Information) or document text is ever logged.
-- **Opt-Out**: You can disable telemetry at any time by setting `telemetry.enableTelemetry` to `false` in VS Code settings.
+**2. Task Handoffs**
+When running a deep audit or complex refactor, agents can proactively notify you when the task is complete. Instead of watching a terminal, you get an audible status report.
+
+**3. Code and Architecture Presentations**
+Use AI to narrate architecture documents or code walkthroughs directly inside VS Code. Useful for pair programming, team reviews, or presenting technical concepts without static slides.
+
+## ⚡ Quick Start
+
+1. Install Virgo from the VS Code Marketplace.
+2. Open any Markdown (`.md`) file.
+3. Press `Alt + R` (or run `Virgo: Play` from the Command Palette).
+
+## 🤖 For AI Agents (MCP Integration)
+
+Virgo serves as a native voice channel for AI assistants like Cursor, Claude Desktop, and Antigravity. By connecting the `virgo` MCP server, agents can use the `say_this_loud` tool to bypass text chat and speak directly to you.
+
+**To connect your agent:**
+1. Open the VS Code Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
+2. Run **`Virgo: Copy MCP Configuration`**.
+3. Paste the copied JSON directly into your agent's MCP settings file.
+
+Once connected, your agent gains the `say_this_loud` tool.
+
+## 🛡️ Privacy & Transparency
+
+Virgo uses Microsoft Edge Neural TTS to generate high-quality voice output. 
+- **No API Keys Required:** It works out of the box.
+- **Cloud Synthesis:** Text is securely sent to Microsoft's TTS servers for synthesis.
+- **Zero Local Storage:** We do not store, log, or cache your document content on our servers.
+- **Zero Telemetry:** We collect absolutely no usage data, analytics, or error telemetry. What happens in your IDE stays in your IDE.
 
 ## 📄 License
 
@@ -46,4 +68,4 @@ Licensed under the [MIT License](LICENSE).
 
 ---
 
-Developed with ❤️ by [Idan David Aviv](https://github.com/IdanDavidAviv)
+**Enjoying Virgo?** [Buy me a coffee ☕](https://buymeacoffee.com/idandavidaviv)
