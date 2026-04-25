@@ -2,6 +2,15 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.8.1] - 2026-04-26
+
+### Added
+- **MCP 3-State Liveness Badge**: The footer MCP badge now has three states — 🔴 unconfigured, 🔵 configured (JSON present), and 🟢 alive (server binary responds). On extension boot, if the MCP config is found, a one-shot `npx virgo-mcp --ping` probe is fired. If the binary responds with `VIRGO_MCP_OK` within 3 seconds, the badge flips green. Also fires after manual MCP install via the `Virgo: Manage MCP` command.
+- **`--ping` flag on `virgo-mcp`**: The standalone MCP server now supports a `--ping` argument that prints `VIRGO_MCP_OK` and exits 0 immediately, without booting the full stdio transport. Used exclusively by the extension's liveness probe.
+
+### Fixed
+- **Plain-English Permissions Error**: Removed raw `err.message` interpolation from the data-directory write error toast. Now shows a clean path-only message without ENOENT noise.
+
 ## [2.8.0] - 2026-04-26
 
 ### Added
