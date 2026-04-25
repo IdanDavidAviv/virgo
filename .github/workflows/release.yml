@@ -59,5 +59,4 @@ jobs:
           gh release create "${{ github.ref_name }}" \
             "${{ steps.meta.outputs.vsix }}" \
             --title "${{ github.ref_name }}" \
-            --notes-file release_notes.md \
-            --verify-tag
+            --notes-file release_notes.md
