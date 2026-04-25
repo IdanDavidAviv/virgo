@@ -169,6 +169,27 @@ Before triggering any automated release:
 - If failure occurs **after bump** (during packaging) → version is already bumped. Run `npm run release` (no `:patch`) to resume without double-bump.
 - If failure occurs **during push** → commits are local. Run `git push` only.
 
+> [!CAUTION]
+> **CHANGELOG PRE-FLIGHT — WRITE THE TARGET VERSION, NOT THE CURRENT ONE.**
+>
+> `release:patch` bumps `package.json` mid-pipeline (step 3), then immediately verifies that
+> the **new** version exists in CHANGELOG (step 4). If the entry is missing, the pipeline fails
+> with a version mismatch — and the bump has already happened, making a clean retry impossible.
+>
+> **Required state before running `npm run release:patch` from `2.8.0`:**
+> ```
+> package.json  → "version": "2.8.0"   ← current version (not yet bumped)
+> CHANGELOG.md  → ## [2.8.1] - YYYY-MM-DD  ← TARGET version (what it will become)
+>                    ### Added
+>                    - Real content here...
+> ```
+> **The CHANGELOG entry must describe the version the pipeline is about to create — not the one it's starting from.**
+> If you only have a `## [2.8.0]` entry and run `release:patch`, step 4 will fail looking for `## [2.8.1]`.
+>
+> **Recovery when the bump already fired:**
+> 1. Add the missing CHANGELOG entry for the now-current version.
+> 2. Run `npm run release` (no-bump pipeline) — skips the bump, goes straight to verify + package.
+
 ---
 
 ## 6. Script Reference

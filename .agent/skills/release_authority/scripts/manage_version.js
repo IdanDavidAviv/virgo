@@ -20,7 +20,9 @@ USAGE:
 
 OPTIONS:
     --help, -h          Show this help menu.
-    --bump <type>       Bump version (major|minor|patch). Updates package.json and CHANGELOG.md.
+    --bump <type>       Bump version (major|minor|patch). Updates package.json ONLY.
+                        CHANGELOG.md is strictly agent-managed — agent must pre-write
+                        the [x.y.z] entry for the TARGET version before running.
     --dry-run           Preview changes without writing to disk.
     --audit             Trigger the Prestige Audit tool to analyze git history.
                         Supports all audit flags (e.g., --include-meta, --diff).
@@ -155,7 +157,7 @@ function manageVersion() {
     // WRITE CHANGES (package.json only — CHANGELOG is agent-managed)
     fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n');
 
-    console.log(`✅ SUCCESS: Version bumped to ${newVersion} and CHANGELOG.md updated.`);
+    console.log(`✅ SUCCESS: Version bumped to ${newVersion}. (CHANGELOG.md is agent-managed — ensure ## [${newVersion}] entry exists before release:verify runs.)`);
 }
 
 manageVersion();
