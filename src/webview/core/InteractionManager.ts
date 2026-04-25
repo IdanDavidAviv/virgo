@@ -16,8 +16,13 @@ export class InteractionManager {
     private layout: LayoutManager;
     private boundKeyDown: (e: KeyboardEvent) => void;
     private boundClick: (e: MouseEvent) => void;
+    private boundMouseEnter: () => void;
     private lastNavTime = 0;
+    private lastHoverRefreshAt = 0;
     private readonly NAV_THROTTLE = 100;
+    // [HOVER-REFRESH] Minimum ms between hover-triggered refreshes — prevents IPC spam
+    // when the user rapidly moves the cursor in and out of the panel.
+    private readonly HOVER_REFRESH_COOLDOWN = 30_000;
 
     private constructor() {
         this.client = MessageClient.getInstance();
@@ -25,6 +30,7 @@ export class InteractionManager {
         this.layout = LayoutManager.getInstance();
         this.boundKeyDown = this.handleKeyDown.bind(this);
         this.boundClick = this.handleGlobalClick.bind(this);
+        this.boundMouseEnter = this.handleMouseEnter.bind(this);
     }
 
     public static getInstance(): InteractionManager {
@@ -47,6 +53,7 @@ export class InteractionManager {
     public mount(): void {
         window.addEventListener('keydown', this.boundKeyDown);
         document.addEventListener('click', this.boundClick);
+        document.addEventListener('mouseenter', this.boundMouseEnter);
         console.log('[INTERACTION] Global listeners mounted.');
     }
 
@@ -56,6 +63,7 @@ export class InteractionManager {
     public unmount(): void {
         window.removeEventListener('keydown', this.boundKeyDown);
         document.removeEventListener('click', this.boundClick);
+        document.removeEventListener('mouseenter', this.boundMouseEnter);
     }
 
     /**
@@ -166,5 +174,24 @@ export class InteractionManager {
 
         // [AUTOPLAY] Every click counts as a gesture to unlock the audio context
         WebviewAudioEngine.getInstance().ensureAudioContext();
+    }
+
+    /**
+     * [HOVER-REFRESH] Fires on mouseenter (cursor entering the webview from VS Code chrome).
+     * Gated by HOVER_REFRESH_COOLDOWN so it triggers at most once per 30s regardless
+     * of how many times the user moves the cursor in and out.
+     */
+    private handleMouseEnter(): void {
+        const now = Date.now();
+        if (now - this.lastHoverRefreshAt < this.HOVER_REFRESH_COOLDOWN) { return; }
+        this.lastHoverRefreshAt = now;
+
+        // Only refresh snippet history in SNIPPET mode — FILE mode is driven by
+        // the extension's onDidChangeActiveTextEditor, not by manual refresh.
+        const { activeMode } = this.store.getState();
+        if (activeMode === 'SNIPPET') {
+            console.log('[INTERACTION] 🖱️ Hover-refresh triggered (SNIPPET mode, cooldown reset).');
+            PlaybackController.getInstance().requestSnippetHistory(false);
+        }
     }
 }
