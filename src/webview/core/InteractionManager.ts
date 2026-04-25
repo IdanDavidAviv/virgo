@@ -18,11 +18,9 @@ export class InteractionManager {
     private boundClick: (e: MouseEvent) => void;
     private boundMouseEnter: () => void;
     private lastNavTime = 0;
-    private lastHoverRefreshAt = 0;
+    // [ONE-SHOT] Tracks whether the first-hover audio unlock has already fired this session.
+    private _audioUnlocked = false;
     private readonly NAV_THROTTLE = 100;
-    // [HOVER-REFRESH] Minimum ms between hover-triggered refreshes — prevents IPC spam
-    // when the user rapidly moves the cursor in and out of the panel.
-    private readonly HOVER_REFRESH_COOLDOWN = 30_000;
 
     private constructor() {
         this.client = MessageClient.getInstance();
@@ -177,21 +175,17 @@ export class InteractionManager {
     }
 
     /**
-     * [HOVER-REFRESH] Fires on mouseenter (cursor entering the webview from VS Code chrome).
-     * Gated by HOVER_REFRESH_COOLDOWN so it triggers at most once per 30s regardless
-     * of how many times the user moves the cursor in and out.
+     * [ONE-SHOT AUDIO UNLOCK] Fires on mouseenter (cursor entering the webview from VS Code).
+     * Primes the AudioContext and marks the user as interacted so MCP-injected audio
+     * can play without requiring a manual click. Self-unregisters after first fire.
      */
     private handleMouseEnter(): void {
-        const now = Date.now();
-        if (now - this.lastHoverRefreshAt < this.HOVER_REFRESH_COOLDOWN) { return; }
-        this.lastHoverRefreshAt = now;
-
-        // Only refresh snippet history in SNIPPET mode — FILE mode is driven by
-        // the extension's onDidChangeActiveTextEditor, not by manual refresh.
-        const { activeMode } = this.store.getState();
-        if (activeMode === 'SNIPPET') {
-            console.log('[INTERACTION] 🖱️ Hover-refresh triggered (SNIPPET mode, cooldown reset).');
-            PlaybackController.getInstance().requestSnippetHistory(false);
-        }
+        if (this._audioUnlocked) { return; }
+        this._audioUnlocked = true;
+        console.log('[INTERACTION] \uD83D\uDDB1\uFE0F First hover — unlocking audio gate for MCP injection.');
+        WebviewAudioEngine.getInstance().ensureAudioContext();
+        PlaybackController.getInstance().userInteracted();
+        // Self-unregister: no further mouseenter cost after first fire.
+        document.removeEventListener('mouseenter', this.boundMouseEnter);
     }
 }
