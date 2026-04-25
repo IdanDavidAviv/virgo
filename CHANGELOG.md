@@ -2,6 +2,24 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.7.1] - 2026-04-25
+
+### Added
+- **Global NPM Pre-Warming**: The MCP Configurator (`virgo.manageMcp`) now actively spawns a background `npm install -g virgo-mcp@latest` process with a native VS Code progress UI indicator. This guarantees that the target IDE has the absolute latest binary locally available the second it initializes the server, bypassing any `npx` cold-start delays.
+
+## [2.7.0] - 2026-04-25
+### Changed
+- **MCP Auto-Configurator Cache Guard**: Hardened the IDE integration script (`mcpConfigurator.ts`) to explicitly inject `virgo-mcp@latest` instead of just `virgo-mcp`. This prevents `npx` from silently defaulting to stale globally-cached versions across AI IDEs, ensuring all users receive the most up-to-date server environment on initialization.
+- **Publish Pipeline Isolation**: Ignored `dist-npm-mcp` and `.cdp_shell.lock` artifacts to prevent repository pollution.
+
+## [2.6.9] - 2026-04-25
+### Fixed
+- **Publish Pipeline Isolation**: Fixed a race condition where an old `npm run watch` process overwrote the minified MCP script during publishing. The `mcp_publisher` skill now explicitly forces the Node hashbang (`#!/usr/bin/env node`) during the copy step, guaranteeing that the `virgo-mcp` package will execute properly on Windows via `npx` regardless of esbuild's internal state.
+
+## [2.6.8] - 2026-04-25
+### Fixed
+- **MCP Auto-Execution Hardening**: Resolved an `EOF` initialization failure on Windows when connecting the standalone MCP server via Claude Desktop. Corrected an esbuild configuration issue that caused the `virgo-mcp` NPX package to be bundled without a Node hashbang (`#!/usr/bin/env node`). `npx -y virgo-mcp` now correctly executes the server instead of opening the script in an external editor.
+
 ## [2.6.7] - 2026-04-25
 
 ### Changed
