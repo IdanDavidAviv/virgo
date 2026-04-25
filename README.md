@@ -48,6 +48,7 @@ Use AI to narrate architecture documents or code walkthroughs directly inside VS
 Virgo serves as a native voice channel for AI assistants like Cursor, Claude Desktop, and Antigravity. By connecting the `virgo` MCP server, agents can use the `say_this_loud` tool to bypass text chat and speak directly to you.
 
 **To connect your agent:**
+*Prerequisite: You must have [Node.js](https://nodejs.org/) installed on your machine to run the MCP server.*
 1. Open the VS Code Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
 2. Run **`Virgo: Copy MCP Configuration`**.
 3. Paste the copied JSON directly into your agent's MCP settings file.
@@ -62,9 +63,19 @@ Virgo uses Microsoft Edge Neural TTS to generate high-quality voice output.
 - **Zero Local Storage:** We do not store, log, or cache your document content on our servers.
 - **Zero Telemetry:** We collect absolutely no usage data, analytics, or error telemetry. What happens in your IDE stays in your IDE.
 
-## 📄 License
+## 🐞 Feedback & Bug Reports
 
-Licensed under the [MIT License](LICENSE).
+This repository serves exclusively as a public issue tracker for user feedback, bug reports, and feature requests. 
+
+**Note: We do not accept Pull Requests at this time.** If you encounter an issue or have an idea to improve Virgo, please [open an Issue on GitHub](https://github.com/IdanDavidAviv/virgo/issues).
+
+## 📄 License & Commercial Use
+
+Virgo is released under a **Custom Non-Commercial License**.
+- **Free for personal, academic, and open-source use.**
+- **Commercial use is strictly prohibited** without explicit written approval.
+
+If you wish to use Virgo or its underlying code for a commercial purpose (e.g., integrating it into a paid product or service), you must obtain a commercial license. Please contact the author directly or open an Issue to request commercial licensing. See the [LICENSE](LICENSE) file for full details.
 
 ---
 
