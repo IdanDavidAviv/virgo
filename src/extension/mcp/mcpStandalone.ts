@@ -43,6 +43,13 @@ async function main() {
     logger("Portless Server running (Stdio)");
 }
 
+// [LIVENESS PROBE] One-shot health check. Extension calls: npx virgo-mcp --ping
+// Prints VIRGO_MCP_OK and exits 0 — no server boot, no stdio transport.
+if (process.argv.includes('--ping')) {
+    console.log('VIRGO_MCP_OK');
+    process.exit(0);
+}
+
 main().catch((err) => {
     console.error("[MCP_STANDALONE] Critical failure:", err);
     process.exit(1);

@@ -152,6 +152,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const mcpResult = McpConfigurator.checkConfigurationStatus();
         this._stateStore.patchState({ mcpStatus: mcpResult.status, mcpActiveAgents: mcpResult.activeAgents }, true);
         this._logger(`[MCP] Configuration status: ${mcpResult.status} [${mcpResult.activeAgents.join(',')}]`);
+        // [LIVENESS] One-shot probe — upgrades badge to green if binary responds
+        if (mcpResult.status === 'configured') {
+            McpConfigurator.probeLiveness((alive) => {
+                if (alive) {
+                    this._stateStore.patchState({ mcpStatus: 'alive' });
+                    this._logger('[MCP] Liveness probe: VIRGO_MCP_OK → badge green');
+                }
+            });
+        }
 
         // [Reactive Sync] Handled by SyncManager
 
@@ -643,7 +652,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public refreshMcpStatus() {
         const result = McpConfigurator.checkConfigurationStatus();
         this._stateStore.patchState({ mcpStatus: result.status, mcpActiveAgents: result.activeAgents });
-        this._logger(`[MCP] Configuration status refreshed manually: ${result.status} [${result.activeAgents.join(',')}]`);
+        this._logger(`[MCP] Configuration status refreshed: ${result.status} [${result.activeAgents.join(',')}]`);
+        if (result.status === 'configured') {
+            McpConfigurator.probeLiveness((alive) => {
+                if (alive) {
+                    this._stateStore.patchState({ mcpStatus: 'alive' });
+                    this._logger('[MCP] Liveness probe: VIRGO_MCP_OK → badge green');
+                }
+            });
+        }
     }
 
     private async _handleWebviewMessage(data: any, source: string = 'webview') {

@@ -219,14 +219,18 @@ export function bootstrap() {
             (ui) => `${ui.mcpStatus}:${(ui.mcpActiveAgents || []).join(',')}`, 
             () => {
                 const state = store.getUIState();
-                if (state.mcpStatus === 'configured') {
+                if (state.mcpStatus === 'alive') {
+                    mcpBadge.classList.add('green');
+                    mcpBadge.classList.remove('red', 'blue');
+                    mcpBadge.title = 'MCP Server Online (Click to manage)';
+                } else if (state.mcpStatus === 'configured') {
                     mcpBadge.classList.add('blue');
-                    mcpBadge.classList.remove('red');
+                    mcpBadge.classList.remove('red', 'green');
                     const agentList = (state.mcpActiveAgents || []).join(', ');
                     mcpBadge.title = `MCP Configured: ${agentList} (Click to manage)`;
                 } else {
                     mcpBadge.classList.add('red');
-                    mcpBadge.classList.remove('blue');
+                    mcpBadge.classList.remove('blue', 'green');
                     mcpBadge.title = 'MCP Unconfigured (Click to setup)';
                 }
             });

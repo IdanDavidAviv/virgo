@@ -44,7 +44,7 @@ export interface UISyncPacket {
     isSelectingVoice: boolean; // [NEW] Sampling mode for voice changes
     activeMode: 'FILE' | 'SNIPPET';
     isLooping: boolean;
-    mcpStatus?: 'unconfigured' | 'configured';
+    mcpStatus?: 'unconfigured' | 'configured' | 'alive';
     mcpActiveAgents?: string[];
 
     // [SOVEREIGNTY] Active Playback Configuration

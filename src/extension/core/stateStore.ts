@@ -63,7 +63,7 @@ export interface StateMetadata {
     activeSessionId?: string;
     
     // MCP Configuration
-    mcpStatus: 'unconfigured' | 'configured';
+    mcpStatus: 'unconfigured' | 'configured' | 'alive';
     mcpActiveAgents: string[];
 }
 

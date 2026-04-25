@@ -24,6 +24,19 @@ export class McpConfigurator {
     }
 
     /**
+     * One-shot liveness probe. Calls `npx virgo-mcp --ping` and checks for VIRGO_MCP_OK in stdout.
+     * If the binary responds within 3s → callback(true) → badge turns green.
+     * Called once at extension boot (if configured) and after manual MCP install.
+     */
+    public static probeLiveness(callback: (alive: boolean) => void): void {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { exec } = require('child_process');
+        exec('npx virgo-mcp --ping', { timeout: 3000 }, (err: any, stdout: string) => {
+            callback(!err && (stdout || '').includes('VIRGO_MCP_OK'));
+        });
+    }
+
+    /**
      * Returns a list of known AI agents, their config paths, and their installation status.
      */
     public static getAvailableAgents(): AgentEnvironment[] {

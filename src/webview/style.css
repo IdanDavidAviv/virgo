@@ -700,6 +700,16 @@ input[type="range"]::-webkit-slider-thumb:hover {
     background: rgba(56, 189, 248, 0.2);
 }
 
+.mcp-badge.green {
+    background: rgba(34, 197, 94, 0.1);
+    border-color: rgba(34, 197, 94, 0.3);
+    color: #22c55e;
+}
+
+.mcp-badge.green:hover {
+    background: rgba(34, 197, 94, 0.2);
+}
+
 .bmac-link {
     font-size: 10px;
     text-decoration: none;
