@@ -2,6 +2,16 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.7.3] - 2026-04-25
+
+### Changed
+- **Full Brand Rename — `read-aloud` → `virgo`**: Eliminated all legacy `read-aloud`, `Read Aloud`, `READ_ALOUD`, `read_aloud`, and `readme-preview-read-aloud` identifiers from the source code, MCP protocol surface, and test suite.
+  - **MCP Server Identity**: Registered server name changed from `"read-aloud"` to `"virgo"`. All resource URI schemes migrated from `read-aloud://` to `virgo://` (logs, session state, snippets).
+  - **Exported Symbol**: `READ_ALOUD_PROTOCOLS` renamed to `VIRGO_PROTOCOLS` in `protocolHydrator.ts` and all consuming tests.
+  - **Environment Variable**: `READ_ALOUD_DATA_DIR` superseded by `VIRGO_DATA_DIR` (old var kept as backward-compat fallback).
+  - **Storage Key**: VS Code workspace persistence key updated from `read-aloud.active-context` to `virgo.active-context`.
+  - **Internal Cleanup**: JSDoc comments, log headers (`[VIRGO LOGS START]`), test fixture workspace paths, and setup script updated to Virgo branding throughout.
+
 ## [2.7.2] - 2026-04-25
 
 ### Fixed
