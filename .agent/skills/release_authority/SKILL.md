@@ -167,7 +167,7 @@ All scripts live in `.agent/skills/release_authority/scripts/`.
 # Verify version parity (package.json == CHANGELOG)
 node .agent/skills/release_authority/scripts/manage_version.js
 
-# Bump version (major|minor|patch) and burn [Unreleased] → [x.y.z]
+# Bump version (major|minor|patch)
 node .agent/skills/release_authority/scripts/manage_version.js --bump patch
 
 # Dry run — preview changes without writing
@@ -177,8 +177,7 @@ node .agent/skills/release_authority/scripts/manage_version.js --bump patch --dr
 node .agent/skills/release_authority/scripts/manage_version.js --audit --diff
 ```
 
-**Side effects of `--bump`:** Updates `package.json` version. Replaces `## [Unreleased]` with
-`## [x.y.z] - YYYY-MM-DD`. Inserts fresh empty `## [Unreleased]` section for next cycle.
+**Side effects of `--bump`:** Updates `package.json` version only. The CHANGELOG is strictly agent-managed.
 
 ### 6.2 `git_history_audit.js` — Release Story Generator
 

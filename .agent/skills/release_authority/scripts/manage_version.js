@@ -148,7 +148,7 @@ function manageVersion() {
     if (isDryRun) {
         console.log('🧪 DRY RUN: Changes would be:');
         console.log(`   - package.json version: ${newVersion}`);
-        console.log(`   - CHANGELOG.md header:  ${newHeader}`);
+        console.log(`   - (CHANGELOG.md is agent-managed and verified by the check)`);
         process.exit(0);
     }
 
