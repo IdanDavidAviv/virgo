@@ -2,29 +2,29 @@
   <img src="assets/icon.png" alt="Virgo Logo" width="128" />
   <h1>🎙️ Virgo — AI that talks to YOU</h1>
   <p><b>Give your AI coding assistant a voice. Cure reading fatigue, listen to architecture plans, and turn your IDE into an active collaborator.</b></p>
-  
-  [![Installs](https://img.shields.io/visual-studio-marketplace/i/IdanDavidAviv.virgo?style=flat-square)](https://marketplace.visualstudio.com/items?itemName=IdanDavidAviv.virgo)
-  [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=flat-square&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/idandavidaviv)
+
+  [![Version](https://img.shields.io/github/v/release/IdanDavidAviv/virgo?style=flat-square)](https://github.com/IdanDavidAviv/virgo/releases)
+  [![🤖 Buy Me AI Tokens](https://img.shields.io/badge/🤖%20Buy%20Me%20AI%20Tokens-FFDD00?style=flat-square&logoColor=black)](https://buymeacoffee.com/idandavidaviv)
 </div>
 
 ---
 
 ## The "Reading Fatigue" Trap
 
-If you code with an AI agent (like Cursor, Claude Desktop, or Antigravity), you know the loop: 
-You ask for a feature. The AI generates a massive implementation plan. You stop what you're doing, read it, and approve it. Then you ask for the next feature. *Another* massive plan. 
+If you code with an AI agent (like Cursor, Claude Desktop, or Antigravity), you know the loop:
+You ask for a feature. The AI generates a massive implementation plan. You stop what you're doing, read it, and approve it. Then you ask for the next feature. *Another* massive plan.
 
-After an hour, **reading fatigue** sets in. You stop reading the plans. You just skim them, blindly type `"GO"`, and hope for the best. 
+After an hour, **reading fatigue** sets in. You stop reading the plans. You just skim them, blindly type `"GO"`, and hope for the best.
 
 Eventually, the AI hallucinates or breaks the system—and you are stuck in a 2-day rollback loop trying to un-f*** what it just did.
 
 ## The Virgo Solution
 
-**Virgo** solves the fatigue trap by turning your AI into a vocal collaborator. Instead of stopping to read a wall of text, Virgo reads the plan to you out loud using highly natural Neural Voices. 
+**Virgo** solves the fatigue trap by turning your AI into a vocal collaborator. Instead of stopping to read a wall of text, Virgo reads the plan to you out loud using highly natural Neural Voices.
 
-You can keep your eyes on the codebase, review the actual diffs, and listen to the agent's strategy at the exact same time. 
+You can keep your eyes on the codebase, review the actual diffs, and listen to the agent's strategy at the exact same time.
 
-*(More sections coming...)*
+![Virgo Dashboard — Master Plan loaded and playing](assets/virgo_dashboard_master_plan_loaded.png)
 
 ## Core Use Cases
 
@@ -39,9 +39,26 @@ Use AI to narrate architecture documents or code walkthroughs directly inside VS
 
 ## ⚡ Quick Start
 
-1. Install Virgo from the VS Code Marketplace.
-2. Open any Markdown (`.md`) file.
-3. Press `Alt + R` (or run `Virgo: Play` from the Command Palette).
+1. Download `virgo-x.y.z.vsix` from the [latest GitHub Release](https://github.com/IdanDavidAviv/virgo/releases).
+2. In VS Code: Extensions panel → `...` → **Install from VSIX...** → select the downloaded file.
+   *(or via CLI: `code --install-extension virgo-x.y.z.vsix`)*
+3. Open any Markdown (`.md`) file.
+4. **Click once inside the Virgo panel** to activate the audio engine. *(See note below.)*
+5. Press `Alt + R` (or run `Virgo: Play` from the Command Palette).
+
+> [!IMPORTANT]
+> **First-Run Requirement — Click to Activate Audio**
+> Browsers enforce a strict gesture gate: audio cannot play until the user has interacted with the page at least once. On first launch, **click anywhere inside the Virgo sidebar panel** before pressing Play. You only need to do this once per VS Code window. If playback is silent, this is the fix.
+
+## 🎙️ Voices
+
+Virgo uses **Microsoft Edge Neural TTS** — high-quality, cloud-synthesized voices with natural prosody.
+
+Example voices available: `Jenny` (en-US), `Aria` (en-US), `Guy` (en-US), `Davis` (en-US), `Sonia` (en-GB), and [many more](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support).
+
+Use the voice search in the settings popover (gear icon in the footer) to filter and select your preferred voice.
+
+> **Fallback:** If Neural TTS is unavailable (offline / network issue), Virgo automatically falls back to the browser's built-in Web Speech API at no quality cost.
 
 ## 🤖 For AI Agents (MCP Integration)
 
@@ -55,9 +72,18 @@ Virgo serves as a native voice channel for AI assistants like Cursor, Claude Des
 
 Once connected, your agent gains the `say_this_loud` tool.
 
+**MCP Resource URIs** (for power users and agent developers):
+
+| URI | Description |
+|---|---|
+| `virgo://session/{id}/state` | Live session state — current snippet, playback status |
+| `virgo://snippets/{session}/{snippet}` | Full content of a specific injected snippet |
+| `virgo://logs/native` | Native TTS engine log output |
+| `virgo://logs/debug` | Extension debug log output |
+
 ## 🛡️ Privacy & Transparency
 
-Virgo uses Microsoft Edge Neural TTS to generate high-quality voice output. 
+Virgo uses Microsoft Edge Neural TTS to generate high-quality voice output.
 - **No API Keys Required:** It works out of the box.
 - **Cloud Synthesis:** Text is securely sent to Microsoft's TTS servers for synthesis.
 - **Zero Local Storage:** We do not store, log, or cache your document content on our servers.
@@ -65,7 +91,7 @@ Virgo uses Microsoft Edge Neural TTS to generate high-quality voice output.
 
 ## 🐞 Feedback & Bug Reports
 
-This repository serves exclusively as a public issue tracker for user feedback, bug reports, and feature requests. 
+This repository serves exclusively as a public issue tracker for user feedback, bug reports, and feature requests.
 
 **Note: We do not accept Pull Requests at this time.** If you encounter an issue or have an idea to improve Virgo, please [open an Issue on GitHub](https://github.com/IdanDavidAviv/virgo/issues).
 
@@ -79,4 +105,4 @@ If you wish to use Virgo or its underlying code for a commercial purpose (e.g., 
 
 ---
 
-**Enjoying Virgo?** [Buy me a coffee ☕](https://buymeacoffee.com/idandavidaviv)
+**Enjoying Virgo?** [🤖 Buy me AI tokens](https://buymeacoffee.com/idandavidaviv)
