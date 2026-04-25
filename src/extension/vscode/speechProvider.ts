@@ -89,6 +89,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._mcpWatcher.onSessionPivot(id => this.pivotSession(id));
         this._mcpWatcher.onSnippetLoaded(async () => {
             this.stop();
+            // [MCP-TRUST] MCP is a trusted actor. Authorize BEFORE requestSync() so the
+            // UI_SYNC packet carries playbackAuthorized:true. The webview's PlaybackController
+            // handles this at the SOVEREIGNTY BRIDGE (line ~841): it sets _userHasInteracted=true
+            // and primes the AudioContext — lifting both gates without any user click.
+            // Without this, requestSync() fires with playbackAuthorized:false, and synthesis
+            // arriving later hits a closed gate even when autoPlayOnInjection is true.
+            this._dashboardRelay.authorizePlayback();
             this._syncManager.requestSync(true);
             if (this._stateStore.state.autoPlayOnInjection) {
                 this._logger('[EXTENSION] Playback started via autoPlayOnInjection signal');
