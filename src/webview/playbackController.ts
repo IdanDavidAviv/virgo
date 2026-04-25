@@ -4,6 +4,7 @@ import { WebviewAudioEngine } from './core/WebviewAudioEngine';
 import { OutgoingAction, IncomingCommand, AudioEngineEvent, AudioEngineEventType, UISyncPacket, WindowSentence } from '../common/types';
 import { generateCacheKey } from '../common/cachePolicy';
 import { debounce } from './utils';
+import { ToastManager } from './components/ToastManager';
 
 /**
  * Hardened Playback Controller for Virgo Webview (Singleton)
@@ -541,6 +542,18 @@ export class PlaybackController {
         // [AUTOPLAY GUARD] User has explicitly clicked Play — unlock gesture gate.
         this._userHasInteracted = true;
         const store = WebviewStore.getInstance();
+
+        // [FIRST-RUN UX] Guard: if no sentences are loaded, surface a friendly hint
+        // instead of sending a PLAY IPC that silently goes nowhere.
+        const { currentSentences, focusedIsSupported } = store.getState();
+        if (!currentSentences || currentSentences.length === 0) {
+            if (focusedIsSupported === false) {
+                ToastManager.show('This file type is not supported for reading', 'warning');
+            } else {
+                ToastManager.show('Open a file in VS Code to get started', 'info');
+            }
+            return;
+        }
 
         // [v2.3.2] Voice Committal
         if (store.getState().isSelectingVoice) {
