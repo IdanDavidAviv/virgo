@@ -28,9 +28,11 @@ description: # Dev Cycle Protocol: CDP Shell Sovereignty (v2.5.1)
 4. **All log reads MUST use `$cursor` as the start offset** — never read the full log.
 
 > [!NOTE]
-> For a true **cold-boot** audit window, send `restart` after the shell opens.
-> `restart` is smart: if Dev Host is already open it closes it first, then re-launches.
-> If no host is open it skips the close step and just launches fresh.
+> After the shell opens, always run `status` first.
+> - `✅ SYSTEM READY` → proceed directly, no launch needed.
+> - Host found but webview not hydrated → `wait-for-ready`.
+> - No host found → `launch` → `wait-for-ready`.
+> Only use `restart` when the task **explicitly requires** observing cold-boot behavior. Do not use by default.
 
 ## 1. Sovereignty Hierarchy
 - **Tier 1 (Host):** `[Extension Development Host]` — The primary target for verification.
@@ -38,13 +40,23 @@ description: # Dev Cycle Protocol: CDP Shell Sovereignty (v2.5.1)
 - **Tier 3 (Webview):** `[virgo]` — The isolated execution context. Often nested and requires specific targeting.
 
 ## 2. The Persistent CDP Shell Workflow
-To maintain high-integrity state awareness, the agent SHOULD keep a single `cdp:shell` open for the duration of the session.
+
+> [!IMPORTANT]
+> **Shell Sovereignty — The Only Interface.**
+> `npm run cdp:shell` is the agent's **sole** interface to the extension. All operations — status checks, evals, dispatches, audits — are issued as **shell inputs** inside the running session. Never bypass the shell by running `node scripts/cdp-controller.mjs <cmd>` as a one-shot CLI call. If you find yourself doing that, you are off-protocol.
+
+To maintain high-integrity state awareness, keep a single `cdp:shell` open for the duration of the session.
+
+> **Controller location:** `.agent/skills/cdp_dev_cycle/cdp-controller.mjs` — invoked via `npm run cdp:shell`. Do not call the script directly.
+
 
 ### 🛠 Phase 1: High-Integrity Setup
-1. **Initialize**: Run `npm run cdp:shell`.
-2. **Launch Host**: Send `launch` (if host is not already open).
-3. **The Wait-for-Ready Ritual**: Send `wait-for-ready`.
-   - *Logic*: Combines `dispatch ...show-dashboard` with a poll for `isHydrated === true`.
+1. **Open shell**: Run `npm run cdp:shell`.
+2. **Run `status`**: Assess the current environment.
+   - `✅ SYSTEM READY` → proceed directly.
+   - Host found, webview not hydrated → `wait-for-ready`.
+   - No host found → `launch` → `wait-for-ready`.
+3. **The Wait-for-Ready Ritual**: Send `wait-for-ready` only if needed per step 2.
    - *Signal*: When the shell reports `✅ SYSTEM READY`, the UI is fully hydrated and ready for commands.
 
 ### 🛠 Phase 2: The Rapid-Reload Loop ⭐
@@ -56,8 +68,11 @@ Once initialized, **NEVER** close the Dev Host unless necessary. Use this cycle:
    - **State Audit**: Run `verify-state` to confirm Redux store hydration.
    - **Visual Audit**: Check for layout regressions or styling drift.
 
-### 🛠 Phase 2b: Cold Restart (T-006 Boot Audit) ⭐
-A **reload** restarts the extension in-place. For a true cold-boot audit (T-006), you need a full **process** restart:
+### 🛠 Phase 2b: Cold Restart (Exceptional — Boot Audit Only) ⚠️
+> [!CAUTION]
+> Only use this path when the task **explicitly requires** observing cold-boot behavior (e.g., boot timing, startup sequence audit). **Do not use by default.**
+
+A **reload** restarts the extension in-place. For a true cold-boot audit, you need a full **process** restart:
 1. Snapshot the log cursor: `(Get-Item diagnostics_agent.log).Length`
 2. Send `restart` to the shell — this runs: `close-host` → 2s wait → `launch` → `wait-for-ready`.
 3. Read the log slice from the cursor to capture all boot-window events.
@@ -72,10 +87,17 @@ A **reload** restarts the extension in-place. For a true cold-boot audit (T-006)
 - *Rationale*: Extension commands are asynchronous. The UI might confirm "OK" while the underlying state is still syncing.
 - *Action*: `dispatch Readme Preview: Play` -> `wait-for-ready` (or manual poll) -> `verify-state`.
 
-### 🛠 Phase 4: Exit Ritual ⭐
+### 🛠 Phase 4: Exit Ritual
+
+**Default end-of-session: use `close-host`**
+- Closes the Extension Development Host cleanly.
+- The shell exits naturally once work is done.
+- Use this unless you also need to kill the shell process itself.
+
+**Full teardown: use `exit`** (only when shell process also needs to die)
+
 > [!CAUTION]
-> **Always use `exit` to terminate the shell — never Ctrl+C or kill the process.**
-> `exit` is a full cleanup ritual: stop playback → close Dev Host → release lock → exit process.
+> **Always use `close-host` or `exit` to terminate — never Ctrl+C or kill the process.**
 
 **What `exit` does automatically:**
 1. Clicks `btn-stop` in the webview (stops any running playback)
@@ -100,7 +122,7 @@ When closing the dev host, the script follows a polite 3-tier ladder:
 - **Tier 2 (CDP Signal)**: `Target.closeTarget` fallback for unresponsive UI.
 - **Tier 3 (OS Signal)**: `taskkill /T` (without `/F`) for clean process termination.
 
-## 4. Summary of Primary Commands (v2.5.0)
+## 4. Shell Command Reference (send as shell input — not CLI arguments)
 
 | Goal | Command | Output / Expectation |
 |---|---|---|
@@ -114,7 +136,11 @@ When closing the dev host, the script follows a polite 3-tier ladder:
 | **State Dump** | `verify-state` | Dumps the current Redux store |
 | **Dispatch** | `dispatch <cmd>` | Atomic command triggering |
 | **Eval** | `eval <expr>` | JS execution in webview context |
+| **Audit Dump** | `audit` | Dumps live `__debug` state: hydration, gesture gate, playback intent, audio element |
+| **Click Play** | `click-play` | DOM-clicks `btn-play` — satisfies browser gesture gate (use for first-run tests) |
 | **Full Exit** | `exit` | Stop playback + close Dev Host + exit shell |
+
+> `eval <expr>` runs JavaScript **inside the live webview context of the running shell session**. It is not a standalone script runner — it requires an open shell with a hydrated webview. Use `audit` for structured state inspection; use `eval` only for one-off queries.
 
 ## 5. Troubleshooting the Signal
 - **"NOT FOUND" (Webview)**: If `status` shows `Webview: ❌`, run `dispatch ...show-dashboard`. Webviews are lazily loaded.

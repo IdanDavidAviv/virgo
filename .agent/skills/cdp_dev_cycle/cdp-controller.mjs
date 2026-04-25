@@ -14,11 +14,12 @@ import http from 'http';
 
 const DIRNAME = dirname(fileURLToPath(import.meta.url));
 const CDP_URL = 'http://localhost:9222';
-const DIAG_LOG = resolve(DIRNAME, '..', 'diagnostics.log');
-const AGENT_LOG = resolve(DIRNAME, '..', 'diagnostics_agent.log');
-const SHELL_LOCK = resolve(DIRNAME, '..', '.cdp_shell.lock');
-const PKG_PATH = resolve(DIRNAME, '..', 'package.json');
-const LAUNCH_PATH = resolve(DIRNAME, '..', '.vscode', 'launch.json');
+const DIAG_LOG = resolve(DIRNAME, '..', '..', '..', 'diagnostics.log');
+const AGENT_LOG = resolve(DIRNAME, '..', '..', '..', 'diagnostics_agent.log');
+const SHELL_LOCK = resolve(DIRNAME, '..', '..', '..', '.cdp_shell.lock');
+const PKG_PATH = resolve(DIRNAME, '..', '..', '..', 'package.json');
+const LAUNCH_PATH = resolve(DIRNAME, '..', '..', '..', '.vscode', 'launch.json');
+
 
 const action = process.argv[2];
 
@@ -530,6 +531,10 @@ async function runShell() {
         
         console.log(`[CDP] Host: ${host ? '✅' : '❌'} | Webview (MAIN): ${wvMain ? '✅' : '❌'} | Webview (DEV): ${wvDev ? '✅' : '❌'}`);
         
+        if (!host) {
+          console.log('[CDP] → No Dev Host found. Run \'launch\' → \'wait-for-ready\'.');
+        }
+
         if (wvDev && wvWrap) {
           const wrapperB = await wvWrap.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__);
           const contentB = await wvDev.evaluate(() => typeof window.__BOOTSTRAP_CONFIG__);
@@ -537,6 +542,11 @@ async function runShell() {
           
           const isHydrated = await wvDev.evaluate(() => window.__debug?.isHydrated).catch(() => false);
           console.log(`[CDP] Hydration: ${isHydrated ? '✅' : '❌'}`);
+          if (!isHydrated) {
+            console.log('[CDP] → Webview not hydrated. Run \'dispatch virgo.show-dashboard\' then \'wait-for-ready\'.');
+          }
+        } else if (host && !wvDev) {
+          console.log('[CDP] → Host found but no webview. Run \'dispatch virgo.show-dashboard\' then \'wait-for-ready\'.');
         }
         if (host) {console.log(`[CDP] Active Host ID: ${host.id || 'N/A'}`);}
         break;
@@ -555,26 +565,64 @@ async function runShell() {
           await page.keyboard.type('workbench.action.debug.start', { delay: 20 });
           await new Promise(r => setTimeout(r, 500));
           await page.keyboard.press('Enter');
+          console.log('[CDP] → Launch triggered. Now run \'wait-for-ready\' to confirm system is ready.');
         } else {
-          console.error('[CDP] ❌ Main Editor not found. Cannot launch.');
+          console.error('[CDP] ❌ Main Editor not found. Cannot launch. Is VS Code running with --remote-debugging-port=9222?');
         }
         break;
       case 'wait-for-ready': await shellWaitForReady(); break;
       case 'prime': await shellPrime(); break;
       case 'dispatch':
-      case 'exec': await shellExec(arg); break;
-      case 'eval':
+      case 'exec':
+        if (!arg) { console.log('[DISPATCH] ❌ No command provided. Usage: dispatch <command>'); break; }
+        await shellExec(arg);
+        break;
+      case 'eval': {
         const evalB = await getbrowser();
-        const f = await findSovereignTarget(evalB, 'webview');
-        if (f) {
-          const res = await f.evaluate(e => { try { return JSON.stringify(eval(e), null, 2); } catch (err) { return `ERR: ${err.message}`; } }, arg);
-          console.log(`[EVAL] Result:\n${res}`);
+        const evalF = await findSovereignTarget(evalB, 'webview');
+        if (!evalF) {
+          console.log('[EVAL] ❌ No webview found. Run \'status\' to diagnose, or \'wait-for-ready\' to hydrate.');
+          break;
+        }
+        // Pre-eval hydration check — warn but still attempt
+        const evalHydrated = await evalF.evaluate(() => !!window.__debug?.isHydrated).catch(() => false);
+        if (!evalHydrated) {
+          console.log('[EVAL] ⚠ Webview not hydrated — result may be undefined or stale. Consider \'wait-for-ready\' first.');
+        }
+        const evalRes = await evalF.evaluate(e => {
+          try {
+            const val = eval(e);
+            if (val === undefined) return '__EVAL_UNDEFINED__';
+            if (val === null) return '__EVAL_NULL__';
+            return JSON.stringify(val, null, 2);
+          } catch (err) {
+            return `__EVAL_ERR__::${err.constructor?.name || 'Error'}::${err.message}`;
+          }
+        }, arg);
+        if (evalRes === '__EVAL_UNDEFINED__') {
+          console.log('[EVAL] Result: undefined');
+        } else if (evalRes === '__EVAL_NULL__') {
+          console.log('[EVAL] Result: null');
+        } else if (evalRes?.startsWith('__EVAL_ERR__::')) {
+          const [, errType, errMsg] = evalRes.split('::');
+          console.log(`[EVAL] ❌ ${errType}: ${errMsg}`);
+          if (errType === 'ReferenceError') {
+            console.log('[EVAL] Tip: run \'audit\' to inspect what\'s available on window.__debug');
+          } else if (errMsg?.includes('FRAME_NOT_FOUND') || errMsg?.includes('DISPATCHER_NOT_READY')) {
+            console.log('[EVAL] Tip: run \'wait-for-ready\' then retry');
+          }
+        } else {
+          console.log(`[EVAL] Result:\n${evalRes}`);
         }
         break;
+      }
       case 'stress':
         const stressB = await getbrowser();
         const stressWV = await findSovereignTarget(stressB, 'webview');
-        if (stressWV) {
+        if (!stressWV) {
+          console.log('[CDP] ❌ Webview not found — cannot run stress test. Run \'wait-for-ready\' first.');
+          break;
+        }
           console.log('🚀 Starting 100-iteration monotonic stress test...');
           let failures = 0;
           for (let i = 1; i <= 100; i++) {
@@ -616,14 +664,14 @@ async function runShell() {
           }
           console.log(`\n--- Stress Test Summary ---`);
           console.log(`Total: 100 | Success: ${100 - failures} | Failures: ${failures}`);
-        }
         break;
+
       // [SURGICAL] click-play: Fires the real btn-play DOM click inside the webview content frame.
       // Unlike `dispatch`, this triggers the browser's user-gesture gate (userHasInteracted=true).
       case 'click-play': {
         const cpB = await getbrowser();
         const cpF = await findSovereignTarget(cpB, 'webview');
-        if (!cpF) { console.log('[CDP] ❌ Webview content frame not found.'); break; }
+        if (!cpF) { console.log('[CDP] ❌ Webview content frame not found. Run \'dispatch virgo.show-dashboard\' then \'wait-for-ready\'.'); break; }
         const cpRes = await cpF.evaluate(() => {
           const btn = document.getElementById('btn-play');
           if (!btn) { return 'ERR: btn-play not found'; }
@@ -638,7 +686,7 @@ async function runShell() {
       case 'audit': {
         const auB = await getbrowser();
         const auF = await findSovereignTarget(auB, 'webview');
-        if (!auF) { console.log('[CDP] ❌ Webview content frame not found.'); break; }
+        if (!auF) { console.log('[CDP] ❌ Webview content frame not found. Run \'dispatch virgo.show-dashboard\' then \'wait-for-ready\'.'); break; }
         const auRes = await auF.evaluate(() => {
           const d = window.__debug;
           const audio = document.querySelector('audio');
@@ -673,7 +721,7 @@ async function runShell() {
         const devPids = snapshotAntigravityPids();
         const mainPidsProtected = snapshotAntigravityPids(); // same snapshot = nothing killed that we shouldn't
         await gracefulClose(devPids, mainPids, chB);
-        console.log('[CDP] ✅ Dev Host closed.');
+        console.log('[CDP] ✅ Dev Host closed. Shell remains open. Run \'launch\' to start a new session, or \'exit\' to quit.');
         break;
       }
       // [RESTART] Smart cold-restart: close Dev Host only if open → F5 launch → wait-for-ready.
