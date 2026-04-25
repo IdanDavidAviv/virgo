@@ -2,6 +2,16 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.7.2] - 2026-04-25
+
+### Fixed
+- **Snippet History Live-State Parity**: Resolved a three-part synchronization failure where the extension's snippet history sidebar would not reflect the live session state.
+  - **MCP Root Alignment**: The standalone Virgo MCP server was writing snippets to `custom_namespace/sessions/` while the extension watched `virgo/sessions/`. Aligned `VIRGO_ROOT` so both actors use the same root directory.
+  - **Active Session Sentinel**: Added `_ensureActiveSession()` to `speechProvider.ts` — the current session is now always prepended to the snippet history list even when it has zero injected snippets, mirroring the "Focused File" live-tracking UX. CDP-verified: active session `06c024f7` (title: "New session - to be named") correctly appears at the top of the list on boot.
+  - **Stale Index Purge**: Removed a poisoned `sessions_index.json` containing ghost `read_aloud/...` paths left over from the pre-rename era. The index now rebuilds cleanly from a fresh disk scan on the next boot.
+- **Autoplay Integrity (Phase 18)**: Hardened `CommandDispatcher.ts` to honor `playbackAuthorized` as an explicit override to the browser gesture gate, allowing MCP-driven audio to launch without requiring a prior user interaction.
+- **Ghost Focus Remediation (Phase 19)**: Replaced `refreshView()` with `requestSync()` in `McpWatcher.ts` callbacks to prevent passive tab-switching focus events from triggering unauthorized `LOAD_DOCUMENT` cycles and overriding the active snippet view.
+
 ## [2.7.1] - 2026-04-25
 
 ### Added
