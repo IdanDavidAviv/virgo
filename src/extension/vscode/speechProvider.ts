@@ -89,7 +89,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._mcpWatcher.onSessionPivot(id => this.pivotSession(id));
         this._mcpWatcher.onSnippetLoaded(async () => {
             this.stop();
-            await this.refreshView();
+            this._syncManager.requestSync(true);
             if (this._stateStore.state.autoPlayOnInjection) {
                 this._logger('[EXTENSION] Playback started via autoPlayOnInjection signal');
                 // [T-023] continue() is correct: it calls authorizePlayback() (cold-boot gate)
@@ -952,7 +952,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             const fromIndex = this._indexManager.toSnippetHistory();
             if (fromIndex.length > 0) {
                 this._logger(`[SNIPPET_HISTORY] Index hit: ${fromIndex.length} session(s)`);
-                return fromIndex;
+                return this._ensureActiveSession(fromIndex);
             }
         }
 
@@ -966,8 +966,43 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
 
         // Return the fully merged index to ensure consistency with what was written
-        return this._indexManager.toSnippetHistory();
+        return this._ensureActiveSession(this._indexManager.toSnippetHistory());
     }
+
+    /**
+     * [Phase 21 — Fix B] Guarantees the current active session always appears in the
+     * snippet history list, even when it has zero injected snippets.
+     * This mirrors the "Focused File" UX — the UI always shows what session is live NOW.
+     */
+    private _ensureActiveSession(history: SnippetHistory): SnippetHistory {
+        const alreadyPresent = history.some(s => s.id === this._sessionId);
+        if (alreadyPresent) { return history; }
+
+        // Resolve the display name from extension_state.json (same logic as _resolveDisplayName)
+        let displayName: string | undefined;
+        try {
+            const stateFile = path.join(this._readAloudRoot, this._sessionId, 'extension_state.json');
+            if (fs.existsSync(stateFile)) {
+                const raw = fs.readFileSync(stateFile, 'utf-8');
+                const state = JSON.parse(raw);
+                displayName = state.session_title ?? undefined;
+            }
+        } catch { /* no-op — display raw id if state unreadable */ }
+
+        this._logger(`[SNIPPET_HISTORY] Injecting active session sentinel: ${this._sessionId.slice(0, 8)} (${displayName ?? 'untitled'})`);
+
+        // Prepend so active session is always first
+        return [
+            {
+                id: this._sessionId,
+                sessionName: displayName ?? this._sessionId,
+                displayName,
+                snippets: [] // Zero snippets — session is live but nothing injected yet
+            },
+            ...history
+        ];
+    }
+
 
     private async _getSnippetHistoryByScan(): Promise<SnippetHistory> {
         const rootUri = vscode.Uri.file(this._readAloudRoot);

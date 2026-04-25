@@ -343,8 +343,22 @@ export async function activate(context: vscode.ExtensionContext) {
                         const { exec } = require('child_process');
                         exec('npm install -g virgo-mcp@latest', async (error: any, stdout: string, stderr: string) => {
                             if (error) {
-                                console.error('[Virgo MCP] Failed to install npm package:', stderr);
-                                // We still proceed with injection even if global install fails (npx might still work)
+                                console.error('[Virgo MCP] Failed to install npm package:', error.message || stderr);
+                                
+                                const errMsg = (error.message || '').toLowerCase();
+                                if (errMsg.includes('is not recognized') || errMsg.includes('not found') || errMsg.includes('enoent')) {
+                                    vscode.window.showErrorMessage(
+                                        'Node.js and npm are required to use the Virgo MCP Server. Please install Node.js.', 
+                                        'Download Node.js'
+                                    ).then(selection => {
+                                        if (selection === 'Download Node.js') {
+                                            vscode.env.openExternal(vscode.Uri.parse('https://nodejs.org/'));
+                                        }
+                                    });
+                                    resolve();
+                                    return; // Abort configuration since npx won't work either
+                                }
+                                // We still proceed with injection even if global install fails for other reasons (e.g. permission)
                             }
                             
                             const success = await McpConfigurator.injectConfiguration(targetPath!, context.extensionPath, currentRoot);

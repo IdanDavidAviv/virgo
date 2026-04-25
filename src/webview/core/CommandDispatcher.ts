@@ -112,7 +112,7 @@ export class CommandDispatcher {
 
         if (data?.data) {
           // Extension provided raw data (Synthesis Hit or Extension Cache Hit)
-          if (!playback.userHasInteracted) {
+          if (!playback.userHasInteracted && !store.getState().playbackAuthorized) {
             console.warn('[Dispatcher] ✋ Playback Blocked: User has not interacted with webview yet. Ingesting but suppressing play.');
             audioEngine.ingestData(data.cacheKey, data.data, intentId);
             return;
@@ -120,7 +120,7 @@ export class CommandDispatcher {
           audioEngine.playFromBase64(data.data, data.cacheKey, intentId, data.bakedRate);
         } else if (data?.cacheKey) {
           // Hint received: try local cache first
-          if (!playback.userHasInteracted) {
+          if (!playback.userHasInteracted && !store.getState().playbackAuthorized) {
              console.warn(`[Dispatcher] ✋ Playback Blocked: Suppression for ${data.cacheKey}.`);
              return;
           }
@@ -158,7 +158,7 @@ export class CommandDispatcher {
         // [INTERACTION GATE] VS Code webview Chromium does NOT enforce the browser autoplay
         // gesture policy — NotAllowedError is never thrown. We must gate manually here,
         // exactly like PLAY_AUDIO and DATA_PUSH HEAD MATCH do.
-        if (!playback.userHasInteracted) {
+        if (!playback.userHasInteracted && !store.getState().playbackAuthorized) {
           console.warn('[Dispatcher] 🚫 SYNTHESIS_READY suppressed — awaiting first user gesture. Pre-warming cache only.');
           // Still fetch into local cache so playback is instant on first user click.
           MessageClient.getInstance().postAction(OutgoingAction.FETCH_AUDIO, { cacheKey: data.cacheKey, intentId: data.intentId });
