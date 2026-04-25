@@ -106,6 +106,20 @@ Before triggering any automated release:
 | `npm run release:minor:fast` | `release:verify` → bump minor → package |
 | `npm run release:major:fast` | `release:verify` → bump major → package |
 
+#### GitHub Release (CI-triggered — tag-push model)
+
+| Action | How |
+|---|---|
+| **Tag-triggered CI** (primary) | Push a `v*.*.*` tag → `.github/workflows/release.yml` builds VSIX in CI, parses CHANGELOG, creates GitHub Release automatically |
+| **Local fallback** | `npm run release:github` — reads version + CHANGELOG, creates release + uploads pre-built VSIX. Requires `$env:GITHUB_TOKEN`. |
+
+> [!IMPORTANT]
+> **Division of Responsibility:**
+> - **Agent writes**: CHANGELOG entry, version bump, commit. Stops here.
+> - **Human controls**: `git tag vX.Y.Z && git push origin vX.Y.Z` — this is the release trigger.
+> - **CI handles**: Build from source → VSIX → GitHub Release creation → asset upload.
+> - **MCP publish** (`npm run publish:mcp`) stays fully manual — protected by npm OTP 2FA.
+
 > [!IMPORTANT]
 > **When to use `:fast`:** Only when ALL of the following are true in the **same agent session**:
 > 1. `npm run lint` passed explicitly
