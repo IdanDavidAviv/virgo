@@ -2,6 +2,18 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.6.7] - 2026-04-25
+
+### Changed
+- **Snippet UX Hardening (T-047)**: Implemented a safe diff-update mechanism during UI refreshes (`mergeFromHistory`) to preserve existing session index caches while aggressively scanning the filesystem for missing snippet injections, preventing destructive cache wipes on manual refresh.
+- **Namespace Rebranding (T-048)**: Abstracted the hardcoded `.gemini/antigravity/read_aloud` session path to a configurable standard. Introduced the `virgo.system.rootDirectory` setting (default: `virgo`) and added `VIRGO_ROOT` environment variable support for the standalone MCP server, enabling cleaner system deployments and user-partitioned project environments.
+
+## [2.6.6] - 2026-04-25
+
+### Added
+- **MCP Auto-Configurator — Gate 3.5 (T-041)**: Added the `virgo.manageMcp` command and an interactive QuickPick menu to automatically inject Virgo's MCP server configuration into popular AI agents (Claude Desktop, Cursor, Cline).
+- **Dynamic MCP Status Badge**: Introduced a real-time status indicator in the webview footer. The badge dynamically highlights active agent environments (e.g., "MCP Configured: Antigravity, Cursor") by scanning local persistence records, providing immediate onboarding feedback.
+
 ## [2.6.5] - 2026-04-24
 
 ### Changed
