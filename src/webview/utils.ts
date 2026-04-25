@@ -1,5 +1,5 @@
 /**
- * Common View-Model utilities for the Read Aloud Dashboard.
+ * Common View-Model utilities for the Virgo Dashboard.
  */
 
 /**

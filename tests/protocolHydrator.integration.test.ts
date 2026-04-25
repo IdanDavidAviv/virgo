@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { hydrateProtocols, READ_ALOUD_PROTOCOLS } from '../src/common/protocolHydrator';
+import { hydrateProtocols, VIRGO_PROTOCOLS } from '../src/common/protocolHydrator';
 
 /**
  * ProtocolHydrator Integration Test Suite
@@ -48,7 +48,7 @@ describe('ProtocolHydrator Integration Tests (Live Filesystem)', () => {
         expect(fs.existsSync(mockProtocolsDir)).toBe(true);
 
         // Verify all files are physically present and correct
-        Object.entries(READ_ALOUD_PROTOCOLS).forEach(([filename, expectedContent]) => {
+        Object.entries(VIRGO_PROTOCOLS).forEach(([filename, expectedContent]) => {
             const filePath = path.join(mockProtocolsDir, filename);
             expect(fs.existsSync(filePath)).toBe(true);
             const actualContent = fs.readFileSync(filePath, 'utf-8');
@@ -89,7 +89,7 @@ describe('ProtocolHydrator Integration Tests (Live Filesystem)', () => {
 
         // 4. Verify correction
         const fixedContent = fs.readFileSync(targetFile, 'utf-8');
-        expect(fixedContent).toBe(READ_ALOUD_PROTOCOLS['manifest.md']);
+        expect(fixedContent).toBe(VIRGO_PROTOCOLS['manifest.md']);
         expect(logger).toHaveBeenCalledWith(expect.stringContaining('Version Drift: manifest.md is out of sync. Re-hydrating.'));
     });
 
@@ -101,7 +101,7 @@ describe('ProtocolHydrator Integration Tests (Live Filesystem)', () => {
         logger.mockClear();
 
         // 2. Record mtimes of the files
-        const mtimesBefore = Object.keys(READ_ALOUD_PROTOCOLS).map(f => 
+        const mtimesBefore = Object.keys(VIRGO_PROTOCOLS).map(f => 
             fs.statSync(path.join(mockProtocolsDir, f)).mtimeMs
         );
 
@@ -109,7 +109,7 @@ describe('ProtocolHydrator Integration Tests (Live Filesystem)', () => {
         hydrateProtocols(logger);
 
         // 4. Record mtimes after
-        const mtimesAfter = Object.keys(READ_ALOUD_PROTOCOLS).map(f => 
+        const mtimesAfter = Object.keys(VIRGO_PROTOCOLS).map(f => 
             fs.statSync(path.join(mockProtocolsDir, f)).mtimeMs
         );
 

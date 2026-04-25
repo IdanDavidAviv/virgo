@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { hydrateProtocols, READ_ALOUD_PROTOCOLS } from '../src/common/protocolHydrator';
+import { hydrateProtocols, VIRGO_PROTOCOLS } from '../src/common/protocolHydrator';
 
 // Mock fs and os
 vi.mock('fs');
@@ -36,7 +36,7 @@ describe('ProtocolHydrator Tests', () => {
 
         hydrateProtocols(logger);
 
-        Object.entries(READ_ALOUD_PROTOCOLS).forEach(([filename, content]) => {
+        Object.entries(VIRGO_PROTOCOLS).forEach(([filename, content]) => {
             const filePath = path.join(mockBaseDir, filename);
             expect(fs.writeFileSync).toHaveBeenCalledWith(filePath, content, 'utf-8');
         });
@@ -45,7 +45,7 @@ describe('ProtocolHydrator Tests', () => {
     });
 
     it('should overwrite a file if its content differs (drift recovery)', () => {
-        const filename = Object.keys(READ_ALOUD_PROTOCOLS)[0];
+        const filename = Object.keys(VIRGO_PROTOCOLS)[0];
         const filePath = path.join(mockBaseDir, filename);
         const staleContent = 'stale content';
 
@@ -54,14 +54,14 @@ describe('ProtocolHydrator Tests', () => {
 
         hydrateProtocols(logger);
 
-        expect(fs.writeFileSync).toHaveBeenCalledWith(filePath, READ_ALOUD_PROTOCOLS[filename], 'utf-8');
+        expect(fs.writeFileSync).toHaveBeenCalledWith(filePath, VIRGO_PROTOCOLS[filename], 'utf-8');
         expect(logger).toHaveBeenCalledWith(expect.stringContaining(`Version Drift: ${filename}`));
     });
 
     it('should skip writing if the content matches (idempotency)', () => {
-        const filename = Object.keys(READ_ALOUD_PROTOCOLS)[0];
+        const filename = Object.keys(VIRGO_PROTOCOLS)[0];
         const filePath = path.join(mockBaseDir, filename);
-        const correctContent = READ_ALOUD_PROTOCOLS[filename];
+        const correctContent = VIRGO_PROTOCOLS[filename];
 
         (fs.existsSync as any).mockImplementation((p: string) => p === mockBaseDir || p === filePath);
         (fs.readFileSync as any).mockImplementation((p: string) => p === filePath ? 'utf-8' : '');

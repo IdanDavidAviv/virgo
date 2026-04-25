@@ -57,7 +57,7 @@ describe('Bridge Integrity & Sanitization [v2.3.1]', () => {
         lookup.mount();
         
         const MOCK_HISTORY = [
-            { id: 'user-session', sessionName: 'My Snippets', snippets: [{ fsPath: 'c:/read_aloud/s1.md', name: 'S1', timestamp: Date.now() }] },
+            { id: 'user-session', sessionName: 'My Snippets', snippets: [{ fsPath: 'c:/virgo/s1.md', name: 'S1', timestamp: Date.now() }] },
             { id: 'brain-session', sessionName: 'Agent Brain', snippets: [{ fsPath: 'c:/brain/task.md', name: 'Task', timestamp: Date.now() }] }
         ];
 

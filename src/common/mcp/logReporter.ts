@@ -6,7 +6,7 @@ export interface LogReportConfig {
 }
 
 /**
- * Utility to generate standardized diagnostic log reports for the Read Aloud extension.
+ * Utility to generate standardized diagnostic log reports for the Virgo extension.
  */
 export class LogReporter {
     /**
@@ -16,7 +16,7 @@ export class LogReporter {
         const pidHeader = `PID: ${process.pid}\n`;
         
         if (type === 'native') {
-            let content = `${pidHeader}--- [READ ALOUD NATIVE LOGS START] ---\n`;
+            let content = `${pidHeader}--- [VIRGO LOGS START] ---\n`;
             if (config.nativeLogUri && fs.existsSync(config.nativeLogUri.fsPath)) {
                 content += fs.readFileSync(config.nativeLogUri.fsPath, 'utf8');
             } else {

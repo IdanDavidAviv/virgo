@@ -34,7 +34,7 @@ const INDEX_VERSION = 1;
 /**
  * [T-035] Aggregate Session Metadata Index
  *
- * Manages a single `sessions_index.json` file at the antigravity read_aloud root.
+ * Manages a single `sessions_index.json` file at the antigravity virgo root.
  * Replaces the O(N×M) filesystem scan in _getSnippetHistory with O(1) reads.
  *
  * Write path: McpWatcher calls `upsertSession()` on every snippet injection.

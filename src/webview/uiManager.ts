@@ -1,5 +1,5 @@
 /**
- * UIManager - Authoritative UI state reconciler for the Read Aloud dashboard.
+ * UIManager - Authoritative UI state reconciler for the Virgo Dashboard.
  * Handles class toggling for animations and playback status.
  * TypeScript Module for type safety.
  */

@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import protocols from './protocols.json';
 
-export const READ_ALOUD_PROTOCOLS: Record<string, string> = protocols;
+export const VIRGO_PROTOCOLS: Record<string, string> = protocols;
 
 /**
  * High-Integrity Protocol Hydrator
@@ -30,7 +30,7 @@ export function hydrateProtocols(logger?: (msg: string) => void, virgoRootName?:
         }
 
         // 3. Coordinate Hydration (Atomic File Verification)
-        for (const [filename, content] of Object.entries(READ_ALOUD_PROTOCOLS)) {
+        for (const [filename, content] of Object.entries(VIRGO_PROTOCOLS)) {
             const targetPath = path.join(globalProtocolsDir, filename);
             let needsWipe = false;
 

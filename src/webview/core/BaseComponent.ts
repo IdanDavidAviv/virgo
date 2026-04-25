@@ -3,7 +3,7 @@ import { MessageClient } from './MessageClient';
 import { LogLevel, OutgoingAction } from '../../common/types';
 
 /**
- * BaseComponent: Abstract foundation for all UI components in the Read Aloud Dashboard.
+ * BaseComponent: Abstract foundation for all UI components in the Virgo Dashboard.
  * Handles DOM element mapping, store subscriptions, and lifecycle hooks.
  */
 export abstract class BaseComponent<T extends Record<string, HTMLElement | null | (HTMLElement | null)[] | undefined>> {

@@ -6,7 +6,7 @@ import { generateCacheKey } from '../common/cachePolicy';
 import { debounce } from './utils';
 
 /**
- * Hardened Playback Controller for Read Aloud Webview (Singleton)
+ * Hardened Playback Controller for Virgo Webview (Singleton)
  * Manages synchronous audio pausing, IPC throttling, and state reconciliation.
  * Restored logic from dashboard.js to ensure high-integrity sync parity.
  */

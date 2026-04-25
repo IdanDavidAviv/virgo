@@ -31,7 +31,7 @@ import { SnippetLookup } from './components/SnippetLookup';
 
 
 /**
- * Read Aloud Webview Entry Point (ESM/TS)
+ * Virgo Webview Entry Point (ESM/TS)
  * Replaces legacy dashboard.js with a modular, strictly-typed bootstrap.
  */
 export function bootstrap() {

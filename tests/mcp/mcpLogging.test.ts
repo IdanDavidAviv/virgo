@@ -39,7 +39,7 @@ describe('LogReporter Unit Tests', () => {
         
         expect(content).toContain('PID:');
         expect(content).toContain('Unit Test Native Log');
-        expect(content).toContain('--- [READ ALOUD NATIVE LOGS');
+        expect(content).toContain('--- [VIRGO LOGS');
     });
 
     it('should correctly build debug log content with PID header and path', async () => {

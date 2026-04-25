@@ -1014,7 +1014,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._logger(`[SNIPPET_HISTORY] Found ${entries.length} entries in root`);
 
             // [MP-001 T-015] EXCLUDED_DIRS: sessions/ root only contains UUID session directories.
-            // System dirs (protocols, tempmediaStorage, brain) live under read_aloud/ root —
+            // System dirs (protocols, tempmediaStorage, brain) live under virgo/ root —
             // they are NOT reachable from here. Filter reserved for future non-UUID entries.
             const EXCLUDED_DIRS = new Set<string>(['tempmediaStorage', '.write_test']);
 

@@ -106,7 +106,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const sessionId = resolveLatestSessionId(sessionsRoot, brainRoot); 
 
     // [MP-001 T-015] SpeechProvider receives sessionsRoot so McpWatcher and _getSnippetHistory
-    // both scan read_aloud/sessions/ — the single canonical location for user-facing session data.
+    // both scan virgo/sessions/ — the single canonical location for user-facing session data.
     speechProvider = new SpeechProvider(context, log, mainStatusBarItem, sessionsRoot, sessionId, () => syncSelection());
     log('--- PORTLESS SYNC ACTIVE (Filesystem Watcher) ---');
     log(`[ANTIGRAVITY] Session: ${sessionId} | Root: ${sessionsRoot}`);

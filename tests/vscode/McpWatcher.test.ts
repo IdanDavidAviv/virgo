@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { McpWatcher } from '@extension/vscode/McpWatcher';
 
-const MY_WORKSPACE = '/workspace/readme-preview-read-aloud';
+const MY_WORKSPACE = '/workspace/virgo';
 const OTHER_WORKSPACE = '/workspace/other-project';
 
 // Mock vscode — each window has a unique workspace folder (VS Code enforces this)
@@ -21,7 +21,7 @@ vi.mock('vscode', () => {
                 dispose: vi.fn()
             })),
             // Inline literal — vi.mock factory is hoisted before module-level consts
-            workspaceFolders: [{ uri: { fsPath: '/workspace/readme-preview-read-aloud' } }]
+            workspaceFolders: [{ uri: { fsPath: '/workspace/virgo' } }]
         },
         Uri: {
             file: vi.fn(f => ({ fsPath: f, toString: () => `file://${f}` }))
@@ -131,7 +131,7 @@ describe('McpWatcher (Workspace Claim Gate)', () => {
 
     it('should log the workspace path on construction', () => {
         expect(mockLogger).toHaveBeenCalledWith(
-            expect.stringContaining('workspace=readme-preview-read-aloud')
+            expect.stringContaining('workspace=virgo')
         );
     });
 

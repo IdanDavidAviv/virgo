@@ -6,7 +6,7 @@ import * as os from 'os';
 import { TurnManager } from '../../src/common/mcp/turnManager';
 
 // [INTEGRITY] Mock fs and path for mcpStandalone logic testing
-const TEST_ROOT = path.join(os.tmpdir(), 'read_aloud_test_' + Math.random().toString(36).substring(7));
+const TEST_ROOT = path.join(os.tmpdir(), 'virgo_test_' + Math.random().toString(36).substring(7));
 
 describe('TurnSentinel Sovereignty (TDD: #43)', () => {
     

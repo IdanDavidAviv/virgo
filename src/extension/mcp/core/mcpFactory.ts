@@ -6,8 +6,8 @@ import { PendingInjectionStore } from "./sharedStore";
 import { PathGuard } from "@common/mcp/pathGuard";
 
 export interface McpConfig {
-    persistencePath: string; // The specific session path (e.g. .../read_aloud/sessions/SESSION_ID)
-    sessionsRoot: string;    // The root of all sessions (e.g. .../read_aloud/sessions)
+    persistencePath: string; // The specific session path (e.g. .../virgo/sessions/SESSION_ID)
+    sessionsRoot: string;    // The root of all sessions (e.g. .../virgo/sessions)
     logger: (msg: string) => void;
     nativeLogUri?: { fsPath: string };
     debugLogPath?: string;
@@ -16,12 +16,12 @@ export interface McpConfig {
 }
 
 /**
- * Unified factory for the Read Aloud MCP Server.
+ * Unified factory for the Virgo MCP Server.
  * Ensures parity between SEE (Bridge) and Stdio (Standalone) transports.
  */
 export function createReadAloudMcpServer(config: McpConfig): McpServer {
     const server = new McpServer({
-        name: "read-aloud",
+        name: "virgo",
         version: config.version
     }, {
         capabilities: {
@@ -149,7 +149,7 @@ function registerResources(server: McpServer, config: McpConfig) {
     // [1] Resource: Native Logs
     server.resource(
         "native-logs",
-        "read-aloud://logs/native",
+        "virgo://logs/native",
         {
             description: "Real-time diagnostic stream from the VS Code Output Channel.",
             mimeType: "text/plain"
@@ -163,7 +163,7 @@ function registerResources(server: McpServer, config: McpConfig) {
     // [2] Resource: Debug Logs
     server.resource(
         "debug-logs",
-        "read-aloud://logs/debug",
+        "virgo://logs/debug",
         {
             description: "Internal extension logs containing bridge events and lifecycle diagnostics.",
             mimeType: "text/plain"
@@ -175,7 +175,7 @@ function registerResources(server: McpServer, config: McpConfig) {
     );
 
     // [3] Resource: Session State (Dynamic Template)
-    const stateTemplate = new ResourceTemplate("read-aloud://session/{sessionId}/state", { 
+    const stateTemplate = new ResourceTemplate("virgo://session/{sessionId}/state", { 
         list: async () => {
             const rootDir = config.sessionsRoot;
             if (!fs.existsSync(rootDir)) { return { resources: [] }; }
@@ -186,7 +186,7 @@ function registerResources(server: McpServer, config: McpConfig) {
                 .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs)
                 .slice(0, 10)
                 .map(s => ({
-                    uri: `read-aloud://session/${s.name}/state`,
+                    uri: `virgo://session/${s.name}/state`,
                     name: `Session State: ${s.name}`,
                     description: `Metadata and turn index for session ${s.name}`
                 }));
@@ -218,7 +218,7 @@ function registerResources(server: McpServer, config: McpConfig) {
 
 
     // [5] Resource: Injected Snippets (Multi-Session Discovery)
-    const snippetTemplate = new ResourceTemplate("read-aloud://snippets/{sessionId}/{snippetName}", {
+    const snippetTemplate = new ResourceTemplate("virgo://snippets/{sessionId}/{snippetName}", {
         list: async () => {
             const results: any[] = [];
             if (!fs.existsSync(config.sessionsRoot)) { return { resources: [] }; }
@@ -236,7 +236,7 @@ function registerResources(server: McpServer, config: McpConfig) {
                 const files = fs.readdirSync(sessionDir).filter(f => f.endsWith('.md'));
                 for (const file of files) {
                     results.push({
-                        uri: `read-aloud://snippets/${session}/${path.basename(file, '.md')}`,
+                        uri: `virgo://snippets/${session}/${path.basename(file, '.md')}`,
                         name: `Snippet: ${session}/${path.basename(file, '.md')}`,
                         mimeType: "text/markdown"
                     });

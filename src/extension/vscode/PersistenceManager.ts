@@ -17,7 +17,7 @@ export interface PersistentState {
 }
 
 export class PersistenceManager {
-    private static readonly KEY = 'read-aloud.active-context';
+    private static readonly KEY = 'virgo.active-context';
 
     constructor(
         private readonly _context: vscode.ExtensionContext,
