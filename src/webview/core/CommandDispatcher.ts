@@ -230,15 +230,17 @@ export class CommandDispatcher {
         console.error(`[Dispatcher] Synthesis Error at ${data?.chapterIndex}:${data?.sentenceIndex}:`, errorMsg);
         
         const ToastManager = (await import('../components/ToastManager')).ToastManager;
-        // Restoring dashboard.js parity: warnings for fallbacks, errors for failures.
-        const type = data?.isFallingBack ? 'warning' : 'error';
-        ToastManager.show(errorMsg, type);
+        // [NEURAL-FIRST] Never surface raw internal error strings to the user.
+        // SYNTHESIS_ERROR is always terminal (all retries exhausted). Plain English only.
+        ToastManager.show('Voice unavailable \u2014 please try again', 'error');
         playback.releaseLock();
         break;
       
       case IncomingCommand.ENGINE_STATUS:
-        // Handle engine-specific status updates if needed
-        console.log('[Dispatcher] Engine Status:', data);
+        // [NEURAL-FIRST] Wire 'buffering' signal to store so the UI shows a loading indicator
+        // during silent neural retries — instead of showing silence with no feedback.
+        console.log('[Dispatcher] Engine Status:', data?.status);
+        store.patchState({ isBuffering: data?.status === 'buffering' });
         break;
 
       case IncomingCommand.VOICES:

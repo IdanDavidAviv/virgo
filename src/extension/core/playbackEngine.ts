@@ -43,7 +43,7 @@ export class PlaybackEngine extends EventEmitter {
     private _logLevel: number = 1;
     private _lastLoggedCacheCount: number = -1;
     private _lastLoggedCacheTime: number = 0;
-    private _retryAttempts: number = 3;
+    private _retryAttempts: number = 5; // [NEURAL-FIRST] Patient retry: ~8s total backoff before giving up
 
     private _activeSegmentAbortController: AbortController | null = null;
 
