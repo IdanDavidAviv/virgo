@@ -2,6 +2,19 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.8.0] - 2026-04-26
+
+### Added
+- **MCP Autonomous Playback Path**: The MCP `say_this_loud` tool now lifts both playback gates without any user interaction. The extension calls `authorizePlayback()` before `requestSync()` in the `onSnippetLoaded` handler, ensuring the UI_SYNC packet carries `playbackAuthorized:true`. The webview's Sovereignty Bridge auto-primes the AudioContext and sets `_userHasInteracted`, allowing MCP-injected audio to play the moment a snippet lands — even on a cold-start session with no prior user clicks.
+- **Hover-Based Audio Unlock**: A one-shot `mouseenter` listener on the webview primes the AudioContext and marks the user as interacted on the very first hover. The listener self-unregisters after firing — zero overhead for all subsequent hovers. This provides a zero-click path to audio: simply glancing at the Virgo panel is enough.
+- **First-Run UX Guard**: `play()` now surfaces a friendly toast instead of silently doing nothing when no content is loaded. Shows `"Open a file in VS Code to get started"` for unfocused files and `"This file type is not supported for reading"` for unsupported types.
+- **Toast Dismiss Button**: All toasts now include a `✕` ghost dismiss button. Click propagation is guarded with `stopPropagation()` / `preventDefault()` to prevent the global click handler from triggering an audio context re-init that would wipe the toast container.
+
+### Fixed
+- **Neural-First Resilience**: Increased `_retryAttempts` from 3 to 5 in the playback engine, providing ~8 seconds of silent exponential backoff before surfacing an error. The `isBuffering` state is now wired to the webview store, enabling spinner feedback during retry cycles.
+- **User-Facing Error Messages**: Replaced raw stack-trace error emissions in `CommandDispatcher.ts` with sanitized messages (`"Voice unavailable — please try again"`), eliminating technical noise from the user-facing toast system.
+- **Toast Auto-Dismiss Timing**: Standardized auto-dismiss duration to 8 seconds across all toast types.
+
 ## [2.7.3] - 2026-04-25
 
 ### Changed

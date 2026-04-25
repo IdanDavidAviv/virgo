@@ -55,6 +55,7 @@ describe('Control System Audit (Reproduction)', () => {
             availableVoices: { local: [], neural: [] },
             cacheCount: 0,
             cacheSizeBytes: 0,
+            currentSentences: ['Test sentence.'],
             isHydrated: true
         } as any);
     });

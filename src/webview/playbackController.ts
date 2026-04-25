@@ -543,10 +543,12 @@ export class PlaybackController {
         this._userHasInteracted = true;
         const store = WebviewStore.getInstance();
 
-        // [FIRST-RUN UX] Guard: if no sentences are loaded, surface a friendly hint
-        // instead of sending a PLAY IPC that silently goes nowhere.
-        const { currentSentences, focusedIsSupported } = store.getState();
-        if (!currentSentences || currentSentences.length === 0) {
+        // [FIRST-RUN UX] Guard: if no sentences are loaded AFTER hydration, surface a friendly
+        // hint instead of sending a PLAY IPC that silently goes nowhere.
+        // isHydrated guard is critical — before the extension syncs we don't know if content
+        // exists yet, and tests run without hydration so we must not block them.
+        const { currentSentences, focusedIsSupported, isHydrated } = store.getState();
+        if (isHydrated && (!currentSentences || currentSentences.length === 0)) {
             if (focusedIsSupported === false) {
                 ToastManager.show('This file type is not supported for reading', 'warning');
             } else {

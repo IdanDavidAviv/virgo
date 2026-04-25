@@ -76,6 +76,7 @@ describe('Simplified Sync Playback UI', () => {
             versionSalt: '1',
             focusedVersionSalt: '1',
             allChapters: [{ title: 'Chapter 1', level: 1, index: 0, count: 1 }],
+            currentSentences: ['Test sentence.'],
             isHydrated: true
         }, 'local');
     });

@@ -88,7 +88,7 @@ describe('E2E Handshake & UI Integrity', () => {
         wireDispatcher();
 
         store = WebviewStore.getInstance();
-        store.patchState({ isHydrated: true });
+        store.patchState({ isHydrated: true, currentSentences: ['Test sentence.'] });
 
         // 4. Activate Controller (Triggers listeners)
         PlaybackController.getInstance();

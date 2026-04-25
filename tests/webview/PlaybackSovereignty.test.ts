@@ -57,6 +57,7 @@ describe('Playback Sovereignty (v2.3.2)', () => {
             isPlaying: false, 
             isSelectingVoice: true,
             currentSentenceIndex: 0,
+            currentSentences: ['Sentence one.'],
             batchIntentId: 10 
         });
         store.patchState(syncPacket);
