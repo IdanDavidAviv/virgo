@@ -193,7 +193,7 @@ export function bootstrap() {
         const controller = PlaybackController.getInstance();
         btnRefreshSnippets.addEventListener('click', () => {
             if (store.getUIState().activeMode === 'SNIPPET') {
-                controller.requestSnippetHistory();
+                controller.requestSnippetHistory(true);
             }
         });
         store.subscribeUI((ui) => ui.activeMode, (mode) => {

@@ -93,11 +93,14 @@ export class McpConfigurator {
      * Safely parses and injects the Virgo MCP server configuration into a target config JSON file.
      * Preserves existing configuration data.
      */
-    public static async injectConfiguration(configPath: string, extensionPath: string): Promise<boolean> {
+    public static async injectConfiguration(configPath: string, extensionPath: string, virgoRoot: string = 'virgo'): Promise<boolean> {
         // Build the Virgo server config block
         const virgoBlock = {
             command: 'npx',
-            args: ['-y', 'virgo-mcp']
+            args: ['-y', 'virgo-mcp@latest'],
+            env: {
+                VIRGO_ROOT: virgoRoot
+            }
         };
 
         try {

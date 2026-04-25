@@ -300,11 +300,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
             if (customSelectionId === 'clipboard') {
                 const scriptPath = path.join(context.extensionPath, 'dist', 'mcp-standalone.js').replace(/\\/g, '/');
+                const currentRoot = vscode.workspace.getConfiguration('virgo.system').get<string>('rootDirectory', 'virgo');
                 const snippet = JSON.stringify({
                     "mcpServers": {
                         "virgo": {
                             "command": "npx",
-                            "args": ["-y", "virgo-mcp"]
+                            "args": ["-y", "virgo-mcp@latest"],
+                            "env": {
+                                "VIRGO_ROOT": currentRoot
+                            }
                         }
                     }
                 }, null, 2);
@@ -328,13 +332,32 @@ export async function activate(context: vscode.ExtensionContext) {
             }
 
             if (targetPath) {
-                const success = await McpConfigurator.injectConfiguration(targetPath, context.extensionPath);
-                if (success) {
-                    vscode.window.showInformationMessage(`Successfully installed Virgo MCP to ${path.basename(targetPath)}`);
-                    speechProvider.refreshMcpStatus();
-                } else {
-                    vscode.window.showErrorMessage(`Failed to install Virgo MCP to ${path.basename(targetPath)}. See logs for details.`);
-                }
+                const currentRoot = vscode.workspace.getConfiguration('virgo.system').get<string>('rootDirectory', 'virgo');
+                
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Installing Virgo MCP Server...",
+                    cancellable: false
+                }, async (progress) => {
+                    return new Promise<void>((resolve) => {
+                        const { exec } = require('child_process');
+                        exec('npm install -g virgo-mcp@latest', async (error: any, stdout: string, stderr: string) => {
+                            if (error) {
+                                console.error('[Virgo MCP] Failed to install npm package:', stderr);
+                                // We still proceed with injection even if global install fails (npx might still work)
+                            }
+                            
+                            const success = await McpConfigurator.injectConfiguration(targetPath!, context.extensionPath, currentRoot);
+                            if (success) {
+                                vscode.window.showInformationMessage(`Successfully installed Virgo MCP to ${path.basename(targetPath!)}`);
+                                speechProvider.refreshMcpStatus();
+                            } else {
+                                vscode.window.showErrorMessage(`Failed to install Virgo MCP to ${path.basename(targetPath!)}. See logs for details.`);
+                            }
+                            resolve();
+                        });
+                    });
+                });
             }
         }),
 

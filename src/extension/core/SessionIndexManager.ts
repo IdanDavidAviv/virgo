@@ -135,6 +135,7 @@ export class SessionIndexManager {
     public mergeFromHistory(history: SnippetHistory): void {
         try {
             const index = this.read() ?? this._empty();
+            if (!index.sessions) { index.sessions = {}; }
 
             for (const session of history) {
                 const newSnippets: SessionIndexSnippet[] = session.snippets.map(s => ({
@@ -185,7 +186,7 @@ export class SessionIndexManager {
      */
     public toSnippetHistory(): SnippetHistory {
         const index = this.read();
-        if (!index) { return []; }
+        if (!index || !index.sessions) { return []; }
 
         const sessions = Object.entries(index.sessions)
             .filter(([, entry]) => entry.snippets.length > 0)

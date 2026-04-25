@@ -840,7 +840,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
             
             case OutgoingAction.GET_ALL_SNIPPET_HISTORY:
-                const history = await this._getSnippetHistory();
+                const history = await this._getSnippetHistory(data.force === true);
                 this._stateStore.setHistory(history);
                 break;
             case OutgoingAction.LOAD_SNIPPET:

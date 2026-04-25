@@ -746,10 +746,11 @@ export class PlaybackController {
         });
     }
 
-    public requestSnippetHistory(): void {
-        console.log('[PlaybackController] requestSnippetHistory() requested');
+    public requestSnippetHistory(force: boolean = false): void {
+        console.log(`[PlaybackController] requestSnippetHistory(force=${force}) requested`);
         MessageClient.getInstance().postAction(OutgoingAction.GET_ALL_SNIPPET_HISTORY, {
-            intentId: WebviewStore.getInstance().getState().playbackIntentId
+            intentId: WebviewStore.getInstance().getState().playbackIntentId,
+            force
         });
     }
 
