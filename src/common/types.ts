@@ -44,6 +44,8 @@ export interface UISyncPacket {
     isSelectingVoice: boolean; // [NEW] Sampling mode for voice changes
     activeMode: 'FILE' | 'SNIPPET';
     isLooping: boolean;
+    mcpStatus?: 'unconfigured' | 'configured';
+    mcpActiveAgents?: string[];
 
     // [SOVEREIGNTY] Active Playback Configuration
     isPlaying: boolean;
@@ -200,5 +202,7 @@ export enum OutgoingAction {
     PLAYBACK_BLOCKED = 'PLAYBACK_BLOCKED',
     SET_AUTO_INJECT_SITREP = 'SET_AUTO_INJECT_SITREP',
     EXECUTE_COMMAND = 'EXECUTE_COMMAND',
-    SET_AUTOPLAY_INJECTION = 'SET_AUTOPLAY_INJECTION'
+    SET_AUTOPLAY_INJECTION = 'SET_AUTOPLAY_INJECTION',
+    OPEN_MCP_MENU = 'OPEN_MCP_MENU',
+    GET_MCP_STATUS = 'GET_MCP_STATUS'
 }

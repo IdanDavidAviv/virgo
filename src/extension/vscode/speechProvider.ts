@@ -16,6 +16,7 @@ import { SettingsManager } from '@vscode/SettingsManager';
 import { SyncManager } from '@vscode/SyncManager';
 import { PersistenceManager } from './PersistenceManager';
 import { SessionIndexManager } from '@core/SessionIndexManager';
+import { McpConfigurator } from '../mcp/mcpConfigurator';
 
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
@@ -139,6 +140,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         // Tier-3: High-Density Log Format (Extension Boot)
         this._logger('[BOOT] extension_activated');
         this._voiceManager.scanAndSync();
+
+        // [Phase 6] Scan MCP configuration status
+        const mcpResult = McpConfigurator.checkConfigurationStatus();
+        this._stateStore.patchState({ mcpStatus: mcpResult.status, mcpActiveAgents: mcpResult.activeAgents }, true);
+        this._logger(`[MCP] Configuration status: ${mcpResult.status} [${mcpResult.activeAgents.join(',')}]`);
 
         // [Reactive Sync] Handled by SyncManager
 
@@ -616,13 +622,21 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public async refreshView() {
-        const history = await this._getSnippetHistory();
+        this._logger(`[VOICE] Manual UI refresh requested. Forcing full scan...`);
+        // [T-047] Force a cold scan and merge into existing index (diff update)
+        const history = await this._getSnippetHistory(true);
         this._stateStore.setHistory(history);
         this._voiceManager.broadcastVoices();
     }
 
     public refreshVoices() {
         this._voiceManager.scanAndSync();
+    }
+
+    public refreshMcpStatus() {
+        const result = McpConfigurator.checkConfigurationStatus();
+        this._stateStore.patchState({ mcpStatus: result.status, mcpActiveAgents: result.activeAgents });
+        this._logger(`[MCP] Configuration status refreshed manually: ${result.status} [${result.activeAgents.join(',')}]`);
     }
 
     private async _handleWebviewMessage(data: any, source: string = 'webview') {
@@ -898,6 +912,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                         });
                 }
                 break;
+
+            case OutgoingAction.OPEN_MCP_MENU:
+                vscode.commands.executeCommand('virgo.manageMcp');
+                break;
+                
+            case OutgoingAction.GET_MCP_STATUS:
+                const result = McpConfigurator.checkConfigurationStatus();
+                this._stateStore.patchState({ mcpStatus: result.status, mcpActiveAgents: result.activeAgents });
+                break;
         }
     }
 
@@ -923,24 +946,27 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         };
     }
 
-    private async _getSnippetHistory(): Promise<SnippetHistory> {
+    private async _getSnippetHistory(forceScan: boolean = false): Promise<SnippetHistory> {
         // [T-035] Tier 1: O(1) index read — skips all filesystem scans
-        const fromIndex = this._indexManager.toSnippetHistory();
-        if (fromIndex.length > 0) {
-            this._logger(`[SNIPPET_HISTORY] Index hit: ${fromIndex.length} session(s)`);
-            return fromIndex;
+        if (!forceScan) {
+            const fromIndex = this._indexManager.toSnippetHistory();
+            if (fromIndex.length > 0) {
+                this._logger(`[SNIPPET_HISTORY] Index hit: ${fromIndex.length} session(s)`);
+                return fromIndex;
+            }
         }
 
         // [T-035] Tier 2: Cold-start fallback — full scan (index missing or empty)
-        this._logger(`[SNIPPET_HISTORY] Index miss — falling back to full scan`);
+        this._logger(`[SNIPPET_HISTORY] Index miss or forced scan — scanning filesystem`);
         const scanned = await this._getSnippetHistoryByScan();
 
-        // Prime the index from scan result so next call is O(1)
+        // Prime or merge the index from scan result
         if (scanned.length > 0) {
-            this._indexManager.rebuildFromHistory(scanned);
+            this._indexManager.mergeFromHistory(scanned);
         }
 
-        return scanned;
+        // Return the fully merged index to ensure consistency with what was written
+        return this._indexManager.toSnippetHistory();
     }
 
     private async _getSnippetHistoryByScan(): Promise<SnippetHistory> {
@@ -992,14 +1018,35 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     // It's okay if state file doesn't exist
                 }
 
-                const sessionEntries = await vscode.workspace.fs.readDirectory(sessionUri);
-                const files = (await Promise.all(sessionEntries.map(async ([f, type]) => {
-                    if (type !== vscode.FileType.File) { return null; }
+                const allFiles: { name: string, uri: vscode.Uri }[] = [];
+                const collectFiles = async (dirUri: vscode.Uri) => {
+                    try {
+                        const entries = await vscode.workspace.fs.readDirectory(dirUri);
+                        for (const [f, type] of entries) {
+                            const childUri = vscode.Uri.joinPath(dirUri, f);
+                            if (type === vscode.FileType.Directory) {
+                                // Skip hidden directories like .system_generated
+                                if (f.startsWith('.')) {continue;}
+                                await collectFiles(childUri);
+                            } else if (type === vscode.FileType.File) {
+                                allFiles.push({ name: f, uri: childUri });
+                            }
+                        }
+                    } catch (e) {
+                        // ignore unreadable dirs
+                    }
+                };
+                await collectFiles(sessionUri);
+
+                const files = (await Promise.all(allFiles.map(async (fileItem) => {
+                    const f = fileItem.name;
                     // [MP-001 T-015] Only surface markdown files — exclude extension_state.json
                     // and any other metadata files that are not user-facing snippets.
                     if (!f.endsWith('.md') && !f.endsWith('.markdown')) { return null; }
+                    // Exclude metadata sidecars like .md.metadata.json or .md.resolved
+                    if (f.includes('.md.')) { return null; }
 
-                    const fileUri = vscode.Uri.joinPath(sessionUri, f);
+                    const fileUri = fileItem.uri;
                     try {
                         const stats = await vscode.workspace.fs.stat(fileUri);
                         // [T-038] New filename format: <timestamp>.<name>.md (dot-separated)

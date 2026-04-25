@@ -129,34 +129,48 @@ export class SessionIndexManager {
     }
 
     /**
-     * Rebuild the entire index from a SnippetHistory (cold-start path).
-     * Called after a full filesystem scan to prime the index.
+     * Merge a full SnippetHistory into the existing index (diff update).
+     * Used by manual refresh to add missing files without deleting the whole index.
      */
-    public rebuildFromHistory(history: SnippetHistory): void {
+    public mergeFromHistory(history: SnippetHistory): void {
         try {
-            const index = this._empty();
+            const index = this.read() ?? this._empty();
 
             for (const session of history) {
-                const snippets: SessionIndexSnippet[] = session.snippets.map(s => ({
+                const newSnippets: SessionIndexSnippet[] = session.snippets.map(s => ({
                     name: s.name,
                     timestamp: s.timestamp,
                     fsPath: s.fsPath,
                     uri: s.uri
                 }));
 
-                const lastTimestamp = snippets.length > 0 ? snippets[0].timestamp : Date.now();
+                const existing = index.sessions[session.id];
+                const displayName = session.displayName 
+                    ?? existing?.displayName 
+                    ?? this._resolveDisplayName(session.id);
+
+                // Merge snippets, keeping unique paths, sorted descending
+                const snippetMap = new Map<string, SessionIndexSnippet>();
+                if (existing) {
+                    for (const s of existing.snippets) { snippetMap.set(s.fsPath, s); }
+                }
+                for (const s of newSnippets) { snippetMap.set(s.fsPath, s); }
+
+                const mergedSnippets = Array.from(snippetMap.values()).sort((a, b) => b.timestamp - a.timestamp);
+
+                const lastTimestamp = mergedSnippets.length > 0 ? mergedSnippets[0].timestamp : Date.now();
                 index.sessions[session.id] = {
-                    displayName: session.displayName,
+                    displayName,
                     lastSnippetAt: new Date(lastTimestamp).toISOString(),
-                    snippets
+                    snippets: mergedSnippets
                 };
             }
 
             index.lastUpdated = new Date().toISOString();
             this._write(index);
-            this._logger(`[SESSION_INDEX] Rebuilt from scan: ${history.length} sessions`);
+            this._logger(`[SESSION_INDEX] Merged scan into index: ${history.length} sessions scanned`);
         } catch (e) {
-            this._logger(`[SESSION_INDEX] rebuildFromHistory failed: ${e}`);
+            this._logger(`[SESSION_INDEX] mergeFromHistory failed: ${e}`);
         }
     }
 

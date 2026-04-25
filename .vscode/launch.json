@@ -8,7 +8,6 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
         "--disable-extension=IdanDavidAviv.virgo",
-        "--disable-extension=IdanDavidAviv.readme-preview-read-aloud",
         "--user-data-dir=${workspaceFolder}/.vscode/ext-dev-data"
       ],
       "outFiles": [
@@ -23,7 +22,6 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
         "--disable-extension=IdanDavidAviv.virgo",
-        "--disable-extension=IdanDavidAviv.readme-preview-read-aloud",
         "--user-data-dir=${workspaceFolder}/.vscode/ext-dev-data"
       ],
       "outFiles": [

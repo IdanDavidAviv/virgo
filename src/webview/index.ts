@@ -212,6 +212,26 @@ export function bootstrap() {
 
     console.log('[BOOT] Mapping Elements...');
 
+    // [MCP] Status Badge Sync
+    const mcpBadge = document.getElementById('mcp-status-badge');
+    if (mcpBadge) {
+        store.subscribeUI(
+            (ui) => `${ui.mcpStatus}:${(ui.mcpActiveAgents || []).join(',')}`, 
+            () => {
+                const state = store.getUIState();
+                if (state.mcpStatus === 'configured') {
+                    mcpBadge.classList.add('blue');
+                    mcpBadge.classList.remove('red');
+                    const agentList = (state.mcpActiveAgents || []).join(', ');
+                    mcpBadge.title = `MCP Configured: ${agentList} (Click to manage)`;
+                } else {
+                    mcpBadge.classList.add('red');
+                    mcpBadge.classList.remove('blue');
+                    mcpBadge.title = 'MCP Unconfigured (Click to setup)';
+                }
+            });
+        }
+
     // Mount all components to attach event listeners.
     // [FIX] Removed premature unmount() call: calling unmount before any component has mounted
     // destroys subscriptions before they are established, causing a permanently silent UI.

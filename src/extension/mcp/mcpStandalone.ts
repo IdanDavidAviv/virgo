@@ -13,9 +13,10 @@ declare const __APP_VERSION__: string;
 async function main() {
     // 1. Environment Discovery
     const userHome = process.env.USERPROFILE || process.env.HOME || "";
-    // [MP-001 T-015] Canonical sessions root: read_aloud/sessions/
-    // Override via READ_ALOUD_DATA_DIR env var for custom deployments.
-    const defaultSessionsRoot = path.join(userHome, ".gemini", "antigravity", "read_aloud", "sessions");
+    // [MP-001 T-015] Canonical sessions root: virgo/sessions/
+    // Override via VIRGO_ROOT or READ_ALOUD_DATA_DIR env var for custom deployments.
+    const virgoRootName = process.env.VIRGO_ROOT || "virgo";
+    const defaultSessionsRoot = path.join(userHome, ".gemini", "antigravity", virgoRootName, "sessions");
     const sessionsRoot = process.env.READ_ALOUD_DATA_DIR || defaultSessionsRoot;
     
     // Standalone targets the sessions root; the factory handles specific session IDs via tool arguments.

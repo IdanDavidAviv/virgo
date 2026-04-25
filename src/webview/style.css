@@ -671,6 +671,35 @@ input[type="range"]::-webkit-slider-thumb:hover {
     letter-spacing: 0.04em;
 }
 
+.mcp-badge {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+    font-size: 8px;
+    font-weight: 800;
+    padding: 1px 5px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.2s ease;
+    margin-right: 4px;
+}
+
+.mcp-badge:hover {
+    transform: scale(1.05);
+    background: rgba(239, 68, 68, 0.2);
+}
+
+.mcp-badge.blue {
+    background: rgba(56, 189, 248, 0.1);
+    border-color: rgba(56, 189, 248, 0.3);
+    color: var(--primary);
+}
+
+.mcp-badge.blue:hover {
+    background: rgba(56, 189, 248, 0.2);
+}
+
 .bmac-link {
     font-size: 10px;
     text-decoration: none;

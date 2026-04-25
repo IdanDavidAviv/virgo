@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import { SpeechProvider } from '@vscode/speechProvider';
 import { hydrateProtocols } from '@common/protocolHydrator';
 import { findChapterAtLine, findSentenceAtLine, parseChapters } from '@core/documentParser';
+import { McpConfigurator } from '../mcp/mcpConfigurator';
 // [T-023] McpBridge removed — MCP now runs via dist/mcp-standalone.js (stdio, no HTTP).
 
 let mainStatusBarItem: vscode.StatusBarItem;
@@ -44,7 +45,8 @@ function resolveLatestSessionId(readAloudRoot: string, brainRoot?: string): stri
 
 export async function activate(context: vscode.ExtensionContext) {
     // [Self-Healing Protocol] 100% Zero-Friction DNA Sync
-    hydrateProtocols((msg) => log(msg));
+    const virgoRootName = vscode.workspace.getConfiguration('virgo.system').get<string>('rootDirectory', 'virgo');
+    hydrateProtocols((msg) => log(msg), virgoRootName);
 
     logFilePath = path.join(context.extensionPath, 'diagnostics_agent.log');
     try {
@@ -64,7 +66,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // [Onboarding & Repair] Environment Sanity Check
     const userProfile = process.env.USERPROFILE || process.env.HOME || '';
-    const readAloudRoot = path.join(userProfile, '.gemini', 'antigravity', 'read_aloud');
+    const readAloudRoot = path.join(userProfile, '.gemini', 'antigravity', virgoRootName);
     // [MP-001 T-015] Canonical session root — all session data lives under sessions/<id>/
     const sessionsRoot = path.join(readAloudRoot, 'sessions');
     try {
@@ -264,6 +266,75 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             } else {
                 speechProvider.play(text, 0, editor.document.fileName);
+            }
+        }),
+
+        vscode.commands.registerCommand('virgo.manageMcp', async () => {
+            log('[CMD_RECV] virgo.manageMcp');
+            
+            const agents = McpConfigurator.getAvailableAgents();
+            const items: vscode.QuickPickItem[] = [];
+
+            agents.forEach(agent => {
+                if (agent.exists) {
+                    items.push({
+                        label: agent.hasVirgo ? `$(check) Update ${agent.name}` : `$(add) Install to ${agent.name}`,
+                        description: agent.path,
+                        // @ts-ignore: Custom property
+                        agent: agent
+                    });
+                }
+            });
+
+            items.push({ label: '$(folder-opened) Select Custom Path...', description: 'Select an MCP settings JSON file' });
+            items.push({ label: '$(clippy) Copy to Clipboard', description: 'Copy the raw JSON block' });
+
+            const selection = await vscode.window.showQuickPick(items, {
+                placeHolder: 'Select where to install the Virgo MCP Server'
+            });
+
+            if (!selection) {return;}
+
+            let targetPath: string | undefined;
+            const customSelectionId = selection.label.includes('Copy to Clipboard') ? 'clipboard' : selection.label.includes('Custom Path') ? 'custom' : 'agent';
+
+            if (customSelectionId === 'clipboard') {
+                const scriptPath = path.join(context.extensionPath, 'dist', 'mcpStandalone.js').replace(/\\/g, '/');
+                const snippet = JSON.stringify({
+                    "mcpServers": {
+                        "virgo": {
+                            "command": "node",
+                            "args": [scriptPath]
+                        }
+                    }
+                }, null, 2);
+                vscode.env.clipboard.writeText(snippet);
+                vscode.window.showInformationMessage('Virgo MCP configuration copied to clipboard.');
+                return;
+            } else if (customSelectionId === 'custom') {
+                const uris = await vscode.window.showOpenDialog({
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    canSelectMany: false,
+                    filters: { 'JSON': ['json'] }
+                });
+                if (uris && uris.length > 0) {
+                    targetPath = uris[0].fsPath;
+                } else {
+                    return;
+                }
+            } else if ((selection as any).agent) {
+                targetPath = (selection as any).agent.path;
+            }
+
+            if (targetPath) {
+                const success = await McpConfigurator.injectConfiguration(targetPath, context.extensionPath);
+                if (success) {
+                    vscode.window.showInformationMessage(`Successfully installed Virgo MCP to ${path.basename(targetPath)}`);
+                    speechProvider.refreshMcpStatus();
+                } else {
+                    vscode.window.showErrorMessage(`Failed to install Virgo MCP to ${path.basename(targetPath)}. See logs for details.`);
+                }
             }
         }),
 

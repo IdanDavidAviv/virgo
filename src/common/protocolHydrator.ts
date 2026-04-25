@@ -12,14 +12,16 @@ export const READ_ALOUD_PROTOCOLS: Record<string, string> = protocols;
  * synchronized with the extension's behavioral DNA.
  * 
  * @param logger Optional logger for diagnostic output
+ * @param virgoRootName Optional override for the storage root directory
  */
-export function hydrateProtocols(logger?: (msg: string) => void): void {
+export function hydrateProtocols(logger?: (msg: string) => void, virgoRootName?: string): void {
     const log = logger || ((msg: string) => console.log(msg));
 
     try {
         // 1. Resolve global Antigravity root path (strictly Home directory)
         const userHome = os.homedir();
-        const globalProtocolsDir = path.join(userHome, '.gemini', 'antigravity', 'read_aloud', 'protocols');
+        const rootName = virgoRootName || process.env.VIRGO_ROOT || 'virgo';
+        const globalProtocolsDir = path.join(userHome, '.gemini', 'antigravity', rootName, 'protocols');
 
         // 2. Ensure directory existence
         if (!fs.existsSync(globalProtocolsDir)) {

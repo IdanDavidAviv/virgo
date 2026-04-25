@@ -105,7 +105,7 @@ describe('T-035 — SessionIndexManager', () => {
         });
     });
 
-    it('T035-5: rebuildFromHistory writes a valid index from SnippetHistory', () => {
+    it('T035-5: mergeFromHistory writes a valid index from SnippetHistory', () => {
         const scannedHistory: SnippetHistory = [
             {
                 id: 'session-x',
@@ -125,7 +125,7 @@ describe('T-035 — SessionIndexManager', () => {
             }
         ];
 
-        manager.rebuildFromHistory(scannedHistory);
+        manager.mergeFromHistory(scannedHistory);
 
         const index = manager.read();
         expect(index).not.toBeNull();

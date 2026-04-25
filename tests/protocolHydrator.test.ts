@@ -10,7 +10,7 @@ vi.mock('os');
 
 describe('ProtocolHydrator Tests', () => {
     const mockUserHome = 'C:\\Users\\TestUser';
-    const mockBaseDir = path.join(mockUserHome, '.gemini', 'antigravity', 'read_aloud', 'protocols');
+    const mockBaseDir = path.join(mockUserHome, '.gemini', 'antigravity', 'virgo', 'protocols');
     const logger = vi.fn();
 
     beforeEach(() => {

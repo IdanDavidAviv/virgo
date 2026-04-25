@@ -61,6 +61,10 @@ export interface StateMetadata {
     // Antigravity Context (Session Persistence)
     snippetHistory: SnippetHistory;
     activeSessionId?: string;
+    
+    // MCP Configuration
+    mcpStatus: 'unconfigured' | 'configured';
+    mcpActiveAgents: string[];
 }
 
 export class StateStore extends EventEmitter {
@@ -110,7 +114,9 @@ export class StateStore extends EventEmitter {
             batchIntentId: 1,
             isHydrated: false,
             isSelectingVoice: false,
-            playbackAuthorized: false
+            playbackAuthorized: false,
+            mcpStatus: 'unconfigured',
+            mcpActiveAgents: []
         };
     }
 

@@ -156,6 +156,14 @@ export class InteractionManager {
             }
         }
 
+        // 3. MCP Badge Click
+        const mcpBadge = target.closest('#mcp-status-badge');
+        if (mcpBadge) {
+            event.preventDefault();
+            this.client.postAction(OutgoingAction.OPEN_MCP_MENU);
+            return;
+        }
+
         // [AUTOPLAY] Every click counts as a gesture to unlock the audio context
         WebviewAudioEngine.getInstance().ensureAudioContext();
     }

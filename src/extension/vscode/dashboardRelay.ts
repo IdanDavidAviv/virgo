@@ -156,6 +156,8 @@ export class DashboardRelay {
             lastLoadType: s.lastLoadType || 'none',
             activeSessionId: s.activeSessionId,
             logLevel: logLevel,
+            mcpStatus: s.mcpStatus,
+            mcpActiveAgents: s.mcpActiveAgents,
             snippetHistory: s.snippetHistory,
             windowSentences: this._calculateWindowSentences(currentChapterIndex, currentSentenceIndex)
         };

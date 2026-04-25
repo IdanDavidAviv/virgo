@@ -26,7 +26,7 @@ describe('ProtocolHydrator Integration Tests (Live Filesystem)', () => {
     beforeEach(() => {
         // 1. Create a truly isolated temporary "Home" directory
         tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-test-'));
-        mockProtocolsDir = path.join(tempHome, '.gemini', 'antigravity', 'read_aloud', 'protocols');
+        mockProtocolsDir = path.join(tempHome, '.gemini', 'antigravity', 'virgo', 'protocols');
         
         // 2. Configure the mock to return our new temp folder
         (os.homedir as any).mockReturnValue(tempHome);

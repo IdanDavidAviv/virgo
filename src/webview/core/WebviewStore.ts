@@ -40,7 +40,9 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
   selectedVoice: undefined,
   snippetHistory: [],
   isHydrated: false,
-  playbackAuthorized: false
+  playbackAuthorized: false,
+  mcpStatus: 'unconfigured',
+  mcpActiveAgents: []
 };
 
 export type StoreState = UISyncPacket & {
