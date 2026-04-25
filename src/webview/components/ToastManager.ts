@@ -24,24 +24,39 @@ export class ToastManager {
 
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-        
+
         let icon = 'ℹ️';
         if (type === 'error') { icon = '❌'; }
         if (type === 'warning') { icon = '⚠️'; }
-        
-        toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+
+        toast.innerHTML = `<span>${icon}</span><span class="toast-msg">${message}</span><button class="toast-dismiss" aria-label="Dismiss">✕</button>`;
         this.container.appendChild(toast);
 
-        // Auto-remove after 4s
-        const t1 = setTimeout(() => {
+        // Shared dismiss: clears auto-timer, fades out, then removes
+        let t1: NodeJS.Timeout;
+        const dismiss = () => {
+            clearTimeout(t1);
+            this.activeTimeouts.delete(t1);
             toast.classList.add('fade-out');
             const t2 = setTimeout(() => {
                 toast.remove();
                 this.activeTimeouts.delete(t2);
             }, 300);
             this.activeTimeouts.add(t2);
-            this.activeTimeouts.delete(t1);
-        }, 4000);
+        };
+
+        // Wire dismiss button — stopPropagation prevents bubbling to the document-level
+        // InteractionManager handler which calls ensureAudioContext() and can trigger
+        // a store re-render that wipes the toast DOM.
+        const btn = toast.querySelector<HTMLButtonElement>('.toast-dismiss');
+        btn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            dismiss();
+        }, { once: true });
+
+        // Auto-remove after 8s
+        t1 = setTimeout(dismiss, 8000);
         this.activeTimeouts.add(t1);
     }
 
