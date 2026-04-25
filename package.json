@@ -315,7 +315,6 @@
     "release:patch:fast": "npm run release:changelog-check && node .agent/skills/release_authority/scripts/manage_version.js --bump patch && npm run release:verify && npm run release:package",
     "release:minor:fast": "npm run release:changelog-check && node .agent/skills/release_authority/scripts/manage_version.js --bump minor && npm run release:verify && npm run release:package",
     "release:major:fast": "npm run release:changelog-check && node .agent/skills/release_authority/scripts/manage_version.js --bump major && npm run release:verify && npm run release:package",
-    "onboard": "node scripts/read_aloud_setup.js",
     "cdp:shell": "node scripts/cdp-controller.mjs shell",
     "cdp:status": "node scripts/cdp-controller.mjs status",
     "cdp:targets": "node scripts/cdp-controller.mjs targets",
