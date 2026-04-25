@@ -47,6 +47,13 @@ When the user requests to "publish the MCP server", the following happens:
 
 ---
 
-## 4. Dependencies
+## 4. Release Authority Ideology & Constraints
 
-This skill works synergistically with the `release_authority` skill. When bumping a version in `release_authority`, the version cascades down because the `publish_mcp` script explicitly reads the active `version` from the root `package.json` during the extraction phase. There is no risk of version drift.
+> [!IMPORTANT]
+> **Sequential Sovereignty**
+> The MCP Publisher **must never** precede the VSIX release. It is strictly a downstream pipeline of the `release_authority`.
+
+This skill must strictly respect the release constraints defined in the `release_authority`. Specifically:
+1. **Gate Sequence**: `npm run publish:mcp` should only be executed **after** a successful `npm run release:package` (or the equivalent fast gates). This guarantees the VSIX and the NPM package share the exact same built artifacts and version namespace.
+2. **Hashbang Isolation Guard**: Due to race conditions where a stale `npm run watch` process might overwrite the minified `dist/mcp-standalone.js` with an un-prefixed development build, `publish_mcp.js` is engineered to strictly read and explicitly inject the `#!/usr/bin/env node` header itself during the staging copy. This guarantees the NPX package executes correctly on Windows regardless of the IDE's build cache.
+3. **Version Parity**: The script derives the `version` field directly from the root `package.json`, inherently respecting the strict SemVer bumping governed by `release_authority/scripts/manage_version.js`.

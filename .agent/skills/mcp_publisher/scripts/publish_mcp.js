@@ -28,8 +28,13 @@ if (!fs.existsSync(sourceScript)) {
     process.exit(1);
 }
 
-fs.copyFileSync(sourceScript, targetScript);
-console.log('✅ Copied standalone script to package directory.');
+let scriptContent = fs.readFileSync(sourceScript, 'utf8');
+if (!scriptContent.startsWith('#!/usr/bin/env node')) {
+    scriptContent = '#!/usr/bin/env node\n' + scriptContent;
+}
+
+fs.writeFileSync(targetScript, scriptContent, 'utf8');
+console.log('✅ Copied standalone script to package directory and verified hashbang.');
 
 // Generate a lightweight package.json
 const mcpPackageJson = {

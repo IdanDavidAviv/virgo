@@ -11,6 +11,7 @@ implementation_plan.md
 .vscode/ext-dev-data
 
 dist/
+dist-npm-mcp/
 coverage/
 tests/mcp/test_storage/
 tests/mcp/test_brain/

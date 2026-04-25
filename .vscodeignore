@@ -20,6 +20,7 @@ diagnostics_agent.log
 test.md
 node_modules/**
 !dist/**
+dist-npm-mcp/**
 .agent/
 tests/**
 scripts/**
