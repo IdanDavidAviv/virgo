@@ -85,7 +85,7 @@ A **reload** restarts the extension in-place. For a true cold-boot audit, you ne
 ### 🛠 Phase 3: The Audit-Audit Ritual
 **DISPATCH-AUDIT MIRROR**: Every `dispatch` (or `exec`) action MUST be followed by a state verification.
 - *Rationale*: Extension commands are asynchronous. The UI might confirm "OK" while the underlying state is still syncing.
-- *Action*: `dispatch Readme Preview: Play` -> `wait-for-ready` (or manual poll) -> `verify-state`.
+- *Action*: `dispatch Virgo: Play` -> `wait-for-ready` (or manual poll) -> `verify-state`.
 
 ### 🛠 Phase 4: Exit Ritual
 
@@ -141,6 +141,16 @@ When closing the dev host, the script follows a polite 3-tier ladder:
 | **Full Exit** | `exit` | Stop playback + close Dev Host + exit shell |
 
 > `eval <expr>` runs JavaScript **inside the live webview context of the running shell session**. It is not a standalone script runner — it requires an open shell with a hydrated webview. Use `audit` for structured state inspection; use `eval` only for one-off queries.
+>
+> **Event Probing Pattern** (for DOM/interaction audits — e.g. mouseenter, gesture gates):
+> ```
+> eval document.addEventListener('mouseenter', () => window.__PROBE_COUNT = (window.__PROBE_COUNT||0)+1)
+> // move mouse over panel, then:
+> eval JSON.stringify({ count: window.__PROBE_COUNT })
+> // cleanup:
+> eval (() => { window.__PROBE_COUNT = undefined; })(); 'PROBE_REMOVED'
+> ```
+> Use this to verify event propagation across the webview boundary before wiring production handlers.
 
 ## 5. Troubleshooting the Signal
 - **"NOT FOUND" (Webview)**: If `status` shows `Webview: ❌`, run `dispatch ...show-dashboard`. Webviews are lazily loaded.

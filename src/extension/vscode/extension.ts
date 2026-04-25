@@ -79,7 +79,7 @@ export async function activate(context: vscode.ExtensionContext) {
         fs.unlinkSync(testFile);
     } catch (err: any) {
         vscode.window.showErrorMessage(
-            `Virgo cannot write to its data directory: ${err.message}. Please check permissions for ${sessionsRoot}.`,
+            `Virgo cannot write to its data directory. Please check folder permissions for: ${sessionsRoot}`,
             'Repair Permissions'
         ).then(selection => {
             if (selection === 'Repair Permissions') {
