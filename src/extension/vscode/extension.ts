@@ -299,12 +299,12 @@ export async function activate(context: vscode.ExtensionContext) {
             const customSelectionId = selection.label.includes('Copy to Clipboard') ? 'clipboard' : selection.label.includes('Custom Path') ? 'custom' : 'agent';
 
             if (customSelectionId === 'clipboard') {
-                const scriptPath = path.join(context.extensionPath, 'dist', 'mcpStandalone.js').replace(/\\/g, '/');
+                const scriptPath = path.join(context.extensionPath, 'dist', 'mcp-standalone.js').replace(/\\/g, '/');
                 const snippet = JSON.stringify({
                     "mcpServers": {
                         "virgo": {
-                            "command": "node",
-                            "args": [scriptPath]
+                            "command": "npx",
+                            "args": ["-y", "virgo-mcp"]
                         }
                     }
                 }, null, 2);

@@ -95,11 +95,9 @@ export class McpConfigurator {
      */
     public static async injectConfiguration(configPath: string, extensionPath: string): Promise<boolean> {
         // Build the Virgo server config block
-        const scriptPath = path.join(extensionPath, 'dist', 'mcpStandalone.js').replace(/\\/g, '/');
-        
         const virgoBlock = {
-            command: 'node',
-            args: [scriptPath]
+            command: 'npx',
+            args: ['-y', 'virgo-mcp']
         };
 
         try {

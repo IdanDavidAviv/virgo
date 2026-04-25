@@ -90,7 +90,7 @@ async function build() {
         minify: mode === 'production',
         sourcemap: true,
         banner: {
-            js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+            js: "#!/usr/bin/env node\nimport { createRequire } from 'module'; const require = createRequire(import.meta.url);",
         },
         define: {
             '__APP_VERSION__': JSON.stringify(version)

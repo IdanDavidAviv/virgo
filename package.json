@@ -320,7 +320,8 @@
     "cdp:targets": "node scripts/cdp-controller.mjs targets",
     "cdp:launch": "node scripts/cdp-controller.mjs launch",
     "cdp:cleanup": "node scripts/cdp-controller.mjs cleanup-all",
-    "dev:full-cycle": "npm run compile && npm run cdp:launch"
+    "dev:full-cycle": "npm run compile && npm run cdp:launch",
+    "publish:mcp": "node .agent/skills/mcp_publisher/scripts/publish_mcp.js"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
