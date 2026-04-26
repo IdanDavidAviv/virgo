@@ -4,7 +4,7 @@
 > You are reading this file because your human user wants to install **Virgo** so that you (the AI) can speak to them out loud.
 > Your objective is to guide the user step-by-step.
 > 
-> **CRITICAL:** Do NOT hallucinate instructions. Follow the exact logic paths below based on your environment.
+> **CRITICAL:** Follow the exact logic paths below based on your environment. Do NOT hallucinate instructions. Do NOT skip steps. Do NOT paraphrase the instructions.
 
 ---
 
