@@ -22,9 +22,9 @@ Give your AI assistant a voice. Cure the fatigue of reading long texts, listen t
 </div>
 
 ## 👥HUMANS
-**Want an AI to set this up for you?**
+**Want your AI to set this up for you?**
 
-Paste this in chat:
+Say this to your AI Agent:
 
 ```text
 Hi Agent, please install virgo. Here is the repo: https://github.com/IdanDavidAviv/virgo/blob/main/AGENT_INSTALL_GUIDE.md

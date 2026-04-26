@@ -36,7 +36,6 @@ export class PlaybackEngine extends EventEmitter {
     private _batchAbortController: AbortController | null = null;
     private _prefetchAbortController: AbortController = new AbortController();
 
-    private _isRateLimited: boolean = false;
     private _watchdogTimer: NodeJS.Timeout | null = null;
     private _isStalled: boolean = false;
 
@@ -627,12 +626,6 @@ export class PlaybackEngine extends EventEmitter {
             return null;
         }
 
-        // CIRCUIT BREAKER: Avoid aggressive prefetching if rate limited
-        if (this._isRateLimited && !isPriority) {
-            this.logger(`[NEURAL] CIRCUIT BREAKER - Skipping prefetch while rate limited.`);
-            return null;
-        }
-
         try {
             // FINAL STALE CHECK BEFORE API CALL
             if (intentId !== this._stateStore.state.playbackIntentId) {
@@ -729,7 +722,7 @@ export class PlaybackEngine extends EventEmitter {
                     });
                 };
 
-                startWatchdog(10000); // Wait 10s for first chunk (v2.4.6: Relaxed from 4s)
+                startWatchdog(15000); // Wait 15s for first chunk (v2.8.8: Relaxed from 10s)
 
                 const onAbort = () => {
                     this.logger(`[TTS STREAM] ABORT SIGNAL received.`);
@@ -744,8 +737,8 @@ export class PlaybackEngine extends EventEmitter {
                 audioStream.on("data", (data: Buffer) => {
                     if (hasErrored) { return; }
 
-                    // Reset watchdog with a more generous 10s buffer between chunks
-                    startWatchdog(10000);
+                    // Reset watchdog with a more generous 15s buffer between chunks
+                    startWatchdog(15000);
 
                     if (chunks.length === 0) {
                         this.logger(`[TTS STREAM] STARTING (chunk 0)`);
@@ -809,14 +802,7 @@ export class PlaybackEngine extends EventEmitter {
 
             // --- RATE LIMIT DETECTION ---
             if (errorMessage.includes("429") || errorMessage.toLowerCase().includes("too many requests")) {
-                this.logger(`[RATE LIMIT HIT] Azure TTS has throttled our requests. Entering Safe Mode.`);
-                this._isRateLimited = true;
-
-                // Reset circuit breaker after 60 seconds
-                setTimeout(() => {
-                    this._isRateLimited = false;
-                    this.logger(`[NEURAL] CIRCUIT BREAKER RESET - Resuming normal prefetch operation.`);
-                }, 60000);
+                this.logger(`[RATE LIMIT HIT] Azure TTS has throttled our requests. Relying on exponential backoff.`);
             }
 
             if (retryCount > 0) {
@@ -861,7 +847,14 @@ export class PlaybackEngine extends EventEmitter {
 
                 // Exponential backoff
                 const backoffMs = Math.min(1000 * Math.pow(2, 3 - retryCount), 8000);
-                await new Promise(res => setTimeout(res, backoffMs));
+                await new Promise<void>(res => {
+                    if (signal?.aborted) {return res();}
+                    const timeout = setTimeout(res, backoffMs);
+                    signal?.addEventListener('abort', () => {
+                        clearTimeout(timeout);
+                        res();
+                    }, { once: true });
+                });
 
                 // [SERIALIZATION] Lock is held by parent scope throughout retries to ensure FIFO integrity.
                 return this._getNeuralAudio(text, voiceId, retryCount - 1, intentId, isPriority, batchId);
