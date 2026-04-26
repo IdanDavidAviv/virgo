@@ -66,6 +66,14 @@ Use AI to narrate architecture documents or code walkthroughs directly inside VS
 4. Open any Markdown (`.md`) file.
 5. **Click once inside the Virgo panel** to activate the audio engine. *(See note below.)*
 6. Press `Alt + R` (or run `Virgo: Play` from the Command Palette).
+7. **Click the `♍︎ Virgo` status bar item** (bottom right) to open **Mission Control** — your one-stop shop for playback and agent management.
+
+### 🕹️ Mission Control
+
+Accessible via the status bar, **Mission Control** provides instant access to core features without needing to open the dashboard:
+*   **Playback Controls**: Quick Play, Resume, Pause, and Chapter navigation.
+*   **Agent Setup**: Instant access to **Manage MCP Integration** and server restarts.
+*   **Dashboard Access**: One-click to focus the full Virgo interface.
 
 > [!IMPORTANT]
 > **First-Run Requirement — Click to Activate Audio**

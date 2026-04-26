@@ -94,7 +94,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Single Consolidated Status Bar Item
     mainStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     mainStatusBarItem.command = 'virgo.show-quick-controls';
-    mainStatusBarItem.text = '$(unmute) Virgo';
+    mainStatusBarItem.text = '♍︎ Virgo';
     mainStatusBarItem.tooltip = 'Click for Virgo Controls';
     mainStatusBarItem.show();
 
@@ -170,22 +170,36 @@ export async function activate(context: vscode.ExtensionContext) {
                 // If not playing, just trigger play or show dashboard
                 const action = await vscode.window.showQuickPick([
                     { label: '$(play) Start Reading', id: 'play' },
-                    { label: '$(layout-sidebar-right) Open Dashboard', id: 'dashboard' }
+                    { label: '$(debug-start-from-here) Read From Cursor', id: 'read_from_cursor' },
+                    { label: '$(layout-sidebar-right) Open Dashboard', id: 'dashboard' },
+                    { label: '$(plug) Manage MCP Integration', id: 'manage_mcp' },
+                    { label: '$(sync) Restart MCP Server', id: 'restart_mcp' }
                 ], { placeHolder: 'Virgo Mission Control' });
 
-                if (action?.id === 'play') { vscode.commands.executeCommand('virgo.play'); }
-                if (action?.id === 'dashboard') { vscode.commands.executeCommand('virgo.show-dashboard'); }
+                if (action?.id === 'play') {
+                    vscode.commands.executeCommand('virgo.play');
+                } else if (action?.id === 'read_from_cursor') {
+                    vscode.commands.executeCommand('virgo.read-from-cursor');
+                } else if (action?.id === 'dashboard') {
+                    vscode.commands.executeCommand('virgo.show-dashboard');
+                } else if (action?.id === 'manage_mcp') {
+                    vscode.commands.executeCommand('virgo.manageMcp');
+                } else if (action?.id === 'restart_mcp') {
+                    vscode.commands.executeCommand('virgo.restart-mcp');
+                }
                 return;
             }
 
             const items = [
                 { label: isPaused ? '$(play) Resume' : '$(debug-pause) Pause', id: 'toggle' },
                 { label: '$(debug-stop) Stop Playback', id: 'stop' },
+                { label: '$(arrow-right) Next Chapter', id: 'next_ch' },
+                { label: '$(arrow-left) Prev Chapter', id: 'prev_ch' },
                 { label: '$(layout-sidebar-right) Open Dashboard', id: 'dashboard' }
             ];
 
             const selection = await vscode.window.showQuickPick(items, {
-                placeHolder: 'Virgo Controls'
+                placeHolder: 'Virgo Mission Control'
             });
 
             if (selection?.id === 'toggle') {
@@ -193,6 +207,10 @@ export async function activate(context: vscode.ExtensionContext) {
                 else { speechProvider.pause(); }
             } else if (selection?.id === 'stop') {
                 speechProvider.stop();
+            } else if (selection?.id === 'next_ch') {
+                vscode.commands.executeCommand('virgo.next-chapter');
+            } else if (selection?.id === 'prev_ch') {
+                vscode.commands.executeCommand('virgo.prev-chapter');
             } else if (selection?.id === 'dashboard') {
                 vscode.commands.executeCommand('virgo.show-dashboard');
             }

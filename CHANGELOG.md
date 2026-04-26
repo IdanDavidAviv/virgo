@@ -2,6 +2,19 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
  
+## [2.8.5] - 2026-04-26
+
+### Added
+- **Mission Control Dashboard**: Introduced a high-fidelity Quick Pick menu accessible via the `♍︎ Virgo` status bar item. Provides instant access to playback controls, chapter navigation, and MCP management without opening the sidebar.
+- **Artistic Brand Identity**: Implemented the new "Artistic" extension icon across the VS Code Activity Bar and Webview. The new vector asset is theme-aware (`currentColor`) and provides a premium, high-density visual signature.
+
+### Changed
+- **Status Bar Branding**: Standardized the status bar presence to use the `♍︎ Virgo` identifier, providing a cleaner and more distinct presence in the IDE footer.
+- **Documentation Overhaul**: Updated the README with dedicated "Mission Control" guidance and usage tips for the new control system.
+
+### Fixed
+- **Extension Asset Pipeline**: Hardened `esbuild.js` and the build process to ensure high-density SVG assets are correctly optimized and deployed to the production bundle.
+
 ## [2.8.4] - 2026-04-26
 
 ### Changed
