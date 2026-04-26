@@ -47,7 +47,7 @@ You cannot install an IDE extension from a web browser. If you try, the user wil
 
     ```text
     Hello! I want to install the Virgo extension from: https://github.com/IdanDavidAviv/virgo
-    follow the instructions there please!
+    Please follow the instructions there completely, including the post-install behavioral calibration.
     ```
 
 4. Wish them luck and tell them the IDE agent will take it from here. **STOP HERE.** Do not execute Path B.
@@ -91,8 +91,8 @@ Virgo is installed, but you must now proactively guide the user to configure **h
 
 **Tell the user (in your own words):**
 1. Tell them you need to calibrate your voice settings.
-2. **CRITICAL:** Pause the current conversation flow, and immediately execute the protocol found in `AGENT_GUIDED_PREFERENCES_SKILL_DEFINITION_PROTOCOL.md`.
-3. Follow the protocol exactly to analyze their chat history, suggest voice strategies, and write their preferences into a permanent skill file.
+2. **MANDATORY TOOL CALL:** Do NOT wait for the user to ask. You must proactively use your file-reading tool (e.g., `view_file` or `read_file`) to open `AGENT_GUIDED_PREFERENCES_SKILL_DEFINITION_PROTOCOL.md` right now.
+3. Read the protocol and immediately begin asking the user the interview questions defined in Phase 2 of that document. Do not conclude the installation until this is done.
 
 ---
 
