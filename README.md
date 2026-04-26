@@ -11,7 +11,7 @@
   [![MCP Compatible](https://img.shields.io/badge/🔌%20MCP-Compatible-blue?style=flat-square)](#-for-ai-agents-mcp-integration)
   [![Zero Telemetry](https://img.shields.io/badge/Privacy-Zero%20Telemetry-success?style=flat-square)](#-privacy--transparency)
   [![Works with Cursor](https://img.shields.io/badge/Works%20with-Cursor%20%7C%20Antigravity%20%7C%20VS%20Code-black?style=flat-square)](#-quick-start-ide--vsix)
-  [![Neural TTS](https://img.shields.io/badge/Audio-Microsoft%20Neural%20TTS-ff69b4?style=flat-square)](#️-voices)
+  [![Neural TTS](https://img.shields.io/badge/Audio-Microsoft%20Neural%20TTS-0078D4?style=flat-square&logo=microsoft)](#️-voices)
   <br />
 
 # ♍︎ Virgo
