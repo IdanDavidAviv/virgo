@@ -5,6 +5,7 @@
 
   [![Version](https://img.shields.io/github/v/release/IdanDavidAviv/virgo?style=flat-square)](https://github.com/IdanDavidAviv/virgo/releases)
   [![🤖 Buy Me AI Tokens](https://img.shields.io/badge/🤖%20Buy%20Me%20AI%20Tokens-FFDD00?style=flat-square&logoColor=black)](https://buymeacoffee.com/idandavidaviv)
+  [![❤️ GitHub Sponsors](https://img.shields.io/badge/❤️%20Sponsor-GitHub-EA4AAA?style=flat-square&logo=github)](https://github.com/sponsors/IdanDavidAviv)
 </div>
 
 ---
@@ -105,4 +106,4 @@ If you wish to use Virgo or its underlying code for a commercial purpose (e.g., 
 
 ---
 
-**Enjoying Virgo?** [🤖 Buy me AI tokens](https://buymeacoffee.com/idandavidaviv)
+**Enjoying Virgo?** [🤖 Buy me AI tokens](https://buymeacoffee.com/idandavidaviv) &nbsp;·&nbsp; [❤️ GitHub Sponsors](https://github.com/sponsors/IdanDavidAviv)
