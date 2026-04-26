@@ -118,7 +118,7 @@ Before triggering any automated release:
 > - **Agent writes**: CHANGELOG entry, version bump, commit. Stops here.
 > - **Human controls**: `git tag vX.Y.Z && git push origin vX.Y.Z` — this is the release trigger.
 > - **CI handles**: Build from source → VSIX → GitHub Release creation → asset upload.
-> - **MCP publish** (`npm run publish:mcp`) stays fully manual — protected by npm OTP 2FA.
+> - **MCP publish** (`npm run publish:mcp`) is now **integrated** into the `release:*` scripts for absolute version parity.
 
 > [!IMPORTANT]
 > **When to use `:fast`:** Only when ALL of the following are true in the **same agent session**:
@@ -145,6 +145,8 @@ Before triggering any automated release:
 5. release:package
    ├─ vsce package    → generates .vsix artifact
    └─ verify_artifact.js → confirms .vsix exists + non-zero size
+6. publish:mcp (v2.8.3+)
+   └─ Extracts standalone server → publishes to NPM registry
 ```
 
 **Fast pipeline** (`release:patch:fast`) — agent session only, gates already passed:
