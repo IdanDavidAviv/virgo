@@ -366,7 +366,7 @@ export async function activate(context: vscode.ExtensionContext) {
                                 vscode.window.showInformationMessage(`Successfully installed Virgo MCP to ${path.basename(targetPath!)}`);
                                 speechProvider.refreshMcpStatus();
                             } else {
-                                vscode.window.showErrorMessage(`Failed to install Virgo MCP to ${path.basename(targetPath!)}. See logs for details.`);
+                                vscode.window.showWarningMessage(`Virgo was unable to configure the MCP server for ${path.basename(targetPath!)}. The diagnostic logs have been updated.`);
                             }
                             resolve();
                         });

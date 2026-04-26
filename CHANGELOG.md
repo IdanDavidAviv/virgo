@@ -2,6 +2,16 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
  
+## [2.8.4] - 2026-04-26
+
+### Changed
+- **Visual Rebranding**: Replaced the individual icon and wordmark images in the README header with a seamless, combined `virgo_symbol_and_text.png` banner for a premium presentation. Overhauled the header layout using a stacked, borderless HTML structure.
+
+### Fixed
+- **Global Arrow Key Hijacking**: Resolved a critical UX bug where Virgo's navigation keybindings (`Left`, `Right`, `Shift+Left`, `Shift+Right`) swallowed cursor movements in standard, editable Markdown files. Arrow key playback controls are now contextually isolated to trigger *only* when the Virgo Webview is focused or when viewing a read-only `.md.resolved` agent log.
+
+### Removed
+- **`globalShortcuts` Configuration**: Deprecated and removed the `readAloud.playback.globalShortcuts` setting from `package.json`, as it is completely superseded by the new contextual keybinding resolution.
 ## [2.8.3] - 2026-04-26
 
 ### Fixed

@@ -2,7 +2,7 @@
   "name": "virgo",
   "displayName": "Virgo",
   "description": "AI that talks to YOU. Neural narration, MCP-powered, for VS Code.",
-  "version": "2.8.3",
+  "version": "2.8.4",
   "license": "SEE LICENSE IN LICENSE",
   "publisher": "IdanDavidAviv",
   "engines": {
@@ -59,7 +59,7 @@
     "color": "#0d0d1a",
     "theme": "dark"
   },
-  "icon": "assets/icon.png",
+  "icon": "assets/virgo_icon.png",
   "main": "./dist/extension.js",
   "activationEvents": [
     "onLanguage:markdown",
@@ -239,11 +239,6 @@
           "default": true,
           "description": "Automatically inject a SITREP/Summary into Virgo when a task is completed (Multimodal Parity)."
         },
-        "readAloud.playback.globalShortcuts": {
-          "type": "boolean",
-          "default": false,
-          "description": "If enabled, navigation shortcuts (Arrows, Shift+Arrows) work globally when the extension is active. If disabled, they only work when focused on a Markdown editor or the Dashboard."
-        },
         "virgo.system.rootDirectory": {
           "type": "string",
           "default": "virgo",
@@ -269,22 +264,22 @@
       {
         "command": "virgo.prev-chapter",
         "key": "shift+left",
-        "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
+        "when": "focusedView == 'virgo.speech-engine' || (editorFocus && resourceFilename =~ /\\.md\\.resolved$/)"
       },
       {
         "command": "virgo.next-chapter",
         "key": "shift+right",
-        "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
+        "when": "focusedView == 'virgo.speech-engine' || (editorFocus && resourceFilename =~ /\\.md\\.resolved$/)"
       },
       {
         "command": "virgo.prev-sentence",
         "key": "left",
-        "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
+        "when": "focusedView == 'virgo.speech-engine' || (editorFocus && resourceFilename =~ /\\.md\\.resolved$/)"
       },
       {
         "command": "virgo.next-sentence",
         "key": "right",
-        "when": "editorLangId == markdown || config.readAloud.playback.globalShortcuts"
+        "when": "focusedView == 'virgo.speech-engine' || (editorFocus && resourceFilename =~ /\\.md\\.resolved$/)"
       }
     ]
   },
