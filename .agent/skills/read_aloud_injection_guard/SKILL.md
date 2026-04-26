@@ -62,7 +62,7 @@ Injected Turn 5 into session abc123 successfully at /path/to/file.md
 ## 2.5 When To Use `say_this_loud` (Strategic Triggers)
 > **Canonical SSOT**: [GEMINI.md §12.2](../../../../GEMINI.md) — this section summarizes; defer to GEMINI.md if they diverge.
 
-Fire `say_this_loud` **only** on these 4 triggers — **NOT every turn**:
+Fire `say_this_loud` **only** on these 5 triggers — **NOT every turn**:
 
 | # | Trigger | Example |
 |---|---|---|
@@ -70,6 +70,7 @@ Fire `say_this_loud` **only** on these 4 triggers — **NOT every turn**:
 | 2 | Implementation plan proposals | Before requesting GO from the user |
 | 3 | Phase completions | Handoff to user at end of a plan phase |
 | 4 | Major milestones or blocking questions | Strategic decision required |
+| 5 | Post-Install Coaching / Behavioral Suggestions | Agent proactive setup of user preferences |
 
 **Never fire for:**
 - ❌ Minor progress notes or interim tool-call results
