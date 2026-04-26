@@ -163,6 +163,12 @@ export async function activate(context: vscode.ExtensionContext) {
             speechProvider.refreshVoices();
         }),
 
+        vscode.commands.registerCommand('virgo.clear-cache', () => {
+            log('[CMD_RECV] virgo.clear-cache');
+            speechProvider.clearCache();
+            vscode.window.showInformationMessage('Virgo: Audio cache cleared.');
+        }),
+
         vscode.commands.registerCommand('virgo.show-quick-controls', async () => {
             log('[CMD_RECV] virgo.show-quick-controls');
             const isPlaying = speechProvider.isPlaying();
@@ -174,6 +180,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     { label: '$(play) Start Reading', id: 'play' },
                     { label: '$(debug-start-from-here) Read From Cursor', id: 'read_from_cursor' },
                     { label: '$(layout-sidebar-right) Open Dashboard', id: 'dashboard' },
+                    { label: '$(trash) Clear Audio Cache', id: 'clear_cache' },
                     { label: '$(plug) Manage MCP Integration', id: 'manage_mcp' },
                     { label: '$(sync) Restart MCP Server', id: 'restart_mcp' }
                 ], { placeHolder: 'Virgo Mission Control' });
@@ -188,6 +195,8 @@ export async function activate(context: vscode.ExtensionContext) {
                     vscode.commands.executeCommand('virgo.manageMcp');
                 } else if (action?.id === 'restart_mcp') {
                     vscode.commands.executeCommand('virgo.restart-mcp');
+                } else if (action?.id === 'clear_cache') {
+                    vscode.commands.executeCommand('virgo.clear-cache');
                 }
                 return;
             }
@@ -197,7 +206,8 @@ export async function activate(context: vscode.ExtensionContext) {
                 { label: '$(debug-stop) Stop Playback', id: 'stop' },
                 { label: '$(arrow-right) Next Chapter', id: 'next_ch' },
                 { label: '$(arrow-left) Prev Chapter', id: 'prev_ch' },
-                { label: '$(layout-sidebar-right) Open Dashboard', id: 'dashboard' }
+                { label: '$(layout-sidebar-right) Open Dashboard', id: 'dashboard' },
+                { label: '$(trash) Clear Audio Cache', id: 'clear_cache' }
             ];
 
             const selection = await vscode.window.showQuickPick(items, {
@@ -215,6 +225,8 @@ export async function activate(context: vscode.ExtensionContext) {
                 vscode.commands.executeCommand('virgo.prev-chapter');
             } else if (selection?.id === 'dashboard') {
                 vscode.commands.executeCommand('virgo.show-dashboard');
+            } else if (selection?.id === 'clear_cache') {
+                vscode.commands.executeCommand('virgo.clear-cache');
             }
         }),
 

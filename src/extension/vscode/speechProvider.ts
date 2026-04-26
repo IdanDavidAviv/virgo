@@ -1322,6 +1322,21 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger('[READALOUD] Context Reset: Reader cleared.');
     }
 
+    public clearCache(): void {
+        this._logger('[CMD] Manual clearCache triggered');
+        this._playbackEngine.clearCache();
+        
+        // Zero out cache stats immediately on the extension side
+        this._stateStore.patchState({
+            cacheCount: 0,
+            cacheSizeBytes: 0
+        });
+        
+        // Notify the Webview to wipe its IndexedDB audio cache
+        this._dashboardRelay.postMessage({ command: IncomingCommand.CLEAR_CACHE_WIPE });
+        this._logger(`[CACHE] Extension cache purged manually. Triggering webview wipe...`);
+    }
+
     public play(text: string, startFromChapter: number = 0, fileName?: string) {
         this._logger(`[SPEECH_PROVIDER] action:play | file: ${fileName} | start: ${startFromChapter}`);
         this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay

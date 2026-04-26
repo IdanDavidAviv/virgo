@@ -1,6 +1,8 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { ToastManager } from './ToastManager';
 import { PlaybackController } from '../playbackController';
+import { MessageClient } from '../core/MessageClient';
+import { OutgoingAction } from '../../common/types';
 
 export interface SettingsDrawerElements extends Record<string, HTMLElement | HTMLInputElement | HTMLButtonElement | HTMLMediaElement | null | undefined> {
     drawer: HTMLElement;
@@ -147,19 +149,12 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             });
         }
 
-        // 5. Cache Management
+        // 5. Cache Management (Trigger Quick Controls)
         if (cacheDebugTag) {
-            this.registerEventListener(cacheDebugTag, 'dblclick', async () => {
-                const confirmed = confirm('Clear all cached neural audio?');
-                if (confirmed) {
-                    controller.clearCache();
-                    ToastManager.show('Audio cache cleared', 'info');
-                    this.pulse(cacheDebugTag);
-                }
-            });
-            
             this.registerEventListener(cacheDebugTag, 'click', () => {
-                ToastManager.show('Double-click to clear cache', 'info');
+                MessageClient.getInstance().postAction(OutgoingAction.EXECUTE_COMMAND, {
+                    commandId: 'virgo.show-quick-controls'
+                });
             });
         }
     }
