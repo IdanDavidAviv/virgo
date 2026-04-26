@@ -415,16 +415,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public isPaused() { return this._playbackEngine.isPaused; }
 
     private _syncStatusBars() {
-        const isPlaying = this._playbackEngine.isPlaying;
-        const isPaused = this._playbackEngine.isPaused;
-
-        if (isPlaying) {
-            this._statusBarItem.text = isPaused ? "$(play) Resume" : "$(debug-pause) Pause";
-            this._statusBarItem.backgroundColor = isPaused ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
-        } else {
-            this._statusBarItem.text = "♍︎ Virgo";
-            this._statusBarItem.backgroundColor = undefined;
-        }
+        this._statusBarItem.text = "♍︎ Virgo";
+        this._statusBarItem.backgroundColor = undefined;
     }
 
     public resolveWebviewView(

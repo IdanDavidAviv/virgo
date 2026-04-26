@@ -66,7 +66,11 @@ function registerTools(server: McpServer, config: McpConfig) {
         "(4) major milestones or blocking questions. " +
         "Requires the active brain sessionId. Content must be verbatim prose — not JSON or raw paths. " +
         "CRITICAL: Whatever content you send here MUST also appear verbatim as plain text in your " +
-        "chat response (Chat/Audio Parity). The agent cannot narrate content it does not display.",
+        "chat response (Chat/Audio Parity). The agent cannot narrate content it does not display.\n" +
+        "CRITICAL ENVIRONMENT NOTE: Browser autoplay policies block audio until the user manually " +
+        "interacts with the Virgo sidebar. If you are starting a new session, or if the user reports " +
+        "that they cannot hear you, you MUST proactively instruct them to 'open the Virgo sidebar " +
+        "and click anywhere inside it' to unlock audio playback.",
         {
             content: z.string().describe(
                 "Full markdown content to inject. MUST be verbatim and readable as prose. " +
@@ -146,10 +150,10 @@ function registerTools(server: McpServer, config: McpConfig) {
 }
 
 function registerResources(server: McpServer, config: McpConfig) {
-    // [1] Resource: Native Logs
+    // [1] Resource: Native Logs (Live Log)
     server.resource(
-        "native-logs",
-        "virgo://logs/native",
+        "live_log",
+        "virgo://logs/live_log",
         {
             description: "Real-time diagnostic stream from the VS Code Output Channel.",
             mimeType: "text/plain"
@@ -160,19 +164,6 @@ function registerResources(server: McpServer, config: McpConfig) {
         }
     );
 
-    // [2] Resource: Debug Logs
-    server.resource(
-        "debug-logs",
-        "virgo://logs/debug",
-        {
-            description: "Internal extension logs containing bridge events and lifecycle diagnostics.",
-            mimeType: "text/plain"
-        },
-        async (uri) => {
-            const text = LogReporter.build('debug', { debugLogPath: config.debugLogPath });
-            return { contents: [{ uri: uri.href, mimeType: "text/plain", text }] };
-        }
-    );
 
     // [3] Resource: Session State (Dynamic Template)
     const stateTemplate = new ResourceTemplate("virgo://session/{sessionId}/state", { 

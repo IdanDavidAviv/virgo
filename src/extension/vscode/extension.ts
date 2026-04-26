@@ -62,7 +62,9 @@ export async function activate(context: vscode.ExtensionContext) {
         outputChannel = vscode.window.createOutputChannel('Virgo Diagnostics');
         log('[SYSTEM] LogOutputChannel API not found. Falling back to standard OutputChannel.');
     }
-    outputChannel.show(true); 
+    if (context.extensionMode === vscode.ExtensionMode.Development) {
+        outputChannel.show(true); 
+    }
 
     // [Onboarding & Repair] Environment Sanity Check
     const userProfile = process.env.USERPROFILE || process.env.HOME || '';

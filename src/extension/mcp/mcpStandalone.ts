@@ -22,7 +22,11 @@ async function main() {
     // Standalone targets the sessions root; the factory handles specific session IDs via tool arguments.
     const persistencePath = sessionsRoot;
 
-    const logger = (msg: string) => console.error(`[MCP_STANDALONE] ${msg}`);
+    const logger = (msg: string) => {
+        if (process.env.NODE_ENV !== 'production') {
+            console.error(`[MCP_STANDALONE] ${msg}`);
+        }
+    };
     
     logger(`Sessions Root: ${sessionsRoot}`);
 

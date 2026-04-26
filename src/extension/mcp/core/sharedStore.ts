@@ -34,7 +34,11 @@ export class PendingInjectionStore extends EventEmitter {
         return TurnManager.updateTurnIndex(sessionPath, {
             sessionTitle,
             incomingIndex,
-            logger: (msg) => console.log(`[MCP_STORE_STATE] ${msg}`)
+            logger: (msg) => {
+                if (process.env.NODE_ENV !== 'production') {
+                    console.error(`[MCP_STORE_STATE] ${msg}`);
+                }
+            }
         });
     }
 
