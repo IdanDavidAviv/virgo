@@ -25,6 +25,9 @@ Give your AI assistant a voice. Cure the fatigue of reading long texts, listen t
 **Want an AI to set this up for you?**
 
 Paste this in chat:
+> Hi Agent, please install virgo. Here is the [repo](https://github.com/IdanDavidAviv/virgo).
+
+*(Click the copy icon below to copy the prompt)*
 ```text
 Hi Agent, please install virgo. Here is the repo: https://github.com/IdanDavidAviv/virgo
 ```
