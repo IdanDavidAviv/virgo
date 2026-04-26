@@ -31,7 +31,8 @@ export class McpConfigurator {
     public static probeLiveness(callback: (alive: boolean) => void): void {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { exec } = require('child_process');
-        exec('npx virgo-mcp --ping', { timeout: 3000 }, (err: any, stdout: string) => {
+        // [v2.8.2] Added -y to avoid interactive prompt, increased timeout to 5s for cold npx runs.
+        exec('npx -y virgo-mcp --ping', { timeout: 5000 }, (err: any, stdout: string) => {
             callback(!err && (stdout || '').includes('VIRGO_MCP_OK'));
         });
     }
