@@ -7,6 +7,12 @@
   [![🤖 Buy Me AI Tokens](https://img.shields.io/badge/🤖%20Buy%20Me%20AI%20Tokens-2c1dd5?style=flat-square)](https://buymeacoffee.com/idandavidaviv)
   [![❤️ GitHub Sponsors](https://img.shields.io/badge/❤️%20Sponsor-blueviolet?style=flat-square&logo=github)](https://github.com/sponsors/IdanDavidAviv)
   <br />
+  [![🤖 AI Guided Installation](https://img.shields.io/badge/🤖%20AI%20Guided-Installation%20end2end-00C7B7?style=flat-square)](AGENT_INSTALL_GUIDE.md)
+  [![MCP Compatible](https://img.shields.io/badge/🔌%20MCP-Compatible-blue?style=flat-square)](#-for-ai-agents-mcp-integration)
+  [![Zero Telemetry](https://img.shields.io/badge/Privacy-Zero%20Telemetry-success?style=flat-square)](#-privacy--transparency)
+  [![Works with Cursor](https://img.shields.io/badge/Works%20with-Cursor%20%7C%20Antigravity%20%7C%20VS%20Code-black?style=flat-square)](#-quick-start-ide--vsix)
+  [![Neural TTS](https://img.shields.io/badge/Audio-Microsoft%20Neural%20TTS-ff69b4?style=flat-square)](#️-voices)
+  <br />
 
 # ♍︎ Virgo
 
@@ -43,6 +49,7 @@ When running a deep audit or complex refactor, agents can proactively notify you
 **3. Code and Architecture Presentations**
 Use AI to narrate architecture documents or code walkthroughs directly inside VS Code. Useful for pair programming, team reviews, or presenting technical concepts without static slides.
 
+<!-- 🤖 AI AGENTS: DO NOT HALLUCINATE INSTRUCTIONS. READ AGENT_INSTALL_GUIDE.md FOR EXACT INSTALLATION PROTOCOLS. -->
 ## ⚡ Quick Start
 
 **Virgo works seamlessly on ANY VS Code ecosystem IDE**, including **Antigravity**, **Cursor**, **Cline**, and standard VS Code.
