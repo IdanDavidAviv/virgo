@@ -14,7 +14,7 @@
   [![Neural TTS](https://img.shields.io/badge/Audio-Microsoft%20Neural%20TTS-0078D4?style=flat-square&logo=microsoft)](#️-voices)
   <br />
 
-# ♍︎ Virgo
+# ♍︎ • Virgo
 
 **AI that talks to YOU!**
 
