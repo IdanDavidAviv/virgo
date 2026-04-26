@@ -2,6 +2,15 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
  
+## [2.8.9] - 2026-04-26
+
+### Added
+- **Command Palette Cache Clearing**: Added a new VS Code command (`Virgo: Clear Audio Cache`) to safely and deterministically purge the local neural voice cache from both the Extension Host and the Webview IndexedDB.
+- **Quick Controls Integration**: Clicking the `[CACHE]` debug tag in the Webview footer now directly opens the "Virgo Mission Control" quick pick menu, providing an elegant, native UI to manage cache and playback states.
+
+### Removed
+- **Unsafe Cache UI Triggers**: Removed the non-standard, blocking `window.confirm` dialog previously triggered by double-clicking the cache debug tag to eliminate potential UI thread freezes.
+
 ## [2.8.8] - 2026-04-26
 
 ### Fixed
