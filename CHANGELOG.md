@@ -41,8 +41,8 @@ All notable changes to the "Virgo" extension will be documented in this file.
   - **MCP Root Alignment**: The standalone Virgo MCP server was writing snippets to `custom_namespace/sessions/` while the extension watched `virgo/sessions/`. Aligned `VIRGO_ROOT` so both actors use the same root directory.
   - **Active Session Sentinel**: Added `_ensureActiveSession()` to `speechProvider.ts` — the current session is now always prepended to the snippet history list even when it has zero injected snippets, mirroring the "Focused File" live-tracking UX. CDP-verified: active session `06c024f7` (title: "New session - to be named") correctly appears at the top of the list on boot.
   - **Stale Index Purge**: Removed a poisoned `sessions_index.json` containing ghost `read_aloud/...` paths left over from the pre-rename era. The index now rebuilds cleanly from a fresh disk scan on the next boot.
-- **Autoplay Integrity (Phase 18)**: Hardened `CommandDispatcher.ts` to honor `playbackAuthorized` as an explicit override to the browser gesture gate, allowing MCP-driven audio to launch without requiring a prior user interaction.
-- **Ghost Focus Remediation (Phase 19)**: Replaced `refreshView()` with `requestSync()` in `McpWatcher.ts` callbacks to prevent passive tab-switching focus events from triggering unauthorized `LOAD_DOCUMENT` cycles and overriding the active snippet view.
+- **Autoplay Integrity**: Hardened the playback dispatcher to honor the MCP authorization flag, allowing MCP-driven audio to launch without requiring a prior user interaction.
+- **Tab-Switch Fix**: Fixed a bug where switching tabs would incorrectly trigger a document reload and override the active snippet view.
 
 ## [2.7.1] - 2026-04-25
 
@@ -65,13 +65,13 @@ All notable changes to the "Virgo" extension will be documented in this file.
 ## [2.6.7] - 2026-04-25
 
 ### Changed
-- **Snippet UX Hardening (T-047)**: Implemented a safe diff-update mechanism during UI refreshes (`mergeFromHistory`) to preserve existing session index caches while aggressively scanning the filesystem for missing snippet injections, preventing destructive cache wipes on manual refresh.
-- **Namespace Rebranding (T-048)**: Abstracted the hardcoded `.gemini/antigravity/read_aloud` session path to a configurable standard. Introduced the `virgo.system.rootDirectory` setting (default: `virgo`) and added `VIRGO_ROOT` environment variable support for the standalone MCP server, enabling cleaner system deployments and user-partitioned project environments.
+- **Snippet UX Hardening**: Implemented a safe diff-update mechanism during UI refreshes to preserve session caches while scanning for missing snippets, preventing destructive cache wipes on manual refresh.
+- **Configurable Root Directory**: Introduced the `virgo.system.rootDirectory` setting (default: `virgo`) and `VIRGO_ROOT` environment variable support, enabling cleaner deployments and user-partitioned project environments.
 
 ## [2.6.6] - 2026-04-25
 
 ### Added
-- **MCP Auto-Configurator — Gate 3.5 (T-041)**: Added the `virgo.manageMcp` command and an interactive QuickPick menu to automatically inject Virgo's MCP server configuration into popular AI agents (Claude Desktop, Cursor, Cline).
+- **MCP Auto-Configurator**: Added the `Virgo: Manage MCP` command — a one-click QuickPick menu that automatically injects Virgo's MCP server configuration into Claude Desktop, Cursor, and Cline.
 - **Dynamic MCP Status Badge**: Introduced a real-time status indicator in the webview footer. The badge dynamically highlights active agent environments (e.g., "MCP Configured: Antigravity, Cursor") by scanning local persistence records, providing immediate onboarding feedback.
 
 ## [2.6.5] - 2026-04-24
@@ -84,19 +84,19 @@ All notable changes to the "Virgo" extension will be documented in this file.
 ## [2.6.4] - 2026-04-24
 
 ### Added
-- **Aggregate Session Metadata Index — T-035 (#42)**: Replaced O(N×M) filesystem scan in `_getSnippetHistory` with a single O(1) read from `sessions_index.json`. The index is written atomically by `McpWatcher` on every snippet injection (tmp + rename pattern). A cold-start fallback scan still runs on first boot or index corruption, after which it rebuilds the index automatically. Eliminates I/O stalls and title-resolution flicker on sidebar open at scale. Introduces `SessionIndexManager` as a standalone injectable helper.
+- **Instant Session History** ([#42](https://github.com/IdanDavidAviv/virgo/issues/42)): Replaced a slow per-session filesystem scan with an atomic index file, eliminating I/O stalls and title-flicker when opening the snippet history sidebar at scale.
 - **Release Pipeline Optimization**: Added `release:patch:fast`, `release:minor:fast`, `release:major:fast` npm scripts. These skip the full gate re-run (lint + typecheck + test + build) when gates have already passed in the same agent session, reducing release time from ~45 s to ~7 s. `release:verify` (version sentinel) always runs.
 
 ## [2.6.3] - 2026-04-24
 
 ### Added
-- **Artifact Change Detection / Rehydration — T-034 (#56)**: Implemented a scoped `FileSystemWatcher` in `SpeechProvider` that monitors the currently focused file and its `.metadata.json` sidecar for external disk changes. A salt-diff guard (`_onFocusedFileDiskChange`) prevents redundant IPC traffic — only triggers a `setFocusedFile` store update when the version salt actually changes. Watcher is torn down on every focus change and on `dispose()` (lifecycle-guard compliant).
+- **Live File Change Detection** ([#56](https://github.com/IdanDavidAviv/virgo/issues/56)): The extension now watches the focused file for external disk changes and automatically rehydrates the reader when content is modified externally.
 - **Document mtime Enrichment**: Added `lastStatMtime?: number` to `DocumentMetadata` in `DocumentLoadController`, captured via `fs.statSync().mtimeMs` on load. Provides the foundation for future stale-load detection (T-035).
 
 ## [2.6.2] - 2026-04-24
 
 ### Fixed
-- **Snippet History Hydration — T-038 (3-Bug Chain)**: Resolved a compounded failure that caused the Snippet History sidebar to show zero sessions when switching to SNIPPET mode, despite sessions existing on disk.
+- **Snippet History Fix — 3-Part Fix**: Resolved a compounded failure that caused the Snippet History sidebar to show zero sessions when switching to snippet mode, despite sessions existing on disk.
   - **Stat Crash Hardening** (`speechProvider.ts`): `vscode.workspace.fs.stat()` was called inside a `Promise.all` with no `try/catch`. A single failing stat (e.g., a metadata file with a locked handle) silently resolved the entire session's file collection to `null`, zeroing the snippet count and excluding the session from the UI. Each file stat is now individually guarded.
   - **Filename Parsing Fix** (`speechProvider.ts`): The snippet name extractor used a legacy `firstUnderscore` strategy that was incompatible with the current `<timestamp>.<name>.md` format (dot-separated, introduced in v2.5.9). All snippets were parsed as raw timestamp strings. Fixed with `f.replace(/^\d+\./, '')`.
   - **SyncManager Dedup Bypass** (`SyncManager.ts`): `_calculateStateHash()` did not include `snippetHistory.length` or `activeSessionId`. When `setHistory()` was called after the IPC scan, the state change emitted a hash identical to the last flush — and was silently absorbed as a no-op. The webview store was never updated. Added both fields to the hash to guarantee every `setHistory()` call reaches the webview.
@@ -122,8 +122,8 @@ All notable changes to the "Virgo" extension will be documented in this file.
 - **Workspace Claim Gate** (`v2.5.9` / `v2.5.10`): Introduced `.workspace_claim` file-based ownership for multi-IDE isolation. Prevented sibling windows from stomping each other's claim on construction (non-destructive write; first-window-wins).
 - **CDP Shell Lifecycle** (`v2.5.11`): Pre-flight HTTP probe before CDP WebSocket upgrade. Smart Start (auto-detects open Dev Host), Smart Restart (skips close if nothing open), Exit Ritual (stops playback → closes host → releases lock).
 - **Playback Latency Elimination** (`v2.5.11`): Removed `_warmUpTts()` pre-warming that caused Azure to silently drop the WebSocket, producing a 10-second hang on first synthesis. TTS now initializes lazily. CDP-verified: handshake Delta = 0ms.
-- **McpBridge Tombstone — T-023** (`v2.5.11`): Deleted `mcpBridge.ts` HTTP server, removed `express`/`cors` dependencies. Extension now runs exclusively on `dist/mcp-standalone.js` via stdio.
-- **Release Authority Unification**: Merged `release_prestige` and `version_sentinel` into a single `release_authority` meta-skill. All release npm scripts migrated to the unified entry point.
+- **HTTP Bridge Removed** (`v2.5.11`): Deleted the legacy HTTP server layer and removed `express`/`cors` dependencies. The extension now runs the MCP server exclusively via stdio — simpler, faster, no port conflicts.
+- **Release Pipeline Unification**: Consolidated all release tooling into a single entry point for consistent, repeatable version management.
 
 ### Fixed
 - **XOR Window Sovereignty** (`v2.5.12`): Closed a "first-window-wins" leak in `McpWatcher._isSessionOwnedByMe` where any sibling IDE watching the Antigravity root would auto-claim and process foreign unclaimed sessions. `allowClaim=false` now enforced for any session that is not the watcher's own `_currentSessionId`. Foreign windows are completely silent — no sidebar, no context save, no playback.
@@ -167,10 +167,10 @@ All notable changes to the "Virgo" extension will be documented in this file.
 ### Removed
 - **PID Gate Eradicated**: `_knownMcpPid` field, cold-start learning branch, MCP-restart re-learning branch — all deleted from `McpWatcher.ts`. Zero stateful cross-process tracking remains.
 - **`READ_ALOUD_WORKSPACE` env var**: Removed from `mcp_config.json`. The MCP standalone process no longer attempts to embed workspace identity into filenames — it has no per-window awareness and cannot do so reliably.
-- **`McpBridge` import from E2E tests**: Removed dead `McpBridge` instantiation from `mcp_injection_e2e.test.ts`. T-023 is fully integrated; the bridge class exists only as a source artifact pending deletion (T-024).
+- **Test Cleanup**: Removed dead HTTP bridge import from the integration test suite.
 
 ### Hardened
-- **Release Prestige SKILL.md**: Added explicit Authorization Gate with `[!CAUTION]` block — agent is strictly forbidden from running `release:patch` without an explicit scoped GO. Prevents accidental version bumps from passive acceptance signals.
+- **Release Pipeline**: Added confirmation gates to prevent accidental version bumps.
 
 ## [2.5.7] - 2026-04-23
 
