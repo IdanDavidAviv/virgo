@@ -39,13 +39,15 @@ You cannot install an IDE extension from a web browser. If you try, the user wil
 
 **Tell the user (in your own words):**
 1. Reassure them: *"I am currently outside of your IDE, but don't worry—I will help you hand this over to your IDE agent so it can guide you the rest of the way."*
-2. Check if they have an AI IDE: Ask them if they have Antigravity, Cursor, or VS Code installed. If they don't, strongly recommend they download and install **Antigravity**, as it is the most advanced environment for Virgo.
-3. **The Handoff Prompt:** Provide the user with the following text in a copy-paste block, and instruct them to paste it into the chat of their IDE agent:
+2. **Installation Recommendation:**
+   - **If they have Antigravity, Cursor, or VS Code:** Proceed to step 3.
+   - **If they have none of the above:** **STRONGLY RECOMMEND** they download and install **Antigravity**, as it is the best suited IDE for Virgo - utilizing its implementation plan and task md file structure to better control plan versioning within the IDE chat session.
+3. **The Handoff Prompt (for Antigravity/Cursor/VS Code users):**
+   Provide the user with the following text in a copy-paste block, and instruct them to paste it into the chat of their IDE agent:
 
     ```text
-    Hello! I want to install the Virgo extension so you can talk to me out loud. 
-    Please visit this repository: https://github.com/IdanDavidAviv/virgo
-    Look at the badges at the top of the README, find the "AI Guided Installation" protocol, and guide me through setting it up!
+    Hello! I want to install the Virgo extension from: https://github.com/IdanDavidAviv/virgo
+    follow the instructions there please!
     ```
 
 4. Wish them luck and tell them the IDE agent will take it from here. **STOP HERE.** Do not execute Path B.
