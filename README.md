@@ -20,8 +20,14 @@
 
 Give your AI assistant a voice. Cure the fatigue of reading long texts, listen to architecture plans, code reviews, and many more, and turn your IDE into an active coding partner.
 
-**Want an AI to set this up for you? Give your IDE agent this link and ask it to install!**
 </div>
+
+> [!IMPORTANT]  
+> **🤖 Let your AI install this for you!**  
+> Copy and paste this prompt into your IDE's Chat (Cursor, Antigravity, Cline):  
+> ```text
+> Hi! Please install the Virgo extension so you can talk to me out loud. Use the AI Guided Installation protocol in this repository: https://github.com/IdanDavidAviv/virgo
+> ```
 
 ## The "Reading Fatigue" Trap
 
