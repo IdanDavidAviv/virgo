@@ -56,13 +56,45 @@ fs.writeFileSync(
 );
 console.log('✅ Generated package.json.');
 
+// Load .env file manually to avoid adding a production dependency
+// We look for .env locally within the mcp_publisher skill directory to keep the project root clean
+const envPath = path.join(__dirname, '..', '.env');
+let envTokens = {};
+if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    envContent.split('\n').forEach(line => {
+        const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+        if (match) {
+            envTokens[match[1]] = match[2].replace(/(^['"]|['"]$)/g, '');
+        }
+    });
+}
+
+const npmToken = process.env.NPM_TOKEN || envTokens.NPM_TOKEN;
+const envConfig = { ...process.env };
+
+if (npmToken) {
+    console.log('🔑 NPM Automation Token found. Publishing headlessly...');
+    envConfig.NODE_AUTH_TOKEN = npmToken;
+} else {
+    console.log('⚠️ No NPM_TOKEN found in .env. Falling back to interactive publish (requires TTY).');
+}
+
 console.log('🚀 Ready to publish. Running npm publish...');
 
 try {
     // Run npm publish in the package directory
-    execSync('npm publish --access public', { stdio: 'inherit', cwd: mcpPackageDir });
+    execSync('npm publish --access public', { 
+        stdio: 'inherit', 
+        cwd: mcpPackageDir,
+        env: envConfig
+    });
     console.log(`🎉 Successfully published virgo-mcp v${version}!`);
 } catch (error) {
-    console.error('❌ Failed to publish virgo-mcp. Make sure you are logged into npm.');
+    console.error('❌ Failed to publish virgo-mcp.');
+    if (!npmToken) {
+        console.error('   Hint: Since you are running without an NPM_TOKEN, this may fail in headless environments (like agents or CI/CD).');
+        console.error('   To fix: Create a Classic Automation token in NPM and add NPM_TOKEN=npm_... to your .env file.');
+    }
     process.exit(1);
 }

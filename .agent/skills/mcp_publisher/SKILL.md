@@ -27,6 +27,13 @@ When the user requests to "publish the MCP server", the following happens:
 2. **Extraction Ritual**: The script `scripts/publish_mcp.js` takes over. It creates a temporary staging directory (`dist-npm-mcp`), copies the executable, and synthesizes a lightweight `package.json` scoped exclusively to the executable's execution scope.
 3. **Publishing**: Finally, the script executes `npm publish --access public`.
 
+### 1.1 Headless Execution (Agent Pipelines)
+When the publish script is executed by an AI Agent or CI/CD runner (without a real interactive TTY terminal), NPM enforces a hard security lock that redacts the Web Authentication URL. To bypass this and publish headlessly, the pipeline requires an **Automation Token**:
+- Create a `.env` file inside the `.agent/skills/mcp_publisher/` directory.
+- Provide `NPM_TOKEN=npm_...` (A Classic Automation token generated from the npmjs.com dashboard).
+- The script automatically parses this file and injects it via `NODE_AUTH_TOKEN`.
+- If no token is provided, the script falls back to interactive execution (which fails immediately in headless environments).
+
 ---
 
 ## 2. Authorization Gate
