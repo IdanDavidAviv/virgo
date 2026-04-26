@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/virgo_symbol_and_text.png" alt="Virgo Banner" width="600" />
+  <img src="assets/virgo_symbol_text_orb.png" alt="Virgo Banner" width="600" />
   <br />
   <br />
 

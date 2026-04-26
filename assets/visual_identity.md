@@ -1,11 +1,11 @@
 # Virgo: Visual Identity & Brand Assets
 
-## 🟢 FULL LOGO VARIANT (FLUID GRADIENT)
+## 🟢 FULL LOGO VARIANT (ORB SEPARATOR)
 **Status:** Approved by User.
-**File:** `virgo_symbol_and_text_fluid.png`
-**Rationale:** Preserves the original locked spacing but applies a single continuous fluid gradient from cyan to violet across both the symbol and wordmark for a unified look.
+**File:** `virgo_symbol_text_orb.png`
+**Rationale:** Preserves the original styling and colors while adding a glowing glassmorphic orb between the symbol and the wordmark for balance and flow.
 
-![Fluid Gradient Variant](./virgo_symbol_and_text_fluid.png)
+![Orb Separator Variant](./virgo_symbol_text_orb.png)
 
 ---
 
