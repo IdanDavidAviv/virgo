@@ -2,8 +2,15 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
  
-## [2.8.7] - 2026-04-26
+## [2.8.8] - 2026-04-26
 
+### Fixed
+- **TTS Rate Limiting Resilience**: Completely removed the hard-coded 60-second client-side circuit breaker. The playback engine now relies safely on exponential backoff during `429` (Too Many Requests) errors, preventing false-positive UI freezes.
+- **Abortable Backoff Lock**: Wired the exponential backoff timer directly to the UI's `AbortSignal`. Skipping a sentence while the engine is backing off will now instantly cancel the wait timer and free the synthesis lock, restoring total UI fluidity under heavy load.
+- **Prefetch Grace**: Failed background prefetch tasks are now silently dropped without triggering a global rate-limit state, acting as a natural micro-circuit breaker to prevent network spam.
+- **Watchdog Tolerance**: Relaxed the audio stream chunk watchdog timer from 10 seconds to 15 seconds to tolerate heavier server-side queuing without recycling the engine prematurely.
+
+## [2.8.7] - 2026-04-26
 ### Added
 - **Semantic Autoplay Guidance**: The `say_this_loud` MCP tool description now includes an explicit instruction to inform users about browser autoplay policies when audio playback is blocked, ensuring a smooth first-run experience across clean AI agent installations without relying on brittle disk-based state files.
 
