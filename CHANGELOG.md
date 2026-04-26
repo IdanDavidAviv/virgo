@@ -2,6 +2,11 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
  
+## [2.8.6] - 2026-04-26
+
+### Added
+- **Headless MCP Publishing**: Integrated `dotenv` parsing into the `mcp_publisher` skill, enabling fully automated, headless publishing of the `virgo-mcp` standalone package via NPM Automation Tokens. Bypasses the strict 2FA TTY requirements for AI Agent CI/CD pipelines.
+
 ## [2.8.5] - 2026-04-26
 
 ### Added

@@ -9,6 +9,7 @@ TASK.md
 diagnostics.log
 implementation_plan.md
 .vscode/ext-dev-data
+.cdp_shell.lock
 
 dist/
 dist-npm-mcp/
@@ -19,3 +20,4 @@ tests/mcp/new_active-session/
 
 # Security guards
 .env*
+!.env.example

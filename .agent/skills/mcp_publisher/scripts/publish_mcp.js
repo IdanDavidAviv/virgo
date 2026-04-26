@@ -75,7 +75,8 @@ const envConfig = { ...process.env };
 
 if (npmToken) {
     console.log('🔑 NPM Automation Token found. Publishing headlessly...');
-    envConfig.NODE_AUTH_TOKEN = npmToken;
+    const npmrcPath = path.join(mcpPackageDir, '.npmrc');
+    fs.writeFileSync(npmrcPath, `//registry.npmjs.org/:_authToken=${npmToken}\n`);
 } else {
     console.log('⚠️ No NPM_TOKEN found in .env. Falling back to interactive publish (requires TTY).');
 }
@@ -86,8 +87,7 @@ try {
     // Run npm publish in the package directory
     execSync('npm publish --access public', { 
         stdio: 'inherit', 
-        cwd: mcpPackageDir,
-        env: envConfig
+        cwd: mcpPackageDir
     });
     console.log(`🎉 Successfully published virgo-mcp v${version}!`);
 } catch (error) {
@@ -97,4 +97,8 @@ try {
         console.error('   To fix: Create a Classic Automation token in NPM and add NPM_TOKEN=npm_... to your .env file.');
     }
     process.exit(1);
+} finally {
+    // Clean up temporary .npmrc if it exists
+    const npmrcPath = path.join(mcpPackageDir, '.npmrc');
+    if (fs.existsSync(npmrcPath)) fs.unlinkSync(npmrcPath);
 }
