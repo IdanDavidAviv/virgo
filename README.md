@@ -27,7 +27,7 @@ Give your AI assistant a voice. Cure the fatigue of reading long texts, listen t
 Paste this in chat:
 
 ```text
-Hi Agent, please install virgo. Here is the repo: https://github.com/IdanDavidAviv/virgo.
+Hi Agent, please install virgo. Here is the repo: https://github.com/IdanDavidAviv/virgo#README.md
 ```
 
 ## The "Reading Fatigue" Trap
