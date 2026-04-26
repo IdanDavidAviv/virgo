@@ -1,6 +1,15 @@
 # Change Log
 
 All notable changes to the "Virgo" extension will be documented in this file.
+ 
+## [2.8.2] - 2026-04-26
+
+### Added
+- **Sanitized Error Messaging**: Technical jargon (e.g., "429", "WebSocket", "READYSTATE") has been eliminated from user-facing toasts. Synthesis errors in `AudioBridge.ts` are now mapped to friendly prose like "Voice limit reached" or "Connection unstable".
+- **Friendly Playback Recovery**: Webview engine errors are now masked with a generic "Audio playback issue — please try again." message, and surfaced via immediate toast notifications to prevent silent failures.
+
+### Fixed
+- **First-Run Toast Visibility**: Ensured the "Open a file in VS Code to get started" info toast correctly appears when attempting to play without an active document, verified via CDP audit.
 
 ## [2.8.1] - 2026-04-26
 
