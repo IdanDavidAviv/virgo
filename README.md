@@ -102,6 +102,8 @@ Virgo serves as a native voice channel for AI assistants. The Virgo MCP server k
 
 Once connected, your agent gains the `say_this_loud` tool, allowing it to bypass text chat and speak directly to you!
 
+> **Behavioral Coaching**: Upon completing the installation, your AI will automatically run the [Behavioral Setup Protocol](AGENT_GUIDED_PREFERENCES_SKILL_DEFINITION_PROTOCOL.md) to learn exactly *when* and *how* you want it to speak, saving a custom voice skill to your workspace.
+
 **MCP Resource URIs** (for power users and agent developers):
 
 | URI | Description |
