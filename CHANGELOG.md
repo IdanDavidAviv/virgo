@@ -2,6 +2,11 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
  
+## [2.8.3] - 2026-04-26
+
+### Fixed
+- **MCP Liveness Badge (Blue State)**: Fixed a regression where the MCP status indicator remained blue (configured but inactive) on cold-boot sessions. The liveness probe now uses `npx -y` to bypass interactive confirmation prompts and has a relaxed 5-second timeout to accommodate background package updates.
+
 ## [2.8.2] - 2026-04-26
 
 ### Added
