@@ -2,6 +2,19 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
  
+## [2.8.7] - 2026-04-26
+
+### Added
+- **Semantic Autoplay Guidance**: The `say_this_loud` MCP tool description now includes an explicit instruction to inform users about browser autoplay policies when audio playback is blocked, ensuring a smooth first-run experience across clean AI agent installations without relying on brittle disk-based state files.
+
+### Changed
+- **Quiet Mode Logging**: Muted all background debug streams (`console.log`, `console.error`) in the standalone MCP server and `sharedStore.ts` when running in production, eliminating terminal spam for users running AI agents.
+- **Diagnostic Resource Restructuring**: Deleted the raw `virgo://logs/debug` resource from the MCP server to prevent leaking internal debug history, and renamed the native log resource to `virgo://logs/live_log` for clarity.
+- **Footer UI Stabilization**: Standardized the VS Code status bar label to a static `♍︎ Virgo`, permanently removing background color overrides and flashing text states that caused UI jitter during audio playback.
+
+### Fixed
+- **Output Channel Hijacking**: Gated the `outputChannel.show(true)` call in `extension.ts` behind `vscode.ExtensionMode.Development`, ensuring the "Virgo Diagnostics" panel no longer forces itself open automatically for end-users on startup.
+
 ## [2.8.6] - 2026-04-26
 
 ### Added
