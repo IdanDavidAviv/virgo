@@ -1,6 +1,27 @@
 # Change Log
 
 All notable changes to the "Virgo" extension will be documented in this file.
+
+## [2.9.0] - 2026-04-27
+
+### Added
+- **Command Palette Cache Clearing**: Safe and deterministic purge of local neural voice cache from both Extension Host and Webview IndexedDB.
+- **Mission Control Dashboard**: New Quick Pick menu for instant playback and MCP management.
+- **Agent Install Protocol**: Dedicated `AGENT_INSTALL_GUIDE.md` for zero-friction AI onboarding.
+- **Proactive Behavioral Setup**: Step-by-step guidance for calibrating AI narrator behaviors.
+- **Headless MCP Publishing**: Automated `virgo-mcp` publishing via NPM Automation Tokens for robust CI/CD.
+- **MCP 3-State Liveness Badge**: Real-time status indicator (🔴 unconfigured, 🔵 configured, 🟢 alive).
+- **Semantic Autoplay Guidance**: Embedded instructions for handling browser autoplay policies automatically.
+
+### Changed
+- **Visual Rebranding**: Unified master banner (`virgo_symbol_text_orb.png`) and premium "Artistic" icon assets.
+- **Quiet Mode Logging**: Muted all background debug streams in production to protect AI environments from noise.
+- **Status Bar Branding**: Consolidated all IDE presence into a clean `♍︎ Virgo` identifier.
+
+### Fixed
+- **TTS Rate Limiting Resilience**: Complete overhaul of circuit breakers with exponential backoff hooked to UI AbortSignals.
+- **Global Keybinding Hijacking**: Arrow key playback is now strictly scoped to the webview and resolved agent logs.
+- **MCP Liveness Probe**: Bypasses interactive prompts and relaxes cold-boot timeouts to prevent false failures.
  
 ## [2.8.9] - 2026-04-26
 
