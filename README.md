@@ -7,7 +7,7 @@
   [![🤖 Buy Me AI Tokens](https://img.shields.io/badge/🤖%20Buy%20Me%20AI%20Tokens-2c1dd5?style=flat-square)](https://buymeacoffee.com/idandavidaviv)
   [![❤️ GitHub Sponsors](https://img.shields.io/badge/❤️%20Sponsor-blueviolet?style=flat-square&logo=github)](https://github.com/sponsors/IdanDavidAviv)
   <br />
-  [![🤖 AI Guided Installation](https://img.shields.io/badge/🤖%20AI%20Guided-Installation%20end2end-00C7B7?style=flat-square)](AGENT_INSTALL_GUIDE.md)
+  [![🤖 AI Guided Installation](https://img.shields.io/badge/🤖%20AI%20Guided-Installation%20end2end-8B5CF6?style=flat-square)](AGENT_INSTALL_GUIDE.md)
   [![MCP Compatible](https://img.shields.io/badge/🔌%20MCP-Compatible-blue?style=flat-square)](#-for-ai-agents-mcp-integration)
   [![Zero Telemetry](https://img.shields.io/badge/Privacy-Zero%20Telemetry-success?style=flat-square)](#-privacy--transparency)
   [![Works with Cursor](https://img.shields.io/badge/Works%20with-Cursor%20%7C%20Antigravity%20%7C%20VS%20Code-black?style=flat-square)](#-quick-start-ide--vsix)
