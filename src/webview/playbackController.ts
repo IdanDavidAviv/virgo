@@ -530,6 +530,9 @@ export class PlaybackController {
                     isBuffering: false,
                     isAwaitingSync: false
                 });
+
+                // [v2.8.2] User Feedback
+                ToastManager.show(event.message || 'Audio playback issue — please try again.', 'error');
                 break;
         }
     }

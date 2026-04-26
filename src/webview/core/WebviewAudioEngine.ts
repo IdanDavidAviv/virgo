@@ -87,9 +87,9 @@ export class WebviewAudioEngine {
     this._audio.addEventListener('pause', () => this.emit(AudioEngineEventType.PAUSED));
     this._audio.addEventListener('ended', () => this.emit(AudioEngineEventType.ENDED));
     this._audio.addEventListener('error', () => {
-        const errorMsg = `Audio Error: ${this._audio.error?.message || 'Unknown'} (Code: ${this._audio.error?.code})`;
-        console.error(`[AUDIO] ❌ ${errorMsg}`);
-        this.emit(AudioEngineEventType.ERROR, errorMsg);
+        const rawError = this._audio.error?.message || 'Unknown';
+        console.error(`[AUDIO] ❌ Audio Error: ${rawError} (Code: ${this._audio.error?.code})`);
+        this.emit(AudioEngineEventType.ERROR, 'Audio playback issue — please try again.');
     });
     this._audio.addEventListener('waiting', () => this.emit(AudioEngineEventType.BUFFERING));
     this._audio.addEventListener('stalled', () => this.emit(AudioEngineEventType.STALLED));

@@ -83,7 +83,7 @@ describe('AudioBridge Recovery', () => {
 
         // 5. Verify results
         expect(synthesisErrorSpy).toHaveBeenCalledWith(expect.objectContaining({
-            error: 'Synthesis Timeout (4s)',
+            error: 'Connection unstable — check your internet or try again.',
             isFallingBack: false
         }));
         expect(engineStatusSpy).toHaveBeenCalledWith({ status: 'buffering' });

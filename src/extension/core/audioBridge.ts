@@ -121,9 +121,10 @@ export class AudioBridge extends EventEmitter {
 
         this._playbackEngine.on('synthesis-failed', (payload: { cacheKey: string, error: string, intentId: number }) => {
             const state = this._stateStore.state;
-            this._logger(`[BRIDGE] synthesis_failed | cacheKey: ${payload.cacheKey} | Error: ${payload.error}`);
+            const friendlyError = this._mapToFriendlyError(payload.error);
+            this._logger(`[BRIDGE] synthesis_failed | cacheKey: ${payload.cacheKey} | Error: ${payload.error} -> Friendly: ${friendlyError}`);
             this._emitWithIntent('synthesisError', {
-                error: payload.error,
+                error: friendlyError,
                 isFallingBack: false,
                 cacheKey: payload.cacheKey,
                 chapterIndex: state.currentChapterIndex,
@@ -621,14 +622,30 @@ export class AudioBridge extends EventEmitter {
             this._emitWithIntent('engineStatus', { status: 'buffering' });
 
             // If the error persists after all internal retries, we finally give up.
+            const friendlyError = this._mapToFriendlyError(errorMessage);
+            this._logger(`[BRIDGE] Neural synthesis stalled: ${errorMessage}. Final failure -> ${friendlyError}`);
             this._emitWithIntent('synthesisError', {
-                error: errorMessage,
+                error: friendlyError,
                 isFallingBack: false, // Explicitly false to prevent UI from expecting SAPI
                 cacheKey,
                 chapterIndex: cIdx,
                 sentenceIndex: sIdx
             });
         }
+    }
+
+    private _mapToFriendlyError(error: string): string {
+        const msg = error.toLowerCase();
+        if (msg.includes('429') || msg.includes('rate limit')) {
+            return 'Voice limit reached — please wait a moment before continuing.';
+        }
+        if (msg.includes('timeout') || msg.includes('socket')) {
+            return 'Connection unstable — check your internet or try again.';
+        }
+        if (msg.includes('voice') || msg.includes('tts')) {
+            return 'Voice service unavailable — please try again in a moment.';
+        }
+        return 'Audio service issue — please try again.';
     }
 
     private _speakLocal(sentence: string, options: PlaybackOptions) {
