@@ -45,12 +45,14 @@ Use AI to narrate architecture documents or code walkthroughs directly inside VS
 
 ## ⚡ Quick Start
 
-1. Download `virgo-x.y.z.vsix` from the [latest GitHub Release](https://github.com/IdanDavidAviv/virgo/releases).
-2. In VS Code: Extensions panel → `...` → **Install from VSIX...** → select the downloaded file.
-   *(or via CLI: `code --install-extension virgo-x.y.z.vsix`)*
-3. Open any Markdown (`.md`) file.
-4. **Click once inside the Virgo panel** to activate the audio engine. *(See note below.)*
-5. Press `Alt + R` (or run `Virgo: Play` from the Command Palette).
+**Virgo works seamlessly on ANY VS Code ecosystem IDE**, including **Antigravity**, **Cursor**, **Cline**, and standard VS Code.
+
+1. Download the latest `virgo-x.y.z.vsix` from the [GitHub Releases page](https://github.com/IdanDavidAviv/virgo/releases).
+2. Open the folder containing the downloaded `.vsix` file inside your IDE (Antigravity / Cursor / VS Code).
+3. Right-click the `.vsix` file → **Install Extension VSIX**.
+4. Open any Markdown (`.md`) file.
+5. **Click once inside the Virgo panel** to activate the audio engine. *(See note below.)*
+6. Press `Alt + R` (or run `Virgo: Play` from the Command Palette).
 
 > [!IMPORTANT]
 > **First-Run Requirement — Click to Activate Audio**
@@ -68,15 +70,16 @@ Use the voice search in the settings popover (gear icon in the footer) to filter
 
 ## 🤖 For AI Agents (MCP Integration)
 
-Virgo serves as a native voice channel for AI assistants like Cursor, Claude Desktop, and Antigravity. By connecting the `virgo` MCP server, agents can use the `say_this_loud` tool to bypass text chat and speak directly to you.
+Virgo serves as a native voice channel for AI assistants. The Virgo MCP server knows how to connect to **ANY** AI agent ecosystem (Cursor, Claude Desktop, Antigravity, Cline) and can automatically locate and update their default MCP config files.
 
-**To connect your agent:**
+**To install the MCP Server:**
 *Prerequisite: You must have [Node.js](https://nodejs.org/) installed on your machine to run the MCP server.*
-1. Open the VS Code Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
-2. Run **`Virgo: Copy MCP Configuration`**.
-3. Paste the copied JSON directly into your agent's MCP settings file.
+1. Open the Virgo extension panel in your IDE.
+2. Click the **MCP Status Badge** located in the bottom footer of the panel.
+3. Select your target AI agent from the dropdown menu (e.g., Cursor, Antigravity, Claude Desktop).
+4. Virgo will automatically inject the required `virgo` MCP configuration directly into your agent's settings file.
 
-Once connected, your agent gains the `say_this_loud` tool.
+Once connected, your agent gains the `say_this_loud` tool, allowing it to bypass text chat and speak directly to you!
 
 **MCP Resource URIs** (for power users and agent developers):
 
