@@ -9,7 +9,7 @@
   <br />
   [![🤖 AI Guided Installation](https://img.shields.io/badge/🤖%20AI%20Guided-Installation%20end2end-8B5CF6?style=flat-square)](AGENT_INSTALL_GUIDE.md)
   [![MCP Compatible](https://img.shields.io/badge/🔌%20MCP-Compatible-blue?style=flat-square)](#-for-ai-agents-mcp-integration)
-  [![Zero Telemetry](https://img.shields.io/badge/Privacy-Zero%20Telemetry-success?style=flat-square)](#-privacy--transparency)
+  [![Zero Telemetry](https://img.shields.io/badge/Privacy-Zero%20Telemetry-0B6623?style=flat-square)](#-privacy--transparency)
   [![Works with Cursor](https://img.shields.io/badge/Works%20with-Cursor%20%7C%20Antigravity%20%7C%20VS%20Code-black?style=flat-square)](#-quick-start-ide--vsix)
   [![Neural TTS](https://img.shields.io/badge/Audio-Microsoft%20Neural%20TTS-0078D4?style=flat-square&logo=microsoft)](#️-voices)
   <br />
