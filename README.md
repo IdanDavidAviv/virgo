@@ -19,6 +19,8 @@
 **AI that talks to YOU!**
 
 Give your AI assistant a voice. Cure the fatigue of reading long texts, listen to architecture plans, code reviews, and many more, and turn your IDE into an active coding partner.
+
+**Want an AI to set this up for you? Give your IDE agent this link and ask it to install!**
 </div>
 
 ## The "Reading Fatigue" Trap

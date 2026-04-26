@@ -2,28 +2,54 @@
 
 > **SYSTEM DIRECTIVE FOR AI AGENTS:**
 > You are reading this file because your human user wants to install **Virgo** so that you (the AI) can speak to them out loud.
-> Your objective is to guide the user step-by-step through the installation of the Virgo IDE Extension and the Virgo MCP Server.
+> Your objective is to guide the user step-by-step.
 > 
-> **CRITICAL:** Do NOT hallucinate instructions. Follow the exact phases and troubleshooting steps below when instructing the user.
+> **CRITICAL:** Do NOT hallucinate instructions. Follow the exact logic paths below based on your environment.
 
 ---
 
-## Phase 1: Installing the IDE Extension
+## Phase 0: Environment Pre-Flight Check (MANDATORY)
 
-Provide the user with these exact instructions to install the `.vsix` file. Virgo works on **Antigravity**, **Cursor**, **Cline**, and standard **VS Code**.
+Before instructing the user, you must determine your own environment:
+**Are you running inside a VS Code-compatible IDE (Cursor, Antigravity, Cline, VS Code), or are you an external web-assistant (ChatGPT, Claude Web, etc.)?**
 
+*   **If you are an EXTERNAL WEB ASSISTANT:** Proceed to **Path A (The Handoff)**.
+*   **If you are an IDE AGENT:** Proceed to **Path B (The Execution)**.
+
+---
+
+## Path A: The Handoff (For External Agents Only)
+
+You cannot install an IDE extension from a web browser. If you try, the user will be confused. Because of this **context discontinuity**, you must orchestrate a handoff to the user's IDE agent.
+
+**Tell the user (in your own words):**
+1. Reassure them: *"I am currently outside of your IDE, but don't worry—I will help you hand this over to your IDE agent so it can guide you the rest of the way."*
+2. Check if they have an AI IDE: Ask them if they have Cursor, Antigravity, or VS Code installed. If they don't, instruct them to download one of those environments.
+3. **The Handoff Prompt:** Provide the user with the following text in a copy-paste block, and instruct them to paste it into the chat of their IDE agent:
+
+    ```text
+    Hello! I want to install the Virgo extension so you can talk to me out loud. 
+    Please visit this repository: https://github.com/IdanDavidAviv/virgo
+    Look at the badges at the top of the README, find the "AI Guided Installation" protocol, and guide me through setting it up!
+    ```
+
+4. Wish them luck and tell them the IDE agent will take it from here. **STOP HERE.** Do not execute Path B.
+
+---
+
+## Path B: The Execution (For IDE Agents Only)
+
+You are inside the IDE! Provide the user with these exact instructions.
+
+### Step 1: Installing the IDE Extension
 **Tell the user:**
 1. Go to the [Virgo GitHub Releases page](https://github.com/IdanDavidAviv/virgo/releases) and download the latest `virgo-x.y.z.vsix` file.
 2. Open the folder containing the downloaded `.vsix` file in your IDE's explorer tree.
 3. **Right-click** the `.vsix` file and select **"Install Extension VSIX"**.
 4. Once installed, an icon with the Virgo symbol (♍︎) will appear in your IDE's Activity Bar (usually on the left or right side). Click it to open the Virgo panel.
 
----
-
-## Phase 2: Installing the MCP Server
-
+### Step 2: Installing the MCP Server
 Once the extension is installed, you need the user to configure the MCP so that you gain access to the `say_this_loud` tool.
-
 **Tell the user:**
 1. Look at the very bottom of the Virgo panel. You will see an **MCP Status Badge**.
 2. Click that badge to open the MCP Auto-Configurator.
@@ -32,12 +58,8 @@ Once the extension is installed, you need the user to configure the MCP so that 
 
 *(Agent Note: Once the user completes this step, you must re-initialize your MCP connection to discover the `virgo` server and the `say_this_loud` tool.)*
 
----
-
-## Phase 3: The First-Run Activation (CRITICAL)
-
+### Step 3: The First-Run Activation (CRITICAL)
 Browsers have strict autoplay policies. Virgo **cannot** play audio until the user has clicked inside the panel at least once.
-
 **Tell the user:**
 1. Open any Markdown (`.md`) file in your editor.
 2. **Click anywhere inside the Virgo sidebar panel.** This unlocks the audio engine.
