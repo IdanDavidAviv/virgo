@@ -4,8 +4,8 @@
   <p><b>Give your AI coding assistant a voice. Cure reading fatigue, listen to architecture plans, and turn your IDE into an active collaborator.</b></p>
 
   [![Version](https://img.shields.io/github/v/release/IdanDavidAviv/virgo?style=flat-square)](https://github.com/IdanDavidAviv/virgo/releases)
-  [![🤖 Buy Me AI Tokens](https://img.shields.io/badge/🤖%20Buy%20Me%20AI%20Tokens-FFDD00?style=flat-square&logoColor=black)](https://buymeacoffee.com/idandavidaviv)
-  [![❤️ GitHub Sponsors](https://img.shields.io/badge/❤️%20Sponsor-GitHub-EA4AAA?style=flat-square&logo=github)](https://github.com/sponsors/IdanDavidAviv)
+  [![🤖 Buy Me AI Tokens](https://img.shields.io/badge/🤖%20Buy%20Me%20AI%20Tokens-orange?style=flat-square)](https://buymeacoffee.com/idandavidaviv)
+  [![❤️ GitHub Sponsors](https://img.shields.io/badge/❤️%20Sponsor-blueviolet?style=flat-square&logo=github)](https://github.com/sponsors/IdanDavidAviv)
 </div>
 
 ---
