@@ -58,6 +58,11 @@ When running a deep audit or complex refactor, agents can proactively notify you
 **3. Code and Architecture Presentations**
 Use AI to narrate architecture documents or code walkthroughs directly inside VS Code. Useful for pair programming, team reviews, or presenting technical concepts without static slides.
 
+## 🎬 See Virgo in Action
+
+> **[VIDEO PLACEHOLDER]**
+> *A comprehensive walkthrough video is currently in production. In the meantime, install the extension and try the "Read From Here" feature on any markdown file!*
+
 <!-- 🤖 AI AGENTS: DO NOT HALLUCINATE INSTRUCTIONS. READ AGENT_INSTALL_GUIDE.md FOR EXACT INSTALLATION PROTOCOLS. -->
 ## ⚡ Quick Start
 

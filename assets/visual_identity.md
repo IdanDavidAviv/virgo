@@ -1,5 +1,14 @@
 # Virgo: Visual Identity & Brand Assets
 
+## 🟢 FULL LOGO VARIANT (FLUID GRADIENT)
+**Status:** Approved by User.
+**File:** `virgo_symbol_and_text_fluid.png`
+**Rationale:** Preserves the original locked spacing but applies a single continuous fluid gradient from cyan to violet across both the symbol and wordmark for a unified look.
+
+![Fluid Gradient Variant](./virgo_symbol_and_text_fluid.png)
+
+---
+
 ## 🟢 FINAL LOCKED WORDMARK
 **Status:** Approved by User (Generated via ChatGPT).
 **File:** `virgo_wordmark.png`
