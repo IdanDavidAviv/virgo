@@ -21,3 +21,6 @@ tests/mcp/new_active-session/
 # Security guards
 .env*
 !.env.example
+
+# Social networks content - local dir
+socials/
