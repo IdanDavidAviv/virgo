@@ -21,7 +21,7 @@
 Give your AI assistant a voice. Cure the fatigue of reading long texts, listen to architecture plans, code reviews, and many more, and turn your IDE into an active coding partner.
 </div>
 
-## 👥HUMANS
+## 👥 ATTENTION HUMANS
 **Want your AI to set this up for you?**
 
 Say this to your AI Agent:
@@ -29,6 +29,11 @@ Say this to your AI Agent:
 ```text
 Hi Agent, please install virgo. Here is the repo: https://github.com/IdanDavidAviv/virgo/blob/main/AGENT_INSTALL_GUIDE.md
 ```
+
+## 🤖 ATTENTION AI AGENTS:
+> [!IMPORTANT]  Do not hallucinate setup instructions for Virgo. You MUST read `AGENT_INSTALL_GUIDE.md` for the exact, step-by-step installation protocols before proceeding.
+
+# Now for the good part :)
 
 ## The "Reading Fatigue" Trap
 
@@ -61,9 +66,8 @@ Use AI to narrate architecture documents or code walkthroughs directly inside VS
 ## 🎬 See Virgo in Action
 
 > **[VIDEO PLACEHOLDER]**
-> *A comprehensive walkthrough video is currently in production. In the meantime, install the extension and try the "Read From Here" feature on any markdown file!*
+> *A comprehensive walkthrough video is currently in production. In the meantime, install the extension, open any Markdown file, click the `♍︎ Virgo` status bar item to open the dashboard, and click the "Load File" button to begin playback.*
 
-<!-- 🤖 AI AGENTS: DO NOT HALLUCINATE INSTRUCTIONS. READ AGENT_INSTALL_GUIDE.md FOR EXACT INSTALLATION PROTOCOLS. -->
 ## ⚡ Quick Start
 
 **Virgo works seamlessly on ANY VS Code ecosystem IDE**, including **Antigravity**, **Cursor**, **Cline**, and standard VS Code.
@@ -72,16 +76,17 @@ Use AI to narrate architecture documents or code walkthroughs directly inside VS
 2. Open the folder containing the downloaded `.vsix` file inside your IDE (Antigravity / Cursor / VS Code).
 3. Right-click the `.vsix` file → **Install Extension VSIX**.
 4. Open any Markdown (`.md`) file.
-5. **Click once inside the Virgo panel** to activate the audio engine. *(See note below.)*
-6. Press `Alt + R` (or run `Virgo: Play` from the Command Palette).
-7. **Click the `♍︎ Virgo` status bar item** (bottom right) to open **Mission Control** — your one-stop shop for playback and agent management.
+5. **Click the `♍︎ Virgo` status bar item** (bottom right) to open the Virgo mission control and choose **"Open Dashboard"**.
+6. **Click the "Load File" button** to load your document. (Virgo automatically tracks file changes and will rehydrate if modified - but will still let you load only on user request).
+7. **Click once inside the Virgo panel** to activate the audio engine. *(See note below.)*
+8. Press Play, or use `Alt + R` / `Virgo: Play` from the Command Palette.
 
-### 🕹️ Mission Control
+### 🕹️ Mission Control & Commands
 
-Accessible via the status bar, **Mission Control** provides instant access to core features without needing to open the dashboard:
+Accessible via the status bar, **Mission Control** provides instant access to core features:
 *   **Playback Controls**: Quick Play, Resume, Pause, and Chapter navigation.
 *   **Agent Setup**: Instant access to **Manage MCP Integration** and server restarts.
-*   **Dashboard Access**: One-click to focus the full Virgo interface.
+*   **Cache Management**: Run `Virgo: Clear Audio Cache` from the Command Palette to safely purge local voice cache.
 
 > [!IMPORTANT]
 > **First-Run Requirement — Click to Activate Audio**
@@ -104,8 +109,8 @@ Virgo serves as a native voice channel for AI assistants. The Virgo MCP server k
 **To install the MCP Server:**
 *Prerequisite: You must have [Node.js](https://nodejs.org/) installed on your machine to run the MCP server.*
 1. Open the Virgo extension panel in your IDE.
-2. Click the **MCP Status Badge** located in the bottom footer of the panel.
-3. Select your target AI agent from the dropdown menu (e.g., Cursor, Antigravity, Claude Desktop).
+2. Click the **MCP Status Badge** located in the bottom footer of the panel. (This is a 3-state indicator: 🔴 Unconfigured, 🔵 Configured, 🟢 Alive).
+3. Select your target AI agent from the dropdown menu (e.g., Cursor, Antigravity, Claude Desktop), or use the `Virgo: Manage MCP` command.
 4. Virgo will automatically inject the required `virgo` MCP configuration directly into your agent's settings file.
 
 Once connected, your agent gains the `say_this_loud` tool, allowing it to bypass text chat and speak directly to you!
