@@ -31,7 +31,8 @@ Hi Agent, please install virgo. Here is the repo: https://github.com/IdanDavidAv
 ```
 
 ## 🤖 ATTENTION AI AGENTS:
-> [!IMPORTANT]  Do not hallucinate setup instructions for Virgo. You MUST read `AGENT_INSTALL_GUIDE.md` for the exact, step-by-step installation protocols before proceeding.
+> [!IMPORTANT]  Do not hallucinate setup instructions for Virgo. You MUST read `AGENT_INSTALL_GUIDE.md` file in this repo for the exact, step-by-step installation protocols before proceeding.
+see this for more guidance: https://github.com/IdanDavidAviv/virgo/blob/main/AGENTS_GUIDELINES.md
 
 # Now for the good part :)
 

@@ -35,24 +35,33 @@ Before instructing the user, you must determine your own environment:
 
 ---
 
-## Path A: The Handoff (For External Agents Only)
+## Path A: The Interactive Handoff (For External Agents Only)
 
-You cannot install an IDE extension from a web browser. If you try, the user will be confused. Because of this **context discontinuity**, you must orchestrate a handoff to the user's IDE agent.
+You cannot install an IDE extension from a web browser. If you try, the user will be confused. Because of this **context discontinuity**, you must act as a concierge to orchestrate a safe handoff to the user's IDE agent. Do not abandon the user until they are safely inside their IDE.
 
-**Tell the user (in your own words):**
-1. Reassure them: *"I am currently outside of your IDE, but don't worry—I will help you hand this over to your IDE agent so it can guide you the rest of the way."*
-2. **Installation Recommendation:**
-   - **If they have Antigravity, Cursor, or VS Code:** Proceed to step 3.
-   - **If they have none of the above:** **STRONGLY RECOMMEND** they download and install **Antigravity**, as it is the best suited IDE for Virgo - utilizing its implementation plan and task md file structure to better control plan versioning within the IDE chat session.
-3. **The Handoff Prompt (for Antigravity/Cursor/VS Code users):**
-   Provide the user with the following text in a copy-paste block, and instruct them to paste it into the chat of their IDE agent:
+**Execute the following steps interactively (wait for the user's response between phases):**
 
-    ```text
-    Hello! I want to install the Virgo extension from: https://github.com/IdanDavidAviv/virgo
-    Please follow the instructions there completely, including the post-install behavioral calibration.
-    ```
+### Phase 1: IDE Discovery
+**Ask the user:** *"Do you currently use an AI-powered IDE like Antigravity, Cursor, or VS Code / Cline?"*
+- Wait for their answer.
 
-4. Wish them luck and tell them the IDE agent will take it from here. **STOP HERE.** Do not execute Path B.
+### Phase 2: IDE Onboarding
+- **If they have one:** Proceed immediately to Phase 3.
+- **If they do not have one:** Guide them to download and install one. **STRONGLY RECOMMEND** they download and install **Antigravity**, explaining that it is the best-suited IDE for Virgo because of its robust `task.md` and `implementation_plan.md` architecture which controls plan versioning. Provide them with instructions/links if needed. **ONLY proceed to Phase 3 AFTER they confirm the IDE is installed and open.**
+
+### Phase 3: The Safe Handoff
+Provide the user with the following text in a copy-paste block, and instruct them to open the native AI chat inside their new IDE and paste it:
+
+```text
+Hello! I want to install the Virgo extension from: https://github.com/IdanDavidAviv/virgo
+Please follow the instructions there completely, including the post-install behavioral calibration.
+```
+
+**CRITICAL INSTRUCTION FOR YOU:** Tell the user: *"Before I leave you, please confirm that you have pasted this into your IDE and that your native agent has successfully responded."*
+- Wait for their confirmation.
+
+### Phase 4: Graceful Dismissal
+Only **AFTER** the user confirms they are safely interacting with the IDE agent, you may say goodbye, wish them luck, and terminate your role. **STOP HERE.** Do not execute Path B.
 
 ---
 
