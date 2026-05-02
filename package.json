@@ -2,7 +2,7 @@
   "name": "virgo",
   "displayName": "Virgo",
   "description": "AI that talks to YOU. Neural narration, MCP-powered, for VS Code.",
-  "version": "2.9.0",
+  "version": "2.9.1",
   "license": "SEE LICENSE IN LICENSE",
   "publisher": "IdanDavidAviv",
   "engines": {
@@ -39,7 +39,6 @@
   "keywords": [
     "markdown",
     "tts",
-    "read aloud",
     "accessibility",
     "speech",
     "preview",
@@ -172,7 +171,7 @@
     "configuration": {
       "title": "Virgo",
       "properties": {
-        "readAloud.logging.level": {
+        "virgo.logging.level": {
           "type": "string",
           "enum": [
             "Standard",
@@ -181,26 +180,26 @@
           "default": "Standard",
           "description": "Control the verbosity of diagnostic logs. Standard uses shorthand and summarization. Verbose logs raw data blobs."
         },
-        "readAloud.playback.rate": {
+        "virgo.playback.rate": {
           "type": "number",
           "default": 1,
           "minimum": 0.5,
           "maximum": 2,
           "description": "Speech rate (speed). Higher is faster."
         },
-        "readAloud.playback.volume": {
+        "virgo.playback.volume": {
           "type": "number",
           "default": 50,
           "minimum": 0,
           "maximum": 100,
           "description": "Speech volume level."
         },
-        "readAloud.playback.voice": {
+        "virgo.playback.voice": {
           "type": "string",
           "default": "en-US-SteffanNeural",
           "description": "The voice to use for neural synthesis."
         },
-        "readAloud.playback.engineMode": {
+        "virgo.playback.engineMode": {
           "type": "string",
           "enum": [
             "neural",
@@ -209,7 +208,7 @@
           "default": "neural",
           "description": "Switch between high-quality Cloud Neural voices (requires internet) and standard Local SAPI voices (offline)."
         },
-        "readAloud.playback.autoPlayMode": {
+        "virgo.playback.autoPlayMode": {
           "type": "string",
           "enum": [
             "auto",
@@ -219,27 +218,27 @@
           "default": "auto",
           "description": "Control how playback advances. 'auto' reads the entire document. 'chapter' stops at chapter ends. 'row' stops after each sentence."
         },
-        "readAloud.playback.autoPlayOnInjection": {
+        "virgo.playback.autoPlayOnInjection": {
           "type": "boolean",
           "default": false,
           "description": "Automatically start playback when a new MCP snippet is injected (Vocal Sync). Use with caution to avoid unexpected audio."
         },
-        "readAloud.playback.jumpDelayMs": {
+        "virgo.playback.jumpDelayMs": {
           "type": "number",
           "default": 200,
           "description": "Delay in milliseconds before prefetching or pushing audio segments to the webview."
         },
-        "readAloud.cache.maxSizeMb": {
+        "virgo.cache.maxSizeMb": {
           "type": "number",
           "default": 50,
           "description": "Maximum size of the audio cache in megabytes. Older segments are pruned automatically."
         },
-        "readAloud.network.retryAttempts": {
+        "virgo.network.retryAttempts": {
           "type": "number",
           "default": 3,
           "description": "Maximum number of retries for neural synthesis before giving up."
         },
-        "readAloud.agent.autoInjectSITREP": {
+        "virgo.agent.autoInjectSITREP": {
           "type": "boolean",
           "default": true,
           "description": "Automatically inject a SITREP/Summary into Virgo when a task is completed (Multimodal Parity)."

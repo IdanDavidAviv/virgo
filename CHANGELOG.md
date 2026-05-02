@@ -2,6 +2,11 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.1] - 2026-05-02
+
+### Changed
+- **Full Namespace Migration**: Executed a comprehensive codebase refactoring to replace all internal instances of the legacy `readAloud` nomenclature with the new `virgo` namespace, encompassing configuration keys, state references, logger prefixes, and test suites, completely unifying the architectural identity.
+
 ## [2.9.0] - 2026-04-27
 
 ### Added
