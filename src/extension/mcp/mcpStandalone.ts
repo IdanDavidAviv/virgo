@@ -1,6 +1,6 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as path from "path";
-import { createReadAloudMcpServer } from "./core/mcpFactory";
+import { createVirgoMcpServer } from "./core/mcpFactory";
 import { PendingInjectionStore } from "./core/sharedStore";
 // eslint-disable-next-line @typescript-eslint/naming-convention
 declare const __APP_VERSION__: string;
@@ -17,7 +17,7 @@ async function main() {
     // Override via VIRGO_ROOT or VIRGO_DATA_DIR env var for custom deployments.
     const virgoRootName = process.env.VIRGO_ROOT || "virgo";
     const defaultSessionsRoot = path.join(userHome, ".gemini", "antigravity", virgoRootName, "sessions");
-    const sessionsRoot = process.env.VIRGO_DATA_DIR || process.env.READ_ALOUD_DATA_DIR || defaultSessionsRoot;
+    const sessionsRoot = process.env.VIRGO_DATA_DIR || process.env.VIRGO_DATA_DIR || defaultSessionsRoot;
     
     // Standalone targets the sessions root; the factory handles specific session IDs via tool arguments.
     const persistencePath = sessionsRoot;
@@ -32,7 +32,7 @@ async function main() {
 
     // 3. Setup Store & Factory
     const store = new PendingInjectionStore(persistencePath);
-    const server = createReadAloudMcpServer({
+    const server = createVirgoMcpServer({
         persistencePath,
         sessionsRoot,
         logger,

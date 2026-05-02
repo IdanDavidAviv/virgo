@@ -27,7 +27,7 @@ export class SettingsManager {
         this._loadConfiguration();
         
         this._context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('readAloud')) {
+            if (e.affectsConfiguration('virgo')) {
                 this._loadConfiguration(e);
             }
         }));
@@ -43,10 +43,10 @@ export class SettingsManager {
     }
 
     private _loadConfiguration(event?: vscode.ConfigurationChangeEvent): void {
-        const config = vscode.workspace.getConfiguration('readAloud');
+        const config = vscode.workspace.getConfiguration('virgo');
         const updatedOptions: any = {};
 
-        if (!event || event.affectsConfiguration('readAloud.playback')) {
+        if (!event || event.affectsConfiguration('virgo.playback')) {
             updatedOptions.rate = config.get<number>('playback.rate', 1.0);
             updatedOptions.volume = config.get<number>('playback.volume', 50);
             updatedOptions.selectedVoice = config.get<string>('playback.voice', 'en-US-SteffanNeural');
@@ -55,7 +55,7 @@ export class SettingsManager {
             updatedOptions.autoPlayOnInjection = config.get<boolean>('playback.autoPlayOnInjection', false);
         }
 
-        if (!event || event.affectsConfiguration('readAloud.agent.autoInjectSITREP')) {
+        if (!event || event.affectsConfiguration('virgo.agent.autoInjectSITREP')) {
             const val = config.get<boolean>('agent.autoInjectSITREP', true);
             updatedOptions.autoInjectSITREP = val;
             this.bridgeAgentState(val);
@@ -92,7 +92,7 @@ export class SettingsManager {
         }
         
         this._debounceTimers.set(key, setTimeout(async () => {
-            const config = vscode.workspace.getConfiguration('readAloud');
+            const config = vscode.workspace.getConfiguration('virgo');
             const configKey = `playback.${key === 'selectedVoice' || key === 'voice' ? 'voice' : key}`;
             
             // [SOVEREIGNTY] Check if the value actually differs from the PERSISTED value
@@ -151,7 +151,7 @@ export class SettingsManager {
                 lastUpdated: Date.now()
             };
 
-            const allProgress = this._context.globalState.get<Record<string, any>>('readAloud.docProgress', {});
+            const allProgress = this._context.globalState.get<Record<string, any>>('virgo.docProgress', {});
 
             // Decommission legacy URI-only key if it exists
             if (allProgress[uriStr]) { delete allProgress[uriStr]; }
@@ -171,7 +171,7 @@ export class SettingsManager {
                 }
             }
 
-            this._context.globalState.update('readAloud.docProgress', allProgress);
+            this._context.globalState.update('virgo.docProgress', allProgress);
         }, 1000);
     }
 
@@ -179,7 +179,7 @@ export class SettingsManager {
      * Retrieves saved document progress from globalState.
      */
     public loadProgress(uri: vscode.Uri, salt?: string, hash?: string): { chapterIndex: number, sentenceIndex: number } | null {
-        const allProgress = this._context.globalState.get<Record<string, any>>('readAloud.docProgress', {});
+        const allProgress = this._context.globalState.get<Record<string, any>>('virgo.docProgress', {});
         const uriStr = uri.toString();
         const saltStr = salt ? `-${salt}` : '';
         const hashStr = hash ? `#${hash}` : '';
@@ -208,14 +208,14 @@ export class SettingsManager {
             'retryAttempts': 'network.retryAttempts'
         };
 
-        const config = vscode.workspace.getConfiguration('readAloud');
+        const config = vscode.workspace.getConfiguration('virgo');
         let migratedAny = false;
 
         for (const [oldKey, newKey] of Object.entries(legacyKeys)) {
-            const oldValue = this._context.globalState.get('readAloud.' + oldKey);
+            const oldValue = this._context.globalState.get('virgo.' + oldKey);
             if (oldValue !== undefined) {
                 config.update(newKey, oldValue, vscode.ConfigurationTarget.Global);
-                this._context.globalState.update('readAloud.' + oldKey, undefined);
+                this._context.globalState.update('virgo.' + oldKey, undefined);
                 migratedAny = true;
                 this._logger(`[MIGRATION] Moved ${oldKey} from globalState to settings.json (${newKey})`);
             }

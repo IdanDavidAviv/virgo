@@ -82,7 +82,7 @@ const FULL_DOM = `
     <audio id="neural-player"></audio>
 `;
 
-describe('Read Aloud Integration v3 (Full Stability & Parity)', () => {
+describe('Virgo Integration v3 (Full Stability & Parity)', () => {
     let store: WebviewStore;
     let client: MessageClient;
     let dispatcher: CommandDispatcher;

@@ -2,7 +2,7 @@ import { CacheDelta } from '../common/types';
 
 export class CacheManager {
     private static instance: CacheManager;
-    private dbName = 'ReadAloudAudioCache';
+    private dbName = 'VirgoAudioCache';
     private storeName = 'audio-cache';
     private db: IDBDatabase | null = null;
     private _initPromise: Promise<IDBDatabase> | null = null;

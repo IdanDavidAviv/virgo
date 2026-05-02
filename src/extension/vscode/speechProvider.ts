@@ -60,7 +60,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         private readonly _context: vscode.ExtensionContext,
         private readonly _logger: (msg: string) => void,
         private readonly _statusBarItem: vscode.StatusBarItem,
-        private _readAloudRoot: string,
+        private _virgoRoot: string,
         private _sessionId: string,
         public onVisibilityChanged?: () => void
     ) {
@@ -76,10 +76,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         // [PHASE 1 REFACTOR] Modularized MCP Watcher
         // [T-035] SessionIndexManager must be created before McpWatcher (injected as dep)
-        this._indexManager = new SessionIndexManager(this._readAloudRoot, this._logger);
+        this._indexManager = new SessionIndexManager(this._virgoRoot, this._logger);
 
         this._mcpWatcher = new McpWatcher(
-            this._readAloudRoot,
+            this._virgoRoot,
             this._sessionId,
             this._stateStore,
             this._docController,
@@ -112,7 +112,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._context,
             this._stateStore,
             msg => this._logger(msg),
-            this._readAloudRoot,
+            this._virgoRoot,
             this._sessionId
         );
         this._settingsManager.initialize();
@@ -201,16 +201,16 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     public updateSessionContext(root: string, sessionId: string) {
-        // [MP-001 T-015] root IS sessionsRoot — do NOT re-append 'read_aloud'.
+        // [MP-001 T-015] root IS sessionsRoot — do NOT re-append 'virgo'.
         // Callers now pass the pre-resolved sessions/ root directly.
-        this._readAloudRoot = root;
+        this._virgoRoot = root;
         this._sessionId = sessionId;
         this._settingsManager.pivotSession(root, sessionId);
         this._mcpWatcher?.pivot(root, sessionId);
     }
 
     private _ensureSessionState() {
-        const sessionPath = path.join(this._readAloudRoot, this._sessionId);
+        const sessionPath = path.join(this._virgoRoot, this._sessionId);
         const stateFile = path.join(sessionPath, 'extension_state.json');
 
         if (!fs.existsSync(sessionPath)) {
@@ -228,7 +228,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     private _bridgeAgentState(autoInjectSITREP: boolean) {
-        const stateFile = path.join(this._readAloudRoot, this._sessionId, 'extension_state.json');
+        const stateFile = path.join(this._virgoRoot, this._sessionId, 'extension_state.json');
         if (fs.existsSync(stateFile)) {
             try {
                 const content = fs.readFileSync(stateFile, 'utf8');
@@ -567,7 +567,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             native: true,
             extensionVersion: this._context.extension.packageJSON.version,
             debugMode: this._context.extensionMode === vscode.ExtensionMode.Development,
-            logLevel: vscode.workspace.getConfiguration('readAloud').get<string>('logging.level', 'Standard') === 'Verbose' ? 2 : 1
+            logLevel: vscode.workspace.getConfiguration('virgo').get<string>('logging.level', 'Standard') === 'Verbose' ? 2 : 1
         };
 
         const bootstrap = `
@@ -664,7 +664,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         const cmd = sanitized.command;
         const payload = sanitized; // For brevity in handlers
-        this._logger(`[READALOUD <- ${source.toUpperCase()}] Command: ${cmd}`);
+        this._logger(`[VIRGO <- ${source.toUpperCase()}] Command: ${cmd}`);
 
         // [RELAY_HARDENING] Implicit readiness — if the webview is talking, it's alive.
         // This prevents 1-press failures if the READY signal was missed during a reload.
@@ -680,7 +680,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._playbackEngine.adoptBatchIntent(payload.batchId);
         }
 
-        this._logger(`[READALOUD <- ${source.toUpperCase()}] Command: ${cmd} (Intent: ${payload.intentId}, Batch: ${payload.batchId})`);
+        this._logger(`[VIRGO <- ${source.toUpperCase()}] Command: ${cmd} (Intent: ${payload.intentId}, Batch: ${payload.batchId})`);
         switch (cmd) {
             case OutgoingAction.READY:
                 this._dashboardRelay.setReady();
@@ -997,7 +997,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         // Resolve the display name from extension_state.json (same logic as _resolveDisplayName)
         let displayName: string | undefined;
         try {
-            const stateFile = path.join(this._readAloudRoot, this._sessionId, 'extension_state.json');
+            const stateFile = path.join(this._virgoRoot, this._sessionId, 'extension_state.json');
             if (fs.existsSync(stateFile)) {
                 const raw = fs.readFileSync(stateFile, 'utf-8');
                 const state = JSON.parse(raw);
@@ -1021,8 +1021,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
 
     private async _getSnippetHistoryByScan(): Promise<SnippetHistory> {
-        const rootUri = vscode.Uri.file(this._readAloudRoot);
-        this._logger(`[SNIPPET_HISTORY] Scanning root: ${this._readAloudRoot}`);
+        const rootUri = vscode.Uri.file(this._virgoRoot);
+        this._logger(`[SNIPPET_HISTORY] Scanning root: ${this._virgoRoot}`);
         
         try {
             // 1. Get all session directories 
@@ -1319,7 +1319,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._docController.clear();
         this._stateStore.clearActiveContext();
 
-        this._logger('[READALOUD] Context Reset: Reader cleared.');
+        this._logger('[VIRGO] Context Reset: Reader cleared.');
     }
 
     public clearCache(): void {
@@ -1439,7 +1439,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (nextIdx < chapters.length) {
             await this.jumpToChapter(nextIdx, intentId, batchId);
         } else {
-            this._logger('[READALOUD] Already at the last chapter.');
+            this._logger('[VIRGO] Already at the last chapter.');
         }
     }
 
@@ -1455,7 +1455,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             // Jump to previous chapter
             await this.jumpToChapter(state.currentChapterIndex - 1, intentId, batchId);
         } else {
-            this._logger('[READALOUD] Already at the first chapter.');
+            this._logger('[VIRGO] Already at the first chapter.');
         }
     }
 

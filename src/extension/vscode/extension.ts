@@ -22,8 +22,8 @@ function log(msg: string) {
     }
 }
 
-function resolveLatestSessionId(readAloudRoot: string, brainRoot?: string): string {
-    const searchDirs = [readAloudRoot];
+function resolveLatestSessionId(virgoRoot: string, brainRoot?: string): string {
+    const searchDirs = [virgoRoot];
     if (brainRoot) { searchDirs.unshift(brainRoot); } // Brain is higher priority for "New" sessions
 
     // [T-038] VS Code internal temp dirs that must never be treated as agent sessions
@@ -68,9 +68,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // [Onboarding & Repair] Environment Sanity Check
     const userProfile = process.env.USERPROFILE || process.env.HOME || '';
-    const readAloudRoot = path.join(userProfile, '.gemini', 'antigravity', virgoRootName);
+    const virgoRoot = path.join(userProfile, '.gemini', 'antigravity', virgoRootName);
     // [MP-001 T-015] Canonical session root — all session data lives under sessions/<id>/
-    const sessionsRoot = path.join(readAloudRoot, 'sessions');
+    const sessionsRoot = path.join(virgoRoot, 'sessions');
     try {
         if (!fs.existsSync(sessionsRoot)) {
             fs.mkdirSync(sessionsRoot, { recursive: true });

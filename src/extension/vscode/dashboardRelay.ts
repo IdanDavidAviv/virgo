@@ -96,7 +96,7 @@ export class DashboardRelay {
             : null;
 
         const cacheStats = this._playbackEngine.getCacheStats() || { count: 0, sizeBytes: 0 };
-        const config = vscode.workspace.getConfiguration('readAloud');
+        const config = vscode.workspace.getConfiguration('virgo');
         const logLevel = config.get<string>('logging.level', 'Standard') === 'Verbose' ? 2 : 1;
 
         const packet: UISyncPacket = {

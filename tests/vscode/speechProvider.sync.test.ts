@@ -166,7 +166,7 @@ describe('SpeechProvider (Sync)', () => {
 
         // 3. Verify configuration persistence (Debounced)
         vi.advanceTimersByTime(1000);
-        const config = vscode.workspace.getConfiguration('readAloud');
+        const config = vscode.workspace.getConfiguration('virgo');
         expect(config.update).toHaveBeenCalledWith('playback.voice', 'new-voice', vscode.ConfigurationTarget.Global);
 
         // 4. Verify UI_SYNC broadcast (Throttled)

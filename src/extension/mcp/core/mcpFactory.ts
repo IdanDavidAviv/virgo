@@ -19,7 +19,7 @@ export interface McpConfig {
  * Unified factory for the Virgo MCP Server.
  * Ensures parity between SEE (Bridge) and Stdio (Standalone) transports.
  */
-export function createReadAloudMcpServer(config: McpConfig): McpServer {
+export function createVirgoMcpServer(config: McpConfig): McpServer {
     const server = new McpServer({
         name: "virgo",
         version: config.version

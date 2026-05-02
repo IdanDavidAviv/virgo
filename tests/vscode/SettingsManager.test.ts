@@ -70,7 +70,7 @@ describe('SettingsManager', () => {
         mockContext.globalState.get.mockReturnValueOnce(2.0); // legacy rate
         settingsManager.initialize();
         
-        expect(mockContext.globalState.update).toHaveBeenCalledWith('readAloud.rate', undefined);
+        expect(mockContext.globalState.update).toHaveBeenCalledWith('virgo.rate', undefined);
     });
 
     it('should bridge settings to agent session state', () => {

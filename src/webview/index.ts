@@ -36,7 +36,7 @@ import { SnippetLookup } from './components/SnippetLookup';
  */
 export function bootstrap() {
   const start = performance.now();
-  console.log('[ReadAloud] 🚀 Initializing High-Integrity Webview Engine...');
+  console.log('[Virgo] 🚀 Initializing High-Integrity Webview Engine...');
 
   // [SSOT] __debug is set immediately from __BOOTSTRAP_CONFIG__ (extension host SSOT),
   // BEFORE any singleton instantiation. This ensures CDP diagnostics always have a live
@@ -55,7 +55,7 @@ export function bootstrap() {
 
   // Global Error Boundary (Issue #42)
   window.onerror = (msg, url, line, col) => {
-    const errorDetail = `[ReadAloud] CRITICAL ERROR: ${msg} at ${line}:${col}`;
+    const errorDetail = `[Virgo] CRITICAL ERROR: ${msg} at ${line}:${col}`;
     console.error(errorDetail);
     // Use safe postMessage to avoid re-entry crash if MessageClient itself failed
     try { (window as any).vscode?.postMessage({ command: 'log', type: 'error', message: errorDetail }); } catch {}
@@ -256,14 +256,14 @@ export function bootstrap() {
 
     // 4. Cleanup Hook
     window.onbeforeunload = () => {
-        console.log('[ReadAloud] 🧹 Performing global cleanup...');
+        console.log('[Virgo] 🧹 Performing global cleanup...');
         registry.forEach(c => c.unmount());
         interaction.unmount();
         audioEngine.purgeMemory();
     };
 
     const duration = (performance.now() - start).toFixed(1);
-    console.log(`[ReadAloud] ✅ Webview Handshake Complete (${duration}ms).`);
+    console.log(`[Virgo] ✅ Webview Handshake Complete (${duration}ms).`);
 
     // [SSOT] Mark hydration complete — unconditional so CDP can detect it regardless of debugMode.
     (window as any).__debug.isHydrated = true;
@@ -278,7 +278,7 @@ export function bootstrap() {
 
 // Start the engine
 if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
-  console.log('[ReadAloud] 🧪 Test Environment Detected: Skipping auto-bootstrap.');
+  console.log('[Virgo] 🧪 Test Environment Detected: Skipping auto-bootstrap.');
 } else {
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bootstrap);

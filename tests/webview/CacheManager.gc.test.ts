@@ -24,7 +24,7 @@ describe('CacheManager GC (Lifecycle Management)', () => {
         }
         
         // 2. Clear previous state
-        const dbName = 'ReadAloudAudioCache';
+        const dbName = 'VirgoAudioCache';
         await new Promise((resolve) => {
             const req = indexedDB.deleteDatabase(dbName);
             req.onsuccess = resolve;

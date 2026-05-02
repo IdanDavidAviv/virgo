@@ -49,12 +49,12 @@ export class SessionIndexManager {
     private readonly _sessionsRoot: string;
 
     constructor(
-        private readonly _antigravityReadAloudRoot: string,
+        private readonly _antigravityVirgoRoot: string,
         private readonly _logger: (msg: string) => void
     ) {
-        this._indexPath = path.join(_antigravityReadAloudRoot, 'sessions_index.json');
-        this._tmpPath = path.join(_antigravityReadAloudRoot, 'sessions_index.tmp.json');
-        this._sessionsRoot = _antigravityReadAloudRoot;
+        this._indexPath = path.join(_antigravityVirgoRoot, 'sessions_index.json');
+        this._tmpPath = path.join(_antigravityVirgoRoot, 'sessions_index.tmp.json');
+        this._sessionsRoot = _antigravityVirgoRoot;
     }
 
     // ─────────────────────────────────────────────────────

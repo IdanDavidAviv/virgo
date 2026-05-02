@@ -11,7 +11,7 @@ vi.mock('vscode', () => ({
     workspace: {
         getWorkspaceFolder: vi.fn(),
         getConfiguration: vi.fn().mockReturnValue({
-            get: vi.fn((key: string) => (key === 'readAloud.playback.rate' ? 0 : 50))
+            get: vi.fn((key: string) => (key === 'virgo.playback.rate' ? 0 : 50))
         })
     },
     window: {
