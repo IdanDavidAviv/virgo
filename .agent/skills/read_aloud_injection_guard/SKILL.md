@@ -50,7 +50,7 @@ Agent calls say_this_loud (via stdio → mcp-standalone.js)
 - Do NOT pass a stale `turnIndex` lower than the current one — it will be rejected. Omit it to auto-increment safely.
 - The tool writes to `~/.gemini/antigravity/read_aloud/sessions/<sessionId>/`
 - File name format: `<timestamp>_<safe_name>.md`
-- The injected markdown snippet remains raw and unmodified. Do not prepend manual `[Turn XXX]` headers to the content.
+- The injected markdown snippet remains unmodified.
 
 **Success response:**
 ```
