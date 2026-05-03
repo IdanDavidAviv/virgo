@@ -2,7 +2,7 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
-## [Unreleased]
+## [2.9.2] - 2026-05-03
 
 ### Fixed
 - **Snippet Turn Injection**: Removed the automatic `# [Turn 00N]` header prepending logic from the MCP injection pipeline, allowing raw markdown snippets to be persisted without modification.
