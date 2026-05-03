@@ -59,12 +59,7 @@ export class PendingInjectionStore extends EventEmitter {
         const fileName = `${timestamp}.${safeName}.md`;
         const filePath = path.join(sessionPath, fileName);
 
-        // Prepend Turn Header if missing
         let finalContent = content;
-        if (!content.trim().startsWith('# [Turn')) {
-            const turnHeader = `# [Turn ${index.toString().padStart(3, '0')}] ${name}\n\n`;
-            finalContent = turnHeader + content;
-        }
 
         fs.writeFileSync(filePath, finalContent);
         this.emit('injected', { content: finalContent, name, index, filePath });
