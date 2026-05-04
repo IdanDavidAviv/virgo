@@ -292,26 +292,31 @@ export class DashboardRelay {
         let bCount = 0;
 
         while (bCount < BACK_LIMIT && bC >= 0) {
+            const sentences = chapters[bC].sentences || [];
             if (bS < 0) {
                 bC--;
                 if (bC >= 0) {
-                    bS = chapters[bC].sentences.length - 1;
+                    bS = (chapters[bC].sentences || []).length - 1;
                 }
                 continue;
             }
-            window.unshift({
-                text: chapters[bC].sentences[bS],
-                cIdx: bC,
-                sIdx: bS
-            });
+            if (bS >= 0 && bS < sentences.length) {
+                window.unshift({
+                    text: sentences[bS],
+                    cIdx: bC,
+                    sIdx: bS
+                });
+            }
             bS--;
             bCount++;
         }
 
         // 2. Add current
-        if (currC >= 0 && currC < chapters.length && currS < chapters[currC].sentences.length) {
+        const currentChapter = chapters[currC];
+        const currentSentences = currentChapter ? (currentChapter.sentences || []) : [];
+        if (currC >= 0 && currC < chapters.length && currS >= 0 && currS < currentSentences.length) {
             window.push({
-                text: chapters[currC].sentences[currS],
+                text: currentSentences[currS],
                 cIdx: currC,
                 sIdx: currS
             });
@@ -323,13 +328,14 @@ export class DashboardRelay {
         let fCount = 0;
 
         while (fCount < (FUTURE_LIMIT - 1) && fC < chapters.length) {
-            if (fS >= chapters[fC].sentences.length) {
+            const sentences = chapters[fC].sentences || [];
+            if (fS >= sentences.length) {
                 fC++;
                 fS = 0;
                 continue;
             }
             window.push({
-                text: chapters[fC].sentences[fS],
+                text: sentences[fS],
                 cIdx: fC,
                 sIdx: fS
             });

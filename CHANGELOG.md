@@ -2,6 +2,11 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.3] - 2026-05-04
+
+### Fixed
+- **DashboardRelay Crash**: Added defensive guards to `_calculateWindowSentences` to prevent `TypeError` when accessing sentences of undefined or empty chapters.
+
 ## [2.9.2] - 2026-05-03
 
 ### Fixed
