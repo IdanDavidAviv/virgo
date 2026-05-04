@@ -122,7 +122,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // --- BRAIN SENSITIVITY PROTOCOL ---
     // Monitor for new session directories in the brain root
     const brainWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(brainRoot, '*')
+        new vscode.RelativePattern(vscode.Uri.file(brainRoot), '*')
     );
 
     brainWatcher.onDidCreate(async (uri) => {

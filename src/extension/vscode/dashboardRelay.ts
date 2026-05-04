@@ -292,10 +292,15 @@ export class DashboardRelay {
         let bCount = 0;
 
         while (bCount < BACK_LIMIT && bC >= 0) {
-            const sentences = chapters[bC].sentences || [];
+            const currentC = chapters[bC];
+            if (!currentC) {
+                bC--;
+                continue;
+            }
+            const sentences = currentC.sentences || [];
             if (bS < 0) {
                 bC--;
-                if (bC >= 0) {
+                if (bC >= 0 && chapters[bC]) {
                     bS = (chapters[bC].sentences || []).length - 1;
                 }
                 continue;
@@ -328,7 +333,13 @@ export class DashboardRelay {
         let fCount = 0;
 
         while (fCount < (FUTURE_LIMIT - 1) && fC < chapters.length) {
-            const sentences = chapters[fC].sentences || [];
+            const currentC = chapters[fC];
+            if (!currentC) {
+                fC++;
+                fS = 0;
+                continue;
+            }
+            const sentences = currentC.sentences || [];
             if (fS >= sentences.length) {
                 fC++;
                 fS = 0;

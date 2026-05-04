@@ -37,7 +37,7 @@ export class McpWatcher implements vscode.Disposable {
         // This path is the per-instance, per-window, self-enforcing discriminator.
         this._myWorkspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
 
-        const globalPattern = new vscode.RelativePattern(this._antigravityRoot, `**/*.md`);
+        const globalPattern = new vscode.RelativePattern(vscode.Uri.file(this._antigravityRoot), `**/*.md`);
         this._watcher = vscode.workspace.createFileSystemWatcher(globalPattern, false, true, true);
 
         this._disposables.push(this._watcher.onDidCreate(async uri => {

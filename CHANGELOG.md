@@ -2,6 +2,11 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.4] - 2026-05-04
+
+### Fixed
+- **Workspace Architecture**: Fixed a critical activation crash (`AssertionError: pattern is outside of workspace`) that occurred when opening the extension in a window with an active workspace. `vscode.RelativePattern` instances tracking the brain directory now correctly use `vscode.Uri` objects instead of string paths.
+
 ## [2.9.3] - 2026-05-04
 
 ### Fixed

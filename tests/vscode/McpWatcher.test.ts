@@ -115,7 +115,7 @@ describe('McpWatcher (Workspace Claim Gate)', () => {
 
     it('should initialize a filesystem watcher for the antigravity root', () => {
         expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith(
-            expect.objectContaining({ base: '/antigravity', pattern: '**/*.md' }),
+            expect.objectContaining({ base: expect.objectContaining({ fsPath: '/antigravity' }), pattern: '**/*.md' }),
             false, true, true
         );
         expect(mockWatcherInstance.onDidCreate).toHaveBeenCalled();
