@@ -32,7 +32,7 @@ Hi Agent, please install virgo. Here is the repo: https://github.com/IdanDavidAv
 
 ## 🤖 ATTENTION AI AGENTS:
 > [!IMPORTANT]  Do not hallucinate setup instructions for Virgo. You MUST read `AGENT_INSTALL_GUIDE.md` file in this repo for the exact, step-by-step installation protocols before proceeding.
-see this for more guidance: https://github.com/IdanDavidAviv/virgo/blob/main/AGENTS_GUIDELINES.md
+see this for more guidance: https://github.com/IdanDavidAviv/virgo/blob/main/AGENT_INSTALL_GUIDE.md
 
 # Now for the good part :)
 
@@ -66,8 +66,7 @@ Use AI to narrate architecture documents or code walkthroughs directly inside VS
 
 ## 🎬 See Virgo in Action
 
-> **[VIDEO PLACEHOLDER]**
-> *A comprehensive walkthrough video is currently in production. In the meantime, install the extension, open any Markdown file, click the `♍︎ Virgo` status bar item to open the dashboard, and click the "Load File" button to begin playback.*
+*A comprehensive walkthrough video is currently in production. In the meantime, install the extension, open any Markdown file, click the `♍︎ Virgo` status bar item to open the dashboard, and click the "Load File" button to begin playback.*
 
 ## ⚡ Quick Start
 
@@ -84,10 +83,12 @@ Use AI to narrate architecture documents or code walkthroughs directly inside VS
 
 ### 🕹️ Mission Control & Commands
 
-Accessible via the status bar, **Mission Control** provides instant access to core features:
-*   **Playback Controls**: Quick Play, Resume, Pause, and Chapter navigation.
-*   **Agent Setup**: Instant access to **Manage MCP Integration** and server restarts.
-*   **Cache Management**: Run `Virgo: Clear Audio Cache` from the Command Palette to safely purge local voice cache.
+Accessible by clicking the `♍︎ Virgo` status bar item, **Mission Control** provides instant access to:
+*   **Open Dashboard**: Launch the main Virgo UI teleprompter.
+*   **Restart Audio Engine**: Instantly reset the engine if playback stalls.
+*   **Clear Voice Cache**: Safely purge local voice cache to fix missing voice issues.
+
+You can also use the **Command Palette** (`Ctrl+Shift+P`) to access Quick Play, Pause, Stop, and Chapter Navigation.
 
 > [!IMPORTANT]
 > **First-Run Requirement — Click to Activate Audio**
@@ -111,7 +112,7 @@ Virgo serves as a native voice channel for AI assistants. The Virgo MCP server k
 *Prerequisite: You must have [Node.js](https://nodejs.org/) installed on your machine to run the MCP server.*
 1. Open the Virgo extension panel in your IDE.
 2. Click the **MCP Status Badge** located in the bottom footer of the panel. (This is a 3-state indicator: 🔴 Unconfigured, 🔵 Configured, 🟢 Alive).
-3. Select your target AI agent from the dropdown menu (e.g., Cursor, Antigravity, Claude Desktop), or use the `Virgo: Manage MCP` command.
+3. Select your target AI agent from the dropdown menu (e.g., Cursor, Antigravity, Claude Desktop) that appears at the top of your screen.
 4. Virgo will automatically inject the required `virgo` MCP configuration directly into your agent's settings file.
 
 Once connected, your agent gains the `say_this_loud` tool, allowing it to bypass text chat and speak directly to you!
@@ -124,8 +125,7 @@ Once connected, your agent gains the `say_this_loud` tool, allowing it to bypass
 |---|---|
 | `virgo://session/{id}/state` | Live session state — current snippet, playback status |
 | `virgo://snippets/{session}/{snippet}` | Full content of a specific injected snippet |
-| `virgo://logs/native` | Native TTS engine log output |
-| `virgo://logs/debug` | Extension debug log output |
+| `virgo://logs/live_log` | Unified live streaming logs for both Extension and MCP Server |
 
 ## 🛡️ Privacy & Transparency
 
