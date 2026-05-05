@@ -669,6 +669,31 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .version-tag {
     opacity: 0.6;
     letter-spacing: 0.04em;
+    cursor: default;
+    transition: all 0.3s ease;
+}
+
+/* [T-102] Update available — amber glow to draw user attention */
+.version-tag.update-available {
+    opacity: 1;
+    color: #f59e0b;
+    cursor: pointer;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    padding: 1px 5px;
+    border-radius: 4px;
+    animation: version-update-pulse 2.5s infinite ease-in-out;
+}
+
+.version-tag.update-available:hover {
+    background: rgba(245, 158, 11, 0.2);
+    border-color: #f59e0b;
+    transform: scale(1.05);
+}
+
+@keyframes version-update-pulse {
+    0%, 100% { box-shadow: 0 0 0px rgba(245, 158, 11, 0); }
+    50%       { box-shadow: 0 0 8px rgba(245, 158, 11, 0.5); }
 }
 
 .mcp-badge {

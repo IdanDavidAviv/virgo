@@ -236,6 +236,29 @@ export function bootstrap() {
             });
         }
 
+    // [T-102] Version Update Badge
+    const versionTag = document.getElementById('version-tag');
+    if (versionTag) {
+        store.subscribeUI(
+            (ui) => `${ui.updateAvailable}:${ui.latestVersion ?? ''}`,
+            () => {
+                const state = store.getUIState();
+                if (state.updateAvailable && state.latestVersion) {
+                    versionTag.classList.add('update-available');
+                    versionTag.title = `v${state.latestVersion} available — click to update`;
+                    // [CLICK] Open GitHub releases page
+                    (versionTag as HTMLElement).onclick = () => {
+                        window.open(`https://github.com/IdanDavidAviv/virgo/releases/latest`, '_blank');
+                    };
+                } else {
+                    versionTag.classList.remove('update-available');
+                    versionTag.title = 'Current version — up to date';
+                    (versionTag as HTMLElement).onclick = null;
+                }
+            }
+        );
+    }
+
     // Mount all components to attach event listeners.
     // [FIX] Removed premature unmount() call: calling unmount before any component has mounted
     // destroys subscriptions before they are established, causing a permanently silent UI.

@@ -65,6 +65,10 @@ export interface StateMetadata {
     // MCP Configuration
     mcpStatus: 'unconfigured' | 'configured' | 'alive';
     mcpActiveAgents: string[];
+
+    // [T-102] Update Notification
+    latestVersion?: string;    // Latest GitHub release version (e.g. "2.9.5") — undefined until check completes
+    updateAvailable?: boolean; // True when a newer version exists on GitHub
 }
 
 export class StateStore extends EventEmitter {

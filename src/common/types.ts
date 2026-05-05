@@ -74,6 +74,9 @@ export interface UISyncPacket {
     isHydrated?: boolean;
     playbackAuthorized?: boolean; // [COLD-BOOT GATE] True only after an explicit user play gesture.
     syncIntentId?: number;        // [T-101] Monotonic packet counter — protects sovereign fields from out-of-order delivery
+    // [T-102] Update Notification
+    latestVersion?: string;       // Latest GitHub release tag (e.g. "2.9.5") — undefined until check completes
+    updateAvailable?: boolean;    // True when latestVersion > extensionVersion
 }
 
 

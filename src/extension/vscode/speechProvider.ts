@@ -17,6 +17,7 @@ import { SyncManager } from '@vscode/SyncManager';
 import { PersistenceManager } from './PersistenceManager';
 import { SessionIndexManager } from '@core/SessionIndexManager';
 import { McpConfigurator } from '../mcp/mcpConfigurator';
+import { checkForUpdates } from '@vscode/UpdateChecker';
 
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
@@ -163,6 +164,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
 
         // [Reactive Sync] Handled by SyncManager
+
+        // [T-102] Update Notification — fire-and-forget GitHub release check
+        checkForUpdates(
+            this._context.extension.packageJSON.version,
+            this._stateStore,
+            this._logger
+        );
 
         // --- Portless MCP Watcher ---
 

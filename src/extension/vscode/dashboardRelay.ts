@@ -164,7 +164,10 @@ export class DashboardRelay {
             mcpActiveAgents: s.mcpActiveAgents,
             snippetHistory: s.snippetHistory,
             windowSentences: this._calculateWindowSentences(currentChapterIndex, currentSentenceIndex),
-            syncIntentId: ++this._syncCounter  // [T-101] Monotonic packet sequence — webview uses this to protect sovereign fields
+            syncIntentId: ++this._syncCounter,  // [T-101] Monotonic packet sequence — webview uses this to protect sovereign fields
+            // [T-102] Update notification — undefined until UpdateChecker resolves (badge stays grey meanwhile)
+            latestVersion: s.latestVersion,
+            updateAvailable: s.updateAvailable,
         };
 
         this._logger(`[RELAY] 📦 Assembled Packet: active=${packet.activeFileName}, focus=${packet.focusedFileName}, chapters=${packet.allChapters.length}, sets=${packet.currentSentences.length}, hydrated=${packet.isHydrated}, intent=${packet.playbackIntentId}`);
