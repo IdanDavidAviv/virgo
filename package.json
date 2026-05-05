@@ -2,7 +2,7 @@
   "name": "virgo",
   "displayName": "Virgo",
   "description": "AI that talks to YOU. Neural narration, MCP-powered, for VS Code.",
-  "version": "2.9.4",
+  "version": "2.9.5",
   "license": "SEE LICENSE IN LICENSE",
   "publisher": "IdanDavidAviv",
   "engines": {

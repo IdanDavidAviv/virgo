@@ -2,6 +2,15 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.5] - 2026-05-05
+
+### Fixed
+- **IPC Packet Ordering (T-101)**: Hardened `DashboardRelay` sliding window to a 5-sentence lookahead (eliminated the prior 100-sentence bloat, reducing IPC payload size by ~20×). Introduced a monotonic `syncIntentId` stamp on every `UI_SYNC` packet; `WebviewStore.SOVEREIGN_FIELDS` uses the counter to silently reject out-of-order packets before they can corrupt playback state.
+- **Session Reset Integrity (T-101)**: `syncIntentId` counter now resets explicitly on `DashboardRelay.setView()` and on `isHydrated:true` hydration signal in the webview, guaranteeing every reload starts from a clean monotonic baseline.
+
+### Added
+- **In-App Update Notification (T-102)**: Extension now polls the GitHub Releases API once at activation (24-hour in-memory cache, silent fail on network error). When a newer version is available, the footer version tag glows amber with a 2.5-second pulse animation and tooltip shows the new version number. Clicking the tag opens the GitHub releases page directly. Badge reverts to grey when up to date.
+
 ## [2.9.4] - 2026-05-04
 
 ### Fixed
