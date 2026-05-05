@@ -11,6 +11,9 @@ export class DashboardRelay {
     private _initialHydrationDone: boolean = false;
     private _isReady: boolean = false;
     private _playBuffer: any[] = [];
+    // [T-101] Monotonic counter stamped on every UI_SYNC packet.
+    // Webview uses this to protect sovereign fields from out-of-order delivery.
+    private _syncCounter: number = 0;
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -25,6 +28,7 @@ export class DashboardRelay {
         }
         this._view = view;
         this._initialHydrationDone = false; // Reset hydration flag for new view
+        this._syncCounter = 0;             // [T-101] Reset counter on every view attach to prevent stale-ID dead-UI on reload
         if (view) {
             this._logger(`[DashboardRelay] 🔌 New view attached.`);
         }
@@ -159,7 +163,8 @@ export class DashboardRelay {
             mcpStatus: s.mcpStatus,
             mcpActiveAgents: s.mcpActiveAgents,
             snippetHistory: s.snippetHistory,
-            windowSentences: this._calculateWindowSentences(currentChapterIndex, currentSentenceIndex)
+            windowSentences: this._calculateWindowSentences(currentChapterIndex, currentSentenceIndex),
+            syncIntentId: ++this._syncCounter  // [T-101] Monotonic packet sequence — webview uses this to protect sovereign fields
         };
 
         this._logger(`[RELAY] 📦 Assembled Packet: active=${packet.activeFileName}, focus=${packet.focusedFileName}, chapters=${packet.allChapters.length}, sets=${packet.currentSentences.length}, hydrated=${packet.isHydrated}, intent=${packet.playbackIntentId}`);
@@ -275,45 +280,39 @@ export class DashboardRelay {
     }
 
     /**
-     * Calculates a sliding window of 100 sentences (25 previous, 75 future)
-     * across chapter boundaries for predictive synthesis.
+     * [T-101] Calculates a lean sliding window: HEAD (current) + 4 lookahead sentences.
+     * Window is sized to exactly match _processQueue()'s slice(currIdx+1, currIdx+5) prefetch range.
+     * Previous BACK=25/FUTURE=75 (100 sentences) was 20x the actual need and caused IPC bloat.
      */
     private _calculateWindowSentences(currC: number, currS: number): WindowSentence[] {
         const chapters = this._docController.chapters;
         if (!chapters || chapters.length === 0) { return []; }
 
         const window: WindowSentence[] = [];
-        const BACK_LIMIT = 25;
-        const FUTURE_LIMIT = 75;
+        const BACK_LIMIT = 0;        // [T-101] No back-history — _processQueue() never reads behind HEAD
+        const LOOKAHEAD_LIMIT = 4;   // [T-101] Matches queue.slice(currIdx+1, currIdx+5) exactly
 
-        // 1. Backtrack 25 sentences
-        let bC = currC;
-        let bS = currS - 1;
-        let bCount = 0;
-
-        while (bCount < BACK_LIMIT && bC >= 0) {
-            const currentC = chapters[bC];
-            if (!currentC) {
-                bC--;
-                continue;
-            }
-            const sentences = currentC.sentences || [];
-            if (bS < 0) {
-                bC--;
-                if (bC >= 0 && chapters[bC]) {
-                    bS = (chapters[bC].sentences || []).length - 1;
+        // 1. Backtrack (BACK_LIMIT=0 — no back-history needed)
+        // Block preserved for future re-enablement if the back-window use case changes.
+        if (BACK_LIMIT > 0) {
+            let bC = currC;
+            let bS = currS - 1;
+            let bCount = 0;
+            while (bCount < BACK_LIMIT && bC >= 0) {
+                const currentC = chapters[bC];
+                if (!currentC) { bC--; continue; }
+                const sentences = currentC.sentences || [];
+                if (bS < 0) {
+                    bC--;
+                    if (bC >= 0 && chapters[bC]) { bS = (chapters[bC].sentences || []).length - 1; }
+                    continue;
                 }
-                continue;
+                if (bS >= 0 && bS < sentences.length) {
+                    window.unshift({ text: sentences[bS], cIdx: bC, sIdx: bS });
+                }
+                bS--;
+                bCount++;
             }
-            if (bS >= 0 && bS < sentences.length) {
-                window.unshift({
-                    text: sentences[bS],
-                    cIdx: bC,
-                    sIdx: bS
-                });
-            }
-            bS--;
-            bCount++;
         }
 
         // 2. Add current
@@ -327,12 +326,12 @@ export class DashboardRelay {
             });
         }
 
-        // 3. Lookahead 74 sentences (total 75 including current)
+        // 3. Lookahead 4 sentences (total 5 including current HEAD)
         let fC = currC;
         let fS = currS + 1;
         let fCount = 0;
 
-        while (fCount < (FUTURE_LIMIT - 1) && fC < chapters.length) {
+        while (fCount < LOOKAHEAD_LIMIT && fC < chapters.length) {
             const currentC = chapters[fC];
             if (!currentC) {
                 fC++;

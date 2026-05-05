@@ -42,7 +42,8 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
   isHydrated: false,
   playbackAuthorized: false,
   mcpStatus: 'unconfigured',
-  mcpActiveAgents: []
+  mcpActiveAgents: [],
+  syncIntentId: 0           // [T-101] Monotonic packet counter — starts at 0, reset per session
 };
 
 export type StoreState = UISyncPacket & {
@@ -101,7 +102,8 @@ export class WebviewStore {
       isSyncing: false,
       isHydrated: false,
       playbackIntentId: 1,
-      batchIntentId: 1
+      batchIntentId: 1,
+      syncIntentId: 0        // [T-101] Reset per session
     };
   }
 
@@ -149,7 +151,8 @@ export class WebviewStore {
       isSyncing: false,
       isHydrated: false,
       playbackIntentId: 1,
-      batchIntentId: 1
+      batchIntentId: 1,
+      syncIntentId: 0        // [T-101] Reset on dispose
     };
   }
 
@@ -247,7 +250,10 @@ export class WebviewStore {
         //  restore 0 and trigger another double-play oscillation cycle).
         'playbackIntentId',
         'batchIntentId',
-        'playbackIntent'
+        'playbackIntent',
+        // [T-101] Protect the monotonic sync counter itself — a stale packet must not
+        // rewind syncIntentId, or it would corrupt the ordering guarantee.
+        'syncIntentId',
       ];
       SOVEREIGN_FIELDS.forEach(field => {
         if (field in activePatch) {
@@ -262,6 +268,7 @@ export class WebviewStore {
     if (activePatch.isHydrated === true) {
       console.log('[STORE] Explicit Hydration Signal Received.');
       activePatch.isHydrated = true;
+      activePatch.syncIntentId = 0; // [T-101] New session — reset counter so first packet from fresh extension is never stale
     } else if (hasDocData && !this.state.isHydrated) {
       console.warn('[STORE] FORCE HYDRATION triggered by contextual data arrival.');
       activePatch.isHydrated = true;

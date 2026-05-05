@@ -59,7 +59,7 @@ export interface UISyncPacket {
 
     // Data Windows
     currentSentences: string[];
-    windowSentences?: WindowSentence[]; // [NEW] 100-sentence sliding window (25 back, 75 forward)
+    windowSentences?: WindowSentence[]; // [T-101] Lean 5-sentence window (HEAD + 4 lookahead) for predictive synthesis
     allChapters: { title: string, level: number, index: number, count: number }[]; // Full chapter metadata
     
     // Integrity & Cache
@@ -73,6 +73,7 @@ export interface UISyncPacket {
     snippetHistory?: SnippetHistory;
     isHydrated?: boolean;
     playbackAuthorized?: boolean; // [COLD-BOOT GATE] True only after an explicit user play gesture.
+    syncIntentId?: number;        // [T-101] Monotonic packet counter — protects sovereign fields from out-of-order delivery
 }
 
 
