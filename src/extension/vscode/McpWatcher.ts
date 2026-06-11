@@ -17,6 +17,9 @@ export type SnippetLoadedCallback = () => void;
 export class McpWatcher implements vscode.Disposable {
     private _watcher: vscode.FileSystemWatcher;
     private _externalWatcher?: fs.FSWatcher;
+    private _customWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
+    private _customExternalWatchers: Map<string, fs.FSWatcher> = new Map();
+    private _customDisposables: Map<string, vscode.Disposable[]> = new Map();
     private _onSessionPivotListeners: SessionPivotCallback[] = [];
     private _onSnippetLoadedListeners: SnippetLoadedCallback[] = [];
     private _disposables: vscode.Disposable[] = [];
@@ -50,6 +53,17 @@ export class McpWatcher implements vscode.Disposable {
 
         // Claim the initial session at startup so we own it before any snippet arrives
         this._writeWorkspaceClaim(this._currentSessionId);
+
+        // Initialize custom watchers
+        this._initCustomWatchers();
+
+        // Listen to configuration changes
+        this._disposables.push(vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('virgo.snippet.scanFolders')) {
+                this._logger(`[MCP_WATCHER] Configuration 'virgo.snippet.scanFolders' changed. Re-initializing custom watchers.`);
+                this._initCustomWatchers();
+            }
+        }));
 
         this._logger(`[MCP_WATCHER] Listening for ALL sessions in ${this._antigravityRoot} | workspace=${this._myWorkspacePath.split(/[/\\]/).pop() ?? 'unknown'}`);
     }
@@ -105,13 +119,113 @@ export class McpWatcher implements vscode.Disposable {
         }
     }
 
+    private _initCustomWatchers() {
+        // Dispose existing custom watchers
+        for (const [folderPath, watcher] of this._customWatchers) {
+            watcher.dispose();
+        }
+        this._customWatchers.clear();
+
+        for (const [folderPath, extWatcher] of this._customExternalWatchers) {
+            extWatcher.close();
+        }
+        this._customExternalWatchers.clear();
+
+        for (const [folderPath, disposables] of this._customDisposables) {
+            disposables.forEach(d => {
+                try { d.dispose(); } catch (e) {}
+            });
+        }
+        this._customDisposables.clear();
+
+        // Load configured scan folders
+        const configFolders = vscode.workspace.getConfiguration('virgo').get<Array<{ path: string, active?: boolean }>>('snippet.scanFolders') || [];
+        
+        for (const entry of configFolders) {
+            if (!entry.path || entry.active === false) {
+                continue;
+            }
+
+            const targetFolder = entry.path;
+            try {
+                if (!fs.existsSync(targetFolder)) {
+                    this._logger(`[MCP_WATCHER] Custom watch folder does not exist: ${targetFolder}`);
+                    continue;
+                }
+
+                // VS Code FileSystemWatcher
+                const pattern = new vscode.RelativePattern(vscode.Uri.file(targetFolder), `**/*.md`);
+                const watcher = vscode.workspace.createFileSystemWatcher(pattern, false, true, true);
+                const disposables: vscode.Disposable[] = [];
+                disposables.push(watcher.onDidCreate(async uri => {
+                    await this._handleInboundSnippet(uri);
+                }));
+
+                this._customWatchers.set(targetFolder, watcher);
+                this._customDisposables.set(targetFolder, disposables);
+
+                // External Watcher (fs.watch)
+                const extWatcher = fs.watch(targetFolder, { recursive: true }, async (eventType, filename) => {
+                    if (filename && filename.endsWith('.md')) {
+                        const fullPath = path.isAbsolute(filename) ? filename : path.join(targetFolder, filename);
+                        setTimeout(async () => {
+                            if (fs.existsSync(fullPath)) {
+                                await this._handleInboundSnippet(vscode.Uri.file(fullPath));
+                            }
+                        }, 100);
+                    }
+                });
+                this._customExternalWatchers.set(targetFolder, extWatcher);
+
+                this._logger(`[MCP_WATCHER] Initialized custom watcher for: ${targetFolder}`);
+                
+                // Write workspace claim for current session in this custom folder as well
+                this._writeWorkspaceClaimForRoot(targetFolder, this._currentSessionId);
+            } catch (err) {
+                this._logger(`[MCP_WATCHER_ERROR] Failed to set up custom watcher for ${targetFolder}: ${err}`);
+            }
+        }
+    }
+
+    private _resolveRootFolder(cleanPath: string): string {
+        const normalize = (p: string) => p.replace(/^\\\\\?\\\//, '').replace(/^\\\\\?\\/, '').replace(/\//g, path.sep);
+        const cleanRoot = normalize(this._antigravityRoot);
+        if (cleanPath.startsWith(cleanRoot)) {
+            return this._antigravityRoot;
+        }
+
+        const configFolders = vscode.workspace.getConfiguration('virgo').get<Array<{ path: string, active?: boolean }>>('snippet.scanFolders') || [];
+        for (const entry of configFolders) {
+            if (entry.path && entry.active !== false) {
+                const cleanCustom = normalize(entry.path);
+                if (cleanPath.startsWith(cleanCustom)) {
+                    return entry.path;
+                }
+            }
+        }
+
+        return this._antigravityRoot; // Fallback
+    }
+
     /**
      * Write a .workspace_claim file into the session directory.
      * This atomically asserts that this VS Code window owns the session.
      */
     private _writeWorkspaceClaim(sessionId: string): void {
+        this._writeWorkspaceClaimForRoot(this._antigravityRoot, sessionId);
+        
+        // Also claim in active custom folders!
+        const configFolders = vscode.workspace.getConfiguration('virgo').get<Array<{ path: string, active?: boolean }>>('snippet.scanFolders') || [];
+        for (const entry of configFolders) {
+            if (entry.path && entry.active !== false) {
+                this._writeWorkspaceClaimForRoot(entry.path, sessionId);
+            }
+        }
+    }
+
+    private _writeWorkspaceClaimForRoot(rootPath: string, sessionId: string): void {
         if (!this._myWorkspacePath) { return; } // no workspace open — skip
-        const sessionDir = path.join(this._antigravityRoot, sessionId);
+        const sessionDir = path.join(rootPath, sessionId);
         const claimFile = path.join(sessionDir, '.workspace_claim');
         try {
             if (!fs.existsSync(sessionDir)) { fs.mkdirSync(sessionDir, { recursive: true }); }
@@ -154,15 +268,15 @@ export class McpWatcher implements vscode.Disposable {
                 }
 
                 if (existing && existing !== this._myWorkspacePath && isAlive) {
-                    this._logger(`[MCP_WATCHER] Session ${sessionId} already claimed by another active workspace ${existing} (PID: ${existingPid}) — backing off.`);
+                    this._logger(`[MCP_WATCHER] Session ${sessionId} already claimed in root ${rootPath} by another active workspace ${existing} (PID: ${existingPid}) — backing off.`);
                     return;
                 }
             }
             const claimData = `${this._myWorkspacePath}|${process.pid}${this._isDev ? '|dev' : ''}`;
             fs.writeFileSync(claimFile, claimData);
-            this._logger(`[MCP_WATCHER] Claimed session ${sessionId} for workspace: ${this._myWorkspacePath.split(/[/\\]/).pop()} (PID: ${process.pid})`);
+            this._logger(`[MCP_WATCHER] Claimed session ${sessionId} in root ${rootPath} for workspace: ${this._myWorkspacePath.split(/[/\\]/).pop()} (PID: ${process.pid})`);
         } catch (e) {
-            this._logger(`[MCP_WATCHER_ERR] Failed to write claim for ${sessionId}: ${e}`);
+            this._logger(`[MCP_WATCHER_ERR] Failed to write claim for ${sessionId} in root ${rootPath}: ${e}`);
         }
     }
 
@@ -176,7 +290,7 @@ export class McpWatcher implements vscode.Disposable {
      *
      * Fail-open on read errors (don't block audio on transient FS issues).
      */
-    private _isSessionOwnedByMe(sessionId: string, allowClaim = true): boolean {
+    private _isSessionOwnedByMe(sessionId: string, allowClaim = true, matchedRoot?: string): boolean {
         // [TESTING_BYPASS] In development host / integration test environment, bypass ownership check
         if (this._isDev) {
             return true;
@@ -200,14 +314,15 @@ export class McpWatcher implements vscode.Disposable {
             } catch (e) {}
         }
 
-        const claimFile = path.join(this._antigravityRoot, sessionId, '.workspace_claim');
+        const targetRoot = matchedRoot || this._antigravityRoot;
+        const claimFile = path.join(targetRoot, sessionId, '.workspace_claim');
         if (!fs.existsSync(claimFile)) {
             if (!allowClaim) {
                 // Foreign session with no claim — do NOT touch it. Let its real owner claim it.
                 return false;
             }
             // Our session, unclaimed — first-window-wins: write our claim and process.
-            this._writeWorkspaceClaim(sessionId);
+            this._writeWorkspaceClaimForRoot(targetRoot, sessionId);
             return true;
         }
         try {
@@ -240,13 +355,13 @@ export class McpWatcher implements vscode.Disposable {
 
             if (!isAlive) {
                 this._logger(`[MCP_WATCHER] Overriding stale claim for session ${sessionId} (owner PID ${ownerPid} is dead).`);
-                this._writeWorkspaceClaim(sessionId);
+                this._writeWorkspaceClaimForRoot(targetRoot, sessionId);
                 return true;
             }
 
             if (isTrueOwner) {
                 this._logger(`[MCP_WATCHER] Overriding active foreign claim for session ${sessionId} because we are the true owner in loom.json.`);
-                this._writeWorkspaceClaim(sessionId);
+                this._writeWorkspaceClaimForRoot(targetRoot, sessionId);
                 return true;
             }
 
@@ -274,8 +389,10 @@ export class McpWatcher implements vscode.Disposable {
     private async _handleInboundSnippet(uri: vscode.Uri) {
         // [WINDOWS_LONG_PATH_SANITY] Normalize paths to handle long path prefixes (\\?\)
         const normalize = (p: string) => p.replace(/^\\\\\?\\\//, '').replace(/^\\\\\?\\/, '').replace(/\//g, path.sep);
-        const cleanRoot = normalize(this._antigravityRoot);
         const cleanPath = normalize(uri.fsPath);
+
+        const matchedRoot = this._resolveRootFolder(cleanPath);
+        const cleanRoot = normalize(matchedRoot);
 
         // [MCP_TRACE] Trace incoming file event before processing
         this._logger(`[MCP_TRACE] Incoming snippet event: ${cleanPath}`);
@@ -310,7 +427,7 @@ export class McpWatcher implements vscode.Disposable {
         // [XOR GATE] Only allow auto-claim if this is our own current session.
         // Foreign sessions with no claim must NOT be claimed by a sibling window — reject silently.
         const isOurSession = detectedSessionId === this._currentSessionId;
-        if (!this._isSessionOwnedByMe(detectedSessionId, isOurSession)) {
+        if (!this._isSessionOwnedByMe(detectedSessionId, isOurSession, matchedRoot)) {
             this._logger(`[MCP_TRACE] REJECTED: session ${detectedSessionId} is foreign — no claim, not our session.`);
             return;
         }
@@ -366,6 +483,25 @@ export class McpWatcher implements vscode.Disposable {
         if (this._externalWatcher) {
             this._externalWatcher.close();
         }
+
+        // Dispose custom watchers
+        for (const [folderPath, watcher] of this._customWatchers) {
+            watcher.dispose();
+        }
+        this._customWatchers.clear();
+
+        for (const [folderPath, extWatcher] of this._customExternalWatchers) {
+            extWatcher.close();
+        }
+        this._customExternalWatchers.clear();
+
+        for (const [folderPath, disposables] of this._customDisposables) {
+            disposables.forEach(d => {
+                try { d.dispose(); } catch (e) {}
+            });
+        }
+        this._customDisposables.clear();
+
         if (this._disposables) {
             this._disposables.forEach(d => {
                 try { d?.dispose(); } catch (e) { }

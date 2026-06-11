@@ -247,6 +247,28 @@
           "type": "string",
           "default": "virgo",
           "description": "The root directory name for Virgo data storage (sessions, protocols, media) under the antigravity directory. Defaults to 'virgo'. Change this if you want to partition different projects."
+        },
+        "virgo.snippet.scanFolders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Absolute folder path to scan/watch."
+              },
+              "active": {
+                "type": "boolean",
+                "default": true,
+                "description": "Enable or disable scanning for this folder."
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "default": [],
+          "description": "Custom absolute directories to scan and watch for Markdown snippets."
         }
       }
     },

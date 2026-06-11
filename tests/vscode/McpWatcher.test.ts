@@ -9,19 +9,31 @@ const OTHER_WORKSPACE = '/workspace/other-project';
 
 // Mock vscode — each window has a unique workspace folder (VS Code enforces this)
 vi.mock('vscode', () => {
+    const mockConfigurationEmitter = { dispose: vi.fn() };
+    const mockWatcher = {
+        onDidCreate: vi.fn(l => {
+            (global as any)._lastWatcherListener = l;
+            return { dispose: vi.fn() };
+        }),
+        onDidDelete: vi.fn(),
+        onDidChange: vi.fn(),
+        dispose: vi.fn()
+    };
     return {
         RelativePattern: vi.fn(function(base, pattern) {
             return { base, pattern };
         }),
         workspace: {
-            createFileSystemWatcher: vi.fn(() => ({
-                onDidCreate: vi.fn(),
-                onDidDelete: vi.fn(),
-                onDidChange: vi.fn(),
-                dispose: vi.fn()
-            })),
+            createFileSystemWatcher: vi.fn(() => mockWatcher),
             // Inline literal — vi.mock factory is hoisted before module-level consts
-            workspaceFolders: [{ uri: { fsPath: '/workspace/virgo' } }]
+            workspaceFolders: [{ uri: { fsPath: '/workspace/virgo' } }],
+            getConfiguration: vi.fn(() => ({
+                get: vi.fn(() => [])
+            })),
+            onDidChangeConfiguration: vi.fn(cb => {
+                (global as any)._configChangeListener = cb;
+                return mockConfigurationEmitter;
+            })
         },
         Uri: {
             file: vi.fn(f => ({ fsPath: f, toString: () => `file://${f}` }))
@@ -285,5 +297,91 @@ describe('McpWatcher (Workspace Claim Gate)', () => {
         await onCreateListener(uri);
 
         expect(pivotSpy).not.toHaveBeenCalled();
+    });
+
+    describe('Configurable Multi-Path Snippet Scanning', () => {
+        let mockGet: any;
+
+        beforeEach(() => {
+            mockGet = vi.fn().mockReturnValue([]);
+            (vscode.workspace.getConfiguration as any).mockReturnValue({
+                get: mockGet
+            });
+        });
+
+        it('should initialize custom watchers if scan folders are configured', () => {
+            mockGet.mockReturnValue([{ path: '/custom-folder', active: true }]);
+            (fs.existsSync as any).mockImplementation((p: string) => {
+                if (p === '/custom-folder') {return true;}
+                return true;
+            });
+
+            // Re-instantiate watcher to read the new mock config
+            watcher = new McpWatcher(
+                '/antigravity',
+                'session-1',
+                mockStateStore,
+                mockDocController,
+                mockLogger
+            );
+
+            expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith(
+                expect.objectContaining({ base: expect.objectContaining({ fsPath: '/custom-folder' }), pattern: '**/*.md' }),
+                false, true, true
+            );
+        });
+
+        it('should reload custom watchers on configuration changes', () => {
+            mockGet.mockReturnValue([]);
+            watcher = new McpWatcher(
+                '/antigravity',
+                'session-1',
+                mockStateStore,
+                mockDocController,
+                mockLogger
+            );
+
+            mockGet.mockReturnValue([{ path: '/custom-folder-2', active: true }]);
+            (fs.existsSync as any).mockImplementation((p: string) => {
+                if (p === '/custom-folder-2') {return true;}
+                return true;
+            });
+
+            if ((global as any)._configChangeListener) {
+                (global as any)._configChangeListener({
+                    affectsConfiguration: (key: string) => key === 'virgo.snippet.scanFolders'
+                });
+            }
+
+            expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith(
+                expect.objectContaining({ base: expect.objectContaining({ fsPath: '/custom-folder-2' }), pattern: '**/*.md' }),
+                false, true, true
+            );
+        });
+
+        it('should process snippets in custom folders using resolved root paths', async () => {
+            mockGet.mockReturnValue([{ path: '/custom-folder', active: true }]);
+            (fs.existsSync as any).mockImplementation((p: string) => {
+                if (p === '/custom-folder') {return true;}
+                return true;
+            });
+
+            watcher = new McpWatcher(
+                '/antigravity',
+                'session-1',
+                mockStateStore,
+                mockDocController,
+                mockLogger
+            );
+
+            const loadedSpy = vi.fn();
+            watcher.onSnippetLoaded(loadedSpy);
+
+            const customSnippetPath = path.join('/custom-folder', 'session-1', 'test.md');
+            await onCreateListener({ fsPath: customSnippetPath });
+
+            expect(mockDocController.loadSnippet).toHaveBeenCalledWith(customSnippetPath);
+            expect(loadedSpy).toHaveBeenCalled();
+        });
     });
 });

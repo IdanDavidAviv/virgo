@@ -14,7 +14,11 @@ vi.mock('vscode', () => ({
         })),
         fs: {
             stat: vi.fn()
-        }
+        },
+        getConfiguration: vi.fn(() => ({
+            get: vi.fn(() => [])
+        })),
+        onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() }))
     },
     Uri: {
         file: (p: string) => ({ fsPath: p, toString: () => p })
