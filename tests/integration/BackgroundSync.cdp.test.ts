@@ -131,6 +131,8 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
     let webviewFrame: any;
     let devHostWorkbench: any;
     let activeSnippetFile: string = "";
+    let sessionsRoot: string = "";
+    let activeSessionId: string = "";
 
     beforeAll(async () => {
         browser = await chromium.connectOverCDP("http://localhost:9222");
@@ -171,7 +173,7 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
         }
 
         // Resolve the active watch folder from diagnostics_agent.log to prevent path mismatch
-        let sessionsRoot = "";
+        sessionsRoot = "";
         try {
             const logPath = path.join(process.cwd(), 'diagnostics_agent.log');
             if (fs.existsSync(logPath)) {
@@ -203,7 +205,7 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
             console.log(`[CDP Test] Fallback sessions root resolved: ${sessionsRoot}`);
         }
 
-        const activeSessionId = await webviewFrame.evaluate(() => {
+        activeSessionId = await webviewFrame.evaluate(() => {
             return (window as any).__debug.store.getState().activeSessionId;
         });
 
@@ -223,8 +225,29 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
         if (browser) {
             await browser.close();
         }
-        if (activeSnippetFile && fs.existsSync(activeSnippetFile)) {
-            fs.unlinkSync(activeSnippetFile);
+        if (activeSnippetFile) {
+            if (fs.existsSync(activeSnippetFile)) {
+                fs.unlinkSync(activeSnippetFile);
+            }
+            if (sessionsRoot && activeSessionId) {
+                const indexPath = path.join(sessionsRoot, 'sessions_index.json');
+                if (fs.existsSync(indexPath)) {
+                    try {
+                        const index = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+                        if (index.sessions && index.sessions[activeSessionId]) {
+                            const originalLen = index.sessions[activeSessionId].snippets.length;
+                            index.sessions[activeSessionId].snippets = index.sessions[activeSessionId].snippets.filter(
+                                (s: any) => !s.fsPath.includes('cdp_test')
+                            );
+                            index.lastUpdated = new Date().toISOString();
+                            fs.writeFileSync(indexPath, JSON.stringify(index, null, 2), 'utf-8');
+                            console.log(`[CDP Test] Cleaned up cdp_test snippets from index. Reduced from ${originalLen} to ${index.sessions[activeSessionId].snippets.length} entries.`);
+                        }
+                    } catch (e) {
+                        console.error("[CDP Test] Failed to clean sessions_index.json:", e);
+                    }
+                }
+            }
         }
     });
 
