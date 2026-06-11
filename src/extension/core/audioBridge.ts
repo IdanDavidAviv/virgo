@@ -44,6 +44,8 @@ export class AudioBridge extends EventEmitter {
     // synthesis path slips through the root fix (_processQueue head-exclusion + RC-2 schema fix).
     // Keyed by cacheKey (not intentId) so different sentences always play unobstructed.
     private _lastPlayAudioCacheKey: string = '';
+    private _lastSentenceChangeTime: number = 0;
+    private _prefetchTimeout: NodeJS.Timeout | null = null;
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -697,8 +699,21 @@ export class AudioBridge extends EventEmitter {
             return;
         }
 
+        if (this._prefetchTimeout) {
+            clearTimeout(this._prefetchTimeout);
+            this._prefetchTimeout = null;
+        }
+
+        const now = Date.now();
+        const timeSinceLastChange = now - this._lastSentenceChangeTime;
+        this._lastSentenceChangeTime = now;
+
+        // Debounce delay: 1500ms if user is skipping rapidly (interval < 1000ms), otherwise default 200ms
+        const delay = timeSinceLastChange < 1000 ? 1500 : 200;
+
         // DEBOUNCE & LIMIT PREFETCH (Prevents queue bloat during rapid clicking)
-        setTimeout(() => {
+        this._prefetchTimeout = setTimeout(() => {
+            this._prefetchTimeout = null;
             // [GHOST_PREFETCH_GUARD] Re-check if still playing and on the same path
             const currentState = this._stateStore.state;
             if (!this._playbackEngine.isPlaying ||
@@ -750,7 +765,7 @@ export class AudioBridge extends EventEmitter {
                 }
             }
             this._logger(`[BRIDGE] Symmetrical Window Sync: ${count} segments warmed (-1/+2 window).`);
-        }, 200); // Reduced delay from 300ms to 200ms for more aggressive warming
+        }, delay);
     }
     /**
      * [SOVEREIGNTY] Updates the extension's view of the webview's persistent cache.
