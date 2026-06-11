@@ -2,6 +2,17 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.8] - 2026-06-11
+
+### Added
+- **Low-Overhead MCP Status Checking (T-109)**: Implemented background file-based configuration scanning once a minute with near-zero overhead.
+- **Event-Driven Liveness Probe on User Actions (T-109)**: Added interactive liveness checking triggered instantly on webview user interactions, protected by a 15-second cooldown.
+- **Dynamic Queue Prefetching (T-109)**: Subscribed to `currentSentenceIndex` and `currentChapterIndex` updates in `PlaybackController` to warm and prefetch the speech queue dynamically.
+
+### Fixed
+- **Autoplay and Playback Focus (T-109)**: Enabled auto-revealing and focusing the webview sidebar when hidden on snippet load if initialized once, and resolved Chrome autoplay constraints.
+- **Uninitialized Sidebar Warnings (T-109)**: Added interactive warning toast notifications and MCP warning responses when snippet is loaded but the sidebar is uninitialized.
+
 ## [2.9.7] - 2026-06-11
 
 ### Fixed

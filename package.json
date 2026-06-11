@@ -112,11 +112,6 @@
         "icon": "$(triangle-right)"
       },
       {
-        "command": "virgo.restart-mcp",
-        "title": "Virgo: Restart MCP Bridge",
-        "icon": "$(refresh)"
-      },
-      {
         "command": "virgo.restart-extension",
         "title": "Virgo: Full Extension Restart",
         "icon": "$(sync)"
