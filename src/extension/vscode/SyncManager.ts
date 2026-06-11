@@ -180,7 +180,10 @@ export class SyncManager implements vscode.Disposable {
             historyHash,               // [T-111] Fully hash history contents, not just length
             s.activeSessionId,         // [T-038] Session change must re-render
             s.mcpStatus,               // [BUGFIX] Sync MCP status changes to webview
-            (s.mcpActiveAgents || []).join(',') // [BUGFIX] Sync MCP active agents changes
+            (s.mcpActiveAgents || []).join(','), // [BUGFIX] Sync MCP active agents changes
+            s.autoPlayOnVoiceSelect,
+            s.autoPlayOnInjection,
+            (s.recentVoices || []).join(',')
         ].join('|');
     }
 

@@ -75,7 +75,18 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._sequenceManager = new SequenceManager();
         this._stateStore = new StateStore(this._logger);
         this._playbackEngine = new PlaybackEngine(this._stateStore, _logger, () => this._broadcastCacheStats());
-        this._audioBridge = new AudioBridge(this._stateStore, this._docController, this._playbackEngine, this._sequenceManager, this._logger);
+        
+        // Instantiate SettingsManager early so it can be passed as a dependency to AudioBridge
+        this._settingsManager = new SettingsManager(
+            this._context,
+            this._stateStore,
+            msg => this._logger(msg),
+            this._virgoRoot,
+            this._sessionId
+        );
+        this._settingsManager.initialize();
+
+        this._audioBridge = new AudioBridge(this._stateStore, this._docController, this._playbackEngine, this._sequenceManager, this._logger, this._settingsManager);
         this._persistenceManager = new PersistenceManager(this._context, this._stateStore, this._logger);
 
 
@@ -89,7 +100,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._stateStore,
             this._docController,
             this._logger,
-            this._indexManager
+            this._indexManager,
+            this._context.extensionMode === vscode.ExtensionMode.Development || this._context.extensionMode === vscode.ExtensionMode.Test
         );
         this._mcpWatcher.onSessionPivot(id => this.pivotSession(id));
         this._mcpWatcher.onSnippetLoaded(async () => {
@@ -138,15 +150,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         });
         this._context.subscriptions.push(this._mcpWatcher);
 
-        // 2. Initialize Core Services
-        this._settingsManager = new SettingsManager(
-            this._context,
-            this._stateStore,
-            msg => this._logger(msg),
-            this._virgoRoot,
-            this._sessionId
-        );
-        this._settingsManager.initialize();
+        // 2. Initialize Core Services (SettingsManager already initialized early)
 
         this._dashboardRelay = new DashboardRelay(this._stateStore, this._docController, this._playbackEngine, this._logger);
         this._voiceManager = new VoiceManager(this._playbackEngine, this._stateStore, this._dashboardRelay, this._logger);
@@ -873,6 +877,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     this._settingsManager.saveSetting('selectedVoice', payload.voice);
                     this._stateStore.setOptions({ selectedVoice: payload.voice });
                     this._logger(`[VOICE] choice -> [STORE] sync: ${payload.voice}`);
+                    
+                    // Add to recent voices
+                    this._settingsManager.addRecentVoice(payload.voice);
+                    
+                    // Save to voice history per language
+                    const lang = this._detectLanguageFromVoice(payload.voice);
+                    if (lang) {
+                        this._settingsManager.saveVoiceHistory(lang, payload.voice);
+                    }
                 }
                 break;
 
@@ -898,8 +911,19 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
 
             case OutgoingAction.SET_AUTOPLAY_INJECTION:
-                this._settingsManager.saveSetting('autoPlayOnInjection', payload.value);
-                this._logger(`[AUTOPLAY] injection_auto_play=${payload.value}`);
+                this._stateStore.setOptions({ autoPlayOnInjection: payload.value });
+                this._logger(`[AUTOPLAY] injection_auto_play temporary override: ${payload.value}`);
+                break;
+
+            case OutgoingAction.SET_AUTOPLAY_VOICE_SELECT:
+                this._stateStore.setOptions({ autoPlayOnVoiceSelect: payload.value });
+                this._logger(`[AUTOPLAY] voice_select_auto_play temporary override: ${payload.value}`);
+                break;
+
+            case OutgoingAction.REMOVE_RECENT_VOICE:
+                if (payload.voice) {
+                    this._settingsManager.removeRecentVoice(payload.voice);
+                }
                 break;
 
             case OutgoingAction.SET_AUTO_INJECT_SITREP:
@@ -1386,6 +1410,37 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             const metadata = this._docController.metadata;
             const chapters = this._docController.chapters;
 
+            // Detect dominant language (>50% clean characters check)
+            let totalChars = 0;
+            let hebrewChars = 0;
+            for (const ch of chapters) {
+                if (ch.sentences) {
+                    for (const s of ch.sentences) {
+                        const cleanStr = s.replace(/[\s\d\p{P}]/gu, '');
+                        totalChars += cleanStr.length;
+                        const hebrewMatches = cleanStr.match(/[\u0590-\u05FF]/g);
+                        if (hebrewMatches) {
+                            hebrewChars += hebrewMatches.length;
+                        }
+                    }
+                }
+            }
+            const isHebrewDominant = totalChars > 0 && (hebrewChars / totalChars) > 0.5;
+            const docLang = isHebrewDominant ? 'he' : 'en';
+            this._logger(`[DOC_LOAD] Language detection: clean_chars=${totalChars}, hebrew_chars=${hebrewChars} | isHebrewDominant=${isHebrewDominant}`);
+
+            // Load saved voice for this language
+            const savedVoice = this._settingsManager.loadVoiceHistory(docLang);
+            const defaultVoice = docLang === 'he' ? 'he-IL-AvriNeural' : 'en-US-SteffanNeural';
+            const targetVoice = savedVoice || defaultVoice;
+
+            // Only switch voice if it is different and we are in neural mode
+            if (this._stateStore.state.engineMode === 'neural' && this._stateStore.state.selectedVoice !== targetVoice) {
+                this._logger(`[DOC_LOAD] Auto-switched voice to language default: ${targetVoice}`);
+                this._settingsManager.saveSetting('selectedVoice', targetVoice);
+                this._stateStore.setOptions({ selectedVoice: targetVoice });
+            }
+
             // Determine if we should use existing StateStore progress (from persistence rehydration)
             const initialProgress = useHydratedProgress ? { 
                 chapterIndex: this._stateStore.state.currentChapterIndex, 
@@ -1622,4 +1677,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     }
 
     // getFileVersionSalt logic moved to DocumentLoadController
+    private _detectLanguageFromVoice(voiceId: string): string | undefined {
+        if (!voiceId) { return undefined; }
+        const parts = voiceId.split('-');
+        if (parts.length > 0) {
+            const lang = parts[0].toLowerCase();
+            if (lang === 'he' || lang === 'en') {
+                return lang;
+            }
+        }
+        return undefined;
+    }
 }

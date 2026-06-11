@@ -5,6 +5,7 @@ import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
 import { SequenceManager } from '@core/sequenceManager';
 import { EventEmitter } from 'events';
 import { generateCacheKey } from '../../common/cachePolicy';
+import { SettingsManager } from '../vscode/SettingsManager';
 
 export interface AudioBridgeEvents {
     'playAudio': (payload: { cacheKey: string, data: string, text: string, chapterIndex: number, sentenceIndex: number, totalSentences: number, sentences: string[], intentId: number, bakedRate: number }) => void;
@@ -49,7 +50,8 @@ export class AudioBridge extends EventEmitter {
         private readonly _docController: DocumentLoadController,
         private readonly _playbackEngine: PlaybackEngine,
         private readonly _sequenceManager: SequenceManager,
-        private readonly _logger: (msg: string) => void
+        private readonly _logger: (msg: string) => void,
+        private readonly _settingsManager: SettingsManager
     ) {
         super();
 
@@ -169,12 +171,13 @@ export class AudioBridge extends EventEmitter {
      * Start playing a specific chapter and sentence.
      */
     public async start(chapterIndex: number, sentenceIndex: number, options: PlaybackOptions, previewOnly: boolean = false, intentId?: number, batchId?: number) {
+        const activeOptions = { ...options };
         // [SOVEREIGNTY] Generate new IDs if none provided (e.g. extension host calls)
         const finalIntent = intentId !== undefined ? intentId : this._playbackEngine.playbackIntentId + 1;
 
         // [COMMITMENT_GATE] Detect drift between user choice and latched production settings
-        const isVoiceDrift = options.voice !== this._latchedVoiceId && this._latchedVoiceId !== null;
-        const isRateDrift = options.rate !== this._latchedRate && this._latchedRate !== undefined;
+        const isVoiceDrift = activeOptions.voice !== this._latchedVoiceId && this._latchedVoiceId !== null;
+        const isRateDrift = activeOptions.rate !== this._latchedRate && this._latchedRate !== undefined;
         const isCommitmentThresholdCrossed = isVoiceDrift || isRateDrift;
 
         let finalBatch = batchId !== undefined ? batchId : this._playbackEngine.batchIntentId;
@@ -190,14 +193,14 @@ export class AudioBridge extends EventEmitter {
         const resolutionBatch = (intentId === undefined && batchId === undefined) || isCommitmentThresholdCrossed ? finalBatch + 1 : finalBatch;
 
         if (isCommitmentThresholdCrossed) {
-            this._logger(`[BRIDGE] Commitment Threshold crossed: v:${this._latchedVoiceId}->${options.voice}, r:${this._latchedRate}->${options.rate}. Incrementing batchId to ${resolutionBatch}.`);
+            this._logger(`[BRIDGE] Commitment Threshold crossed: v:${this._latchedVoiceId}->${activeOptions.voice}, r:${this._latchedRate}->${activeOptions.rate}. Incrementing batchId to ${resolutionBatch}.`);
         }
 
         this._playbackEngine.adoptBatchIntent(resolutionBatch);
 
         // Update latches upon commitment
-        this._latchedVoiceId = options.voice;
-        this._latchedRate = options.rate;
+        this._latchedVoiceId = activeOptions.voice;
+        this._latchedRate = activeOptions.rate;
 
         // CRITICAL: Stop any in-flight synthesis or sequences before starting a new one.
         // We use silent=true here because we are about to setPlaying(true) in line 159,
@@ -212,10 +215,10 @@ export class AudioBridge extends EventEmitter {
         this._playbackEngine.setPlaying(shouldPlay, finalIntent);
 
         this._stateStore.setOptions({
-            engineMode: options.mode,
-            selectedVoice: options.voice,
-            rate: options.rate,
-            volume: options.volume
+            engineMode: activeOptions.mode,
+            selectedVoice: activeOptions.voice,
+            rate: activeOptions.rate,
+            volume: activeOptions.volume
         });
 
         const chapters = this._docController.chapters;
@@ -232,7 +235,7 @@ export class AudioBridge extends EventEmitter {
         const chapter = chapters[chapterIndex];
         if (!chapter.sentences || chapter.sentences.length === 0) {
             this._logger(`[BRIDGE] Chapter ${chapterIndex} has no sentences. Skipping.`);
-            this.next(options, false, this._stateStore.state.autoPlayMode, intentId, batchId);
+            this.next(activeOptions, false, this._stateStore.state.autoPlayMode, intentId, batchId);
             return;
         }
 
@@ -247,11 +250,37 @@ export class AudioBridge extends EventEmitter {
         const sentence = chapter.sentences[sentenceIndex];
 
         // [v2.4.5] Autoradiant Routing: Tiered Engine Selection
-        const isNeuralSelected = options.mode === 'neural';
+        const isNeuralSelected = activeOptions.mode === 'neural';
         const isNeuralViable   = this._playbackEngine.isNeuralViable();
         const finalMode        = (isNeuralSelected && isNeuralViable) ? 'neural' : 'local';
 
-        this._logger(`[BRIDGE] Routing decision: Selected=${options.mode}, Viable=${isNeuralViable} -> Final=${finalMode}`);
+        let targetVoice = activeOptions.voice;
+        if (finalMode === 'neural') {
+            const cleanStr = sentence.replace(/[\s\d\p{P}]/gu, '');
+            const totalChars = cleanStr.length;
+            
+            // Hysteresis: Only switch if the sentence has a meaningful length (>= 8 clean characters),
+            // otherwise keep the current active voice's language to prevent rapid voice pivots on short phrases.
+            let sentenceLang = activeOptions.voice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
+            if (totalChars >= 8) {
+                const hebrewMatches = cleanStr.match(/[\u0590-\u05FF]/g);
+                const hebrewChars = hebrewMatches ? hebrewMatches.length : 0;
+                const isHebrew = (hebrewChars / totalChars) > 0.5;
+                sentenceLang = isHebrew ? 'he' : 'en';
+            }
+
+            const savedVoice = this._settingsManager.loadVoiceHistory(sentenceLang);
+            const defaultVoice = sentenceLang === 'he' ? 'he-IL-AvriNeural' : 'en-US-SteffanNeural';
+            targetVoice = savedVoice || defaultVoice;
+
+            if (activeOptions.voice !== targetVoice) {
+                this._logger(`[BRIDGE] Sentence-level auto-switch voice: ${activeOptions.voice} -> ${targetVoice} for language: ${sentenceLang}`);
+                activeOptions.voice = targetVoice;
+                this._stateStore.setOptions({ selectedVoice: targetVoice });
+            }
+        }
+
+        this._logger(`[BRIDGE] Routing decision: Selected=${activeOptions.mode}, Viable=${isNeuralViable} -> Final=${finalMode}`);
 
         if (isNeuralSelected && !isNeuralViable) {
             this._logger('[BRIDGE] ☢️ Neural stalled/degraded. Falling back to LOCAL.');
@@ -260,8 +289,8 @@ export class AudioBridge extends EventEmitter {
         const isNeural = finalMode === 'neural';
         const cacheKey = generateCacheKey(
             sentence,
-            options.voice,
-            options.rate,
+            activeOptions.voice,
+            activeOptions.rate,
             this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
             isNeural
         );
@@ -292,7 +321,7 @@ export class AudioBridge extends EventEmitter {
                     chapterIndex,
                     sentenceIndex,
                     totalSentences: chapter.sentences.length,
-                    bakedRate: isNeural ? 1.0 : options.rate
+                    bakedRate: isNeural ? 1.0 : activeOptions.rate
                 });
 
                 // If it's in Extension cache, we already pushed data.
@@ -303,14 +332,14 @@ export class AudioBridge extends EventEmitter {
                 this._stateStore.setLoadType('synth');
                 // [Handshake_v3] Instead of faking a ready signal, we trigger and await synthesis.
                 // This anchors the start() task until the engine has actually processed the segment.
-                await this.synthesize(cacheKey, options, finalIntent, resolutionBatch, true);
+                await this.synthesize(cacheKey, activeOptions, finalIntent, resolutionBatch, true);
             }
 
             if (!this._stateStore.state.isPreviewing) {
-                this._triggerPreFetch(chapterIndex, sentenceIndex + 1, options);
+                this._triggerPreFetch(chapterIndex, sentenceIndex + 1, activeOptions);
             }
         } else {
-            this._speakLocal(sentence, options);
+            this._speakLocal(sentence, activeOptions);
         }
     }
 

@@ -30,7 +30,8 @@ export class McpWatcher implements vscode.Disposable {
         private _stateStore: StateStore,
         private _docController: DocumentLoadController,
         private _logger: (msg: string) => void,
-        private _indexManager?: SessionIndexManager
+        private _indexManager?: SessionIndexManager,
+        private _isDev = false
     ) {
         // [WORKSPACE CLAIM GATE] Use VS Code's own enforcement: each window MUST have a
         // unique workspace folder (VS Code physically prevents same-dir in two windows).
@@ -134,8 +135,8 @@ export class McpWatcher implements vscode.Disposable {
                 }
             }
 
-            // [NON-DESTRUCTIVE] Respect an existing foreign claim — unless we are the true owner according to loom.json
-            if (fs.existsSync(claimFile) && !isTrueOwner) {
+            // [NON-DESTRUCTIVE] Respect an existing foreign claim — unless we are the true owner or we are in Dev Mode
+            if (fs.existsSync(claimFile) && !isTrueOwner && !this._isDev) {
                 const existingContent = fs.readFileSync(claimFile, 'utf8').trim();
                 const parts = existingContent.split('|');
                 const existing = parts[0];
@@ -157,7 +158,7 @@ export class McpWatcher implements vscode.Disposable {
                     return;
                 }
             }
-            const claimData = `${this._myWorkspacePath}|${process.pid}`;
+            const claimData = `${this._myWorkspacePath}|${process.pid}${this._isDev ? '|dev' : ''}`;
             fs.writeFileSync(claimFile, claimData);
             this._logger(`[MCP_WATCHER] Claimed session ${sessionId} for workspace: ${this._myWorkspacePath.split(/[/\\]/).pop()} (PID: ${process.pid})`);
         } catch (e) {
@@ -176,6 +177,10 @@ export class McpWatcher implements vscode.Disposable {
      * Fail-open on read errors (don't block audio on transient FS issues).
      */
     private _isSessionOwnedByMe(sessionId: string, allowClaim = true): boolean {
+        // [TESTING_BYPASS] In development host / integration test environment, bypass ownership check
+        if (this._isDev) {
+            return true;
+        }
         if (!this._myWorkspacePath) { return true; } // no workspace context — pass through
         
         // Read loom.json to see if we are the true owner according to agent state
@@ -210,6 +215,7 @@ export class McpWatcher implements vscode.Disposable {
             const parts = existingContent.split('|');
             const owner = parts[0];
             const ownerPid = parts[1] ? parseInt(parts[1], 10) : null;
+            const isDevClaim = parts[2] === 'dev';
 
             if (owner === this._myWorkspacePath) {
                 return true;
@@ -224,6 +230,12 @@ export class McpWatcher implements vscode.Disposable {
                         isAlive = false;
                     }
                 }
+            }
+
+            // [DEV_INTERCEPTION] Yield session ownership to active Dev Host if we are a production instance
+            if (isDevClaim && isAlive && !this._isDev) {
+                this._logger(`[MCP_WATCHER] Yielding session ${sessionId} to active Dev Host (PID: ${ownerPid}).`);
+                return false;
             }
 
             if (!isAlive) {
