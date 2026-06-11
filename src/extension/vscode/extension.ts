@@ -354,7 +354,8 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('virgo.manageMcp', async () => {
             log('[CMD_RECV] virgo.manageMcp');
             
-            const agents = McpConfigurator.getAvailableAgents();
+            const customMcpPath = vscode.workspace.getConfiguration('virgo.mcp').get<string>('configPath');
+            const agents = McpConfigurator.getAvailableAgents(customMcpPath);
             const items: vscode.QuickPickItem[] = [];
 
             agents.forEach(agent => {
@@ -446,7 +447,12 @@ export async function activate(context: vscode.ExtensionContext) {
                             const success = await McpConfigurator.injectConfiguration(targetPath!, context.extensionPath, currentRoot);
                             if (success) {
                                 vscode.window.showInformationMessage(`Successfully installed Virgo MCP to ${path.basename(targetPath!)}`);
-                                speechProvider.refreshMcpStatus();
+                                try {
+                                    await vscode.workspace.getConfiguration('virgo.mcp').update('configPath', targetPath, vscode.ConfigurationTarget.Global);
+                                } catch (cfgErr) {
+                                    log(`[MCP] Failed to auto-persist configPath: ${cfgErr}`);
+                                }
+                                speechProvider.refreshMcpStatus(targetPath);
                             } else {
                                 vscode.window.showWarningMessage(`Virgo was unable to configure the MCP server for ${path.basename(targetPath!)}. The diagnostic logs have been updated.`);
                             }
@@ -505,6 +511,12 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('virgo.mcp')) {
+                log('[CONFIG_CHANGE] virgo.mcp setting changed. Refreshing MCP status...');
+                speechProvider.refreshMcpStatus();
+            }
+        }),
         vscode.window.onDidChangeActiveTextEditor(() => syncSelection()),
         vscode.window.onDidChangeVisibleTextEditors(() => syncSelection()),
         vscode.window.tabGroups.onDidChangeTabs(() => syncSelection()),

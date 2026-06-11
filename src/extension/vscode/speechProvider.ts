@@ -155,7 +155,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._voiceManager.scanAndSync();
 
         // [Phase 6] Scan MCP configuration status
-        const mcpResult = McpConfigurator.checkConfigurationStatus();
+        const customMcpPath = vscode.workspace.getConfiguration('virgo.mcp').get<string>('configPath');
+        const mcpResult = McpConfigurator.checkConfigurationStatus(customMcpPath);
         this._stateStore.patchState({ mcpStatus: mcpResult.status, mcpActiveAgents: mcpResult.activeAgents }, true);
         this._logger(`[MCP] Configuration status: ${mcpResult.status} [${mcpResult.activeAgents.join(',')}]`);
         // [LIVENESS] One-shot probe — upgrades badge to green if binary responds
@@ -324,6 +325,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         const versionSalt = isSupported ? this._docController.getFileVersionSalt(uri) : undefined;
         this._lastFocusedSalt = versionSalt;
         this._stateStore.setFocusedFile(uri, fileName, relativeDir, isSupported, versionSalt);
+        if (isSupported) {
+            this._stateStore.setActiveMode('FILE');
+        }
         this._logger(`[DEBUG] setActiveEditor | file: ${fileName} | scheme: ${uri.scheme} | supported: ${isSupported} | salt: ${versionSalt}`);
 
         // [T-034] Arm disk-change watcher for supported files with a real fsPath
@@ -664,8 +668,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._voiceManager.scanAndSync();
     }
 
-    public refreshMcpStatus() {
-        const result = McpConfigurator.checkConfigurationStatus();
+    public refreshMcpStatus(overridePath?: string) {
+        const customMcpPath = overridePath !== undefined 
+            ? overridePath 
+            : vscode.workspace.getConfiguration('virgo.mcp').get<string>('configPath');
+        const result = McpConfigurator.checkConfigurationStatus(customMcpPath);
         this._stateStore.patchState({ mcpStatus: result.status, mcpActiveAgents: result.activeAgents });
         this._logger(`[MCP] Configuration status refreshed: ${result.status} [${result.activeAgents.join(',')}]`);
         if (result.status === 'configured') {
@@ -1043,94 +1050,78 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
 
     private async _getSnippetHistoryByScan(): Promise<SnippetHistory> {
-        const rootUri = vscode.Uri.file(this._virgoRoot);
+        const rootPath = this._virgoRoot;
         
         try {
+            if (!fs.existsSync(rootPath)) { return []; }
             // 1. Get all session directories 
-            const entries = await vscode.workspace.fs.readDirectory(rootUri);
+            const entries = fs.readdirSync(rootPath, { withFileTypes: true });
 
-            // [MP-001 T-015] EXCLUDED_DIRS: sessions/ root only contains UUID session directories.
-            // System dirs (protocols, tempmediaStorage, brain) live under virgo/ root —
-            // they are NOT reachable from here. Filter reserved for future non-UUID entries.
             const EXCLUDED_DIRS = new Set<string>(['tempmediaStorage', '.write_test']);
 
-            const allDirs = (await Promise.all(entries.map(async ([name, type]) => {
-                if (type !== vscode.FileType.Directory) { return null; }
-                
-                if (EXCLUDED_DIRS.has(name)) {
-                    return null;
-                }
-                const fullUri = vscode.Uri.joinPath(rootUri, name);
-                try {
-                    const stats = await vscode.workspace.fs.stat(fullUri);
-                    return { id: name, mtime: stats.mtime, uri: fullUri };
-                } catch { return null; }
-            })))
-            .filter((x): x is { id: string; mtime: number; uri: vscode.Uri } => x !== null)
-            .sort((a, b) => b.mtime - a.mtime);
-
-            let sessions = allDirs;
+            const allDirs = entries
+                .filter(entry => entry.isDirectory() && !EXCLUDED_DIRS.has(entry.name))
+                .map(entry => {
+                    const fullPath = path.join(rootPath, entry.name);
+                    try {
+                        const stats = fs.statSync(fullPath);
+                        return { id: entry.name, mtime: stats.mtimeMs, fullPath };
+                    } catch { return null; }
+                })
+                .filter((x): x is { id: string; mtime: number; fullPath: string } => x !== null)
+                .sort((a, b) => b.mtime - a.mtime);
 
             const result: SnippetHistory = [];
 
-            for (const session of sessions) {
-                const sessionUri = session.uri;
-                
+            for (const session of allDirs) {
                 let displayName: string | undefined = undefined;
                 try {
-                    // [HUMAN_TITLES] Probe extension_state.json for the human-readable title
-                    const stateUri = vscode.Uri.joinPath(sessionUri, 'extension_state.json');
-                    const content = await vscode.workspace.fs.readFile(stateUri);
-                    const state = JSON.parse(new TextDecoder().decode(content));
-                    if (state.session_title) {
-                        displayName = state.session_title;
+                    const stateFile = path.join(session.fullPath, 'extension_state.json');
+                    if (fs.existsSync(stateFile)) {
+                        const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+                        if (state.session_title) {
+                            displayName = state.session_title;
+                        }
                     }
-                } catch (e) {
-                    // It's okay if state file doesn't exist
+                } catch {
+                    // It's okay if state file doesn't exist or is invalid
                 }
 
-                const allFiles: { name: string, uri: vscode.Uri }[] = [];
-                const collectFiles = async (dirUri: vscode.Uri) => {
+                const allFiles: { name: string, fullPath: string }[] = [];
+                const collectFiles = (dirPath: string) => {
                     try {
-                        const entries = await vscode.workspace.fs.readDirectory(dirUri);
-                        for (const [f, type] of entries) {
-                            const childUri = vscode.Uri.joinPath(dirUri, f);
-                            if (type === vscode.FileType.Directory) {
-                                // Skip hidden directories like .system_generated
-                                if (f.startsWith('.')) {continue;}
-                                await collectFiles(childUri);
-                            } else if (type === vscode.FileType.File) {
-                                allFiles.push({ name: f, uri: childUri });
+                        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+                        for (const entry of entries) {
+                            const childPath = path.join(dirPath, entry.name);
+                            if (entry.isDirectory()) {
+                                if (entry.name.startsWith('.')) { continue; }
+                                collectFiles(childPath);
+                            } else if (entry.isFile()) {
+                                allFiles.push({ name: entry.name, fullPath: childPath });
                             }
                         }
-                    } catch (e) {
+                    } catch {
                         // ignore unreadable dirs
                     }
                 };
-                await collectFiles(sessionUri);
+                collectFiles(session.fullPath);
 
-                const files = (await Promise.all(allFiles.map(async (fileItem) => {
+                const files = allFiles.map((fileItem) => {
                     const f = fileItem.name;
-                    // [MP-001 T-015] Only surface markdown files — exclude extension_state.json
-                    // and any other metadata files that are not user-facing snippets.
                     if (!f.endsWith('.md') && !f.endsWith('.markdown')) { return null; }
-                    // Exclude metadata sidecars like .md.metadata.json or .md.resolved
                     if (f.includes('.md.')) { return null; }
 
-                    const fileUri = fileItem.uri;
                     try {
-                        const stats = await vscode.workspace.fs.stat(fileUri);
-                        // [T-038] New filename format: <timestamp>.<name>.md (dot-separated)
-                        // Extract name: strip leading timestamp prefix (e.g. "1776987443088.")
+                        const stats = fs.statSync(fileItem.fullPath);
                         let snippetName = f.replace(/^\d+\./, '').replace(/\.(md|markdown)$/i, '');
                         return {
                             name: snippetName,
-                            fsPath: fileUri.fsPath,
-                            uri: fileUri.toString(),
-                            timestamp: stats.mtime
+                            fsPath: fileItem.fullPath,
+                            uri: vscode.Uri.file(fileItem.fullPath).toString(),
+                            timestamp: stats.mtimeMs
                         };
                     } catch { return null; }
-                })))
+                })
                 .filter((x): x is { name: string; fsPath: string; uri: string; timestamp: number } => x !== null)
                 .sort((a, b) => b.timestamp - a.timestamp);
 
@@ -1213,6 +1204,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         // [v2.3.2] Check if we have a valid URI in the State Store
         const hasUri = !!this._stateStore.state.focusedDocumentUri;
         
+        // [BUGFIX] Verify active mode when opening the extension:
+        // If there is an active document or a supported focused file, make sure the mode is set to 'FILE' so the file reader opens.
+        if (hasUri || this._stateStore.state.activeDocumentUri) {
+            this._stateStore.setActiveMode('FILE', true);
+        }
+
         if (!hasUri) {
             // [v2.3.5] STANDBY Support: If no URI and no persisted doc, unblock the UI anyway.
             if (!this._stateStore.state.activeDocumentUri) {

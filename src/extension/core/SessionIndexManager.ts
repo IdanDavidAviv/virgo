@@ -106,8 +106,8 @@ export class SessionIndexManager {
 
             const snippets: SessionIndexSnippet[] = existing?.snippets ?? [];
 
-            // Avoid duplicate entries for the same file path
-            const alreadyPresent = snippets.some(s => s.fsPath === snippet.fsPath);
+            // Avoid duplicate entries for the same file path (case-insensitive)
+            const alreadyPresent = snippets.some(s => s.fsPath.toLowerCase() === snippet.fsPath.toLowerCase());
             if (!alreadyPresent) {
                 snippets.push(snippet);
                 // Sort descending by timestamp
@@ -150,12 +150,12 @@ export class SessionIndexManager {
                     ?? existing?.displayName 
                     ?? this._resolveDisplayName(session.id);
 
-                // Merge snippets, keeping unique paths, sorted descending
+                // Merge snippets, keeping unique paths (case-insensitive), sorted descending
                 const snippetMap = new Map<string, SessionIndexSnippet>();
                 if (existing) {
-                    for (const s of existing.snippets) { snippetMap.set(s.fsPath, s); }
+                    for (const s of existing.snippets) { snippetMap.set(s.fsPath.toLowerCase(), s); }
                 }
-                for (const s of newSnippets) { snippetMap.set(s.fsPath, s); }
+                for (const s of newSnippets) { snippetMap.set(s.fsPath.toLowerCase(), s); }
 
                 const mergedSnippets = Array.from(snippetMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 

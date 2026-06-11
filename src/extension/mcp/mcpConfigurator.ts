@@ -14,8 +14,8 @@ export class McpConfigurator {
      * Scans standard AI agent configuration locations to determine if the Virgo MCP
      * server has been injected.
      */
-    public static checkConfigurationStatus(): { status: 'configured' | 'unconfigured', activeAgents: string[] } {
-        const agents = this.getAvailableAgents();
+    public static checkConfigurationStatus(customPath?: string): { status: 'configured' | 'unconfigured', activeAgents: string[] } {
+        const agents = this.getAvailableAgents(customPath);
         const activeAgents = agents.filter(a => a.hasVirgo).map(a => a.name);
         return {
             status: activeAgents.length > 0 ? 'configured' : 'unconfigured',
@@ -40,13 +40,15 @@ export class McpConfigurator {
     /**
      * Returns a list of known AI agents, their config paths, and their installation status.
      */
-    public static getAvailableAgents(): AgentEnvironment[] {
+    public static getAvailableAgents(customPath?: string): AgentEnvironment[] {
         const isWindows = process.platform === 'win32';
         const isMac = process.platform === 'darwin';
         const isLinux = process.platform === 'linux';
         
         const appData = process.env.APPDATA || '';
-        const home = process.env.HOME || process.env.USERPROFILE || '';
+        const home = (isWindows 
+            ? (process.env.USERPROFILE || process.env.HOME) 
+            : (process.env.HOME || process.env.USERPROFILE)) || '';
         const xdgConfig = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
         
         const environments = [
@@ -85,6 +87,14 @@ export class McpConfigurator {
                 path: path.join(home, '.gemini', 'antigravity', 'mcp_config.json')
             }
         ];
+
+        if (customPath && customPath.trim()) {
+            environments.push({
+                id: 'custom_configured',
+                name: 'Custom Configured Path',
+                path: customPath.trim()
+            });
+        }
 
         return environments
             .filter(env => env.path !== '')
