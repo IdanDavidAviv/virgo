@@ -36,6 +36,16 @@ if (!scriptContent.startsWith('#!/usr/bin/env node')) {
 fs.writeFileSync(targetScript, scriptContent, 'utf8');
 console.log('✅ Copied standalone script to package directory and verified hashbang.');
 
+// Copy README.md for NPM
+const sourceReadme = path.join(rootDir, 'src/extension/mcp/README.md');
+const targetReadme = path.join(mcpPackageDir, 'README.md');
+if (fs.existsSync(sourceReadme)) {
+    fs.copyFileSync(sourceReadme, targetReadme);
+    console.log('✅ Copied README.md to package directory.');
+} else {
+    console.warn('⚠️ Warning: src/extension/mcp/README.md not found.');
+}
+
 // Generate a lightweight package.json
 const mcpPackageJson = {
     name: "virgo-mcp",
