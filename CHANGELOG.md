@@ -7,6 +7,9 @@ All notable changes to the "Virgo" extension will be documented in this file.
 ### Fixed
 - **MCP Path Alignment (T-113)**: Aligned the standalone MCP server pathing so that injected snippets go to the same workspace parent root directory (`antigravity-ide` when editing in a workspace project) that the active VS Code extension watches.
 - **E2E CDP Snippet Pollution Cleanup (T-113)**: Implemented post-test index pruning in the `afterAll` hook of the CDP integration test suite to automatically remove E2E test-generated snippet entries from `sessions_index.json` during teardown.
+- **MCP Config Configurable Path (T-115)**: Added `"virgo.mcp.configPath"` configuration property to support customized mcp_config.json locations.
+- **Windows Home Folder Resolution (T-115)**: Prioritized `process.env.USERPROFILE` over `process.env.HOME` on Windows environments to ensure proper resolution of home directories.
+- **MCP Status Badge Liveness (T-115)**: Added a dynamic configuration observer that updates the badge color immediately on path changes and bypasses async propagation delays.
 
 ## [2.9.6] - 2026-06-11
 

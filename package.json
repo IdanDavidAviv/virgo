@@ -243,6 +243,11 @@
           "default": true,
           "description": "Automatically inject a SITREP/Summary into Virgo when a task is completed (Multimodal Parity)."
         },
+        "virgo.mcp.configPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the active mcp_config.json file for status monitoring and configuration injection."
+        },
         "virgo.system.rootDirectory": {
           "type": "string",
           "default": "virgo",
