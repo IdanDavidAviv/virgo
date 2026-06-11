@@ -2049,7 +2049,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
     position: absolute;
     bottom: calc(100% + 12px);
     left: 0;
-    width: 280px;
+    width: 320px;
     background: var(--glass);
     backdrop-filter: blur(28px);
     -webkit-backdrop-filter: blur(28px);
@@ -2106,4 +2106,107 @@ input[type="range"]::-webkit-slider-thumb:hover {
     color: #475569;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+}
+
+/* --- Toggles and Recent Voices Styles --- */
+.autoplay-toggle-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 2px;
+}
+
+.autoplay-toggle-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: #cbd5e1;
+}
+
+/* Premium Switch Toggle */
+.premium-switch {
+    position: relative;
+    display: inline-block;
+    width: 32px;
+    height: 18px;
+}
+
+.premium-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.premium-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #334155;
+    transition: .3s;
+    border-radius: 9px;
+}
+
+.premium-slider:before {
+    position: absolute;
+    content: "";
+    height: 12px;
+    width: 12px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .3s;
+    border-radius: 50%;
+}
+
+input:checked + .premium-slider {
+    background-color: var(--primary);
+}
+
+input:checked + .premium-slider:before {
+    transform: translateX(14px);
+}
+
+/* Voice Group Header */
+.voice-group-header {
+    font-size: 9px;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 8px 4px 4px 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+    width: 100%;
+}
+
+/* Delete Button for Recent Voices */
+.btn-delete-recent {
+    background: none;
+    border: none;
+    color: #ef4444;
+    font-size: 14px;
+    padding: 0 4px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-delete-recent:hover {
+    opacity: 1;
+}
+
+/* Max-height for voice list container */
+.voice-list-container {
+    max-height: 200px !important;
+    overflow-y: auto;
 }

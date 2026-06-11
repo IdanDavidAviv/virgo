@@ -83,6 +83,20 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
         const controller = PlaybackController.getInstance();
         const { btnOpen, btnClose, volumeSlider, rateSlider, btnCloudEngine, btnLocalEngine, cacheDebugTag } = this.els;
 
+        // Click outside popover to close it
+        this.registerEventListener(document, 'click', (e) => {
+            const target = e.target as HTMLElement;
+            if (!target) {return;}
+            const isOpen = this.els.drawer?.classList.contains('open');
+            if (isOpen) {
+                const clickedInsideDrawer = this.els.drawer?.contains(target);
+                const clickedInsideBtnOpen = this.els.btnOpen?.contains(target) || this.els.btnOpen === target;
+                if (!clickedInsideDrawer && !clickedInsideBtnOpen) {
+                    this.close();
+                }
+            }
+        });
+
         // 1. Drawer Toggles
         if (btnOpen) {
             this.registerEventListener(btnOpen, 'click', (e) => {

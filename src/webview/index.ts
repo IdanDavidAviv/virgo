@@ -206,7 +206,9 @@ export function bootstrap() {
 
     const voiceSelector = safeMount('voiceSelector', document.getElementById('voice-list-container'), (el) => new VoiceSelector({
         voiceList: el,
-        searchInput: document.getElementById('voice-search') as HTMLInputElement
+        searchInput: document.getElementById('voice-search') as HTMLInputElement,
+        autoplayToggle: document.getElementById('autoplay-injection-toggle') as HTMLInputElement,
+        autoplayVoiceToggle: document.getElementById('autoplay-voice-toggle') as HTMLInputElement
     }));
     if (voiceSelector) {registry.push(voiceSelector);}
 

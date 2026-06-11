@@ -180,7 +180,7 @@ export class PlaybackController {
 
         client.onCommand<any>(IncomingCommand.SPEAK_LOCAL, (data) => {
             console.log(`[PlaybackController] 🔊 SPEAK_LOCAL received for intent ${data.intentId}`);
-            WebviewAudioEngine.getInstance().speakLocal(data.text, data.voice, data.intentId);
+            WebviewAudioEngine.getInstance().speakLocal(data.text, data.voiceId || data.voice, data.intentId);
         });
     }
 
@@ -324,12 +324,14 @@ export class PlaybackController {
         // 2. [INTERRUPT] Stop current engine activities
         WebviewAudioEngine.getInstance().stop();
 
-        // 3. [SAMPLING] Synthesize current sentence for immediate feedback
-        const currentSentence = state.currentSentences[state.currentSentenceIndex];
-        if (currentSentence) {
-            const intentId = store.resetPlaybackIntent();
-            console.log(`[PlaybackController] 🧪 Sampling feedback for voice: ${voiceId}`);
-            WebviewAudioEngine.getInstance().speakLocal(currentSentence, voiceId, intentId);
+        // 3. [SAMPLING] Synthesize current sentence for immediate feedback if option is enabled
+        if (state.autoPlayOnVoiceSelect) {
+            const currentSentence = state.currentSentences[state.currentSentenceIndex];
+            if (currentSentence) {
+                const intentId = store.resetPlaybackIntent();
+                console.log(`[PlaybackController] 🧪 Sampling feedback for voice: ${voiceId}`);
+                WebviewAudioEngine.getInstance().speakLocal(currentSentence, voiceId, intentId);
+            }
         }
 
         console.log(`[IPC:OUT] VOICE_CHANGED -> ${voiceId}`);

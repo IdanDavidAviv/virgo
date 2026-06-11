@@ -1,9 +1,12 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { PlaybackController } from '../playbackController';
+import { OutgoingAction } from '../../common/types';
 
 export interface VoiceSelectorElements extends Record<string, HTMLElement | HTMLInputElement | null | undefined> {
     voiceList: HTMLElement;
     searchInput: HTMLInputElement;
+    autoplayToggle?: HTMLInputElement;
+    autoplayVoiceToggle?: HTMLInputElement;
 }
 
 /**
@@ -19,7 +22,8 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
         // 1. Subscribe to relevant state changes for list rendering
         this.subscribe((state) => ({
             available: state.availableVoices,
-            selected: state.selectedVoice
+            selected: state.selectedVoice,
+            recent: state.recentVoices
         }), (info) => {
             if (info.available) {
                 // Merge lists: Neural first, then Local
@@ -37,10 +41,23 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
                 this.els.voiceList.innerHTML = '<div class="voice-placeholder animate-pulse">Loading optimized voices...</div>';
             }
         });
+
+        // 3. Subscribe to Autoplay Toggles state changes
+        this.subscribe((state) => ({
+            autoPlayOnInjection: state.autoPlayOnInjection,
+            autoPlayOnVoiceSelect: state.autoPlayOnVoiceSelect
+        }), (info) => {
+            if (this.els.autoplayToggle) {
+                this.els.autoplayToggle.checked = !!info.autoPlayOnInjection;
+            }
+            if (this.els.autoplayVoiceToggle) {
+                this.els.autoplayVoiceToggle.checked = !!info.autoPlayOnVoiceSelect;
+            }
+        });
     }
 
     protected onMount(): void {
-        const { searchInput, voiceList } = this.els;
+        const { searchInput, voiceList, autoplayToggle, autoplayVoiceToggle } = this.els;
 
         // 1. Search Input delegation
         if (searchInput) {
@@ -72,6 +89,21 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
                 PlaybackController.getInstance().selectVoice(id);
             });
         }
+
+        // 3. Autoplay Toggles
+        if (autoplayToggle) {
+            this.registerEventListener(autoplayToggle, 'change', (e) => {
+                const val = (e.target as HTMLInputElement).checked;
+                this.postAction(OutgoingAction.SET_AUTOPLAY_INJECTION, { value: val });
+            });
+        }
+
+        if (autoplayVoiceToggle) {
+            this.registerEventListener(autoplayVoiceToggle, 'change', (e) => {
+                const val = (e.target as HTMLInputElement).checked;
+                this.postAction(OutgoingAction.SET_AUTOPLAY_VOICE_SELECT, { value: val });
+            });
+        }
     }
 
     public render(): void {
@@ -100,7 +132,11 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
             return;
         }
 
-        filtered.forEach((v: any) => {
+        const recentIds = this.store.getState().recentVoices || [];
+        const recentVoices = filtered.filter(v => recentIds.includes(typeof v === 'string' ? v : v.id));
+        const otherVoices = filtered.filter(v => !recentIds.includes(typeof v === 'string' ? v : v.id));
+
+        const createVoiceItem = (v: any, isRecentItem = false) => {
             const name = typeof v === 'string' ? v : v.name;
             const lang = typeof v === 'string' ? '' : v.lang;
             const id = typeof v === 'string' ? v : v.id;
@@ -119,14 +155,55 @@ export class VoiceSelector extends BaseComponent<VoiceSelectorElements> {
             } else {
                 label.textContent = name;
             }
-
             item.appendChild(label);
-            this.els.voiceList?.appendChild(item);
 
-            // Scroll selected into view on first render
-            if (id === selectedVoice) {
-                setTimeout(() => item.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }), 50);
+            if (isRecentItem) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'btn-delete-recent';
+                deleteBtn.innerHTML = '&times;';
+                deleteBtn.title = 'Remove from recent';
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.postAction(OutgoingAction.REMOVE_RECENT_VOICE, { voice: id });
+                });
+                item.appendChild(deleteBtn);
             }
-        });
+
+            return item;
+        };
+
+        // Render Recent Voices Group
+        if (recentVoices.length > 0) {
+            const header = document.createElement('div');
+            header.className = 'voice-group-header';
+            header.textContent = 'Recently Used';
+            this.els.voiceList.appendChild(header);
+
+            recentVoices.forEach(v => {
+                const item = createVoiceItem(v, true);
+                this.els.voiceList?.appendChild(item);
+                if ((typeof v === 'string' ? v : v.id) === selectedVoice) {
+                    setTimeout(() => item.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }), 50);
+                }
+            });
+        }
+
+        // Render All Other Voices
+        if (otherVoices.length > 0) {
+            if (recentVoices.length > 0) {
+                const header = document.createElement('div');
+                header.className = 'voice-group-header';
+                header.textContent = 'All Voices';
+                this.els.voiceList.appendChild(header);
+            }
+
+            otherVoices.forEach(v => {
+                const item = createVoiceItem(v, false);
+                this.els.voiceList?.appendChild(item);
+                if ((typeof v === 'string' ? v : v.id) === selectedVoice) {
+                    setTimeout(() => item.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }), 50);
+                }
+            });
+        }
     }
 }
