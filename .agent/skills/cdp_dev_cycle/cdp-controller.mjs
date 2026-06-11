@@ -803,6 +803,26 @@ async function runShell() {
     }
     await b.close();
   }
+  else if (action === 'launch') {
+    const launchB = await connectToCDP();
+    const main = await findSovereignTarget(launchB, 'workbench');
+    if (main) {
+      console.log('[CDP] 🚀 Triggering Launch (F5) in Main Editor...');
+      const page = main;
+      await page.bringToFront();
+      await page.keyboard.press('Escape');
+      await new Promise(r => setTimeout(r, 200));
+      await page.keyboard.press('Control+Shift+P');
+      await new Promise(r => setTimeout(r, 400));
+      await page.keyboard.type('workbench.action.debug.start', { delay: 20 });
+      await new Promise(r => setTimeout(r, 500));
+      await page.keyboard.press('Enter');
+      console.log('[CDP] → Launch triggered.');
+    } else {
+      console.error('[CDP] ❌ Main Editor not found. Cannot launch.');
+    }
+    await launchB.close();
+  }
   else if (action === 'targets') {
     const b = await connectToCDP();
     const pages = await getAllPages(b);
