@@ -2,6 +2,12 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.7] - 2026-06-11
+
+### Fixed
+- **MCP Path Alignment (T-113)**: Aligned the standalone MCP server pathing so that injected snippets go to the same workspace parent root directory (`antigravity-ide` when editing in a workspace project) that the active VS Code extension watches.
+- **E2E CDP Snippet Pollution Cleanup (T-113)**: Implemented post-test index pruning in the `afterAll` hook of the CDP integration test suite to automatically remove E2E test-generated snippet entries from `sessions_index.json` during teardown.
+
 ## [2.9.6] - 2026-06-11
 
 ### Fixed
