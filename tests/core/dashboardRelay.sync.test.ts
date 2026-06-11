@@ -91,4 +91,62 @@ describe('DashboardRelay (Unified Sync)', () => {
         
         expect(packet.currentSentences).toEqual(['s1', 's2']);
     });
+
+    describe('Autoplay buffering', () => {
+        let mockWebview: any;
+
+        beforeEach(() => {
+            mockWebview = {
+                postMessage: vi.fn(),
+                asWebviewUri: vi.fn(),
+                onDidReceiveMessage: vi.fn(),
+                cspSource: '',
+                options: {},
+                html: ''
+            };
+        });
+
+        it('should buffer critical messages when view is undefined', () => {
+            relay.clearView();
+            const msg = { command: 'playAudio', intentId: 1 };
+            relay.postMessage(msg);
+
+            expect((relay as any)._playBuffer).toContainEqual(msg);
+
+            relay.setView({
+                visible: true,
+                webview: mockWebview
+            } as any);
+
+            relay.setReady();
+            expect(mockWebview.postMessage).toHaveBeenCalledWith(msg);
+        });
+
+        it('should buffer critical messages when view is defined but not ready', () => {
+            relay.clearView();
+            relay.setView({
+                visible: true,
+                webview: mockWebview
+            } as any);
+
+            const msg = { command: 'playAudio', intentId: 1 };
+            relay.postMessage(msg);
+
+            expect((relay as any)._playBuffer).toContainEqual(msg);
+            expect(mockWebview.postMessage).not.toHaveBeenCalled();
+
+            relay.setReady();
+            expect(mockWebview.postMessage).toHaveBeenCalledWith(msg);
+        });
+
+        it('should clear buffer on clearBuffer()', () => {
+            relay.clearView();
+            const msg = { command: 'playAudio', intentId: 1 };
+            relay.postMessage(msg);
+
+            expect((relay as any)._playBuffer).toHaveLength(1);
+            relay.clearBuffer();
+            expect((relay as any)._playBuffer).toHaveLength(0);
+        });
+    });
 });

@@ -1510,6 +1510,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     public stop(intentId?: number, batchId?: number) {
         this._logger(`[SPEECH_PROVIDER] action:stop | intent: ${intentId} | batch: ${batchId}`);
+        this._dashboardRelay.clearBuffer();
         // [FIX-3] audioBridge.stop() → playbackEngine.stop() already sets _isPlaying=false,
         // _isPaused=false, _isStalled=false and emits 'status' once. The two extra calls below
         // were causing 3x engineStatus:idle emissions per stop (one per setter + one from stop()).

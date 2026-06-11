@@ -43,6 +43,11 @@ export class DashboardRelay {
         }
     }
 
+    public clearBuffer() {
+        this._playBuffer = [];
+        this._logger(`[DashboardRelay] 🧹 Buffer cleared.`);
+    }
+
     public setReady() {
         if (!this._isReady) {
             this._logger(`[DashboardRelay] 🏁 Webview signaled READY. Flushing ${this._playBuffer.length} buffered messages.`);
@@ -193,7 +198,31 @@ export class DashboardRelay {
      * CRITICAL: Whitelist playback commands to pass through even if hidden (to support background play).
      */
     public postMessage(message: any) {
-        if (!this._view) { return; }
+        const needsBuffer = (
+            message.command === IncomingCommand.PLAY_AUDIO || 
+            message.command === IncomingCommand.DATA_PUSH ||
+            message.command === IncomingCommand.SYNTHESIS_READY ||
+            message.command === IncomingCommand.SYNTHESIS_STARTING
+        );
+
+        if (!this._view) {
+            if (needsBuffer) {
+                if (message.intentId !== undefined) {
+                    const originalCount = this._playBuffer.length;
+                    this._playBuffer = this._playBuffer.filter(m => {
+                        const isSameCommand = m.command === message.command;
+                        const isStaleIntent = m.intentId !== undefined && m.intentId < message.intentId;
+                        return !isSameCommand && !isStaleIntent;
+                    });
+                    if (this._playBuffer.length < originalCount) {
+                        this._logger(`[RELAY] 🗑️ Evicted ${originalCount - this._playBuffer.length} stale commands from buffer for Intent: ${message.intentId}`);
+                    }
+                }
+                this._logger(`[RELAY] ⏳ Buffering command (View undefined): ${message.command} | Intent: ${message.intentId || '?'}`);
+                this._playBuffer.push(message);
+            }
+            return;
+        }
 
         const criticalCommands: string[] = [
             IncomingCommand.UI_SYNC, 
@@ -216,12 +245,6 @@ export class DashboardRelay {
         if (this._view.visible || isCritical) {
             // [SOVEREIGNTY] Buffer PLAY_AUDIO and DATA_PUSH if the webview isn't READY yet.
             // This prevents "1-press" failures where synthesis completes before the UI is primed.
-            const needsBuffer = (
-                message.command === IncomingCommand.PLAY_AUDIO || 
-                message.command === IncomingCommand.DATA_PUSH ||
-                message.command === IncomingCommand.SYNTHESIS_READY ||
-                message.command === IncomingCommand.SYNTHESIS_STARTING
-            );
             if (needsBuffer && !this._isReady) {
                 // [FIFO-HARDENING] Deduplicate buffer: Remove older versions of this command
                 // or any command with a lower intentId to ensure the webview starts with the freshest state.
