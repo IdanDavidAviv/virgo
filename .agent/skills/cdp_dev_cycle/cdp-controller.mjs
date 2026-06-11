@@ -757,10 +757,23 @@ async function runShell() {
         }
         break;
       }
+      case 'screenshot': {
+        const screenshotPath = arg.trim() || 'screenshot.png';
+        const b = await getbrowser();
+        const host = await findSovereignTarget(b, 'host');
+        if (!host) {
+          console.error('[CDP] ❌ Dev Host not found for screenshot.');
+          break;
+        }
+        await host.bringToFront();
+        await host.screenshot({ path: screenshotPath });
+        console.log(`[CDP] 📸 Screenshot saved to: ${screenshotPath}`);
+        break;
+      }
       case 'exit':
       case 'quit': await cleanupAndExit(); break;
       case 'help':
-        console.log('\n  status         - Situation report\n  launch         - Trigger F5 (Debug)\n  close-host     - Gracefully close the Dev Host window + kill its PIDs\n  restart        - Smart restart: close-host (if open) → launch → wait-for-ready\n  wait-for-ready - Poll for hydration\n  prime          - Execute Wake Ritual\n  click-play     - DOM click btn-play (real gesture, sets userHasInteracted)\n  audit          - Dump __debug state from webview content frame\n  stress         - 100-iter monotonic stress test\n  dispatch       - VS Code command (Ctrl+Shift+P, NOT a gesture)\n  eval           - JS execution in content frame\n  exit           - Stop playback + close Dev Host + exit shell (full cleanup)\n');
+        console.log('\n  status         - Situation report\n  launch         - Trigger F5 (Debug)\n  close-host     - Gracefully close the Dev Host window + kill its PIDs\n  restart        - Smart restart: close-host (if open) → launch → wait-for-ready\n  wait-for-ready - Poll for hydration\n  prime          - Execute Wake Ritual\n  click-play     - DOM click btn-play (real gesture, sets userHasInteracted)\n  audit          - Dump __debug state from webview content frame\n  stress         - 100-iter monotonic stress test\n  dispatch       - VS Code command (Ctrl+Shift+P, NOT a gesture)\n  eval           - JS execution in content frame\n  screenshot [F] - Take a screenshot of the Dev Host to file F (default: screenshot.png)\n  exit           - Stop playback + close Dev Host + exit shell (full cleanup)\n');
         break;
     }
     rl.prompt();
@@ -1131,7 +1144,21 @@ async function runShell() {
     }
     await b.close();
   }
+  else if (action === 'screenshot') {
+    const b = await connectToCDP();
+    const host = await findSovereignTarget(b, 'host');
+    if (!host) {
+      console.error('❌ Extension Development Host not found.');
+      await b.close();
+      process.exit(1);
+    }
+    const screenshotPath = process.argv[3] || 'screenshot.png';
+    await host.bringToFront();
+    await host.screenshot({ path: screenshotPath });
+    console.log(`📸 Screenshot saved to: ${screenshotPath}`);
+    await b.close();
+  }
   else {
-    console.log('Usage: node scripts/cdp-controller.mjs [shell|status|targets|dispatch|eval|eval-host|wait-for-ready|cleanup-all|stress|test-buffering|playback-audit [N]]');
+    console.log('Usage: node scripts/cdp-controller.mjs [shell|status|targets|dispatch|eval|eval-host|wait-for-ready|cleanup-all|stress|test-buffering|playback-audit [N]|screenshot [file]]');
   }
 })();

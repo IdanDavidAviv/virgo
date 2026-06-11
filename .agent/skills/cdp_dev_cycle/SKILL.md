@@ -138,6 +138,7 @@ When closing the dev host, the script follows a polite 3-tier ladder:
 | **Eval** | `eval <expr>` | JS execution in webview context |
 | **Audit Dump** | `audit` | Dumps live `__debug` state: hydration, gesture gate, playback intent, audio element |
 | **Click Play** | `click-play` | DOM-clicks `btn-play` — satisfies browser gesture gate (use for first-run tests) |
+| **Visual Audit** | `screenshot [file]` | Take a screenshot of the Dev Host to file (default: screenshot.png) |
 | **Full Exit** | `exit` | Stop playback + close Dev Host + exit shell |
 
 > `eval <expr>` runs JavaScript **inside the live webview context of the running shell session**. It is not a standalone script runner — it requires an open shell with a hydrated webview. Use `audit` for structured state inspection; use `eval` only for one-off queries.
@@ -159,3 +160,58 @@ When closing the dev host, the script follows a polite 3-tier ladder:
 
 > [!TIP]
 > **Checkbox Sovereignty**: Always verify build success in the "Tasks" terminal before running `refresh`. If the builder is red, the reload will serve stale code.
+
+## 6. Visual Diagnostics via Screenshots
+To enable visual audits of the Extension Development Host when running in headless or background states, the agent can capture screenshots of the active workbench window.
+
+- **Shell command**: `screenshot [file.png]` (saves to the specified path, defaults to `screenshot.png`)
+- **CLI fallback**: `node .agent/skills/cdp_dev_cycle/cdp-controller.mjs screenshot [file.png]` (can be run directly if the lock is not held)
+
+Use this command to verify command palette overlays, sidebar visibility, theme alignment, or layout regressions.
+
+## 7. Persistent CDP Integration Testing
+
+To prevent regressions in live synchronization, UI interaction logic, and state management, persistent integration tests using raw CDP (Chrome DevTools Protocol) are maintained under `tests/integration/`.
+
+### 7.1 Test Anatomy and Core Rules
+Every CDP integration test must adhere to these four architectural principles:
+
+1. **Dynamic Active Session / Workspace Resolution**:
+   - Do not hardcode paths to active user sessions or workspace storage.
+   - Resolve the active session root dynamically (e.g., by scanning the tail end of `diagnostics_agent.log` for logs such as `[MCP_WATCHER] External fs.watch active on` or falling back to environment-relative paths under `antigravity` and `antigravity-ide`).
+   - Query the active session ID directly from the running webview store:
+     ```typescript
+     const activeSessionId = await webviewFrame.evaluate(() => {
+         return window.__debug.store.getState().activeSessionId;
+     });
+     ```
+
+2. **Conditional Active Port Skipping**:
+   - To ensure integration tests do not break automated build servers or offline environments, check if the CDP port is listening before running.
+   - Guard the suite using `describe.runIf(isCdpActive)` or similar Vitest/Jest conditional gates:
+     ```typescript
+     const checkCdpPort = (): Promise<boolean> => {
+         return new Promise((resolve) => {
+             const req = http.get("http://localhost:9222/json/version", (res) => {
+                 resolve(res.statusCode === 200);
+             });
+             req.on('error', () => resolve(false));
+             req.setTimeout(1000, () => { req.destroy(); resolve(false); });
+         });
+     };
+     ```
+
+3. **User Interaction Simulation**:
+   - Satisfy Chromium's security gate for user interactions (e.g. playback start, clipboard copy) by dispatching real user gestures directly in the webview window before executing UI-dependent logic:
+     ```typescript
+     await webviewFrame.evaluate(() => {
+         const event = new MouseEvent('mousedown', { view: window, bubbles: true, cancelable: true });
+         document.dispatchEvent(event);
+     });
+     ```
+
+4. **Resource Lifecycle Integrity**:
+   - Always wrap browser connections and filesystems in cleanup blocks.
+   - Use `afterAll` to close connections (`browser.close()`) and clean up any injected test artifacts (e.g. unlinking temp files like `*.cdp_test.md`).
+   - To prevent test pollution and cache index collisions, always name injected snippet files dynamically using timestamps (e.g., `${Date.now()}.cdp_test.md`).
+
