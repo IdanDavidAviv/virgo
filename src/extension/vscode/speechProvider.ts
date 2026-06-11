@@ -957,8 +957,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 break;
                 
             case OutgoingAction.GET_MCP_STATUS:
-                const result = McpConfigurator.checkConfigurationStatus();
-                this._stateStore.patchState({ mcpStatus: result.status, mcpActiveAgents: result.activeAgents });
+                this.refreshMcpStatus();
                 break;
         }
     }

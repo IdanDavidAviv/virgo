@@ -77,6 +77,11 @@ export class McpConfigurator {
             {
                 id: 'antigravity',
                 name: 'Antigravity',
+                path: path.join(home, '.gemini', 'config', 'mcp_config.json')
+            },
+            {
+                id: 'antigravity_legacy',
+                name: 'Antigravity (Legacy)',
                 path: path.join(home, '.gemini', 'antigravity', 'mcp_config.json')
             }
         ];
