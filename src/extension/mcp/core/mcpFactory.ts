@@ -208,57 +208,6 @@ function registerResources(server: McpServer, config: McpConfig) {
     );
 
 
-    // [5] Resource: Injected Snippets (Multi-Session Discovery)
-    const snippetTemplate = new ResourceTemplate("virgo://snippets/{sessionId}/{snippetName}", {
-        list: async () => {
-            const results: any[] = [];
-            if (!fs.existsSync(config.sessionsRoot)) { return { resources: [] }; }
-            
-            // Limit snippet discovery to the 10 most recent sessions
-            const sessions = fs.readdirSync(config.sessionsRoot)
-                .map(name => ({ name, stat: fs.lstatSync(path.join(config.sessionsRoot, name)) }))
-                .filter(s => s.stat.isDirectory())
-                .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs)
-                .slice(0, 10)
-                .map(s => s.name);
 
-            for (const session of sessions) {
-                const sessionDir = path.join(config.sessionsRoot, session);
-                const files = fs.readdirSync(sessionDir).filter(f => f.endsWith('.md'));
-                for (const file of files) {
-                    results.push({
-                        uri: `virgo://snippets/${session}/${path.basename(file, '.md')}`,
-                        name: `Snippet: ${session}/${path.basename(file, '.md')}`,
-                        mimeType: "text/markdown"
-                    });
-                }
-            }
-            return { resources: results };
-        }
-    });
-
-    server.resource(
-        "injected-snippets",
-        snippetTemplate,
-        async (uri, { sessionId, snippetName }) => {
-            const safeSession = PathGuard.sanitize(String(sessionId), 'SessionID');
-            const safeSnippet = PathGuard.sanitize(String(snippetName), 'Snippet');
-            const sessionDir = path.join(config.sessionsRoot, safeSession);
-            const filePath = path.join(sessionDir, `${safeSnippet}.md`);
-            
-            if (!fs.existsSync(filePath)) {
-                throw new Error(`[MCP_RESOURCE] Snippet '${safeSnippet}' not found in session '${safeSession}'.`);
-            }
-
-            const content = fs.readFileSync(filePath, 'utf8');
-            return {
-                contents: [{
-                    uri: uri.href,
-                    mimeType: "text/markdown",
-                    text: content
-                }]
-            };
-        }
-    );
 }
 

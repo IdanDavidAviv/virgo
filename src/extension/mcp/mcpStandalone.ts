@@ -12,12 +12,17 @@ declare const __APP_VERSION__: string;
 
 async function main() {
     // 1. Environment Discovery
-    const userHome = process.env.USERPROFILE || process.env.HOME || "";
-    // [MP-001 T-015] Canonical sessions root: virgo/sessions/
-    // Override via VIRGO_ROOT or VIRGO_DATA_DIR env var for custom deployments.
-    const virgoRootName = process.env.VIRGO_ROOT || "virgo";
-    const defaultSessionsRoot = path.join(userHome, ".gemini", "antigravity", virgoRootName, "sessions");
-    const sessionsRoot = process.env.VIRGO_DATA_DIR || process.env.VIRGO_DATA_DIR || defaultSessionsRoot;
+    // [T-106] Parse CLI --root override.
+    const rootArgIndex = process.argv.indexOf('--root');
+    let sessionsRoot = "";
+    if (rootArgIndex !== -1 && rootArgIndex + 1 < process.argv.length) {
+        sessionsRoot = process.argv[rootArgIndex + 1];
+    } else {
+        const userHome = process.env.USERPROFILE || process.env.HOME || "";
+        const virgoRootName = process.env.VIRGO_ROOT || "virgo";
+        const defaultSessionsRoot = path.join(userHome, ".gemini", "antigravity", virgoRootName, "sessions");
+        sessionsRoot = process.env.VIRGO_DATA_DIR || defaultSessionsRoot;
+    }
     
     // Standalone targets the sessions root; the factory handles specific session IDs via tool arguments.
     const persistencePath = sessionsRoot;
