@@ -2,6 +2,17 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.11] - 2026-06-12
+
+### Fixed
+- **Playback Engine Lock Deadlock**: Migrated shared class-level watchdog timer to a locally-scoped promise watchdog in `_getNeuralAudio` to resolve lock deadlocks during skip/prefetch races.
+- **Resource Optimizations**:
+  - Suspended the stalled probe timer (`_probeTimer`) when playback is paused or stopped to prevent background polling.
+  - Aborted all active prefetch requests immediately upon pausing or entering `STALLED` state.
+  - Bypassed standard retries (fail-fast) for priority requests when the engine is `STALLED`.
+  - Added a sliding window prefetch throttle (10 requests/10s) and rapid skip debounce (1.5s).
+  - Skips empty speech sentences immediately with a silent base64 MP3 frame placeholder.
+
 ## [2.9.10] - 2026-06-12
 
 ### Added
