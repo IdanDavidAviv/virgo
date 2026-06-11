@@ -96,11 +96,28 @@ function registerTools(server: McpServer, config: McpConfig) {
         async ({ content, snippet_name, sessionId, session_title, turnIndex }) => {
             config.logger(`[MCP_CORE] Tool called: say_this_loud (Session: ${sessionId})`);
             try {
+                // [T-109] Read extension_state.json to check if extension has been initialized
+                const statePath = path.join(config.sessionsRoot, sessionId, 'extension_state.json');
+                let resolvedState: any = {};
+                try {
+                    if (fs.existsSync(statePath)) {
+                        resolvedState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+                    }
+                } catch (e) {
+                    config.logger(`[MCP_CORE] Failed to read extension_state.json: ${e}`);
+                }
+
                 const { filePath, index } = config.store.save(content, snippet_name, sessionId, session_title, turnIndex);
+                
+                let resultText = `Injected Turn ${index} into session ${sessionId} successfully at ${filePath}.`;
+                if (!resolvedState.has_resolved_once) {
+                    resultText += `\n[WARNING] The Virgo extension has not been initialized in this session yet. Please instruct the user to open the Virgo sidebar to enable audio playback.`;
+                }
+
                 return {
                     content: [{ 
                         type: "text", 
-                        text: `Injected Turn ${index} into session ${sessionId} successfully at ${filePath}.` 
+                        text: resultText 
                     }]
                 };
             } catch (error: any) {

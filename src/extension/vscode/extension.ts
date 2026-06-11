@@ -231,8 +231,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     { label: '$(debug-start-from-here) Read From Cursor', id: 'read_from_cursor' },
                     { label: '$(layout-sidebar-right) Open Dashboard', id: 'dashboard' },
                     { label: '$(trash) Clear Audio Cache', id: 'clear_cache' },
-                    { label: '$(plug) Manage MCP Integration', id: 'manage_mcp' },
-                    { label: '$(sync) Restart MCP Server', id: 'restart_mcp' }
+                    { label: '$(plug) Manage MCP Integration', id: 'manage_mcp' }
                 ], { placeHolder: 'Virgo Mission Control' });
 
                 if (action?.id === 'play') {
@@ -243,8 +242,6 @@ export async function activate(context: vscode.ExtensionContext) {
                     vscode.commands.executeCommand('virgo.show-dashboard');
                 } else if (action?.id === 'manage_mcp') {
                     vscode.commands.executeCommand('virgo.manageMcp');
-                } else if (action?.id === 'restart_mcp') {
-                    vscode.commands.executeCommand('virgo.restart-mcp');
                 } else if (action?.id === 'clear_cache') {
                     vscode.commands.executeCommand('virgo.clear-cache');
                 }
@@ -463,12 +460,6 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         }),
 
-        vscode.commands.registerCommand('virgo.restart-mcp', async () => {
-            // [T-023] Bridge removed. MCP now runs as an external stdio process (mcp-standalone.js).
-            // Reconnect via Gemini settings if needed.
-            vscode.window.showInformationMessage('Virgo: MCP runs via standalone stdio server. Reconnect via Gemini MCP settings if needed.');
-        }),
-        
         vscode.commands.registerCommand('virgo.restart-extension', async () => {
             log('[EXTENSION] Full extension restart requested (Reloading Window).');
             await vscode.commands.executeCommand('workbench.action.reloadWindow');

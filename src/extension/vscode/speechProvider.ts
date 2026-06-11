@@ -22,6 +22,7 @@ import { checkForUpdates } from '@vscode/UpdateChecker';
 
 export class SpeechProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
+    private _hasBeenResolvedOnce = false; // [T-109] Track if webview resolved at least once
     private _extensionUri: vscode.Uri;
     private _extensionPath: string;
 
@@ -55,6 +56,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     // [DPG] Dual-Precondition Gate flags
     private _webviewIsReady = false;
     private _initialLoadExecuted = false;
+    private _lastLivenessProbeTime = 0;
+    private _mcpStatusTimer?: NodeJS.Timeout;
+
 
 
     constructor(
@@ -103,8 +107,29 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._stateStore.setHistory(history);
 
             this._syncManager.requestSync(true);
+
+            // [T-109] Show interactive warning toast if sidebar not initialized at all
+            if (!this._view && !this._hasBeenResolvedOnce) {
+                this._logger('[EXTENSION] Snippet received but view never resolved. Showing warning toast.');
+                vscode.window.showWarningMessage(
+                    "Virgo: The sidebar panel is not initialized. Open it to enable audio playback.",
+                    "Open Dashboard"
+                ).then(selection => {
+                    if (selection === "Open Dashboard") {
+                        vscode.commands.executeCommand('virgo.speech-engine.focus');
+                    }
+                });
+            }
+
             if (this._stateStore.state.autoPlayOnInjection) {
                 this._logger('[EXTENSION] Playback started via autoPlayOnInjection signal');
+                
+                // [T-109] Automatically reveal/focus the sidebar if closed but initialized once
+                if (!this._view && this._hasBeenResolvedOnce) {
+                    this._logger('[EXTENSION] Webview is closed/disposed but was initialized. Revealing view to enable playback.');
+                    await vscode.commands.executeCommand('virgo.speech-engine.focus');
+                }
+
                 // [T-023] continue() is correct: it calls authorizePlayback() (cold-boot gate)
                 // and starts from currentSentenceIndex which is reset to 0 by setActiveDocument(null)
                 // inside McpWatcher._handleInboundSnippet before this callback fires.
@@ -161,6 +186,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger(`[MCP] Configuration status: ${mcpResult.status} [${mcpResult.activeAgents.join(',')}]`);
         // [LIVENESS] One-shot probe — upgrades badge to green if binary responds
         if (mcpResult.status === 'configured') {
+            this._lastLivenessProbeTime = Date.now();
             McpConfigurator.probeLiveness((alive) => {
                 if (alive) {
                     this._stateStore.patchState({ mcpStatus: 'alive' });
@@ -168,6 +194,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 }
             });
         }
+
+        // Start local polling
+        this._startMcpStatusPolling();
+
 
         // [Reactive Sync] Handled by SyncManager
 
@@ -244,10 +274,37 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (!fs.existsSync(stateFile)) {
             const initialState = { 
                 current_turn_index: 0,
-                session_title: "New session - to be named"
+                session_title: "New session - to be named",
+                has_resolved_once: false // [T-109] Initialize to false
             };
             fs.writeFileSync(stateFile, JSON.stringify(initialState, null, 2));
             this._logger(`[BOOTSTRAP] Initialized extension_state.json for session: ${this._sessionId}`);
+        } else {
+            // [T-109] Ensure the has_resolved_once field exists
+            try {
+                const content = fs.readFileSync(stateFile, 'utf8');
+                const state = JSON.parse(content);
+                if (state.has_resolved_once === undefined) {
+                    state.has_resolved_once = false;
+                    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+                }
+            } catch (e) {}
+        }
+    }
+
+    private _updateExtensionState(patch: Record<string, any>) {
+        const stateFile = path.join(this._virgoRoot, this._sessionId, 'extension_state.json');
+        try {
+            let state: any = {};
+            if (fs.existsSync(stateFile)) {
+                const content = fs.readFileSync(stateFile, 'utf8');
+                state = JSON.parse(content);
+            }
+            Object.assign(state, patch);
+            fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+            this._logger(`[STATE] Patched extension_state.json with: ${JSON.stringify(patch)}`);
+        } catch (err) {
+            this._logger(`[STATE_ERROR] Failed to patch extension_state.json: ${err}`);
         }
     }
 
@@ -380,6 +437,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (this._updateDocumentInfoTimer) {
             clearTimeout(this._updateDocumentInfoTimer);
         }
+        if (this._mcpStatusTimer) {
+            clearInterval(this._mcpStatusTimer);
+        }
     }
 
     private _getSanitizedPayload(payload: any, depth: number = 0): any {
@@ -452,6 +512,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
+        this._hasBeenResolvedOnce = true; // [T-109] Mark resolved
+        this._updateExtensionState({ has_resolved_once: true }); // [T-109] Update on disk
 
         // [CRASH-FIX] Set webview options FIRST — before any setView() calls.
         // SyncManager.setView() immediately calls requestSync(true) → flush → relay.sync() → postMessage().
@@ -497,6 +559,8 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             this._logger('MISSION CONTROL DISPOSED. Purging memory...');
             this._postToAll({ command: 'PURGE_MEMORY' });
             this._dashboardRelay.clearView();
+            this._syncManager.setView(undefined); // [T-109] Clean view in syncManager
+            this._view = undefined;              // [T-109] Clear local webviewView reference
         });
 
 
@@ -676,6 +740,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._stateStore.patchState({ mcpStatus: result.status, mcpActiveAgents: result.activeAgents });
         this._logger(`[MCP] Configuration status refreshed: ${result.status} [${result.activeAgents.join(',')}]`);
         if (result.status === 'configured') {
+            this._lastLivenessProbeTime = Date.now();
             McpConfigurator.probeLiveness((alive) => {
                 if (alive) {
                     this._stateStore.patchState({ mcpStatus: 'alive' });
@@ -685,12 +750,63 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private _checkMcpStatusLocally(forceProbeOnConfigured: boolean = false) {
+        const customMcpPath = vscode.workspace.getConfiguration('virgo.mcp').get<string>('configPath');
+        const result = McpConfigurator.checkConfigurationStatus(customMcpPath);
+
+        const currentState = this._stateStore.state;
+        const prevStatus = currentState.mcpStatus;
+        const prevAgents = (currentState.mcpActiveAgents || []).join(',');
+        const newAgents = (result.activeAgents || []).join(',');
+
+        const prevConfigStatus = prevStatus === 'alive' ? 'configured' : prevStatus;
+        const configChanged = prevConfigStatus !== result.status || prevAgents !== newAgents;
+
+        if (configChanged) {
+            this._logger(`[MCP] Configuration status changed: ${prevStatus} -> ${result.status} [${newAgents}]`);
+            this._stateStore.patchState({ mcpStatus: result.status, mcpActiveAgents: result.activeAgents });
+
+            if (result.status === 'configured') {
+                this._lastLivenessProbeTime = Date.now();
+                McpConfigurator.probeLiveness((alive) => {
+                    if (alive) {
+                        this._stateStore.patchState({ mcpStatus: 'alive' });
+                        this._logger('[MCP] Liveness probe (config change): VIRGO_MCP_OK → badge green');
+                    }
+                });
+            }
+        } else if (result.status === 'configured' && prevStatus !== 'alive') {
+            const now = Date.now();
+            const cooldown = forceProbeOnConfigured ? 15000 : 300000; // 15s for interactive, 5m for background
+            if (now - this._lastLivenessProbeTime >= cooldown) {
+                this._logger(`[MCP] Retrying liveness probe (cooldown: ${cooldown / 1000}s, force: ${forceProbeOnConfigured})...`);
+                this._lastLivenessProbeTime = now;
+                McpConfigurator.probeLiveness((alive) => {
+                    if (alive) {
+                        this._stateStore.patchState({ mcpStatus: 'alive' });
+                        this._logger('[MCP] Liveness probe (retry): VIRGO_MCP_OK → badge green');
+                    }
+                });
+            }
+        }
+    }
+
+    private _startMcpStatusPolling() {
+        this._mcpStatusTimer = setInterval(() => {
+            this._checkMcpStatusLocally(false);
+        }, 60000);
+    }
+
     private async _handleWebviewMessage(data: any, source: string = 'webview') {
+        // [MCP LIVENESS INTERACTIVE CHECK] Trigger immediate check on user interaction
+        this._checkMcpStatusLocally(true);
+
         const sanitized = this._validatePayload(data);
         if (!sanitized.command) {
             this._logger(`[DASHBOARD -> EXTENSION] IGNORED_MALFORMED_MESSAGE: ${JSON.stringify(data)}`);
             return;
         }
+
 
         const cmd = sanitized.command;
         const payload = sanitized; // For brevity in handlers

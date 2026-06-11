@@ -73,6 +73,12 @@ export class PlaybackController {
             // Initial scan
             WebviewAudioEngine.getInstance().scanVoices();
         }
+
+        // [T-109] Subscribe to sentence/chapter changes to dynamically warm the prefetch queue
+        const store = WebviewStore.getInstance();
+        store.subscribe((s) => ({ sentence: s.currentSentenceIndex, chapter: s.currentChapterIndex }), () => {
+            this._processQueue();
+        });
     }
 
     public static getInstance(): PlaybackController {
