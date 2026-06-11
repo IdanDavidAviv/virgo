@@ -46,7 +46,7 @@ export class SnippetLookup extends BaseComponent<SnippetLookupElements> {
         // Initial request if empty
         const store = WebviewStore.getInstance();
         const state = store.getState();
-        if (state && !state.snippetHistory) {
+        if (state && (!state.snippetHistory || state.snippetHistory.length === 0)) {
             PlaybackController.getInstance().requestSnippetHistory();
         }
     }
