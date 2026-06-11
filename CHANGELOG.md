@@ -2,6 +2,17 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.10] - 2026-06-12
+
+### Added
+- **Configurable Multi-Path Snippet Scanning**: Added `virgo.snippet.scanFolders` property configuration in `package.json` to allow users to watch/scan custom absolute folder paths for Markdown snippets.
+- **Custom Watchers and Claims**: Updated `McpWatcher.ts` to dynamically set up filesystem watchers for custom folders and write/check workspace claims relative to matching folders.
+
+### Fixed
+- **Playback Prefetch Deadlock**: Resolved deadlock in `playbackEngine.ts` by replacing the global prefetch abort controller with a Map of key-specific abort controllers.
+- **Priority-Aware Stale Intent Check**: Made the pre-flight stale intent check in `playbackEngine.ts` priority-aware, preventing background prefetch tasks from aborting once playback progresses.
+- **Prefetch Prioritization**: Prioritized next queue targets (`next1` and `next2`) before previous targets (`prev`) in `audioBridge.ts`.
+
 ## [2.9.9] - 2026-06-12
 
 ### Added
