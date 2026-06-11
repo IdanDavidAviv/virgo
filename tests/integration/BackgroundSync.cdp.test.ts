@@ -254,7 +254,21 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
         fs.writeFileSync(activeSnippetFile, fileContent);
         console.log(`[CDP Test] Injected snippet: ${activeSnippetFile}`);
 
-        // 4. Poll for background sync up to 15 seconds (to support slow CPU parallel execution)
+        // 4. Wait a short moment to let the extension watcher process the file in the background
+        await new Promise(r => setTimeout(r, 2000));
+
+        // 5. Restore sidebar to wake up the webview and process the background sync packet
+        console.log("[CDP Test] Restoring sidebar...");
+        await devHostWorkbench.keyboard.press('Escape');
+        await new Promise(r => setTimeout(r, 200));
+        await devHostWorkbench.keyboard.press('Control+Shift+P');
+        await new Promise(r => setTimeout(r, 400));
+        await devHostWorkbench.keyboard.type("Virgo: Show Virgo Dashboard", { delay: 20 });
+        await new Promise(r => setTimeout(r, 500));
+        await devHostWorkbench.keyboard.press('Enter');
+        await new Promise(r => setTimeout(r, 1000));
+
+        // 6. Poll for the sync to complete in the store
         let postSyncCount = baseline;
         const startTime = Date.now();
         while (postSyncCount < baseline + 1 && Date.now() - startTime < 15000) {
@@ -265,17 +279,6 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
                 return activeSession ? activeSession.snippets.length : 0;
             });
         }
-
-        // 6. Restore sidebar
-        console.log("[CDP Test] Restoring sidebar...");
-        await devHostWorkbench.keyboard.press('Escape');
-        await new Promise(r => setTimeout(r, 200));
-        await devHostWorkbench.keyboard.press('Control+Shift+P');
-        await new Promise(r => setTimeout(r, 400));
-        await devHostWorkbench.keyboard.type("Virgo: Show Virgo Dashboard", { delay: 20 });
-        await new Promise(r => setTimeout(r, 500));
-        await devHostWorkbench.keyboard.press('Enter');
-        await new Promise(r => setTimeout(r, 1000));
 
         expect(postSyncCount).toBe(baseline + 1);
     }, 45000);
