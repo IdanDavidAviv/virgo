@@ -151,20 +151,57 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
             throw new Error("Extension Development Host workbench not found!");
         }
 
+        // Reload the extension host window to ensure it loads the newly compiled code.
+        console.log("[CDP Test] Reloading Extension Host Window...");
+        await devHostWorkbench.bringToFront();
+        await devHostWorkbench.keyboard.press('Escape');
+        await new Promise(r => setTimeout(r, 200));
+        await devHostWorkbench.keyboard.press('Control+Shift+P');
+        await new Promise(r => setTimeout(r, 400));
+        await devHostWorkbench.keyboard.type("Developer: Reload Window", { delay: 20 });
+        await new Promise(r => setTimeout(r, 500));
+        
+        const navigationPromise = devHostWorkbench.waitForNavigation({ waitUntil: 'load', timeout: 20000 }).catch(() => {});
+        await devHostWorkbench.keyboard.press('Enter');
+        await navigationPromise;
+        await new Promise(r => setTimeout(r, 5000)); // wait for reload
+
+        // Re-resolve the devHostWorkbench page after reload
+        const allPagesAfterReload = await browser.contexts()[0].pages();
+        devHostWorkbench = null;
+        for (const page of allPagesAfterReload) {
+            const url = page.url();
+            const title = await page.title();
+            if (url.includes("workbench.html") && title.includes("[Extension Development Host]")) {
+                devHostWorkbench = page;
+                break;
+            }
+        }
+
+        if (!devHostWorkbench) {
+            throw new Error("Extension Development Host workbench not found after reload!");
+        }
+
+        await devHostWorkbench.bringToFront();
+        // Wait for VS Code status bar to render
+        await devHostWorkbench.waitForSelector('.statusbar', { timeout: 15000 }).catch(() => {});
+
         webviewFrame = await findSovereignTarget(browser, 'webview', false, 'dev');
 
         // Self-healing: if not found, reveal Virgo dashboard
         if (!webviewFrame) {
             console.log("[CDP Test] Webview not found. Attempting to reveal Virgo dashboard...");
             await devHostWorkbench.bringToFront();
+            await devHostWorkbench.click('body').catch(() => {});
+            await new Promise(r => setTimeout(r, 1000)); // wait for focus
             await devHostWorkbench.keyboard.press('Escape');
-            await new Promise(r => setTimeout(r, 200));
-            await devHostWorkbench.keyboard.press('Control+Shift+P');
-            await new Promise(r => setTimeout(r, 400));
-            await devHostWorkbench.keyboard.type("Virgo: Show Virgo Dashboard", { delay: 20 });
             await new Promise(r => setTimeout(r, 500));
+            await devHostWorkbench.keyboard.press('Control+Shift+P');
+            await new Promise(r => setTimeout(r, 800));
+            await devHostWorkbench.keyboard.type("Virgo: Show Virgo Dashboard", { delay: 50 });
+            await new Promise(r => setTimeout(r, 800));
             await devHostWorkbench.keyboard.press('Enter');
-            await new Promise(r => setTimeout(r, 3000));
+            await new Promise(r => setTimeout(r, 8000)); // wait for webview to load
             webviewFrame = await findSovereignTarget(browser, 'webview', false, 'dev');
         }
 
@@ -216,6 +253,55 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
             fs.mkdirSync(resolvedSessionPath, { recursive: true });
         }
 
+        // Proactive startup cleanup of any leftover cdp_test files and index entries
+        if (sessionsRoot && activeSessionId) {
+            if (fs.existsSync(resolvedSessionPath)) {
+                try {
+                    const files = fs.readdirSync(resolvedSessionPath);
+                    for (const file of files) {
+                        if (file.includes('cdp_test')) {
+                            fs.unlinkSync(path.join(resolvedSessionPath, file));
+                        }
+                    }
+                } catch (e) {
+                    console.error("[CDP Test] Failed to clean up leftover cdp_test files on startup:", e);
+                }
+            }
+
+            const indexPath = path.join(sessionsRoot, 'sessions_index.json');
+            if (fs.existsSync(indexPath)) {
+                try {
+                    const index = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+                    let changed = false;
+                    if (index.sessions) {
+                        for (const sid of Object.keys(index.sessions)) {
+                            const beforeLen = index.sessions[sid].snippets.length;
+                            const seen = new Set<string>();
+                            index.sessions[sid].snippets = index.sessions[sid].snippets.filter(
+                                (s: any) => {
+                                    if (s.fsPath.includes('cdp_test')) {return false;}
+                                    const lower = s.fsPath.toLowerCase();
+                                    if (seen.has(lower)) {return false;}
+                                    seen.add(lower);
+                                    return true;
+                                }
+                            );
+                            if (index.sessions[sid].snippets.length !== beforeLen) {
+                                changed = true;
+                            }
+                        }
+                    }
+                    if (changed) {
+                        index.lastUpdated = new Date().toISOString();
+                        fs.writeFileSync(indexPath, JSON.stringify(index, null, 2), 'utf-8');
+                        console.log(`[CDP Test] Leftover cdp_test snippets cleaned up and paths deduplicated from index on startup.`);
+                    }
+                } catch (e) {
+                    console.error("[CDP Test] Failed to clean leftover index on startup:", e);
+                }
+            }
+        }
+
         const ts = Date.now();
         activeSnippetFile = path.join(resolvedSessionPath, `${ts}.cdp_test.md`);
         console.log(`[CDP Test] Resolved target snippet file path: ${activeSnippetFile}`);
@@ -225,39 +311,103 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
         if (browser) {
             await browser.close();
         }
-        if (activeSnippetFile) {
-            if (fs.existsSync(activeSnippetFile)) {
-                fs.unlinkSync(activeSnippetFile);
+        // Clean up all cdp_test files in the session folder to prevent pollution
+        if (sessionsRoot && activeSessionId) {
+            const resolvedSessionPath = path.join(sessionsRoot, activeSessionId);
+            if (fs.existsSync(resolvedSessionPath)) {
+                try {
+                    const files = fs.readdirSync(resolvedSessionPath);
+                    for (const file of files) {
+                        if (file.includes('cdp_test')) {
+                            fs.unlinkSync(path.join(resolvedSessionPath, file));
+                        }
+                    }
+                    console.log(`[CDP Test] Cleaned up all cdp_test snippet files from session directory: ${resolvedSessionPath}`);
+                } catch (e) {
+                    console.error("[CDP Test] Failed to clean up cdp_test files from disk:", e);
+                }
             }
-            if (sessionsRoot && activeSessionId) {
-                const indexPath = path.join(sessionsRoot, 'sessions_index.json');
-                if (fs.existsSync(indexPath)) {
-                    try {
-                        const index = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
-                        if (index.sessions && index.sessions[activeSessionId]) {
-                            const originalLen = index.sessions[activeSessionId].snippets.length;
-                            index.sessions[activeSessionId].snippets = index.sessions[activeSessionId].snippets.filter(
+
+            const indexPath = path.join(sessionsRoot, 'sessions_index.json');
+            if (fs.existsSync(indexPath)) {
+                try {
+                    const index = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+                    let changed = false;
+                    if (index.sessions) {
+                        for (const sid of Object.keys(index.sessions)) {
+                            const beforeLen = index.sessions[sid].snippets.length;
+                            index.sessions[sid].snippets = index.sessions[sid].snippets.filter(
                                 (s: any) => !s.fsPath.includes('cdp_test')
                             );
-                            index.lastUpdated = new Date().toISOString();
-                            fs.writeFileSync(indexPath, JSON.stringify(index, null, 2), 'utf-8');
-                            console.log(`[CDP Test] Cleaned up cdp_test snippets from index. Reduced from ${originalLen} to ${index.sessions[activeSessionId].snippets.length} entries.`);
+                            if (index.sessions[sid].snippets.length !== beforeLen) {
+                                changed = true;
+                            }
                         }
-                    } catch (e) {
-                        console.error("[CDP Test] Failed to clean sessions_index.json:", e);
                     }
+                    if (changed) {
+                        index.lastUpdated = new Date().toISOString();
+                        fs.writeFileSync(indexPath, JSON.stringify(index, null, 2), 'utf-8');
+                        console.log(`[CDP Test] Cleaned up cdp_test snippets from index.`);
+                    }
+                } catch (e) {
+                    console.error("[CDP Test] Failed to clean sessions_index.json:", e);
                 }
             }
         }
     });
 
     it('should successfully sync snippet history updates in the background when the view is hidden', async () => {
-        // 1. Get baseline count
-        const baseline = await webviewFrame.evaluate(() => {
+        // Ensure webview is fully hydrated before interacting
+        let hydrated = false;
+        const hydrateStart = Date.now();
+        while (!hydrated && Date.now() - hydrateStart < 15000) {
+            hydrated = await webviewFrame.evaluate(() => {
+                const s = (window as any).__debug?.store?.getState();
+                return s?.isHydrated === true;
+            });
+            if (!hydrated) {
+                await new Promise(r => setTimeout(r, 500));
+            }
+        }
+
+        // Ensure webview is in SNIPPET mode at start of test so it hydrates history
+        await webviewFrame.evaluate(() => {
             const s = (window as any).__debug.store.getState();
-            const activeSession = s.snippetHistory.find((h: any) => h.id === s.activeSessionId);
-            return activeSession ? activeSession.snippets.length : 0;
+            if (s.activeMode !== 'SNIPPET') {
+                const btn = document.getElementById('mode-snippet');
+                if (btn) {btn.click();}
+            }
         });
+
+        // Click the refresh button to trigger a forced scan and clear out stale/duplicate entries from the store state
+        await webviewFrame.evaluate(() => {
+            const btn = document.getElementById('btn-refresh-snippets');
+            if (btn) {
+                btn.removeAttribute('disabled');
+                btn.click();
+            }
+        });
+
+        // Wait a brief moment for the forced scan and store update to complete
+        await new Promise(r => setTimeout(r, 2000));
+
+        // 1. Wait for snippet history to load and get baseline count
+        let baseline = -1;
+        const baselineStart = Date.now();
+        while (baseline < 0 && Date.now() - baselineStart < 10000) {
+            baseline = await webviewFrame.evaluate(() => {
+                const s = (window as any).__debug.store.getState();
+                if (!s || !s.snippetHistory) {return -1;}
+                const activeSession = s.snippetHistory.find((h: any) => h.id === s.activeSessionId);
+                return activeSession ? activeSession.snippets.length : -1;
+            });
+            if (baseline < 0) {
+                await new Promise(r => setTimeout(r, 500));
+            }
+        }
+        if (baseline < 0) {
+            baseline = 0;
+        }
 
         // 2. Hide sidebar
         console.log("[CDP Test] Hiding sidebar...");
@@ -282,6 +432,7 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
 
         // 5. Restore sidebar to wake up the webview and process the background sync packet
         console.log("[CDP Test] Restoring sidebar...");
+        await devHostWorkbench.bringToFront();
         await devHostWorkbench.keyboard.press('Escape');
         await new Promise(r => setTimeout(r, 200));
         await devHostWorkbench.keyboard.press('Control+Shift+P');
@@ -289,7 +440,22 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
         await devHostWorkbench.keyboard.type("Virgo: Show Virgo Dashboard", { delay: 20 });
         await new Promise(r => setTimeout(r, 500));
         await devHostWorkbench.keyboard.press('Enter');
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 2000));
+
+        // Re-resolve the webview frame target because it changed after closing/reopening the sidebar
+        webviewFrame = await findSovereignTarget(browser, 'webview', false, 'dev');
+        if (!webviewFrame) {
+            throw new Error("[CDP Test] Webview frame not found after restoring sidebar!");
+        }
+
+        // Ensure reopened webview is in SNIPPET mode to receive history updates
+        await webviewFrame.evaluate(() => {
+            const s = (window as any).__debug.store.getState();
+            if (s.activeMode !== 'SNIPPET') {
+                const btn = document.getElementById('mode-snippet');
+                if (btn) {btn.click();}
+            }
+        });
 
         // 6. Poll for the sync to complete in the store
         let postSyncCount = baseline;
@@ -309,7 +475,26 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
     it('should emulate a user click on the play button and verify playing state', async () => {
         // Focus the sidebar first
         await devHostWorkbench.bringToFront();
+
+        // Ensure reopened webview is in FILE mode to render file reader and controls
+        await webviewFrame.evaluate(() => {
+            const s = (window as any).__debug.store.getState();
+            if (s.activeMode !== 'FILE') {
+                const btn = document.getElementById('mode-file');
+                if (btn) {btn.click();}
+            }
+        });
         
+        // Ensure a markdown file is open in the active editor
+        await devHostWorkbench.keyboard.press('Escape');
+        await new Promise(r => setTimeout(r, 200));
+        await devHostWorkbench.keyboard.press('Control+P');
+        await new Promise(r => setTimeout(r, 400));
+        await devHostWorkbench.keyboard.type("README.md", { delay: 20 });
+        await new Promise(r => setTimeout(r, 500));
+        await devHostWorkbench.keyboard.press('Enter');
+        await new Promise(r => setTimeout(r, 1500));
+
         // Emulate user mousedown gesture to satisfy userHasInteracted gate
         await webviewFrame.evaluate(() => {
             const event = new MouseEvent('mousedown', { view: window, bubbles: true, cancelable: true });

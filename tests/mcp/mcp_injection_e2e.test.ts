@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PendingInjectionStore } from '../../src/extension/mcp/core/sharedStore';
@@ -122,5 +122,11 @@ describe('MCP Injection E2E Integration', () => {
         expect(docController.loadSnippet).toHaveBeenCalled();
 
         watcher.dispose();
+    });
+
+    afterAll(() => {
+        if (fs.existsSync(testBrainRoot)) {
+            fs.rmSync(testBrainRoot, { recursive: true, force: true });
+        }
     });
 });
