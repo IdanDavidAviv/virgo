@@ -2,33 +2,46 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.9] - 2026-06-12
+
+### Added
+- **Bilingual Auto-Selection & Hysteresis**: Persists voice history per language code in global state (capped at 10 languages). Automatically detects sentence language during playback, switching voices dynamically using a minimum 8-character hysteresis gate.
+- **Recently Used Voices**: Displays a group of up to 5 recently used voices at the top of the voice list, with crimson-hovering delete (`×`) buttons to clear items.
+- **Autoplay & Preview Switches**: Added in-memory session-scoped switches for "Autoplay Snippets" and "Sample Voice on Click" to override defaults without mutating `settings.json`.
+- **Dismiss settings on click outside**: Registers a click-outside listener to automatically close the settings popover.
+
+### Fixed
+- **Dev Env Interception & Yielding**: Replaced hardcoded folder checks with native VS Code `ExtensionMode` API. Implemented Dev Host claiming override (`|dev` tag) and production instance yielding to prevent double-audio playback during development.
+- **SAPI Local TTS Accent**: Resolved a parameter key mismatch (`data.voiceId || data.voice`) to ensure the correct language-specific voice is resolved for local speech synthesis.
+- **Visual Scale**: Increased Settings popover width to `320px` and voice list container max height to `200px`.
+
 ## [2.9.8] - 2026-06-11
 
 ### Added
-- **Low-Overhead MCP Status Checking (T-109)**: Implemented background file-based configuration scanning once a minute with near-zero overhead.
-- **Event-Driven Liveness Probe on User Actions (T-109)**: Added interactive liveness checking triggered instantly on webview user interactions, protected by a 15-second cooldown.
-- **Dynamic Queue Prefetching (T-109)**: Subscribed to `currentSentenceIndex` and `currentChapterIndex` updates in `PlaybackController` to warm and prefetch the speech queue dynamically.
+- **Low-Overhead MCP Status Checking**: Implemented background file-based configuration scanning once a minute with near-zero overhead.
+- **Event-Driven Liveness Probe on User Actions**: Added interactive liveness checking triggered instantly on webview user interactions, protected by a 15-second cooldown.
+- **Dynamic Queue Prefetching**: Subscribed to `currentSentenceIndex` and `currentChapterIndex` updates in `PlaybackController` to warm and prefetch the speech queue dynamically.
 
 ### Fixed
-- **Autoplay and Playback Focus (T-109)**: Enabled auto-revealing and focusing the webview sidebar when hidden on snippet load if initialized once, and resolved Chrome autoplay constraints.
-- **Uninitialized Sidebar Warnings (T-109)**: Added interactive warning toast notifications and MCP warning responses when snippet is loaded but the sidebar is uninitialized.
-- **Closed-Extension Autoplay Buffering (T-116)**: Implemented buffering of critical playback commands when the webview is closed/disposed and flushing them when the webview signals ready. Added stop-playback buffer purging.
+- **Autoplay and Playback Focus**: Enabled auto-revealing and focusing the webview sidebar when hidden on snippet load if initialized once, and resolved Chrome autoplay constraints.
+- **Uninitialized Sidebar Warnings**: Added interactive warning toast notifications and MCP warning responses when snippet is loaded but the sidebar is uninitialized.
+- **Closed-Extension Autoplay Buffering**: Implemented buffering of critical playback commands when the webview is closed/disposed and flushing them when the webview signals ready. Added stop-playback buffer purging.
 
 ## [2.9.7] - 2026-06-11
 
 ### Fixed
-- **MCP Path Alignment (T-113)**: Aligned the standalone MCP server pathing so that injected snippets go to the same workspace parent root directory (`antigravity-ide` when editing in a workspace project) that the active VS Code extension watches.
-- **E2E CDP Snippet Pollution Cleanup (T-113)**: Implemented post-test index pruning in the `afterAll` hook of the CDP integration test suite to automatically remove E2E test-generated snippet entries from `sessions_index.json` during teardown.
-- **MCP Config Configurable Path (T-115)**: Added `"virgo.mcp.configPath"` configuration property to support customized mcp_config.json locations.
-- **Windows Home Folder Resolution (T-115)**: Prioritized `process.env.USERPROFILE` over `process.env.HOME` on Windows environments to ensure proper resolution of home directories.
-- **MCP Status Badge Liveness (T-115)**: Added a dynamic configuration observer that updates the badge color immediately on path changes and bypasses async propagation delays.
+- **MCP Path Alignment**: Aligned the standalone MCP server pathing so that injected snippets go to the same workspace parent root directory (`antigravity-ide` when editing in a workspace project) that the active VS Code extension watches.
+- **E2E CDP Snippet Pollution Cleanup**: Implemented post-test index pruning in the `afterAll` hook of the CDP integration test suite to automatically remove E2E test-generated snippet entries from `sessions_index.json` during teardown.
+- **MCP Config Configurable Path**: Added `"virgo.mcp.configPath"` configuration property to support customized mcp_config.json locations.
+- **Windows Home Folder Resolution**: Prioritized `process.env.USERPROFILE` over `process.env.HOME` on Windows environments to ensure proper resolution of home directories.
+- **MCP Status Badge Liveness**: Added a dynamic configuration observer that updates the badge color immediately on path changes and bypasses async propagation delays.
 
 ## [2.9.6] - 2026-06-11
 
 ### Fixed
-- **SyncManager Visibility Guard Bypass (T-111)**: Bypassed the hidden visibility guard in `SyncManager.ts`'s `_flush()` to allow background synchronization since `retainContextWhenHidden` is active.
-- **Snippet History Hash Collision (T-111)**: Hardened `_calculateStateHash()` to fully map every snippet's `uri` and `timestamp` in the history array, ensuring that any snippet addition, deletion, or modification triggers a state synchronization flush.
-- **FS Scan Log Pollution (T-111)**: Pruned the O(N) loop-level logging inside `_getSnippetHistoryByScan()` in `speechProvider.ts`, replacing it with a single aggregate scan summary.
+- **SyncManager Visibility Guard Bypass**: Bypassed the hidden visibility guard in `SyncManager.ts`'s `_flush()` to allow background synchronization since `retainContextWhenHidden` is active.
+- **Snippet History Hash Collision**: Hardened `_calculateStateHash()` to fully map every snippet's `uri` and `timestamp` in the history array, ensuring that any snippet addition, deletion, or modification triggers a state synchronization flush.
+- **FS Scan Log Pollution**: Pruned the O(N) loop-level logging inside `_getSnippetHistoryByScan()` in `speechProvider.ts`, replacing it with a single aggregate scan summary.
 - **CDP Integration Test Suite**: Fixed a test pollution issue in the CDP integration test suite by using dynamically generated timestamps for test snippet filenames. Resolved type compiler errors regarding top-level await and `window.__debug` global type safety.
 
 ### Added
@@ -38,11 +51,11 @@ All notable changes to the "Virgo" extension will be documented in this file.
 ## [2.9.5] - 2026-05-05
 
 ### Fixed
-- **IPC Packet Ordering (T-101)**: Hardened `DashboardRelay` sliding window to a 5-sentence lookahead (eliminated the prior 100-sentence bloat, reducing IPC payload size by ~20×). Introduced a monotonic `syncIntentId` stamp on every `UI_SYNC` packet; `WebviewStore.SOVEREIGN_FIELDS` uses the counter to silently reject out-of-order packets before they can corrupt playback state.
-- **Session Reset Integrity (T-101)**: `syncIntentId` counter now resets explicitly on `DashboardRelay.setView()` and on `isHydrated:true` hydration signal in the webview, guaranteeing every reload starts from a clean monotonic baseline.
+- **IPC Packet Ordering**: Hardened `DashboardRelay` sliding window to a 5-sentence lookahead (eliminated the prior 100-sentence bloat, reducing IPC payload size by ~20×). Introduced a monotonic `syncIntentId` stamp on every `UI_SYNC` packet; `WebviewStore.SOVEREIGN_FIELDS` uses the counter to silently reject out-of-order packets before they can corrupt playback state.
+- **Session Reset Integrity**: `syncIntentId` counter now resets explicitly on `DashboardRelay.setView()` and on `isHydrated:true` hydration signal in the webview, guaranteeing every reload starts from a clean monotonic baseline.
 
 ### Added
-- **In-App Update Notification (T-102)**: Extension now polls the GitHub Releases API once at activation (24-hour in-memory cache, silent fail on network error). When a newer version is available, the footer version tag glows amber with a 2.5-second pulse animation and tooltip shows the new version number. Clicking the tag opens the GitHub releases page directly. Badge reverts to grey when up to date.
+- **In-App Update Notification**: Extension now polls the GitHub Releases API once at activation (24-hour in-memory cache, silent fail on network error). When a newer version is available, the footer version tag glows amber with a 2.5-second pulse animation and tooltip shows the new version number. Clicking the tag opens the GitHub releases page directly. Badge reverts to grey when up to date.
 
 ## [2.9.4] - 2026-05-04
 
