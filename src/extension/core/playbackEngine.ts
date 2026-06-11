@@ -36,7 +36,9 @@ export class PlaybackEngine extends EventEmitter {
     private _batchAbortController: AbortController | null = null;
     private _prefetchAbortControllers: Map<string, AbortController> = new Map();
 
-    private _watchdogTimer: NodeJS.Timeout | null = null;
+    private _probeTimer: NodeJS.Timeout | null = null;
+    private _probeAbortController: AbortController | null = null;
+    private _requestTimestamps: number[] = [];
     private _isStalled: boolean = false;
 
     private _logLevel: number = 1;
@@ -183,6 +185,56 @@ export class PlaybackEngine extends EventEmitter {
         this._neuralHealth = 'HEALTHY';
         this._lastNeuralSuccessTime = Date.now();
         this._consecutiveNeuralErrors = 0;
+        this._clearProbeTimer();
+    }
+
+    private _isPrefetchThrottled(): boolean {
+        const now = Date.now();
+        this._requestTimestamps = this._requestTimestamps.filter(t => now - t < 10000);
+        return this._requestTimestamps.length >= 10;
+    }
+
+    private _clearProbeTimer() {
+        if (this._probeTimer) {
+            clearTimeout(this._probeTimer);
+            this._probeTimer = null;
+        }
+        if (this._probeAbortController) {
+            this._probeAbortController.abort('Probe Cleared');
+            this._probeAbortController = null;
+        }
+    }
+
+    private _startProbeTimer() {
+        this._clearProbeTimer();
+        if (!this._isPlaying || this._neuralHealth !== 'STALLED') {
+            return;
+        }
+        this._probeTimer = setTimeout(async () => {
+            if (!this._isPlaying || this._neuralHealth !== 'STALLED') { return; }
+            this.logger(`[NEURAL] 🩺 Running background active probe...`);
+            this._probeAbortController = new AbortController();
+            try {
+                const data = await this._getNeuralAudio(
+                    " ",
+                    "en-US-SteffanNeural",
+                    0,
+                    this._stateStore.state.playbackIntentId,
+                    false,
+                    this._stateStore.state.batchIntentId,
+                    this._probeAbortController.signal
+                );
+                if (data) {
+                    this.logger(`[NEURAL] ❤️‍🩹 Probe succeeded. Health restored.`);
+                    this.resetNeuralHealth();
+                } else {
+                    this._startProbeTimer();
+                }
+            } catch (err: any) {
+                this.logger(`[NEURAL] 🩺 Probe failed: ${err.message}. Rescheduling in 30s.`);
+                this._startProbeTimer();
+            }
+        }, 30000);
     }
 
     /**
@@ -230,6 +282,13 @@ export class PlaybackEngine extends EventEmitter {
     public setPaused(val: boolean, intentId?: number) {
         if (intentId !== undefined) { this.adoptIntent(intentId); }
         this._updateStatus(!val ? this._isPlaying : false, val);
+        if (val) {
+            this._clearProbeTimer();
+            for (const [key, controller] of this._prefetchAbortControllers) {
+                controller.abort('Playback Paused');
+            }
+            this._prefetchAbortControllers.clear();
+        }
     }
 
     public get batchIntentId() { return this._stateStore.state.batchIntentId; }
@@ -289,6 +348,8 @@ export class PlaybackEngine extends EventEmitter {
         this._isPlaying = false;
         this._isPaused = false;
         this._isStalled = false;
+
+        this._clearProbeTimer();
 
         if (!silent) {
             this._updateStatus();
@@ -414,6 +475,15 @@ export class PlaybackEngine extends EventEmitter {
 
     public triggerPrefetch(text: string, cacheKey: string, options: PlaybackOptions, batchId: number) {
         if (options.mode !== 'neural') { return; }
+
+        if (!this.isNeuralViable()) {
+            return;
+        }
+
+        if (this._isPrefetchThrottled()) {
+            this.logger(`[PREFETCH] Throttled: sliding window limit reached (>=10 requests in 10s).`);
+            return;
+        }
 
         if (this._audioCache.has(cacheKey) || this._pendingTasks.has(cacheKey)) {
             return;
@@ -613,23 +683,6 @@ export class PlaybackEngine extends EventEmitter {
             resolveLock();
             this._pendingTasks.delete(cacheKey);
             this._prefetchAbortControllers.delete(cacheKey);
-            this._clearWatchdog();
-        }
-    }
-
-    private _startWatchdog(intentId: number, onTimeout: () => void) {
-        this._clearWatchdog();
-        this._watchdogTimer = setTimeout(() => {
-            if (this._stateStore.state.playbackIntentId === intentId) {
-                onTimeout();
-            }
-        }, 10000);
-    }
-
-    private _clearWatchdog() {
-        if (this._watchdogTimer) {
-            clearTimeout(this._watchdogTimer);
-            this._watchdogTimer = null;
         }
     }
 
@@ -666,6 +719,12 @@ export class PlaybackEngine extends EventEmitter {
 
             // XML character safety
             const escapedText = cleanForSpeech(text);
+
+            const SILENT_MP3_BASE64 = "//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACQgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/uQxADAAAAAAAAAAAAAAAAppbXAAA=";
+            if (!escapedText || !escapedText.trim()) {
+                this.logger(`[NEURAL] Empty speech text detected. Returning silent placeholder.`);
+                return SILENT_MP3_BASE64;
+            }
 
             // [SOVEREIGNTY] Final check before I/O
             if (this._tts && (this._tts as any)._isDestroyed) {
@@ -710,6 +769,8 @@ export class PlaybackEngine extends EventEmitter {
             const handshakeDelta = Date.now() - handshakeStartTime;
             this.logger(`[TTS REQ] text:"${escapedText.substring(0, 30)}..." | voice:${voiceId} | Intent:${intentId} | [DELTA] ${handshakeDelta}ms`);
 
+            // Push request timestamp for sliding window rate limiting
+            this._requestTimestamps.push(Date.now());
 
             return await new Promise<string>((resolve, reject) => {
                 if (signal?.aborted) {
@@ -735,25 +796,36 @@ export class PlaybackEngine extends EventEmitter {
                 const chunks: Buffer[] = [];
                 let hasErrored = false;
 
-                // START ROLLING WATCHDOG (4s until Chunk 0, 10s between chunks)
-                const startWatchdog = (timeoutMs: number) => {
-                    this._clearWatchdog();
-                    this._startWatchdog(intentId, () => {
-                        if (hasErrored) { return; }
-                        this.logger(`[TTS HANG] Silent timeout (${timeoutMs}ms) for Intent ${intentId}. Recycling...`);
-                        hasErrored = true;
-                        this._reinitTTS(true); // Force WebSocket cleanup
-                        audioStream.destroy();
-                        reject(new Error(`Synthesis Timeout (${timeoutMs}ms)`));
-                    });
+                // LOCAL WATCHDOG
+                let localWatchdogTimer: NodeJS.Timeout | null = null;
+                const clearLocalWatchdog = () => {
+                    if (localWatchdogTimer) {
+                        clearTimeout(localWatchdogTimer);
+                        localWatchdogTimer = null;
+                    }
                 };
 
-                startWatchdog(15000); // Wait 15s for first chunk (v2.8.8: Relaxed from 10s)
+                const startWatchdog = (timeoutMs: number) => {
+                    clearLocalWatchdog();
+                    localWatchdogTimer = setTimeout(() => {
+                        if (hasErrored) { return; }
+                        if (this._stateStore.state.playbackIntentId === intentId) {
+                            this.logger(`[TTS HANG] Silent timeout (${timeoutMs}ms) for Intent ${intentId}. Recycling...`);
+                            hasErrored = true;
+                            this._reinitTTS(true); // Force WebSocket cleanup
+                            audioStream.destroy();
+                            reject(new Error(`Synthesis Timeout (${timeoutMs}ms)`));
+                        }
+                    }, timeoutMs);
+                };
+
+                startWatchdog(15000); // Wait 15s for first chunk
 
                 const onAbort = () => {
                     this.logger(`[TTS STREAM] ABORT SIGNAL received.`);
                     if (hasErrored) { return; }
                     hasErrored = true;
+                    clearLocalWatchdog();
                     audioStream.destroy();
                     reject(new Error(typeof signal?.reason === 'string' ? signal.reason : "Synthesis Aborted"));
                 };
@@ -763,7 +835,7 @@ export class PlaybackEngine extends EventEmitter {
                 audioStream.on("data", (data: Buffer) => {
                     if (hasErrored) { return; }
 
-                    // Reset watchdog with a more generous 15s buffer between chunks
+                    // Reset watchdog
                     startWatchdog(15000);
 
                     if (chunks.length === 0) {
@@ -774,7 +846,7 @@ export class PlaybackEngine extends EventEmitter {
 
                 audioStream.on("end", () => {
                     if (hasErrored) { return; }
-                    this._clearWatchdog(); // Ensure watchdog is cleared
+                    clearLocalWatchdog(); // Ensure watchdog is cleared
                     signal?.removeEventListener('abort', onAbort);
                     this.logger(`[TTS STREAM] COMPLETE | chunks:${chunks.length}`);
 
@@ -789,14 +861,12 @@ export class PlaybackEngine extends EventEmitter {
 
                 audioStream.on("error", (err: any) => {
                     if (hasErrored) { return; }
-                    this._clearWatchdog();
+                    clearLocalWatchdog();
                     signal?.removeEventListener('abort', onAbort);
                     this.logger(`[TTS STREAM] ERROR: ${err}`);
                     hasErrored = true;
                     reject(err);
                 });
-
-                // Global safety timeout removed in favor of rolling watchdog
             });
         } catch (err: any) {
             const errorMessage = err?.message || String(err);
@@ -806,10 +876,30 @@ export class PlaybackEngine extends EventEmitter {
 
             // [v2.3.1] Global Health Degradation (unless explicitly aborted by user)
             if (!isAbort) {
-                this._consecutiveNeuralErrors++;
-                if (this._neuralHealth === 'HEALTHY') {
-                    this._neuralHealth = 'DEGRADED';
-                    this.logger(`[NEURAL] ⚠️ Health degraded to DEGRADED (Error: ${errorMessage.substring(0, 50)}).`);
+                const isOffline = errorMessage.includes('ENOTFOUND') || errorMessage.includes('EAI_AGAIN') || errorMessage.includes('ECONNREFUSED');
+                if (isOffline) {
+                    this._neuralHealth = 'STALLED';
+                    this._consecutiveNeuralErrors = 3;
+                    this.logger(`[NEURAL] 🚨 Offline network error detected (${errorMessage}). Fast-gate STALLED fallback active.`);
+                    for (const [key, controller] of this._prefetchAbortControllers) {
+                        controller.abort('Health Stalled (Offline)');
+                    }
+                    this._prefetchAbortControllers.clear();
+                    this._startProbeTimer();
+                } else {
+                    this._consecutiveNeuralErrors++;
+                    if (this._consecutiveNeuralErrors >= 3) {
+                        this._neuralHealth = 'STALLED';
+                        this.logger(`[NEURAL] 🚨 3 consecutive errors reached. Health STALLED. Fallback to local active.`);
+                        for (const [key, controller] of this._prefetchAbortControllers) {
+                            controller.abort('Health Stalled (Errors)');
+                        }
+                        this._prefetchAbortControllers.clear();
+                        this._startProbeTimer();
+                    } else {
+                        this._neuralHealth = 'DEGRADED';
+                        this.logger(`[NEURAL] ⚠️ Health degraded to DEGRADED (Consecutive errors: ${this._consecutiveNeuralErrors}/3).`);
+                    }
                 }
             }
 
@@ -829,6 +919,12 @@ export class PlaybackEngine extends EventEmitter {
             // --- RATE LIMIT DETECTION ---
             if (errorMessage.includes("429") || errorMessage.toLowerCase().includes("too many requests")) {
                 this.logger(`[RATE LIMIT HIT] Azure TTS has throttled our requests. Relying on exponential backoff.`);
+            }
+
+            // DO NOT RETRY IF HEALTH IS STALLED (Fail Fast fallback)
+            if (this._neuralHealth === 'STALLED') {
+                this.logger(`[NEURAL] Health is STALLED | Failing fast without retry.`);
+                return null;
             }
 
             if (retryCount > 0) {
