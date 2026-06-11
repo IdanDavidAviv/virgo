@@ -52,7 +52,13 @@ describe('AudioBridge Recovery', () => {
         } as any;
 
         const sequenceManager = new SequenceManager();
-        audioBridge = new AudioBridge(stateStore, docController, playbackEngine, sequenceManager, logger);
+        const mockSettingsManager = {
+            loadVoiceHistory: vi.fn(),
+            saveVoiceHistory: vi.fn(),
+            addRecentVoice: vi.fn(),
+            removeRecentVoice: vi.fn()
+        } as any;
+        audioBridge = new AudioBridge(stateStore, docController, playbackEngine, sequenceManager, logger, mockSettingsManager);
     });
 
     it('should emit buffering status and NOT fallback to SAPI when neural synthesis times out', async () => {

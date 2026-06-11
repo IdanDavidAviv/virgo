@@ -41,7 +41,13 @@ describe('AudioBridge', () => {
         vi.spyOn(playbackEngine, 'triggerPrefetch').mockImplementation(() => {});
 
         const sequenceManager = new SequenceManager();
-        audioBridge = new AudioBridge(stateStore, docController, playbackEngine, sequenceManager, logger);
+        const mockSettingsManager = {
+            loadVoiceHistory: vi.fn().mockImplementation((lang) => lang === 'en' ? 'NeuralVoice' : undefined),
+            saveVoiceHistory: vi.fn(),
+            addRecentVoice: vi.fn(),
+            removeRecentVoice: vi.fn()
+        } as any;
+        audioBridge = new AudioBridge(stateStore, docController, playbackEngine, sequenceManager, logger, mockSettingsManager);
     });
 
     afterEach(() => {

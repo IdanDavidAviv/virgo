@@ -70,7 +70,13 @@ describe('Neural Resilience Integration - Extension Layer', () => {
         engine = new PlaybackEngine(stateStore, logger);
         docController = new DocumentLoadController(logger);
         sequenceManager = new SequenceManager();
-        bridge = new AudioBridge(stateStore, docController, engine, sequenceManager, logger);
+        const mockSettingsManager = {
+            loadVoiceHistory: vi.fn(),
+            saveVoiceHistory: vi.fn(),
+            addRecentVoice: vi.fn(),
+            removeRecentVoice: vi.fn()
+        } as any;
+        bridge = new AudioBridge(stateStore, docController, engine, sequenceManager, logger, mockSettingsManager);
 
         const chapters = parseChapters(generateMarathonDocument(5));
         (docController as any)._chapters = chapters;

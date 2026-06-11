@@ -60,7 +60,13 @@ describe('AudioBridge — Bridge Integrity Laws', () => {
         vi.spyOn(playbackEngine, 'stop').mockImplementation(() => {});
 
         const sequenceManager = new SequenceManager();
-        audioBridge = new AudioBridge(stateStore, docController, playbackEngine, sequenceManager, logger);
+        const mockSettingsManager = {
+            loadVoiceHistory: vi.fn(),
+            saveVoiceHistory: vi.fn(),
+            addRecentVoice: vi.fn(),
+            removeRecentVoice: vi.fn()
+        } as any;
+        audioBridge = new AudioBridge(stateStore, docController, playbackEngine, sequenceManager, logger, mockSettingsManager);
     });
 
     afterEach(() => {

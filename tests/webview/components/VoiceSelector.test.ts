@@ -184,4 +184,75 @@ describe('VoiceSelector', () => {
         vi.advanceTimersByTime(100);
         expect(scrollSpy).toHaveBeenCalled();
     });
+
+    it('should support autoplay toggles and post actions on change', () => {
+        document.body.innerHTML += `
+            <input type="checkbox" id="autoplay-injection-toggle">
+            <input type="checkbox" id="autoplay-voice-toggle">
+        `;
+        const postActionSpy = vi.spyOn(MessageClient.getInstance(), 'postAction');
+        elements.autoplayToggle = document.getElementById('autoplay-injection-toggle');
+        elements.autoplayVoiceToggle = document.getElementById('autoplay-voice-toggle');
+
+        ctrl = new VoiceSelector(elements);
+        ctrl.mount();
+
+        // Checkbox states should sync from store state
+        expect(elements.autoplayToggle.checked).toBe(false);
+        expect(elements.autoplayVoiceToggle.checked).toBe(true); // default in store
+
+        // Sync fresh values via UI_SYNC
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                command: IncomingCommand.UI_SYNC,
+                autoPlayOnInjection: true,
+                autoPlayOnVoiceSelect: false
+            }
+        }));
+
+        expect(elements.autoplayToggle.checked).toBe(true);
+        expect(elements.autoplayVoiceToggle.checked).toBe(false);
+
+        // Click toggles to trigger changes
+        elements.autoplayToggle.checked = false;
+        elements.autoplayToggle.dispatchEvent(new Event('change'));
+        expect(postActionSpy).toHaveBeenCalledWith(OutgoingAction.SET_AUTOPLAY_INJECTION, { value: false });
+
+        elements.autoplayVoiceToggle.checked = true;
+        elements.autoplayVoiceToggle.dispatchEvent(new Event('change'));
+        expect(postActionSpy).toHaveBeenCalledWith(OutgoingAction.SET_AUTOPLAY_VOICE_SELECT, { value: true });
+    });
+
+    it('should group recently used voices at the top and post action on delete click', () => {
+        const postActionSpy = vi.spyOn(MessageClient.getInstance(), 'postAction');
+        ctrl = new VoiceSelector(elements);
+        ctrl.mount();
+
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                command: IncomingCommand.UI_SYNC,
+                availableVoices: {
+                    local: [
+                        { id: 'v1', name: 'Voice 1', lang: 'en-US' },
+                        { id: 'v2', name: 'Voice 2', lang: 'fr-FR' }
+                    ],
+                    neural: []
+                },
+                recentVoices: ['v2'],
+                currentSentenceIndex: 0
+            }
+        }));
+
+        const headers = elements.voiceList.querySelectorAll('.voice-group-header');
+        expect(headers.length).toBe(2);
+        expect(headers[0].textContent).toBe('Recently Used');
+        expect(headers[1].textContent).toBe('All Voices');
+
+        // Recently used should have delete button
+        const deleteBtn = elements.voiceList.querySelector('.btn-delete-recent');
+        expect(deleteBtn).not.toBeNull();
+
+        deleteBtn.click();
+        expect(postActionSpy).toHaveBeenCalledWith(OutgoingAction.REMOVE_RECENT_VOICE, { voice: 'v2' });
+    });
 });
