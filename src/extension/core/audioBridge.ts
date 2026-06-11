@@ -717,10 +717,6 @@ export class AudioBridge extends EventEmitter {
             const curC = currentState.currentChapterIndex;
             const curS = currentState.currentSentenceIndex;
 
-            // - Previous
-            const prev = this._sequenceManager.getPrevious(curC, curS, chapters);
-            if (prev) { targets.push({ cIdx: prev.chapterIndex, sIdx: prev.sentenceIndex }); }
-
             // - Next +1
             const next1 = this._sequenceManager.getNext(curC, curS, chapters);
             if (next1) {
@@ -729,6 +725,10 @@ export class AudioBridge extends EventEmitter {
                 const next2 = this._sequenceManager.getNext(next1.chapterIndex, next1.sentenceIndex, chapters);
                 if (next2) { targets.push({ cIdx: next2.chapterIndex, sIdx: next2.sentenceIndex }); }
             }
+
+            // - Previous
+            const prev = this._sequenceManager.getPrevious(curC, curS, chapters);
+            if (prev) { targets.push({ cIdx: prev.chapterIndex, sIdx: prev.sentenceIndex }); }
 
             // 2. Trigger Deduplicated Synthesis
             let count = 0;

@@ -34,7 +34,7 @@ export class PlaybackEngine extends EventEmitter {
     private _onCacheUpdate?: () => void;
     private _abortController: AbortController | null = null;
     private _batchAbortController: AbortController | null = null;
-    private _prefetchAbortController: AbortController = new AbortController();
+    private _prefetchAbortControllers: Map<string, AbortController> = new Map();
 
     private _watchdogTimer: NodeJS.Timeout | null = null;
     private _isStalled: boolean = false;
@@ -275,8 +275,10 @@ export class PlaybackEngine extends EventEmitter {
             this._activeSegmentAbortController = new AbortController();
 
             // Clear prefetch queue specifically
-            this._prefetchAbortController.abort('New Batch Intent');
-            this._prefetchAbortController = new AbortController();
+            for (const [key, controller] of this._prefetchAbortControllers) {
+                controller.abort('New Batch Intent');
+            }
+            this._prefetchAbortControllers.clear();
         }
     }
 
@@ -306,8 +308,10 @@ export class PlaybackEngine extends EventEmitter {
         if (this._batchAbortController) {
             this._batchAbortController.abort('Stop Action');
         }
-        this._prefetchAbortController.abort('Stop Action');
-        this._prefetchAbortController = new AbortController();
+        for (const [key, controller] of this._prefetchAbortControllers) {
+            controller.abort('Stop Action');
+        }
+        this._prefetchAbortControllers.clear();
     }
 
 
@@ -458,7 +462,18 @@ export class PlaybackEngine extends EventEmitter {
 
         // --- CHECK PENDING ---
         if (this._pendingTasks.has(cacheKey)) {
-            if (isPriority) { this._isPlaying = true; }
+            if (isPriority) {
+                this._isPlaying = true;
+                this._updateStatus(true, false, true);
+                
+                // Abort other prefetch tasks
+                for (const [key, controller] of this._prefetchAbortControllers) {
+                    if (key !== cacheKey) {
+                        controller.abort('Priority Task Pipe Preference');
+                        this._prefetchAbortControllers.delete(key);
+                    }
+                }
+            }
             return this._pendingTasks.get(cacheKey)!;
         }
 
@@ -479,10 +494,13 @@ export class PlaybackEngine extends EventEmitter {
 
             this._updateStatus(true, false, true);
 
-            // [SOVEREIGNTY] Interrupt waiting prefetch tasks ONLY if the pipe is full. 
-            // In v2.2.2 we allow them to coexist unless the lock is heavily contested.
-            this._prefetchAbortController.abort('Priority Task Pipe Preference');
-            this._prefetchAbortController = new AbortController();
+            // [SOVEREIGNTY] Interrupt waiting prefetch tasks for OTHER keys only.
+            for (const [key, controller] of this._prefetchAbortControllers) {
+                if (key !== cacheKey) {
+                    controller.abort('Priority Task Pipe Preference');
+                    this._prefetchAbortControllers.delete(key);
+                }
+            }
         }
 
         // [RESILIENCE] Signal starting
@@ -498,8 +516,15 @@ export class PlaybackEngine extends EventEmitter {
         task.catch(() => { });
         this._pendingTasks.set(cacheKey, task);
 
+        // Check if there is already a controller for this key. If not, create one.
+        let prefetchController = this._prefetchAbortControllers.get(cacheKey);
+        if (!prefetchController) {
+            prefetchController = new AbortController();
+            this._prefetchAbortControllers.set(cacheKey, prefetchController);
+        }
+
         // [v2.3.1] Fire-and-forget worker with captured signals
-        const segmentSignal = isPriority ? this._activeSegmentAbortController?.signal : this._prefetchAbortController.signal;
+        const segmentSignal = isPriority ? this._activeSegmentAbortController?.signal : prefetchController.signal;
         const batchSignal = this._abortController?.signal;
 
         this._runNeuralSynthesis(
@@ -587,6 +612,7 @@ export class PlaybackEngine extends EventEmitter {
             }
             resolveLock();
             this._pendingTasks.delete(cacheKey);
+            this._prefetchAbortControllers.delete(cacheKey);
             this._clearWatchdog();
         }
     }
@@ -628,7 +654,7 @@ export class PlaybackEngine extends EventEmitter {
 
         try {
             // FINAL STALE CHECK BEFORE API CALL
-            if (intentId !== this._stateStore.state.playbackIntentId) {
+            if (isPriority && intentId !== this._stateStore.state.playbackIntentId) {
                 return null;
             }
 
