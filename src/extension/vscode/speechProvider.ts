@@ -97,6 +97,11 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             // Without this, requestSync() fires with playbackAuthorized:false, and synthesis
             // arriving later hits a closed gate even when autoPlayOnInjection is true.
             this._dashboardRelay.authorizePlayback();
+
+            // Force-refresh the history list in StateStore so the webview is aware of the new snippet
+            const history = await this._getSnippetHistory(true);
+            this._stateStore.setHistory(history);
+
             this._syncManager.requestSync(true);
             if (this._stateStore.state.autoPlayOnInjection) {
                 this._logger('[EXTENSION] Playback started via autoPlayOnInjection signal');
@@ -1040,12 +1045,10 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
     private async _getSnippetHistoryByScan(): Promise<SnippetHistory> {
         const rootUri = vscode.Uri.file(this._virgoRoot);
-        this._logger(`[SNIPPET_HISTORY] Scanning root: ${this._virgoRoot}`);
         
         try {
             // 1. Get all session directories 
             const entries = await vscode.workspace.fs.readDirectory(rootUri);
-            this._logger(`[SNIPPET_HISTORY] Found ${entries.length} entries in root`);
 
             // [MP-001 T-015] EXCLUDED_DIRS: sessions/ root only contains UUID session directories.
             // System dirs (protocols, tempmediaStorage, brain) live under virgo/ root —
@@ -1132,7 +1135,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 .filter((x): x is { name: string; fsPath: string; uri: string; timestamp: number } => x !== null)
                 .sort((a, b) => b.timestamp - a.timestamp);
 
-                this._logger(`[SNIPPET_HISTORY] Session ${session.id.slice(0, 8)}: ${files.length} snippets`);
                 if (files.length > 0) {
                     result.push({
                         id: session.id,
@@ -1143,6 +1145,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 }
             }
 
+            this._logger(`[SNIPPET_HISTORY] Scan complete: Found ${result.length} sessions containing snippets`);
             return result;
         } catch (e) {
             this._logger(`[SNIPPET_HISTORY] FAILED: ${e}`);

@@ -112,11 +112,8 @@ export class SyncManager implements vscode.Disposable {
             this._syncTimer = undefined;
         }
 
-        // [Visibility Guard] If the view is hidden, buffer for the next reveal.
-        if (this._view && !this._view.visible) {
-            this._needsSync = true;
-            return;
-        }
+        // [Visibility Guard Bypassed] Allow background updates to support background playback and state parity
+        // since retainContextWhenHidden is active.
 
         // [Gate 5 v2] Suppress state-equivalent flushes using a comprehensive hash.
         // Applied in ALL states (idle + playing) to prevent load-time UI flicker.
@@ -137,6 +134,10 @@ export class SyncManager implements vscode.Disposable {
 
     private _calculateStateHash(): string {
         const s = this._stateStore.state;
+        
+        // Hash snippetHistory by session IDs and full lists of snippet URIs + timestamps
+        const historyHash = s.snippetHistory.map(h => `${h.id}:${h.snippets.map(sn => `${sn.uri}:${sn.timestamp}`).join(';')}`).join(',');
+
         // Specifically aggregate fields that impact the primary UI and synthesis lifecycle.
         // [FIX] focusedFileName + focusedVersionSalt were absent — tab switches produced identical
         // hashes and were silently absorbed, preventing the Focused File area from updating.
@@ -156,7 +157,7 @@ export class SyncManager implements vscode.Disposable {
             s.versionSalt,
             s.focusedFileName,
             s.focusedVersionSalt,
-            s.snippetHistory.length,   // [T-038] Ensure setHistory() flushes correctly
+            historyHash,               // [T-111] Fully hash history contents, not just length
             s.activeSessionId          // [T-038] Session change must re-render
         ].join('|');
     }
