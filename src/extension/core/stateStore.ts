@@ -45,6 +45,8 @@ export interface StateMetadata {
     activeMode: 'FILE' | 'SNIPPET';
     isLooping: boolean;
     autoPlayOnInjection: boolean;
+    autoPlayOnVoiceSelect: boolean;
+    recentVoices: string[];
     isSelectingVoice: boolean; // [v2.4.0] Sampling mode for voice changes
 
     // Cache Stats [ISSUE 26]
@@ -109,6 +111,8 @@ export class StateStore extends EventEmitter {
             activeMode: 'FILE',
             isLooping: false,
             autoPlayOnInjection: false,
+            autoPlayOnVoiceSelect: true,
+            recentVoices: [],
             cacheCount: 0,
             cacheSizeBytes: 0,
             snippetHistory: [],
@@ -229,6 +233,8 @@ export class StateStore extends EventEmitter {
         rate?: number,
         volume?: number,
         autoPlayOnInjection?: boolean,
+        autoPlayOnVoiceSelect?: boolean,
+        recentVoices?: string[],
         autoInjectSITREP?: boolean
     }) {
         if (options.engineMode) { this._state.engineMode = options.engineMode; }
@@ -237,6 +243,8 @@ export class StateStore extends EventEmitter {
         if (options.rate !== undefined) { this._state.rate = options.rate; }
         if (options.volume !== undefined) { this._state.volume = options.volume; }
         if (options.autoPlayOnInjection !== undefined) { this._state.autoPlayOnInjection = options.autoPlayOnInjection; }
+        if (options.autoPlayOnVoiceSelect !== undefined) { this._state.autoPlayOnVoiceSelect = options.autoPlayOnVoiceSelect; }
+        if (options.recentVoices !== undefined) { this._state.recentVoices = options.recentVoices; }
         if (options.autoInjectSITREP !== undefined) { this._state.autoInjectSITREP = options.autoInjectSITREP; }
         this.emit('change', this.state);
     }

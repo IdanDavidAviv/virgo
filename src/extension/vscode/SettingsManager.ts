@@ -53,6 +53,8 @@ export class SettingsManager {
             updatedOptions.engineMode = config.get<'local' | 'neural'>('playback.engineMode', 'neural');
             updatedOptions.autoPlayMode = config.get<'auto' | 'chapter' | 'row'>('playback.autoPlayMode', 'auto');
             updatedOptions.autoPlayOnInjection = config.get<boolean>('playback.autoPlayOnInjection', false);
+            updatedOptions.autoPlayOnVoiceSelect = config.get<boolean>('playback.autoPlayOnVoiceSelect', true);
+            updatedOptions.recentVoices = this._context.globalState.get<string[]>('virgo.recentVoices', []);
         }
 
         if (!event || event.affectsConfiguration('virgo.agent.autoInjectSITREP')) {
@@ -224,6 +226,48 @@ export class SettingsManager {
         if (migratedAny) {
             this._logger(`[MIGRATION] Legacy settings migration completed.`);
         }
+    }
+
+    public saveVoiceHistory(lang: string, voiceId: string): void {
+        const history = this._context.globalState.get<Record<string, string>>('virgo.voiceHistory', {});
+        history[lang] = voiceId;
+        
+        // Garbage Collection: Limit to max 10 languages
+        const keys = Object.keys(history);
+        if (keys.length > 10) {
+            const keyToPrune = keys.find(k => k !== lang);
+            if (keyToPrune) {
+                delete history[keyToPrune];
+            }
+        }
+        
+        this._context.globalState.update('virgo.voiceHistory', history);
+        this._logger(`[SETTINGS] Saved voice history: ${lang} -> ${voiceId}`);
+    }
+
+    public loadVoiceHistory(lang: string): string | undefined {
+        const history = this._context.globalState.get<Record<string, string>>('virgo.voiceHistory', {});
+        return history[lang];
+    }
+
+    public addRecentVoice(voiceId: string): void {
+        let recents = this._context.globalState.get<string[]>('virgo.recentVoices', []);
+        recents = recents.filter(v => v !== voiceId);
+        recents.unshift(voiceId);
+        if (recents.length > 5) {
+            recents = recents.slice(0, 5);
+        }
+        this._context.globalState.update('virgo.recentVoices', recents);
+        this._stateStore.patchState({ recentVoices: recents });
+        this._logger(`[SETTINGS] Added recent voice: ${voiceId}`);
+    }
+
+    public removeRecentVoice(voiceId: string): void {
+        let recents = this._context.globalState.get<string[]>('virgo.recentVoices', []);
+        recents = recents.filter(v => v !== voiceId);
+        this._context.globalState.update('virgo.recentVoices', recents);
+        this._stateStore.patchState({ recentVoices: recents });
+        this._logger(`[SETTINGS] Removed recent voice: ${voiceId}`);
     }
 
     public dispose(): void {

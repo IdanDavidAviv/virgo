@@ -74,6 +74,9 @@ export interface UISyncPacket {
     isHydrated?: boolean;
     playbackAuthorized?: boolean; // [COLD-BOOT GATE] True only after an explicit user play gesture.
     syncIntentId?: number;        // [T-101] Monotonic packet counter — protects sovereign fields from out-of-order delivery
+    autoPlayOnInjection?: boolean;
+    autoPlayOnVoiceSelect?: boolean;
+    recentVoices?: string[];
     // [T-102] Update Notification
     latestVersion?: string;       // Latest GitHub release tag (e.g. "2.9.5") — undefined until check completes
     updateAvailable?: boolean;    // True when latestVersion > extensionVersion
@@ -208,5 +211,7 @@ export enum OutgoingAction {
     EXECUTE_COMMAND = 'EXECUTE_COMMAND',
     SET_AUTOPLAY_INJECTION = 'SET_AUTOPLAY_INJECTION',
     OPEN_MCP_MENU = 'OPEN_MCP_MENU',
-    GET_MCP_STATUS = 'GET_MCP_STATUS'
+    GET_MCP_STATUS = 'GET_MCP_STATUS',
+    SET_AUTOPLAY_VOICE_SELECT = 'SET_AUTOPLAY_VOICE_SELECT',
+    REMOVE_RECENT_VOICE = 'REMOVE_RECENT_VOICE'
 }

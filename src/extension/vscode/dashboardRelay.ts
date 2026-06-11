@@ -173,6 +173,9 @@ export class DashboardRelay {
             // [T-102] Update notification — undefined until UpdateChecker resolves (badge stays grey meanwhile)
             latestVersion: s.latestVersion,
             updateAvailable: s.updateAvailable,
+            autoPlayOnInjection: !!s.autoPlayOnInjection,
+            autoPlayOnVoiceSelect: !!s.autoPlayOnVoiceSelect,
+            recentVoices: s.recentVoices || [],
         };
 
         this._logger(`[RELAY] 📦 Assembled Packet: active=${packet.activeFileName}, focus=${packet.focusedFileName}, chapters=${packet.allChapters.length}, sets=${packet.currentSentences.length}, hydrated=${packet.isHydrated}, intent=${packet.playbackIntentId}`);
