@@ -12,6 +12,7 @@ All notable changes to the "Virgo" extension will be documented in this file.
 ### Fixed
 - **Autoplay and Playback Focus (T-109)**: Enabled auto-revealing and focusing the webview sidebar when hidden on snippet load if initialized once, and resolved Chrome autoplay constraints.
 - **Uninitialized Sidebar Warnings (T-109)**: Added interactive warning toast notifications and MCP warning responses when snippet is loaded but the sidebar is uninitialized.
+- **Closed-Extension Autoplay Buffering (T-116)**: Implemented buffering of critical playback commands when the webview is closed/disposed and flushing them when the webview signals ready. Added stop-playback buffer purging.
 
 ## [2.9.7] - 2026-06-11
 
