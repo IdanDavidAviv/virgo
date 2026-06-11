@@ -19,6 +19,7 @@ export class SyncManager implements vscode.Disposable {
     private _lastFlushHash: string = '';
     // Tracks playback state for the critical-transition bypass — derived from StateStore.on('change') in constructor.
     private _isPlaying: boolean = false;
+    private _viewVisibilityDisposable?: vscode.Disposable;
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -49,6 +50,25 @@ export class SyncManager implements vscode.Disposable {
      */
     public setView(view: vscode.WebviewView | undefined) {
         this._view = view;
+
+        if (this._viewVisibilityDisposable) {
+            this._viewVisibilityDisposable.dispose();
+            this._viewVisibilityDisposable = undefined;
+        }
+
+        if (view) {
+            this._lastFlushHash = ''; // Reset flush hash to ensure the next sync is not suppressed
+            if (typeof view.onDidChangeVisibility === 'function') {
+                this._viewVisibilityDisposable = view.onDidChangeVisibility(() => {
+                    if (view.visible) {
+                        this._logger('[SYNC] 👁️ View became visible — resetting flush hash and requesting sync.');
+                        this._lastFlushHash = '';
+                        this.requestSync(true);
+                    }
+                });
+                this._disposables.push(this._viewVisibilityDisposable);
+            }
+        }
 
         if (view && !this._isRelayAttached) {
             this._isRelayAttached = true; // Gate opens exactly once — never resets
@@ -165,6 +185,10 @@ export class SyncManager implements vscode.Disposable {
     }
 
     public dispose() {
+        if (this._viewVisibilityDisposable) {
+            this._viewVisibilityDisposable.dispose();
+            this._viewVisibilityDisposable = undefined;
+        }
         this._disposables.forEach(d => d.dispose());
         if (this._syncTimer) {
             clearTimeout(this._syncTimer);

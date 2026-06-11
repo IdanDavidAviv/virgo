@@ -566,12 +566,6 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         webviewView.onDidChangeVisibility(() => {
             if (webviewView.visible) {
-                if (this._needsSync || this._needsHistorySync) {
-                    this._logger(`[VISIBILITY] Sidebar revealed. Triggering ${this._needsHistorySync ? 'FULL' : 'STATE'} sync...`);
-                    this.refreshView();
-                    this._needsSync = false;
-                    this._needsHistorySync = false;
-                }
                 if (this.onVisibilityChanged) {
                     this.onVisibilityChanged();
                 }
