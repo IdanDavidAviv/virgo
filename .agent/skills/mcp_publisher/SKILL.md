@@ -34,6 +34,15 @@ When the publish script is executed by an AI Agent or CI/CD runner (without a re
 - The script automatically parses this file and injects it via `NODE_AUTH_TOKEN`.
 - If no token is provided, the script falls back to interactive execution (which fails immediately in headless environments).
 
+> [!WARNING]
+> **2FA OTP CLI AUTHENTICATION FAILURE:**
+> If you publish without an `NPM_TOKEN` and the NPM registry requires a One-Time Password (OTP) or web authentication, the headless publish command will exit with error code `EOTP`.
+> **Recovery Path**: If this occurs, the user must open an interactive terminal inside the workspace root (`c:\Users\Idan4\Desktop\virgo`) and execute the publish manually:
+> ```powershell
+> npm run publish:mcp
+> ```
+> This opens the CLI authentication prompts cleanly, allowing the user to provide their OTP or authenticate via their browser.
+
 ---
 
 ## 2. Authorization Gate
