@@ -62,6 +62,55 @@ class TargetProxy {
             await browserSession.send('Target.sendMessageToTarget', { sessionId, message });
         });
     }
+
+    async click(selector: string): Promise<void> {
+        const rect: any = await this.evaluate((sel: string) => {
+            const el = document.querySelector(sel);
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }, selector);
+
+        if (!rect) {
+            throw new Error(`Element ${selector} not found for CDP click`);
+        }
+
+        const browserSession = await this.browser.newBrowserCDPSession();
+        const { sessionId } = await browserSession.send('Target.attachToTarget', { targetId: this.targetId, flatten: false });
+
+        const x = Math.round(rect.x);
+        const y = Math.round(rect.y);
+
+        // Move to trigger mouseover/mouseenter and unlock AudioContext
+        await browserSession.send('Target.sendMessageToTarget', {
+            sessionId,
+            message: JSON.stringify({
+                id: Math.floor(Math.random() * 1000000),
+                method: 'Input.dispatchMouseEvent',
+                params: { type: 'mouseMoved', x, y }
+            })
+        });
+
+        // Press mouse button
+        await browserSession.send('Target.sendMessageToTarget', {
+            sessionId,
+            message: JSON.stringify({
+                id: Math.floor(Math.random() * 1000000),
+                method: 'Input.dispatchMouseEvent',
+                params: { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }
+            })
+        });
+
+        // Release mouse button
+        await browserSession.send('Target.sendMessageToTarget', {
+            sessionId,
+            message: JSON.stringify({
+                id: Math.floor(Math.random() * 1000000),
+                method: 'Input.dispatchMouseEvent',
+                params: { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }
+            })
+        });
+    }
 }
 
 function getRawTargets(): Promise<any[]> {
@@ -495,23 +544,21 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
         await devHostWorkbench.keyboard.press('Enter');
         await new Promise(r => setTimeout(r, 1500));
 
-        // Emulate user mousedown gesture to satisfy userHasInteracted gate
-        await webviewFrame.evaluate(() => {
-            const event = new MouseEvent('mousedown', { view: window, bubbles: true, cancelable: true });
-            document.dispatchEvent(event);
-        });
+        // Click on load button to load README.md into the reader using CDP click
+        await webviewFrame.click('#btn-load-file');
 
-        // Click on play button
-        const btnPlayFound = await webviewFrame.evaluate(() => {
-            const btn = document.getElementById('btn-play');
-            if (btn) {
-                btn.click();
-                return true;
-            }
-            return false;
-        });
+        // Wait a moment for document loading and Redux state sync to complete
+        await new Promise(r => setTimeout(r, 2500));
 
-        expect(btnPlayFound).toBe(true);
+        // Verify that the active file in the store is README.md
+        const activeFileResolved = await webviewFrame.evaluate(() => {
+            const s = (window as any).__debug.store.getState();
+            return s.activeFileName;
+        });
+        expect(activeFileResolved).toBe('README.md');
+
+        // Click on play button via CDP Input emulation (triggers mouseMoved + mousePressed + mouseReleased)
+        await webviewFrame.click('#btn-play');
 
         // Wait a moment for audio element and Redux state to transition
         await new Promise(r => setTimeout(r, 1200));
@@ -521,11 +568,8 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
             return s.isPlaying;
         });
 
-        // Stop playback defensively to avoid running audio
-        await webviewFrame.evaluate(() => {
-            const btn = document.getElementById('btn-stop') || document.getElementById('btn-pause');
-            if (btn) {btn.click();}
-        });
+        // Stop playback defensively to avoid running audio using CDP click
+        await webviewFrame.click('#btn-stop');
 
         expect(isPlaying).toBe(true);
     }, 25000);
