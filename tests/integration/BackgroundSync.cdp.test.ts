@@ -217,7 +217,7 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
         const ts = Date.now();
         activeSnippetFile = path.join(resolvedSessionPath, `${ts}.cdp_test.md`);
         console.log(`[CDP Test] Resolved target snippet file path: ${activeSnippetFile}`);
-    });
+    }, 60000);
 
     afterAll(async () => {
         if (browser) {
