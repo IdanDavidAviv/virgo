@@ -211,10 +211,20 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     public updateSessionContext(root: string, sessionId: string) {
         // [MP-001 T-015] root IS sessionsRoot — do NOT re-append 'virgo'.
         // Callers now pass the pre-resolved sessions/ root directly.
+        if (this._virgoRoot === root && this._sessionId === sessionId) { return; }
+        
+        this._logger(`[SYNC] PIVOTING ROOT & SESSION: root=${root} | session=${sessionId}`);
         this._virgoRoot = root;
         this._sessionId = sessionId;
+        this._syncManager.setSessionId(sessionId);
         this._settingsManager.pivotSession(root, sessionId);
         this._mcpWatcher?.pivot(root, sessionId);
+        
+        this._ensureSessionState();
+        this.stop();
+        this.refresh();
+        
+        this._logger(`[SYNC] ROOT_SESSION_PIVOT_COMPLETE: root=${root} | session=${sessionId}`);
     }
 
     private _ensureSessionState() {

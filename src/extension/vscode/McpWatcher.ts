@@ -92,6 +92,14 @@ export class McpWatcher implements vscode.Disposable {
         this._logger(`[MCP_WATCHER] Pivoted to session ${sessionId} in ${root}`);
 
         if (rootChanged) {
+            // Recreate primary VS Code FileSystemWatcher for the new root
+            this._watcher.dispose();
+            const globalPattern = new vscode.RelativePattern(vscode.Uri.file(this._antigravityRoot), `**/*.md`);
+            this._watcher = vscode.workspace.createFileSystemWatcher(globalPattern, false, true, true);
+            this._disposables.push(this._watcher.onDidCreate(async uri => {
+                await this._handleInboundSnippet(uri);
+            }));
+            
             this._setupExternalWatcher();
         }
     }

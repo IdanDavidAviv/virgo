@@ -22,25 +22,83 @@ function log(msg: string) {
     }
 }
 
-function resolveLatestSessionId(virgoRoot: string, brainRoot?: string): string {
-    const searchDirs = [virgoRoot];
-    if (brainRoot) { searchDirs.unshift(brainRoot); } // Brain is higher priority for "New" sessions
-
-    // [T-038] VS Code internal temp dirs that must never be treated as agent sessions
-    const EXCLUDED_SESSION_DIRS = new Set(['tempmediaStorage', '.write_test']);
-
-    for (const root of searchDirs) {
-        if (!fs.existsSync(root)) { continue; }
-        try {
-            const sessions = fs.readdirSync(root)
-                .filter(f => !EXCLUDED_SESSION_DIRS.has(f) && fs.statSync(path.join(root, f)).isDirectory())
-                .map(f => ({ id: f, mtime: fs.statSync(path.join(root, f)).mtimeMs }))
-                .sort((a, b) => b.mtime - a.mtime);
+function resolveActiveSession(userProfile: string, virgoRootName: string, activeUri?: vscode.Uri): { sessionId: string; sessionsRoot: string; brainRoot: string; parentRoot: string } {
+    const defaultParent = path.join(userProfile, '.gemini', 'antigravity');
+    const ideParent = path.join(userProfile, '.gemini', 'antigravity-ide');
+    
+    let resolvedParent = defaultParent;
+    
+    // 1. Path-based resolution if a file URI is active
+    if (activeUri && activeUri.scheme === 'file') {
+        const fsPath = activeUri.fsPath.toLowerCase();
+        if (fsPath.includes('.gemini\\antigravity\\') || fsPath.includes('.gemini/antigravity/')) {
+            resolvedParent = defaultParent;
+        } else if (fsPath.includes('.gemini\\antigravity-ide\\') || fsPath.includes('.gemini/antigravity-ide/')) {
+            resolvedParent = ideParent;
+        } else {
+            // Workspace file — assume it belongs to the IDE workspace
+            resolvedParent = ideParent;
+        }
+    } else {
+        // 2. Fallback to mtime-based resolution across both directories
+        let latestTime = 0;
+        const parents = [defaultParent, ideParent];
+        const EXCLUDED_SESSION_DIRS = new Set(['tempmediaStorage', '.write_test']);
+        
+        for (const parent of parents) {
+            const brainDir = path.join(parent, 'brain');
+            const sessionsDir = path.join(parent, virgoRootName, 'sessions');
+            const searchDirs = [brainDir, sessionsDir];
             
-            if (sessions.length > 0) { return sessions[0].id; }
-        } catch (e) {}
+            for (const dir of searchDirs) {
+                if (!fs.existsSync(dir)) { continue; }
+                try {
+                    const folders = fs.readdirSync(dir)
+                        .filter(f => !EXCLUDED_SESSION_DIRS.has(f) && fs.statSync(path.join(dir, f)).isDirectory())
+                        .map(f => ({ id: f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }));
+                    
+                    for (const folder of folders) {
+                        if (folder.mtime > latestTime) {
+                            latestTime = folder.mtime;
+                            resolvedParent = parent;
+                        }
+                    }
+                } catch (e) {}
+            }
+        }
     }
-    return 'default-session';
+    
+    // 3. Resolve the latest session ID within the chosen parent directory
+    const sessionsRoot = path.join(resolvedParent, virgoRootName, 'sessions');
+    const brainRoot = path.join(resolvedParent, 'brain');
+    
+    let resolvedSessionId = 'default-session';
+    try {
+        const EXCLUDED_SESSION_DIRS = new Set(['tempmediaStorage', '.write_test']);
+        const searchDirs = [brainRoot, sessionsRoot];
+        let latestTime = 0;
+        
+        for (const dir of searchDirs) {
+            if (!fs.existsSync(dir)) { continue; }
+            const folders = fs.readdirSync(dir)
+                .filter(f => !EXCLUDED_SESSION_DIRS.has(f) && fs.statSync(path.join(dir, f)).isDirectory())
+                .map(f => ({ id: f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }));
+            
+            for (const folder of folders) {
+                if (folder.mtime > latestTime) {
+                    latestTime = folder.mtime;
+                    resolvedSessionId = folder.id;
+                }
+            }
+        }
+    } catch (e) {}
+    
+    return {
+        sessionId: resolvedSessionId,
+        sessionsRoot,
+        brainRoot,
+        parentRoot: resolvedParent
+    };
 }
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -68,9 +126,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // [Onboarding & Repair] Environment Sanity Check
     const userProfile = process.env.USERPROFILE || process.env.HOME || '';
-    const virgoRoot = path.join(userProfile, '.gemini', 'antigravity', virgoRootName);
-    // [MP-001 T-015] Canonical session root — all session data lives under sessions/<id>/
-    const sessionsRoot = path.join(virgoRoot, 'sessions');
+
+    // [T-106] Dynamic Parent Root & Session Resolution
+    const { sessionId, sessionsRoot, brainRoot } = resolveActiveSession(userProfile, virgoRootName);
     try {
         if (!fs.existsSync(sessionsRoot)) {
             fs.mkdirSync(sessionsRoot, { recursive: true });
@@ -86,7 +144,6 @@ export async function activate(context: vscode.ExtensionContext) {
         ).then(selection => {
             if (selection === 'Repair Permissions') {
                 vscode.env.openExternal(vscode.Uri.parse('https://github.com/IdanDavidAviv/virgo/wiki/Troubleshooting#permissions'));
-
             }
         });
     }
@@ -99,13 +156,6 @@ export async function activate(context: vscode.ExtensionContext) {
     mainStatusBarItem.text = '♍︎ Virgo';
     mainStatusBarItem.tooltip = 'Click for Virgo Controls';
     mainStatusBarItem.show();
-
-    // Standard path for high-integrity agent memory
-    const brainRoot = path.join(userProfile, '.gemini', 'antigravity', 'brain');
-    
-    // [MP-001 T-015] Dynamic Session Discovery — brain takes priority for new agent sessions,
-    // sessions/ is the canonical fallback for established sessions.
-    const sessionId = resolveLatestSessionId(sessionsRoot, brainRoot); 
 
     // [MP-001 T-015] SpeechProvider receives sessionsRoot so McpWatcher and _getSnippetHistory
     // both scan virgo/sessions/ — the single canonical location for user-facing session data.
@@ -440,6 +490,13 @@ export async function activate(context: vscode.ExtensionContext) {
             }
             
             log(`[SYNC_SEL] Resolved | uri=${uri?.fsPath ?? 'NONE'} | scheme=${uri?.scheme ?? 'NONE'}`);
+            
+            // [T-106] Dynamic Parent Root & Session Resolution on focus sync
+            const userProfile = process.env.USERPROFILE || process.env.HOME || '';
+            const { sessionId, sessionsRoot } = resolveActiveSession(userProfile, virgoRootName, uri);
+            if (speechProvider) {
+                speechProvider.updateSessionContext(sessionsRoot, sessionId);
+            }
             
             // Always call setActiveEditor so the Focused File slot is updated,
             // even for non-supported files.

@@ -17,6 +17,8 @@ import { StateStore } from '@core/stateStore';
 const REPO = 'IdanDavidAviv/virgo';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
+
+// eslint-disable-next-line @typescript-eslint/naming-convention
 let _cachedResult: { latestVersion: string; checkedAt: number } | null = null;
 
 /**
