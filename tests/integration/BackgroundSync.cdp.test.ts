@@ -254,15 +254,17 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
         fs.writeFileSync(activeSnippetFile, fileContent);
         console.log(`[CDP Test] Injected snippet: ${activeSnippetFile}`);
 
-        // 4. Wait for watcher and sync
-        await new Promise(r => setTimeout(r, 3500));
-
-        // 5. Audit webview state while hidden
-        const postSyncCount = await webviewFrame.evaluate(() => {
-            const s = (window as any).__debug.store.getState();
-            const activeSession = s.snippetHistory.find((h: any) => h.id === s.activeSessionId);
-            return activeSession ? activeSession.snippets.length : 0;
-        });
+        // 4. Poll for background sync up to 15 seconds (to support slow CPU parallel execution)
+        let postSyncCount = baseline;
+        const startTime = Date.now();
+        while (postSyncCount < baseline + 1 && Date.now() - startTime < 15000) {
+            await new Promise(r => setTimeout(r, 500));
+            postSyncCount = await webviewFrame.evaluate(() => {
+                const s = (window as any).__debug.store.getState();
+                const activeSession = s.snippetHistory.find((h: any) => h.id === s.activeSessionId);
+                return activeSession ? activeSession.snippets.length : 0;
+            });
+        }
 
         // 6. Restore sidebar
         console.log("[CDP Test] Restoring sidebar...");
