@@ -114,17 +114,52 @@ export class McpWatcher implements vscode.Disposable {
         const claimFile = path.join(sessionDir, '.workspace_claim');
         try {
             if (!fs.existsSync(sessionDir)) { fs.mkdirSync(sessionDir, { recursive: true }); }
-            // [NON-DESTRUCTIVE] Respect an existing foreign claim — never overwrite another window's ownership.
-            // Prevents a later-starting sibling IDE from stomping the first window's claim at construction time.
-            if (fs.existsSync(claimFile)) {
-                const existing = fs.readFileSync(claimFile, 'utf8').trim();
-                if (existing && existing !== this._myWorkspacePath) {
-                    this._logger(`[MCP_WATCHER] Session ${sessionId} already claimed by another workspace — backing off.`);
+            
+            // Read loom.json to see if we are the true owner according to agent state
+            const brainDir = path.join(this._antigravityRoot, '..', '..', 'brain');
+            const loomPath = path.join(brainDir, sessionId, 'loom.json');
+            let isTrueOwner = false;
+            if (fs.existsSync(loomPath)) {
+                try {
+                    const loom = JSON.parse(fs.readFileSync(loomPath, 'utf8'));
+                    if (loom.workspacePath) {
+                        const normLoom = loom.workspacePath.replace(/\\/g, '/').toLowerCase().trim();
+                        const normMine = this._myWorkspacePath.replace(/\\/g, '/').toLowerCase().trim();
+                        if (normLoom === normMine) {
+                            isTrueOwner = true;
+                        }
+                    }
+                } catch (e) {
+                    this._logger(`[MCP_WATCHER] Error parsing loom.json: ${e}`);
+                }
+            }
+
+            // [NON-DESTRUCTIVE] Respect an existing foreign claim — unless we are the true owner according to loom.json
+            if (fs.existsSync(claimFile) && !isTrueOwner) {
+                const existingContent = fs.readFileSync(claimFile, 'utf8').trim();
+                const parts = existingContent.split('|');
+                const existing = parts[0];
+                const existingPid = parts[1] ? parseInt(parts[1], 10) : null;
+                
+                let isAlive = true;
+                if (existingPid) {
+                    try {
+                        process.kill(existingPid, 0);
+                    } catch (err: any) {
+                        if (err.code === 'ESRCH') {
+                            isAlive = false;
+                        }
+                    }
+                }
+
+                if (existing && existing !== this._myWorkspacePath && isAlive) {
+                    this._logger(`[MCP_WATCHER] Session ${sessionId} already claimed by another active workspace ${existing} (PID: ${existingPid}) — backing off.`);
                     return;
                 }
             }
-            fs.writeFileSync(claimFile, this._myWorkspacePath);
-            this._logger(`[MCP_WATCHER] Claimed session ${sessionId} for workspace: ${this._myWorkspacePath.split(/[/\\]/).pop()}`);
+            const claimData = `${this._myWorkspacePath}|${process.pid}`;
+            fs.writeFileSync(claimFile, claimData);
+            this._logger(`[MCP_WATCHER] Claimed session ${sessionId} for workspace: ${this._myWorkspacePath.split(/[/\\]/).pop()} (PID: ${process.pid})`);
         } catch (e) {
             this._logger(`[MCP_WATCHER_ERR] Failed to write claim for ${sessionId}: ${e}`);
         }
@@ -142,6 +177,24 @@ export class McpWatcher implements vscode.Disposable {
      */
     private _isSessionOwnedByMe(sessionId: string, allowClaim = true): boolean {
         if (!this._myWorkspacePath) { return true; } // no workspace context — pass through
+        
+        // Read loom.json to see if we are the true owner according to agent state
+        const brainDir = path.join(this._antigravityRoot, '..', '..', 'brain');
+        const loomPath = path.join(brainDir, sessionId, 'loom.json');
+        let isTrueOwner = false;
+        if (fs.existsSync(loomPath)) {
+            try {
+                const loom = JSON.parse(fs.readFileSync(loomPath, 'utf8'));
+                if (loom.workspacePath) {
+                    const normLoom = loom.workspacePath.replace(/\\/g, '/').toLowerCase().trim();
+                    const normMine = this._myWorkspacePath.replace(/\\/g, '/').toLowerCase().trim();
+                    if (normLoom === normMine) {
+                        isTrueOwner = true;
+                    }
+                }
+            } catch (e) {}
+        }
+
         const claimFile = path.join(this._antigravityRoot, sessionId, '.workspace_claim');
         if (!fs.existsSync(claimFile)) {
             if (!allowClaim) {
@@ -153,8 +206,39 @@ export class McpWatcher implements vscode.Disposable {
             return true;
         }
         try {
-            const owner = fs.readFileSync(claimFile, 'utf8').trim();
-            return owner === this._myWorkspacePath;
+            const existingContent = fs.readFileSync(claimFile, 'utf8').trim();
+            const parts = existingContent.split('|');
+            const owner = parts[0];
+            const ownerPid = parts[1] ? parseInt(parts[1], 10) : null;
+
+            if (owner === this._myWorkspacePath) {
+                return true;
+            }
+
+            let isAlive = true;
+            if (ownerPid) {
+                try {
+                    process.kill(ownerPid, 0);
+                } catch (err: any) {
+                    if (err.code === 'ESRCH') {
+                        isAlive = false;
+                    }
+                }
+            }
+
+            if (!isAlive) {
+                this._logger(`[MCP_WATCHER] Overriding stale claim for session ${sessionId} (owner PID ${ownerPid} is dead).`);
+                this._writeWorkspaceClaim(sessionId);
+                return true;
+            }
+
+            if (isTrueOwner) {
+                this._logger(`[MCP_WATCHER] Overriding active foreign claim for session ${sessionId} because we are the true owner in loom.json.`);
+                this._writeWorkspaceClaim(sessionId);
+                return true;
+            }
+
+            return false;
         } catch {
             return true; // Fail open — don't block audio on transient FS errors
         }

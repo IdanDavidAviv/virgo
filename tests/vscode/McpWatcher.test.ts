@@ -125,7 +125,7 @@ describe('McpWatcher (Workspace Claim Gate)', () => {
         // writeFileSync is called during construction to claim the session
         expect(fs.writeFileSync).toHaveBeenCalledWith(
             expect.stringContaining('.workspace_claim'),
-            MY_WORKSPACE
+            expect.stringContaining(MY_WORKSPACE)
         );
     });
 
@@ -205,7 +205,7 @@ describe('McpWatcher (Workspace Claim Gate)', () => {
         // Should have written the claim
         expect(fs.writeFileSync).toHaveBeenCalledWith(
             expect.stringContaining('.workspace_claim'),
-            MY_WORKSPACE
+            expect.stringContaining(MY_WORKSPACE)
         );
         // And processed the snippet
         expect(loadedSpy).toHaveBeenCalled();
@@ -225,7 +225,7 @@ describe('McpWatcher (Workspace Claim Gate)', () => {
 
         expect(fs.writeFileSync).toHaveBeenCalledWith(
             expect.stringContaining('.workspace_claim'),
-            MY_WORKSPACE
+            expect.stringContaining(MY_WORKSPACE)
         );
     });
 
