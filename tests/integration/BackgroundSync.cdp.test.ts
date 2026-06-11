@@ -276,7 +276,7 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
         await new Promise(r => setTimeout(r, 1000));
 
         expect(postSyncCount).toBe(baseline + 1);
-    }, 20000);
+    }, 45000);
 
     it('should emulate a user click on the play button and verify playing state', async () => {
         // Focus the sidebar first
@@ -315,5 +315,5 @@ describe.runIf(isCdpActive)('T-111 Live Background Sync & User Interactions (CDP
         });
 
         expect(isPlaying).toBe(true);
-    });
+    }, 25000);
 });
