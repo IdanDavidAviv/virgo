@@ -2,6 +2,18 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.6] - 2026-06-11
+
+### Fixed
+- **SyncManager Visibility Guard Bypass (T-111)**: Bypassed the hidden visibility guard in `SyncManager.ts`'s `_flush()` to allow background synchronization since `retainContextWhenHidden` is active.
+- **Snippet History Hash Collision (T-111)**: Hardened `_calculateStateHash()` to fully map every snippet's `uri` and `timestamp` in the history array, ensuring that any snippet addition, deletion, or modification triggers a state synchronization flush.
+- **FS Scan Log Pollution (T-111)**: Pruned the O(N) loop-level logging inside `_getSnippetHistoryByScan()` in `speechProvider.ts`, replacing it with a single aggregate scan summary.
+- **CDP Integration Test Suite**: Fixed a test pollution issue in the CDP integration test suite by using dynamically generated timestamps for test snippet filenames. Resolved type compiler errors regarding top-level await and `window.__debug` global type safety.
+
+### Added
+- **Persistent CDP Integration Testing**: Added a persistent, Vitest-based Chrome DevTools Protocol integration test suite under `tests/integration/BackgroundSync.cdp.test.ts` to simulate real user interactions and verify visual and state parity.
+- **CDP Screenshot Command**: Added the `screenshot` visual audit command to `cdp-controller.mjs` and documented its usage in `cdp_dev_cycle/SKILL.md`.
+
 ## [2.9.5] - 2026-05-05
 
 ### Fixed
