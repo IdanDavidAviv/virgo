@@ -1,6 +1,6 @@
 ---
 name: session_persistence
-description: Protocol for local session metadata persistence in the Read Aloud extension.
+description: Protocol for local session metadata persistence in the Virgo extension.
 ---
 
 # Session Persistence Protocol
@@ -11,13 +11,13 @@ To ensure human-readable session titles and turn metadata are correctly resolved
 ## 2. Storage Architecture
 
 - **Antigravity Root**: `~/.gemini/antigravity/` (absolute, OS-normalized)
-- **Snippet Root**: `~/.gemini/antigravity/read_aloud/`
-- **Session Folder**: `~/.gemini/antigravity/read_aloud/<sessionId>/`
-- **State File**: `~/.gemini/antigravity/read_aloud/<sessionId>/extension_state.json`
-- **Snippet Files**: `~/.gemini/antigravity/read_aloud/<sessionId>/<timestamp>_<name>.md`
+- **Snippet Root**: `~/.gemini/antigravity/virgo/`
+- **Session Folder**: `~/.gemini/antigravity/virgo/<sessionId>/`
+- **State File**: `~/.gemini/antigravity/virgo/<sessionId>/extension_state.json`
+- **Snippet Files**: `~/.gemini/antigravity/virgo/<sessionId>/<timestamp>_<name>.md`
 
 > [!IMPORTANT]
-> The `_antigravityRoot` field in `SpeechProvider` is set to `path.join(root, 'read_aloud')` — NOT the bare `antigravity/` root.
+> The `_antigravityRoot` field in `SpeechProvider` is set to `path.join(root, 'virgo')` — NOT the bare `antigravity/` root.
 > `_getSnippetHistory()` scans `_antigravityRoot` directly. Session directories are immediate children of this path.
 
 ## 3. Metadata Schema (`extension_state.json`)
@@ -40,7 +40,7 @@ In `speechProvider.ts`, use `_getSnippetHistory()` to resolve the `displayName`:
 In `mcpStandalone.ts` or `mcpBridge.ts`, the `say_this_loud` tool must accept an optional `session_title`:
 1. Update `extension_state.json` with the new title if provided.
 2. Increment `current_turn_index` atomically.
-3. **Guard**: Adhere strictly to the verbatim parity rules defined in [read_aloud_injection_guard](../read_aloud_injection_guard/SKILL.md).
+3. **Guard**: Adhere strictly to the verbatim parity rules defined in [virgo_injection_guard](../virgo_injection_guard/SKILL.md).
 
 ## 5. Maintenance
 - **Update Location**: Metadata updates MUST target `extension_state.json`.
@@ -51,7 +51,7 @@ In `mcpStandalone.ts` or `mcpBridge.ts`, the `say_this_loud` tool must accept an
 ## 6. Snippet Scanner Exclusion List
 
 > [!NOTE]
-> Observed: 2026-04-10. `_getSnippetHistory()` iterates ALL directories in `antigravityRoot` (`read_aloud/`).
+> Observed: 2026-04-10. `_getSnippetHistory()` iterates ALL directories in `antigravityRoot` (`virgo/`).
 > System-only directories are NOT user sessions and produce empty results but waste I/O and clutter
 > session discovery. They MUST be excluded from the scan.
 
@@ -88,18 +88,18 @@ These are filtered automatically by the `type !== FileType.Directory` check:
 | Path | Purpose | Scanner Reads It? |
 |---|---|---|
 | `brain/<sessionId>/` | Agent artifacts (`task.md`, `implementation_plan.md`, media, scratch) | ❌ NOT scanned by `_getSnippetHistory()` |
-| `read_aloud/<sessionId>/` | User-playable snippet `.md` files injected via MCP `say_this_loud` | ✅ YES — this is where `_getSnippetHistory()` reads from |
+| `virgo/<sessionId>/` | User-playable snippet `.md` files injected via MCP `say_this_loud` | ✅ YES — this is where `_getSnippetHistory()` reads from |
 
 ### Implication for MCP Injection
 
-When `say_this_loud` is called by the AI agent (via `mcp_read-aloud_say_this_loud`):
-- The `.md` file MUST be written to `read_aloud/<sessionId>/<timestamp>_<snippet_name>.md`
+When `say_this_loud` is called by the AI agent (via `mcp_virgo_say_this_loud`):
+- The `.md` file MUST be written to `virgo/<sessionId>/<timestamp>_<snippet_name>.md`
 - If instead it is written to `brain/<sessionId>/`, it will NEVER appear in the Snippet Discovery UI
 
 ### Symptom: Empty Snippet Discovery
 
 If the Snippet tab shows "No injected snippets found" for the **current session**, the most likely cause is:
-1. The MCP injection tool wrote the file to `brain/<sessionId>/` instead of `read_aloud/<sessionId>/`
-2. The session directory exists in `read_aloud/` but contains only `extension_state.json` (no `.md` files)
+1. The MCP injection tool wrote the file to `brain/<sessionId>/` instead of `virgo/<sessionId>/`
+2. The session directory exists in `virgo/` but contains only `extension_state.json` (no `.md` files)
 
-**Remedy:** Verify that `say_this_loud` writes to the correct `read_aloud/` path before troubleshooting the scanner.
+**Remedy:** Verify that `say_this_loud` writes to the correct `virgo/` path before troubleshooting the scanner.

@@ -1,9 +1,9 @@
 ---
-name: read_aloud_injection_guard
-description: Protocol for high-integrity conversational AI injections and sensory parity in the Read Aloud extension.
+name: virgo_injection_guard
+description: Protocol for high-integrity conversational AI injections and sensory parity in the Virgo extension.
 ---
 
-# Read Aloud Injection Guard
+# Virgo Injection Guard
 
 > [!IMPORTANT]
 > **Current State (v2.5.10)**: The MCP server has ONE core function — `say_this_loud`. It runs as a **stdio standalone process** (`dist/mcp-standalone.js`) — not an HTTP service. The auto-SITREP loop, `autoInjectSITREP` flag, and protocol-reading boot sequence were aspirational and are **not reliably triggered**. Do NOT assume these work automatically. The agent must call `say_this_loud` explicitly when it wants to surface content in the sidebar.
@@ -12,7 +12,7 @@ description: Protocol for high-integrity conversational AI injections and sensor
 
 ## 1. What The MCP Actually Does (SSOT)
 
-The Read Aloud MCP server is a **stdio standalone process** (`dist/mcp-standalone.js`) — not an HTTP service. It runs outside VS Code and communicates with the extension via file-based polling (McpWatcher). Its sole production mission:
+The Virgo MCP server is a **stdio standalone process** (`dist/mcp-standalone.js`) — not an HTTP service. It runs outside VS Code and communicates with the extension via file-based polling (McpWatcher). Its sole production mission:
 
 ```
 Agent calls say_this_loud (via stdio → mcp-standalone.js)
@@ -48,7 +48,7 @@ Agent calls say_this_loud (via stdio → mcp-standalone.js)
 - `content` + `snippet_name` + `sessionId` are **required**
 - `session_title` and `turnIndex` are optional (omit if uncertain)
 - Do NOT pass a stale `turnIndex` lower than the current one — it will be rejected. Omit it to auto-increment safely.
-- The tool writes to `~/.gemini/antigravity/read_aloud/sessions/<sessionId>/`
+- The tool writes to `~/.gemini/antigravity/virgo/sessions/<sessionId>/`
 - File name format: `<timestamp>_<safe_name>.md`
 - The injected markdown snippet remains unmodified.
 
@@ -83,11 +83,11 @@ Fire `say_this_loud` **only** on these 5 triggers — **NOT every turn**:
 
 The agent must supply the correct `sessionId`. The canonical session ID is:
 - The active brain session UUID (from the conversation context / `loom.json`)
-- Readable from the `read_aloud://session/{sessionId}/state` resource (if SSE is connected)
-- Or from the most recently modified directory under `~/.gemini/antigravity/read_aloud/sessions/`
+- Readable from the `virgo://session/{sessionId}/state` resource (if SSE is connected)
+- Or from the most recently modified directory under `~/.gemini/antigravity/virgo/sessions/`
 
 > [!WARNING]
-> The `protocols/` directory (`read_aloud://protocols/...`) is served by the MCP resource layer but **the `protocols` resource is scheduled for removal** (see MCP audit). Do not depend on it as a boot mechanism.
+> The `protocols/` directory (`virgo://protocols/...`) is served by the MCP resource layer but **the `protocols` resource is scheduled for removal** (see MCP audit). Do not depend on it as a boot mechanism.
 
 ---
 
@@ -140,9 +140,9 @@ One short paragraph (2–4 sentences max) explaining the mechanism in plain lang
 
 ## 5. The "Protocols" Directory — Context
 
-The `~/.gemini/antigravity/read_aloud/protocols/` directory contains `.md` files that were intended to be read by the agent on boot via the `read_aloud://protocols/` MCP resource, enforcing automatic SITREP injection every turn.
+The `~/.gemini/antigravity/virgo/protocols/` directory contains `.md` files that were intended to be read by the agent on boot via the `virgo://protocols/` MCP resource, enforcing automatic SITREP injection every turn.
 
-**Current status**: The auto-boot mechanism (via the `read_aloud_boot` MCP prompt + `boot.md` protocol) **does not fire reliably** because MCP prompts are not auto-executed by Gemini on connection. The vision is sound — the execution layer is still maturing.
+**Current status**: The auto-boot mechanism (via the `virgo_boot` MCP prompt + `boot.md` protocol) **does not fire reliably** because MCP prompts are not auto-executed by Gemini on connection. The vision is sound — the execution layer is still maturing.
 
 **What the protocols say (for reference):**
 | File | Intent |
@@ -205,4 +205,4 @@ DashboardRelay.sync()  →  UI_SYNC packet  →  Webview sidebar updates
 | `injected-snippets` | Resource | ✅ Active | Read back injected `.md` files |
 | `session-state` | Resource | ⚠️ Stale | Returns `extension_state.json` — scheduled for removal |
 | `protocols` | Resource | ⚠️ Deprecated | Returns protocol `.md` files — scheduled for removal |
-| `read_aloud_boot` | Prompt | ❌ Unreliable | Not auto-triggered; noop in practice |
+| `virgo_boot` | Prompt | ❌ Unreliable | Not auto-triggered; noop in practice |

@@ -362,7 +362,7 @@ async function shellDispatch(browser, command, payload = {}, env = null, retries
     await new Promise(r => setTimeout(r, 1000));
   }
   
-  if (!frame) { throw new Error('READ_ALOUD_WEBVIEW_NOT_FOUND'); }
+  if (!frame) { throw new Error('VIRGO_WEBVIEW_NOT_FOUND'); }
   return await frame.evaluate(async ({ cmd, data }) => {
     if (!window.__debug?.dispatcher?.dispatch) { throw new Error('DISPATCHER_NOT_READY'); }
     return await window.__debug.dispatcher.dispatch(cmd, data);
@@ -755,6 +755,24 @@ async function runShell() {
         } else {
           console.error('[CDP] ❌ Main Editor not found — cannot relaunch. Run `launch` manually.');
         }
+        break;
+      }
+      case 'type': {
+        const b = await getbrowser();
+        const host = await findSovereignTarget(b, 'host');
+        if (!host) { console.error('[CDP] ❌ Dev Host not found for typing.'); break; }
+        await host.bringToFront();
+        await host.keyboard.type(arg, { delay: 20 });
+        console.log(`[CDP] Typed: "${arg}"`);
+        break;
+      }
+      case 'press': {
+        const b = await getbrowser();
+        const host = await findSovereignTarget(b, 'host');
+        if (!host) { console.error('[CDP] ❌ Dev Host not found for key press.'); break; }
+        await host.bringToFront();
+        await host.keyboard.press(arg);
+        console.log(`[CDP] Pressed key: "${arg}"`);
         break;
       }
       case 'screenshot': {

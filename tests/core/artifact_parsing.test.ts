@@ -13,9 +13,10 @@ describe('DocumentParser: Artifact Parsing Cache', () => {
         const md = '## Table Test\n\n| H1 | H2 |\n|---|---|\n| R1C1 | R1C2 |\n| R2C1 | R2C2 |';
         const chapters = parseChapters(md);
         
-        // rows: head (1) + body (2) = 3 rows
+        // rows: body (2) = 2 rows
         // cols: 2 columns
-        expect(chapters[0].sentences).toContain('[Table with 3 rows and 2 columns omitted].');
+        expect(chapters).toHaveLength(2);
+        expect(chapters[1].sentences[0]).toContain('[Table with 2 rows and 2 columns omitted].');
     });
 
     it('should handle code blocks without language', () => {
@@ -29,11 +30,14 @@ describe('DocumentParser: Artifact Parsing Cache', () => {
         const md = '## Table Test\n\n| H1 | H2 |\n|---|---|\n| R1C1 | R1C2 |';
         const chapters = parseChapters(md);
         
-        // Should NOT contain the table cell text as separate sentences
+        // Should NOT contain the raw cell texts
         expect(chapters[0].sentences).not.toContain('H1');
         expect(chapters[0].sentences).not.toContain('R1C1');
-        // sentences: [Table Test., [Table with 2 rows and 2 columns omitted].]
-        expect(chapters[0].sentences.length).toBe(2); 
-        expect(chapters[0].sentences[1]).toContain('Table with 2 rows and 2 columns omitted');
+        
+        expect(chapters).toHaveLength(2);
+        expect(chapters[1].sentences).not.toContain('H1');
+        expect(chapters[1].sentences).not.toContain('R1C1');
+        expect(chapters[1].sentences.length).toBe(2); 
+        expect(chapters[1].sentences[0]).toContain('Table with 1 rows and 2 columns omitted');
     });
 });

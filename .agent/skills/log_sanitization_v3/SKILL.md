@@ -6,7 +6,7 @@ description: Protocol for high-density, symmetrical shorthand logging in VS Code
 # Log Sanitization Protocol (Tier-3)
 
 ## 0. Rationale: Diagnostic vs. Verbatim
-Recursive JSON serialization of large state objects during debugging leads to terminal cropping and cognitive noise. This protocol solves this for **internal code logs**. However, it MUST NOT apply to user-facing content (conversational text), which is protected by the `read_aloud_injection_guard` verbatim protocol.
+Recursive JSON serialization of large state objects during debugging leads to terminal cropping and cognitive noise. This protocol solves this for **internal code logs**. However, it MUST NOT apply to user-facing content (conversational text), which is protected by the `virgo_injection_guard` verbatim protocol.
 
 ## 1. Governance Rules
 
@@ -30,7 +30,7 @@ The `sanitizer` logic MUST be mirrored in both the Extension (Backend) and Webvi
 ### 1.5 High-Fidelity Exception (Critical Parity)
 Any payload marked as `content`, `snippet`, or `markdown` used for user-facing auditory injections is EXEMPT from all summarization rules.
 - **Audit Rule**: Terminal logs representing conversational text MUST remain verbatim to ensure the auditory audit trail matches the UI 1:1.
-- **Scope**: This skill ONLY applies to diagnostic code logs (`console`, `logger`). It does not apply to the `read_aloud_injection_guard`.
+- **Scope**: This skill ONLY applies to diagnostic code logs (`console`, `logger`). It does not apply to the `virgo_injection_guard`.
 
 ## 2. Noise Suppression
 High-frequency "heartbeat" or "sync" messages MUST be suppressed from the main output channel.

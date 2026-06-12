@@ -1,12 +1,12 @@
 ---
 name: system_context
-description: Architectural map and development guidelines for the Read Aloud extension. Mandatory reference for all agent modifications.
+description: Architectural map and development guidelines for the Virgo extension. Mandatory reference for all agent modifications.
 ---
 
 # System Context & Architecture Protocol
 
 > [!IMPORTANT]
-> This skill is the **Source of Truth (SSOT)** for the Read Aloud extension's internal systems.
+> This skill is the **Source of Truth (SSOT)** for the Virgo extension's internal systems.
 > **AGENT MANDATE**: If you modify, refactor, or introduce a new system that contradicts or extends the content below, you MUST update this skill in the same turn.
 
 ## 0. Skill Coherence Mandate
@@ -25,7 +25,7 @@ description: Architectural map and development guidelines for the Read Aloud ext
 | [`autoplay_orchestration`](../autoplay_orchestration/SKILL.md) | Playback pipeline, pre-fetch, neural laws, intent baton | 2026-04-09 |
 | [`state_coherence_v4`](../state_coherence_v4/SKILL.md) | State sovereignty, 1-based consensus, split-brain detection | 2026-04-11 (v2.4.2) |
 | [`state_auditor`](../state_auditor/SKILL.md) | Multi-layer state conflict detection and audit methodology | 2026-04-09 |
-| [`read_aloud_injection_guard`](../read_aloud_injection_guard/SKILL.md) | MCP injection, dedup guards, sensory parity, verbatim rules | 2026-04-09 |
+| [`virgo_injection_guard`](../virgo_injection_guard/SKILL.md) | MCP injection, dedup guards, sensory parity, verbatim rules | 2026-04-09 |
 | [`session_persistence`](../session_persistence/SKILL.md) | `extension_state.json`, turn indexing, session metadata, snippet paths | 2026-04-10 |
 | [`lifecycle_guard`](../lifecycle_guard/SKILL.md) | Memory leaks, event listener cleanup, webview disposal | 2026-04-09 |
 | [`log_sanitization_v3`](../log_sanitization_v3/SKILL.md) | Log density, shorthand formats, symmetrical prefixes | 2026-04-09 |
@@ -131,13 +131,13 @@ The extension uses a `FileSystemWatcher` on `~/.gemini/antigravity/brain`. When 
 ### 2.6 Snippet Data Sovereignty (Updated: MP-001 / v2.5.3)
 
 > [!IMPORTANT]
-> **MP-001 Canonical Path Change**: All session data now lives under `read_aloud/sessions/<sessionId>/`. The legacy flat `read_aloud/<sessionId>/` layout is decommissioned.
+> **MP-001 Canonical Path Change**: All session data now lives under `virgo/sessions/<sessionId>/`. The legacy flat `virgo/<sessionId>/` layout is decommissioned.
 
-- **Canonical Root**: `~/.gemini/antigravity/read_aloud/` is the extension's data root.
-- **Session Data** (per-session, under `read_aloud/sessions/<sessionId>/`):
+- **Canonical Root**: `~/.gemini/antigravity/virgo/` is the extension's data root.
+- **Session Data** (per-session, under `virgo/sessions/<sessionId>/`):
     - Injected snippets (`.md` files)
     - `extension_state.json` (turn index + session title)
-- **Shared Non-Session Data** (under `read_aloud/` root, not session-scoped):
+- **Shared Non-Session Data** (under `virgo/` root, not session-scoped):
     - `active_servers.json` — MCP bridge global registry
     - `protocols/` — aspirational boot protocol files (see injection guard skill)
     - `tempmediaStorage/` — ephemeral audio scratch space
@@ -381,7 +381,7 @@ Key methods available via `window.__debug.audioEngine`:
 | **v2.5.0 RC-2**: Prefetch at rate 1.40 collides with play at rate 1.00 key space | ✅ **Resolved (v2.5.2)** — Prefetch rate fence + text-payload decoupling in `REQUEST_SYNTHESIS` |
 | **v2.5.0 RC-3**: `canplay` fires 3× per sentence → 3× `Sovereign Event: PLAYING` signals | ✅ **Resolved (v2.5.2)** — `{ once: true }` enforced in `WebviewAudioEngine` |
 | **v2.5.0 UM-1**: Load-file triggers autoplay without user intent gate | ✅ **Resolved (v2.5.2)** — `_isUserInitiatedPlay` gate active in `audioBridge` |
-| **MP-001**: MCP injections wrote to `brain/<id>/`, sidebar scanned `sessions/<id>/` — snippets disappeared | ✅ **Resolved (v2.5.3)** — Unified canonical root: `read_aloud/sessions/<id>/` |
+| **MP-001**: MCP injections wrote to `brain/<id>/`, sidebar scanned `sessions/<id>/` — snippets disappeared | ✅ **Resolved (v2.5.3)** — Unified canonical root: `virgo/sessions/<id>/` |
 | **Focused File frozen on tab switch** | ✅ **Resolved (v2.5.3)** — `focusedFileName` + `focusedVersionSalt` added to `SyncManager` hash |
 
 ## 7. Architectural Sovereignty Protocol (SSOA)
@@ -446,10 +446,10 @@ To ensure playback reliability despite the inherent instability of internet-base
 4. **Health Guard**: On error, update health state. If health hits `DEGRADED`, signal the Bridge to pivot.
 
 ### 9.5 Sidebar Discovery Protocol (Lazy-Loading)
-- **Invariant**: The Read Aloud sidebar webview is **lazy-loaded**.
+- **Invariant**: The Virgo sidebar webview is **lazy-loaded**.
 - **Protocol**: CDP automation MUST NOT assume the webview frame exists on launch.
-- **Action**: Use `show read-aloud` (dispatches `readme-preview-read-aloud.show-dashboard`) to ensure the panel is active before performing `eval` or state audits.
-- **Discovery**: Use `find read-aloud` to locate the `fake.html` frame within the `vscode-webview://` sandbox.
+- **Action**: Use `show virgo` (dispatches `virgo.show-dashboard`) to ensure the panel is active before performing `eval` or state audits.
+- **Discovery**: Use `find virgo` to locate the `fake.html` frame within the `vscode-webview://` sandbox.
 
 ### 9.6 CDP Automation Invariants (Shell Sovereignty)
 - **Locking**: The `cdp-controller.mjs` uses `.cdp_shell.lock` (in project root). ONLY ONE instance can be active.
