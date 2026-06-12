@@ -10,6 +10,7 @@ All notable changes to the "Virgo" extension will be documented in this file.
 - **Active Row Highlighting**: The currently playing table row is highlighted dynamically in the expanded table view.
 
 ### Fixed
+- **Bilingual Prefetch Voice Resolution**: Dynamically resolves target voice and language for prefetch targets, preventing Edge-TTS socket stalls and playback hangs during Hebrew-English transitions.
 - **Speech Comment Sanitization**: Strips internal table syntax comments first during sanitization to prevent them from being spoken.
 - **Playback Jump Sync**: Resolved state clashing on playback jumps by ignoring programmatic pause events.
 - **Immediate State Synchronization**: Fixed state change listener order in `SyncManager.ts` to restore instant UI updates on playing/paused transitions.

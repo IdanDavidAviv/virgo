@@ -258,24 +258,10 @@ export class AudioBridge extends EventEmitter {
 
         let targetVoice = activeOptions.voice;
         if (finalMode === 'neural') {
-            const cleanStr = sentence.replace(/[\s\d\p{P}]/gu, '');
-            const totalChars = cleanStr.length;
-            
-            // Hysteresis: Only switch if the sentence has a meaningful length (>= 8 clean characters),
-            // otherwise keep the current active voice's language to prevent rapid voice pivots on short phrases.
-            let sentenceLang = activeOptions.voice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
-            if (totalChars >= 8) {
-                const hebrewMatches = cleanStr.match(/[\u0590-\u05FF]/g);
-                const hebrewChars = hebrewMatches ? hebrewMatches.length : 0;
-                const isHebrew = (hebrewChars / totalChars) > 0.5;
-                sentenceLang = isHebrew ? 'he' : 'en';
-            }
-
-            const savedVoice = this._settingsManager.loadVoiceHistory(sentenceLang);
-            const defaultVoice = sentenceLang === 'he' ? 'he-IL-AvriNeural' : 'en-US-SteffanNeural';
-            targetVoice = savedVoice || defaultVoice;
+            targetVoice = this._resolveVoiceForSentence(sentence, activeOptions.voice);
 
             if (activeOptions.voice !== targetVoice) {
+                const sentenceLang = targetVoice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
                 this._logger(`[BRIDGE] Sentence-level auto-switch voice: ${activeOptions.voice} -> ${targetVoice} for language: ${sentenceLang}`);
                 activeOptions.voice = targetVoice;
                 this._stateStore.setOptions({ selectedVoice: targetVoice });
@@ -753,9 +739,16 @@ export class AudioBridge extends EventEmitter {
             for (const target of targets) {
                 const text = chapters[target.cIdx].sentences[target.sIdx];
                 const isNeural = options.mode === 'neural';
+                const targetVoice = this._resolveVoiceForSentence(text, options.voice);
+                
+                const targetOptions = {
+                    ...options,
+                    voice: targetVoice
+                };
+
                 const key = generateCacheKey(
                     text,
-                    options.voice,
+                    targetVoice,
                     options.rate,
                     this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
                     isNeural
@@ -763,12 +756,29 @@ export class AudioBridge extends EventEmitter {
 
                 // Skip prefetch if already in either cache
                 if (!this._playbackEngine.getCached(key) && !this._webviewCacheManifest.has(key)) {
-                    this._playbackEngine.triggerPrefetch(text, key, options, this._playbackEngine.batchIntentId);
+                    this._playbackEngine.triggerPrefetch(text, key, targetOptions, this._playbackEngine.batchIntentId);
                     count++;
                 }
             }
             this._logger(`[BRIDGE] Symmetrical Window Sync: ${count} segments warmed (-1/+2 window).`);
         }, delay);
+    }
+
+    private _resolveVoiceForSentence(sentence: string, currentVoice: string): string {
+        const cleanStr = sentence.replace(/[\s\d\p{P}]/gu, '');
+        const totalChars = cleanStr.length;
+        
+        let sentenceLang = currentVoice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
+        if (totalChars >= 8) {
+            const hebrewMatches = cleanStr.match(/[\u0590-\u05FF]/g);
+            const hebrewChars = hebrewMatches ? hebrewMatches.length : 0;
+            const isHebrew = (hebrewChars / totalChars) > 0.5;
+            sentenceLang = isHebrew ? 'he' : 'en';
+        }
+
+        const savedVoice = this._settingsManager.loadVoiceHistory(sentenceLang);
+        const defaultVoice = sentenceLang === 'he' ? 'he-IL-AvriNeural' : 'en-US-SteffanNeural';
+        return savedVoice || defaultVoice;
     }
     /**
      * [SOVEREIGNTY] Updates the extension's view of the webview's persistent cache.
