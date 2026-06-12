@@ -148,12 +148,28 @@ export class DashboardRelay {
 
             // Data Windows
             currentSentences: currentChapter ? currentChapter.sentences : [],
-            allChapters: chapters.map((c, i) => ({
-                title: c.title || `Chapter ${i+1}`,
-                level: c.level ?? 0,
-                index: i,
-                count: c.sentences ? c.sentences.length : 0
-            })),
+            allChapters: chapters.map((c, i) => {
+                const chapterTables: any[] = [];
+                if (c.sentences) {
+                    c.sentences.forEach(s => {
+                        if (s.includes('<!--VIRGO_TABLE:')) {
+                            const match = s.match(/<!--VIRGO_TABLE:(.*?)-->/);
+                            if (match) {
+                                try {
+                                    chapterTables.push(JSON.parse(match[1]));
+                                } catch {}
+                            }
+                        }
+                    });
+                }
+                return {
+                    title: c.title || `Chapter ${i+1}`,
+                    level: c.level ?? 0,
+                    index: i,
+                    count: c.sentences ? c.sentences.length : 0,
+                    tables: chapterTables
+                };
+            }),
             
             // Integrity & Cache
             cacheCount: cacheStats.count ?? 0,
@@ -176,6 +192,7 @@ export class DashboardRelay {
             autoPlayOnInjection: !!s.autoPlayOnInjection,
             autoPlayOnVoiceSelect: !!s.autoPlayOnVoiceSelect,
             recentVoices: s.recentVoices || [],
+            expandedTables: s.expandedTables || [],
         };
 
         this._logger(`[RELAY] 📦 Assembled Packet: active=${packet.activeFileName}, focus=${packet.focusedFileName}, chapters=${packet.allChapters.length}, sets=${packet.currentSentences.length}, hydrated=${packet.isHydrated}, intent=${packet.playbackIntentId}`);

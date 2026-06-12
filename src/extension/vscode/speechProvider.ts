@@ -943,7 +943,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 await this.prevSentence(payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.JUMP_TO_SENTENCE:
-                await this.jumpToSentence(payload.index, payload.intentId, payload.batchId);
+                await this.jumpToSentence(payload.index, payload.chapterIndex, payload.intentId, payload.batchId);
                 break;
             case OutgoingAction.FETCH_AUDIO:
                 const audioData = this._playbackEngine.getAudioFromCache(payload.cacheKey);
@@ -1099,6 +1099,21 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 
             case OutgoingAction.GET_MCP_STATUS:
                 this.refreshMcpStatus();
+                break;
+                
+            case OutgoingAction.TOGGLE_TABLE_EXPANSION:
+                if (payload.tableId) {
+                    const expanded = this._stateStore.state.expandedTables || [];
+                    let nextExpanded: string[];
+                    if (expanded.includes(payload.tableId)) {
+                        nextExpanded = expanded.filter(id => id !== payload.tableId);
+                        this._logger(`[TABLE] Collapsed: ${payload.tableId}`);
+                    } else {
+                        nextExpanded = [...expanded, payload.tableId];
+                        this._logger(`[TABLE] Expanded: ${payload.tableId}`);
+                    }
+                    this._stateStore.patchState({ expandedTables: nextExpanded });
+                }
                 break;
         }
     }
@@ -1595,10 +1610,23 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this.jumpToSentence(0);
     }
 
-    public async jumpToSentence(index: number, intentId?: number, batchId?: number) {
+    public async jumpToSentence(index: number, chapterIndex?: number, intentId?: number, batchId?: number) {
         this._stateStore.setPreviewing(false); // Navigation often implies intent to play from there
         this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
-        await this._audioBridge.start(this._stateStore.state.currentChapterIndex, index, this._getOptions(), false, intentId, batchId);
+        
+        const isAutoplay = this._stateStore.state.autoPlayMode === 'auto';
+        const wasPlaying = this._playbackEngine.isPlaying && !this._playbackEngine.isPaused;
+        const shouldPlay = isAutoplay || wasPlaying;
+        if (shouldPlay) {
+            this._audioBridge.authorizePlayback();
+        }
+
+        const targetChapterIndex = typeof chapterIndex === 'number' ? chapterIndex : this._stateStore.state.currentChapterIndex;
+        this._stateStore.patchState({
+            currentChapterIndex: targetChapterIndex,
+            currentSentenceIndex: index
+        });
+        await this._audioBridge.start(targetChapterIndex, index, this._getOptions(), !shouldPlay, intentId, batchId);
     }
 
     public async jumpToChapter(index: number, intentId?: number, batchId?: number) {
@@ -1606,11 +1634,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         if (index < 0 || index >= chapters.length) { return; }
         this._stateStore.setPreviewing(false);
         this._dashboardRelay.authorizePlayback(); // [COLD-BOOT GATE] User gesture — unlock relay
-        // [FIX-6] State-preserving navigation: if the engine is currently stopped/paused,
-        // pass previewOnly=true so audioBridge.start() synthesizes audio but does NOT
-        // force isPlaying=true. This mirrors the webview-side FIX-1 (jumpToChapter preservation).
+
+        const isAutoplay = this._stateStore.state.autoPlayMode === 'auto';
         const wasPlaying = this._playbackEngine.isPlaying && !this._playbackEngine.isPaused;
-        await this._audioBridge.start(index, 0, this._getOptions(), !wasPlaying, intentId, batchId);
+        const shouldPlay = isAutoplay || wasPlaying;
+        if (shouldPlay) {
+            this._audioBridge.authorizePlayback();
+        }
+
+        await this._audioBridge.start(index, 0, this._getOptions(), !shouldPlay, intentId, batchId);
     }
 
     public async nextChapter(intentId?: number, batchId?: number) {

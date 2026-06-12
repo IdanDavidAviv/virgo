@@ -32,8 +32,8 @@ export class SyncManager implements vscode.Disposable {
         // called manually from speechProvider, but Phase 1.2 removed those call sites without
         // rewiring this tracker — leaving the critical bypass permanently dead.
         this._stateStore.on('change', (state) => {
-            this._isPlaying = state.isPlaying;
             this.requestSync();
+            this._isPlaying = state.isPlaying;
         });
     }
 
@@ -183,7 +183,8 @@ export class SyncManager implements vscode.Disposable {
             (s.mcpActiveAgents || []).join(','), // [BUGFIX] Sync MCP active agents changes
             s.autoPlayOnVoiceSelect,
             s.autoPlayOnInjection,
-            (s.recentVoices || []).join(',')
+            (s.recentVoices || []).join(','),
+            (s.expandedTables || []).join(',')
         ].join('|');
     }
 

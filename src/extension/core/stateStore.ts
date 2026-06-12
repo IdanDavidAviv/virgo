@@ -71,6 +71,7 @@ export interface StateMetadata {
     // [T-102] Update Notification
     latestVersion?: string;    // Latest GitHub release version (e.g. "2.9.5") — undefined until check completes
     updateAvailable?: boolean; // True when a newer version exists on GitHub
+    expandedTables?: string[];
 }
 
 export class StateStore extends EventEmitter {
@@ -124,7 +125,8 @@ export class StateStore extends EventEmitter {
             isSelectingVoice: false,
             playbackAuthorized: false,
             mcpStatus: 'unconfigured',
-            mcpActiveAgents: []
+            mcpActiveAgents: [],
+            expandedTables: []
         };
     }
 

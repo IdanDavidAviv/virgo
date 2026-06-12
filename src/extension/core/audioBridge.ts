@@ -540,7 +540,8 @@ export class AudioBridge extends EventEmitter {
         }
 
         // 2. Calculate Next Position
-        const nextPos = this._sequenceManager.getNext(state.currentChapterIndex, state.currentSentenceIndex, chapters);
+        const expandedSet = new Set(state.expandedTables || []);
+        const nextPos = this._sequenceManager.getNext(state.currentChapterIndex, state.currentSentenceIndex, chapters, expandedSet);
 
         if (!nextPos) {
             this._logger('[BRIDGE] End of document reached.');
@@ -575,7 +576,8 @@ export class AudioBridge extends EventEmitter {
         const state = this._stateStore.state;
         const chapters = this._docController.chapters;
 
-        const prevPos = this._sequenceManager.getPrevious(state.currentChapterIndex, state.currentSentenceIndex, chapters);
+        const expandedSet = new Set(state.expandedTables || []);
+        const prevPos = this._sequenceManager.getPrevious(state.currentChapterIndex, state.currentSentenceIndex, chapters, expandedSet);
 
         if (prevPos) {
             await this.start(prevPos.chapterIndex, prevPos.sentenceIndex, options, false, intentId, batchId);
@@ -731,18 +733,19 @@ export class AudioBridge extends EventEmitter {
 
             const curC = currentState.currentChapterIndex;
             const curS = currentState.currentSentenceIndex;
+            const expandedSet = new Set(currentState.expandedTables || []);
 
             // - Next +1
-            const next1 = this._sequenceManager.getNext(curC, curS, chapters);
+            const next1 = this._sequenceManager.getNext(curC, curS, chapters, expandedSet);
             if (next1) {
                 targets.push({ cIdx: next1.chapterIndex, sIdx: next1.sentenceIndex });
                 // - Next +2
-                const next2 = this._sequenceManager.getNext(next1.chapterIndex, next1.sentenceIndex, chapters);
+                const next2 = this._sequenceManager.getNext(next1.chapterIndex, next1.sentenceIndex, chapters, expandedSet);
                 if (next2) { targets.push({ cIdx: next2.chapterIndex, sIdx: next2.sentenceIndex }); }
             }
 
             // - Previous
-            const prev = this._sequenceManager.getPrevious(curC, curS, chapters);
+            const prev = this._sequenceManager.getPrevious(curC, curS, chapters, expandedSet);
             if (prev) { targets.push({ cIdx: prev.chapterIndex, sIdx: prev.sentenceIndex }); }
 
             // 2. Trigger Deduplicated Synthesis
