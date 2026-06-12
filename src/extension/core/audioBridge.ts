@@ -449,9 +449,41 @@ export class AudioBridge extends EventEmitter {
         const currentIntent = intentId ?? this._playbackEngine.playbackIntentId;
         const currentBatch = batchId ?? this._playbackEngine.batchIntentId;
 
-        this._logger(`[BRIDGE] Webview Cache MISS for ${cacheKey} (Intent: ${currentIntent}, Batch: ${currentBatch}, Priority: ${isPriority}). Starting synthesis...`);
+        // [v2.9.13] Bilingual prefetch voice resolution:
+        // Dynamically resolve target voice for the sentence before beginning synthesis
+        // to prevent mismatch stalls (stalling on Hebrew text with English voice) and
+        // ensure symmetric cache hit keys.
+        let actualCacheKey = cacheKey;
+        const targetOptions = { ...options };
+        if (options.mode === 'neural') {
+            const targetVoice = this._resolveVoiceForSentence(sentence, options.voice);
+            if (targetVoice !== options.voice) {
+                targetOptions.voice = targetVoice;
+                actualCacheKey = generateCacheKey(
+                    sentence,
+                    targetVoice,
+                    options.rate,
+                    this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
+                    true
+                );
+                this._logger(`[BRIDGE] [SYNTHESIZE-RESOLVE] Prefetch key rewritten: ${cacheKey} -> ${actualCacheKey} (Voice: ${targetVoice})`);
+            }
+        }
+
+        this._logger(`[BRIDGE] Webview Cache MISS for ${actualCacheKey} (Intent: ${currentIntent}, Batch: ${currentBatch}, Priority: ${isPriority}). Starting synthesis...`);
         this._stateStore.setLoadType('synth');
-        await this._speakNeural(sentence, cacheKey, options, state.currentChapterIndex, state.currentSentenceIndex, currentIntent, currentBatch, isPriority);
+        await this._speakNeural(sentence, actualCacheKey, targetOptions, state.currentChapterIndex, state.currentSentenceIndex, currentIntent, currentBatch, isPriority);
+
+        // If the key was rewritten, also mirror the synthesized data to the original requested cacheKey in PlaybackEngine.
+        // This ensures the webview's prefetch listener (waiting for the old key) is notified and cleans up its pending tasks correctly.
+        if (actualCacheKey !== cacheKey) {
+            if (typeof this._playbackEngine.getAudioFromCache === 'function' && typeof this._playbackEngine.addToCache === 'function') {
+                const data = this._playbackEngine.getAudioFromCache(actualCacheKey);
+                if (data) {
+                    this._playbackEngine.addToCache(cacheKey, data, currentIntent);
+                }
+            }
+        }
     }
 
     public stop(intentId?: number, batchId?: number) {

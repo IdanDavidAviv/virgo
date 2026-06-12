@@ -252,4 +252,37 @@ describe('AudioBridge', () => {
         // 5. Verify the drift was detected in logs (optional, but confirms the logic)
         expect(logger).toHaveBeenCalledWith(expect.stringContaining('Commitment Threshold crossed'));
     });
+    it('should resolve target voice dynamically and rewrite cacheKey during prefetch synthesis requests', async () => {
+        const prefetchOptions: PlaybackOptions = { voice: 'en-US-SteffanNeural', rate: 1.0, volume: 50, mode: 'neural' };
+        
+        // Mock SettingsManager loadVoiceHistory to return AvriNeural for Hebrew
+        audioBridge['_settingsManager'].loadVoiceHistory = vi.fn().mockImplementation((lang) => {
+            return lang === 'he' ? 'he-IL-AvriNeural' : 'en-US-SteffanNeural';
+        });
+
+        const speakNeuralSpy = vi.spyOn(playbackEngine, 'speakNeural');
+        const addToCacheSpy = vi.spyOn(playbackEngine, 'addToCache');
+        vi.spyOn(playbackEngine, 'getAudioFromCache').mockReturnValue('base64audio');
+
+        const hebrewSentence = 'שלום עולם'; // Hebrew characters to trigger language switch
+        const oldKey = 'en-us-steffanneural_1.00_global_hashed';
+
+        // Trigger synthesize with prefetch path (isPriority = false) and explicit text
+        await audioBridge.synthesize(oldKey, prefetchOptions, 1, 1, false, hebrewSentence);
+
+        // Verification:
+        // 1. Target voice resolved to Hebrew (he-IL-AvriNeural)
+        // 2. speakNeural called with rewritten actualCacheKey containing 'he-il-avrineural'
+        expect(speakNeuralSpy).toHaveBeenCalledWith(
+            hebrewSentence,
+            expect.stringMatching(/he-il-avrineural/i),
+            expect.objectContaining({ voice: 'he-IL-AvriNeural' }),
+            false,
+            1,
+            1
+        );
+
+        // 3. Audio mirrored to the original oldKey
+        expect(addToCacheSpy).toHaveBeenCalledWith(oldKey, 'base64audio', 1);
+    });
 });

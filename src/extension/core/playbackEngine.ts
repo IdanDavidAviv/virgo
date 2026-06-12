@@ -441,6 +441,10 @@ export class PlaybackEngine extends EventEmitter {
         return Math.floor(base64.length * 0.75);
     }
 
+    public addToCache(key: string, data: string, intentId?: number) {
+        this._addToCache(key, data, intentId);
+    }
+
     private _addToCache(key: string, data: string, intentId?: number) {
         // [HARDENING] Absolute Intent Guard - Reject data if user has skipped or changed context
         if (intentId !== undefined && intentId !== this._stateStore.state.playbackIntentId) {
