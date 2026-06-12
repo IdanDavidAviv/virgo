@@ -21,48 +21,99 @@ export function parseChapters(rawText: string): Chapter[] {
 
     const tokens = md.parse(rawText, {});
     const chapters: Chapter[] = [];
+    const lines = rawText.split('\n');
+
+    let lastHeadingTitle = 'Document';
+    let lastHeadingLevel = 1;
+
     let currentChapter: Partial<Chapter> & { tokens: any[] } = {
-        title: 'Document',
-        level: 1,
+        title: lastHeadingTitle,
+        level: lastHeadingLevel,
         lineStart: 0,
         lineEnd: 0,
         tokens: []
     };
 
-    const lines = rawText.split('\n');
+    for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i];
 
-    tokens.forEach((token: Token) => {
-        // Detect Heading start
         if (token.type === 'heading_open') {
-            // If the current chapter has content, push it before starting new one
-            if (currentChapter.tokens && currentChapter.tokens.length > 0) {
+            // Finalize current chapter if it has content
+            if (currentChapter.tokens.length > 0) {
                 const finished = finalizeChapter(currentChapter, lines);
-                if (finished) {chapters.push(finished);}
+                if (finished) { chapters.push(finished); }
+            }
+
+            lastHeadingLevel = parseInt(token.tag.slice(1));
+            // Look ahead for the title
+            let title = '';
+            if (i + 1 < tokens.length && tokens[i + 1].type === 'inline') {
+                title = tokens[i + 1].content;
+            }
+            lastHeadingTitle = title || 'Heading';
+
+            currentChapter = {
+                title: lastHeadingTitle,
+                level: lastHeadingLevel,
+                lineStart: token.map ? token.map[0] : 0,
+                lineEnd: token.map ? token.map[1] - 1 : 0,
+                tokens: [token]
+            };
+        } else if (token.type === 'table_open') {
+            // Finalize current chapter before table
+            if (currentChapter.tokens.length > 0) {
+                const finished = finalizeChapter(currentChapter, lines);
+                if (finished) { chapters.push(finished); }
             }
 
             currentChapter = {
-                level: parseInt(token.tag.slice(1)),
+                title: `Table`,
+                level: lastHeadingLevel + 1, // Indent under the heading
                 lineStart: token.map ? token.map[0] : 0,
                 lineEnd: token.map ? token.map[1] - 1 : 0,
                 tokens: []
             };
-        } else if (token.type === 'inline' && currentChapter.level !== undefined && !currentChapter.title) {
-            // First inline token after heading_open is usually the title
-            currentChapter.title = token.content;
-        }
 
-        if (currentChapter.tokens) {
+            // Collect table tokens until table_close
+            while (i < tokens.length && tokens[i].type !== 'table_close') {
+                currentChapter.tokens.push(tokens[i]);
+                if (tokens[i].map) {
+                    currentChapter.lineEnd = Math.max(currentChapter.lineEnd || 0, tokens[i].map![1] - 1);
+                }
+                i++;
+            }
+            // Push table_close
+            if (i < tokens.length) {
+                currentChapter.tokens.push(tokens[i]);
+                if (tokens[i].map) {
+                    currentChapter.lineEnd = Math.max(currentChapter.lineEnd || 0, tokens[i].map![1] - 1);
+                }
+            }
+
+            // Finalize table chapter
+            const finishedTable = finalizeChapter(currentChapter, lines);
+            if (finishedTable) { chapters.push(finishedTable); }
+
+            // Start new chapter for post-table content
+            currentChapter = {
+                title: `${lastHeadingTitle} (Cont.)`,
+                level: lastHeadingLevel,
+                lineStart: i + 1 < tokens.length && tokens[i + 1].map ? tokens[i + 1].map![0] : (tokens[i].map ? tokens[i].map![1] : 0),
+                lineEnd: i + 1 < tokens.length && tokens[i + 1].map ? tokens[i + 1].map![1] - 1 : (tokens[i].map ? tokens[i].map![1] : 0),
+                tokens: []
+            };
+        } else {
             currentChapter.tokens.push(token);
             if (token.map) {
                 currentChapter.lineEnd = Math.max(currentChapter.lineEnd || 0, token.map[1] - 1);
             }
         }
-    });
+    }
 
     // Finalize last chapter
-    if (currentChapter.tokens && currentChapter.tokens.length > 0) {
+    if (currentChapter.tokens.length > 0) {
         const finished = finalizeChapter(currentChapter, lines);
-        if (finished) {chapters.push(finished);}
+        if (finished) { chapters.push(finished); }
     }
 
     // Fallback: No chapters? (should not happen with finalizeChapter logic, but safety first)
@@ -77,7 +128,7 @@ function finalizeChapter(raw: any, lines: string[]): Chapter | null {
     let cleanText = '';
     const sentences: string[] = [];
     const sentenceLines: number[] = [];
-
+    let tableIndex = 0;
     for (let i = 0; i < raw.tokens.length; i++) {
         const token = raw.tokens[i];
         if (token.type === 'inline') {
@@ -98,34 +149,90 @@ function finalizeChapter(raw: any, lines: string[]): Chapter | null {
             sentences.push(desc);
             sentenceLines.push(token.map ? token.map[0] : raw.lineStart);
         } else if (token.type === 'table_open') {
-            let rows = 0;
-            let cols = 0;
-            let j = i;
-            let firstRowFound = false;
+            let headers: string[] = [];
+            const rows: string[][] = [];
+            let currentRow: string[] = [];
+            let inHeader = false;
+            let inCell = false;
+            let currentCellText = '';
 
+            let j = i;
             while (j < raw.tokens.length && raw.tokens[j].type !== 'table_close') {
-                if (raw.tokens[j].type === 'tr_open') {
-                    rows++;
-                    if (!firstRowFound) {
-                        let k = j + 1;
-                        while (k < raw.tokens.length && raw.tokens[k].type !== 'tr_close') {
-                            if (raw.tokens[k].type === 'th_open' || raw.tokens[k].type === 'td_open') {
-                                cols++;
-                            }
-                            k++;
-                        }
-                        firstRowFound = true;
+                const subToken = raw.tokens[j];
+                if (subToken.type === 'thead_open') {
+                    inHeader = true;
+                } else if (subToken.type === 'thead_close') {
+                    inHeader = false;
+                } else if (subToken.type === 'tr_open') {
+                    currentRow = [];
+                } else if (subToken.type === 'tr_close') {
+                    if (inHeader) {
+                        headers = currentRow;
+                    } else if (currentRow.length > 0) {
+                        rows.push(currentRow);
                     }
+                } else if (subToken.type === 'th_open' || subToken.type === 'td_open') {
+                    inCell = true;
+                    currentCellText = '';
+                } else if (subToken.type === 'th_close' || subToken.type === 'td_close') {
+                    inCell = false;
+                    currentRow.push(currentCellText.trim());
+                } else if (inCell && subToken.type === 'inline') {
+                    currentCellText += cleanInlineToken(subToken);
+                } else if (inCell && subToken.type === 'text') {
+                    currentCellText += subToken.content;
                 }
                 j++;
             }
-            
-            const desc = `[Table with ${rows} rows and ${cols} columns omitted].`;
+
+            const startLine = token.map ? token.map[0] : raw.lineStart;
+            const tableIdx = tableIndex++;
+            const tableData = {
+                tableIndex: tableIdx,
+                headers,
+                rows,
+                rowSentenceIndices: [] as number[]
+            };
+
+            const rowSentences: string[] = [];
+            const rowLines: number[] = [];
+            let activeSentenceCount = sentences.length + 1;
+
+            rows.forEach((row, rowIndex) => {
+                let speakableText = `Row ${rowIndex + 1}: `;
+                const parts: string[] = [];
+                row.forEach((cellVal, colIndex) => {
+                    const headerName = headers[colIndex] || `Column ${colIndex + 1}`;
+                    if (cellVal.trim()) {
+                        parts.push(`${headerName} is ${cellVal.trim()}`);
+                    }
+                });
+
+                if (parts.length > 0) {
+                    speakableText += parts.join(', ') + '.';
+                    const rowSentence = `<!--VIRGO_TABLE_CELL:tableIndex=${tableIdx},rowIndex=${rowIndex}-->${speakableText}`;
+                    rowSentences.push(rowSentence);
+                    rowLines.push(startLine);
+                    tableData.rowSentenceIndices.push(activeSentenceCount);
+                    activeSentenceCount++;
+                } else {
+                    tableData.rowSentenceIndices.push(-1);
+                }
+            });
+
+            const payload = `<!--VIRGO_TABLE:${JSON.stringify(tableData)}-->`;
+            const desc = `[Table with ${rows.length} rows and ${headers.length} columns omitted].`;
+            const tablePlaceholder = `${payload}${desc}`;
+
             cleanText += desc + ' ';
-            sentences.push(desc);
-            sentenceLines.push(token.map ? token.map[0] : raw.lineStart);
-            
-            // Fast-forward beyond the table to avoid processing internal inline tokens twice
+            sentences.push(tablePlaceholder);
+            sentenceLines.push(startLine);
+
+            for (let k = 0; k < rowSentences.length; k++) {
+                sentences.push(rowSentences[k]);
+                sentenceLines.push(rowLines[k]);
+            }
+
             i = j;
         }
     }

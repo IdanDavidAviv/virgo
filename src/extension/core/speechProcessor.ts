@@ -6,8 +6,11 @@
 export function cleanForSpeech(text: string): string {
     if (!text) { return ''; }
 
+    // 0. Strip HTML comments: <!--...-->
+    let cleaned = text.replace(/<!--[\s\S]*?-->/g, '');
+
     // 1. Remove URI components but keep the label: [config.json](file:///...) -> config.json
-    let cleaned = text.replace(/\[([^\]]+)\]\((?:file|https?):\/\/[^\s)]+\)/g, '$1');
+    cleaned = cleaned.replace(/\[([^\]]+)\]\((?:file|https?):\/\/[^\s)]+\)/g, '$1');
 
     // 2. Filter Emojis: Remove pictographics, flags, and skin tones so they aren't spoken (Issue #28)
     cleaned = cleaned.replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\u{1F3FB}-\u{1F3FF}]/gu, '');

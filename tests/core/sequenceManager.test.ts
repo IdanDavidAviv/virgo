@@ -78,4 +78,79 @@ describe('SequenceManager', () => {
             expect(manager.validate(-1, 0, mockChapters)).toBe(false);
         });
     });
+
+    describe('table skip traversal logic', () => {
+        let tableChapters: Chapter[];
+        beforeEach(() => {
+            tableChapters = [
+                {
+                    title: 'Chapter 1',
+                    sentences: [
+                        'Intro text',
+                        '<!--VIRGO_TABLE:{"tableIndex":0,"rows":2,"cols":2}-->[Table with 2 rows and 2 columns omitted].',
+                        '<!--VIRGO_TABLE_CELL:tableIndex=0,rowIndex=0-->Row 1: H1 is A, H2 is B.',
+                        '<!--VIRGO_TABLE_CELL:tableIndex=0,rowIndex=1-->Row 2: H1 is C, H2 is D.',
+                        'Outro text'
+                    ],
+                    sentenceLines: [1, 2, 3, 4, 5],
+                    level: 1,
+                    lineStart: 1,
+                    lineEnd: 5,
+                    text: '',
+                    originalMarkdown: ''
+                }
+            ] as Chapter[];
+        });
+
+        it('should skip cell sentences and read placeholder when table is collapsed', () => {
+            // Intro -> Placeholder
+            let next = manager.getNext(0, 0, tableChapters, new Set());
+            expect(next).toEqual({ chapterIndex: 0, sentenceIndex: 1 });
+
+            // Placeholder -> Outro (skipping cells 2 and 3)
+            next = manager.getNext(0, 1, tableChapters, new Set());
+            expect(next).toEqual({ chapterIndex: 0, sentenceIndex: 4 });
+        });
+
+        it('should skip placeholder and read cell sentences sequentially when table is expanded', () => {
+            const expanded = new Set(['0:0']);
+            // Intro -> skip Placeholder -> Cell 1
+            let next = manager.getNext(0, 0, tableChapters, expanded);
+            expect(next).toEqual({ chapterIndex: 0, sentenceIndex: 2 });
+
+            // Cell 1 -> Cell 2
+            next = manager.getNext(0, 2, tableChapters, expanded);
+            expect(next).toEqual({ chapterIndex: 0, sentenceIndex: 3 });
+
+            // Cell 2 -> Outro
+            next = manager.getNext(0, 3, tableChapters, expanded);
+            expect(next).toEqual({ chapterIndex: 0, sentenceIndex: 4 });
+        });
+
+        it('should traverse backwards correctly when table is collapsed', () => {
+            // Outro -> Placeholder (skipping cells)
+            let prev = manager.getPrevious(0, 4, tableChapters, new Set());
+            expect(prev).toEqual({ chapterIndex: 0, sentenceIndex: 1 });
+
+            // Placeholder -> Intro
+            prev = manager.getPrevious(0, 1, tableChapters, new Set());
+            expect(prev).toEqual({ chapterIndex: 0, sentenceIndex: 0 });
+        });
+
+        it('should traverse backwards correctly when table is expanded', () => {
+            const expanded = new Set(['0:0']);
+            // Outro -> Cell 2
+            let prev = manager.getPrevious(0, 4, tableChapters, expanded);
+            expect(prev).toEqual({ chapterIndex: 0, sentenceIndex: 3 });
+
+            // Cell 2 -> Cell 1
+            prev = manager.getPrevious(0, 3, tableChapters, expanded);
+            expect(prev).toEqual({ chapterIndex: 0, sentenceIndex: 2 });
+
+            // Cell 1 -> skip Placeholder -> Intro
+            prev = manager.getPrevious(0, 2, tableChapters, expanded);
+            expect(prev).toEqual({ chapterIndex: 0, sentenceIndex: 0 });
+        });
+    });
 });
+

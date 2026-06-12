@@ -16,6 +16,22 @@ export class SequenceManager {
     public getNext(
         currentChapterIndex: number,
         currentSentenceIndex: number,
+        chapters: Chapter[],
+        expandedTables: Set<string> = new Set()
+    ): SequencePosition | null {
+        let pos = this.calculateRawNext(currentChapterIndex, currentSentenceIndex, chapters);
+        while (pos) {
+            if (!this.shouldSkip(pos.chapterIndex, pos.sentenceIndex, chapters, expandedTables)) {
+                return pos;
+            }
+            pos = this.calculateRawNext(pos.chapterIndex, pos.sentenceIndex, chapters);
+        }
+        return null;
+    }
+
+    private calculateRawNext(
+        currentChapterIndex: number,
+        currentSentenceIndex: number,
         chapters: Chapter[]
     ): SequencePosition | null {
         if (!chapters || chapters.length === 0) {
@@ -43,7 +59,6 @@ export class SequenceManager {
             };
         }
 
-        // 3. End of document
         return null;
     }
 
@@ -51,6 +66,22 @@ export class SequenceManager {
      * Calculates the previous position in the document.
      */
     public getPrevious(
+        currentChapterIndex: number,
+        currentSentenceIndex: number,
+        chapters: Chapter[],
+        expandedTables: Set<string> = new Set()
+    ): SequencePosition | null {
+        let pos = this.calculateRawPrevious(currentChapterIndex, currentSentenceIndex, chapters);
+        while (pos) {
+            if (!this.shouldSkip(pos.chapterIndex, pos.sentenceIndex, chapters, expandedTables)) {
+                return pos;
+            }
+            pos = this.calculateRawPrevious(pos.chapterIndex, pos.sentenceIndex, chapters);
+        }
+        return null;
+    }
+
+    private calculateRawPrevious(
         currentChapterIndex: number,
         currentSentenceIndex: number,
         chapters: Chapter[]
@@ -77,8 +108,37 @@ export class SequenceManager {
             };
         }
 
-        // 3. Start of document
         return null;
+    }
+
+    private shouldSkip(
+        chapterIndex: number,
+        sentenceIndex: number,
+        chapters: Chapter[],
+        expandedTables: Set<string>
+    ): boolean {
+        const chapter = chapters[chapterIndex];
+        if (!chapter || !chapter.sentences) { return false; }
+        const sentence = chapter.sentences[sentenceIndex];
+        if (!sentence) { return false; }
+
+        // If it's a table cell sentence:
+        const cellMatch = sentence.match(/^<!--VIRGO_TABLE_CELL:tableIndex=(\d+)/);
+        if (cellMatch) {
+            const tableIndex = cellMatch[1];
+            const key = `${chapterIndex}:${tableIndex}`;
+            return !expandedTables.has(key);
+        }
+
+        // If it's a table placeholder sentence:
+        const tableMatch = sentence.match(/^<!--VIRGO_TABLE:{"tableIndex":(\d+)/);
+        if (tableMatch) {
+            const tableIndex = tableMatch[1];
+            const key = `${chapterIndex}:${tableIndex}`;
+            return expandedTables.has(key);
+        }
+
+        return false;
     }
 
     /**

@@ -60,7 +60,7 @@ export interface UISyncPacket {
     // Data Windows
     currentSentences: string[];
     windowSentences?: WindowSentence[]; // [T-101] Lean 5-sentence window (HEAD + 4 lookahead) for predictive synthesis
-    allChapters: { title: string, level: number, index: number, count: number }[]; // Full chapter metadata
+    allChapters: { title: string, level: number, index: number, count: number, tables?: any[] }[]; // Full chapter metadata
     
     // Integrity & Cache
     cacheCount: number;
@@ -80,6 +80,7 @@ export interface UISyncPacket {
     // [T-102] Update Notification
     latestVersion?: string;       // Latest GitHub release tag (e.g. "2.9.5") — undefined until check completes
     updateAvailable?: boolean;    // True when latestVersion > extensionVersion
+    expandedTables?: string[];
 }
 
 
@@ -213,5 +214,6 @@ export enum OutgoingAction {
     OPEN_MCP_MENU = 'OPEN_MCP_MENU',
     GET_MCP_STATUS = 'GET_MCP_STATUS',
     SET_AUTOPLAY_VOICE_SELECT = 'SET_AUTOPLAY_VOICE_SELECT',
-    REMOVE_RECENT_VOICE = 'REMOVE_RECENT_VOICE'
+    REMOVE_RECENT_VOICE = 'REMOVE_RECENT_VOICE',
+    TOGGLE_TABLE_EXPANSION = 'TOGGLE_TABLE_EXPANSION'
 }
