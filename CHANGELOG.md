@@ -2,6 +2,18 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.12] - 2026-06-12
+
+### Added
+- **Expandable Tables Support**: Markdown tables are now split into separate standalone chapters and rendered as inline collapsible tables.
+- **Interactive Row Navigation**: Clicking any table row in the inline table jumps playback directly to that row.
+- **Active Row Highlighting**: The currently playing table row is highlighted dynamically in the expanded table view.
+
+### Fixed
+- **Speech Comment Sanitization**: Strips internal table syntax comments first during sanitization to prevent them from being spoken.
+- **Playback Jump Sync**: Resolved state clashing on playback jumps by ignoring programmatic pause events.
+- **Immediate State Synchronization**: Fixed state change listener order in `SyncManager.ts` to restore instant UI updates on playing/paused transitions.
+
 ## [2.9.11] - 2026-06-12
 
 ### Fixed
