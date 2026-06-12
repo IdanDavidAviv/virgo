@@ -190,8 +190,8 @@ export class PlaybackController {
      * jumpToSentence(): Moves the playback head to a specific row.
      * Centralizes Context Blessing -> Store Patch -> IPC dispatch.
      */
-    public jumpToSentence(index: number): void {
-        console.log(`[PlaybackController] jumpToSentence(${index}) requested`);
+    public jumpToSentence(index: number, chapterIndex?: number): void {
+        console.log(`[PlaybackController] jumpToSentence(${index}, chapterIndex=${chapterIndex}) requested`);
         const store = WebviewStore.getInstance();
         const currentState = store.getState();
 
@@ -200,12 +200,20 @@ export class PlaybackController {
         this._userHasInteracted = true;
         WebviewAudioEngine.getInstance().ensureAudioContext(); // single call — promise-gated, safe to call once
 
+        const targetChapterIndex = typeof chapterIndex === 'number' ? chapterIndex : store.getState().currentChapterIndex;
+
         // 2. [SYNC] Authoritative State Patch
         if (currentState) {
+            const isAutoplay = currentState.autoPlayMode === 'auto';
+            const wasPlaying = currentState.playbackIntent === 'PLAYING';
+            const shouldPlay = isAutoplay || wasPlaying;
+
             store.updateState({
+                currentChapterIndex: targetChapterIndex,
                 currentSentenceIndex: index,
-                isPlaying: true, // Jump implies play
-                isPaused: false
+                isPlaying: shouldPlay,
+                isPaused: !shouldPlay,
+                playbackIntent: shouldPlay ? 'PLAYING' : 'PAUSED'
             }, 'local');
             store.updateUIState({ isAwaitingSync: true });
             this.transitionExpiry = Date.now() + this.TRANSITION_WINDOW_MS;
@@ -218,6 +226,7 @@ export class PlaybackController {
         const intentId = store.resetPlaybackIntent();
         MessageClient.getInstance().postAction(OutgoingAction.JUMP_TO_SENTENCE, {
             index,
+            chapterIndex: targetChapterIndex,
             intentId,
             batchId: store.getState().batchIntentId
         });
@@ -289,14 +298,18 @@ export class PlaybackController {
         // file load regardless of user intent — the "weird sequence" regression.
         // We preserve the current playing state: a stopped session stays stopped,
         // a playing session continues playing at the new chapter position.
+        const isAutoplay = currentState?.autoPlayMode === 'auto';
         const wasPlaying = currentState?.playbackIntent === 'PLAYING';
+        const shouldPlay = isAutoplay || wasPlaying;
         if (currentState) {
             store.patchState({
                 currentChapterIndex: index,
                 currentSentenceIndex: 0,
-                isPlaying: wasPlaying,
-                isPaused: false
+                isPlaying: shouldPlay,
+                isPaused: !shouldPlay,
+                playbackIntent: shouldPlay ? 'PLAYING' : 'PAUSED'
             });
+            store.updateUIState({ isAwaitingSync: true });
         }
 
         // 3. [FIFO] Atomic Flush

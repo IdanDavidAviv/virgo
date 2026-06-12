@@ -32,6 +32,7 @@ export class WebviewAudioEngine {
   private activeSequence: number = 0;
   private _abortController: AbortController | null = null;
   private _activeObjectURLs: Set<string> = new Set();
+  private _ignorePauseEvent: boolean = false;
 
   public constructor() {
     this._audio = new Audio();
@@ -84,7 +85,14 @@ export class WebviewAudioEngine {
 
   private setupAudioListeners(): void {
     this._audio.addEventListener('play', () => this.emit(AudioEngineEventType.PLAYING));
-    this._audio.addEventListener('pause', () => this.emit(AudioEngineEventType.PAUSED));
+    this._audio.addEventListener('pause', () => {
+        if (this._ignorePauseEvent) {
+            console.log('[AUDIO] 🛡️ Ignoring programmatic pause event.');
+            this._ignorePauseEvent = false;
+            return;
+        }
+        this.emit(AudioEngineEventType.PAUSED);
+    });
     this._audio.addEventListener('ended', () => this.emit(AudioEngineEventType.ENDED));
     this._audio.addEventListener('error', () => {
         const rawError = this._audio.error?.message || 'Unknown';
@@ -453,6 +461,9 @@ export class WebviewAudioEngine {
   public purgeMemory(): void {
     this._abortController?.abort();
     this._abortController = null;
+    if (!this._audio.paused) {
+      this._ignorePauseEvent = true;
+    }
     this._audio.pause();
     if (typeof this._audio.removeAttribute === 'function') {
       this._audio.removeAttribute('src');
@@ -468,6 +479,9 @@ export class WebviewAudioEngine {
     this._abortController?.abort();
     this._abortController = null;
     
+    if (!this._audio.paused) {
+      this._ignorePauseEvent = true;
+    }
     this._audio.pause();
     if (typeof this._audio.removeAttribute === 'function') {
       this._audio.removeAttribute('src');
