@@ -2210,3 +2210,202 @@ input:checked + .premium-slider:before {
     max-height: 200px !important;
     overflow-y: auto;
 }
+
+/* --- Expandable Tables Premium Styles --- */
+.chapter-item.has-tables {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+}
+
+.chapter-main-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+}
+
+.chapter-table-badges {
+    display: flex;
+    gap: 4px;
+    margin-left: 6px;
+}
+
+.chapter-table-badge {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
+    color: #94a3b8;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 8px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.chapter-table-badge:hover {
+    background: rgba(56, 189, 248, 0.12);
+    border-color: var(--primary);
+    color: #f1f5f9;
+}
+
+.chapter-table-badge.active {
+    background: rgba(56, 189, 248, 0.2);
+    border-color: var(--primary);
+    color: var(--primary);
+    box-shadow: 0 0 6px rgba(56, 189, 248, 0.2);
+}
+
+.chapter-inline-table-container {
+    margin-top: 4px;
+    border-radius: 6px;
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 100px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(0, 0, 0, 0.15);
+    padding: 4px;
+    width: 100%;
+    display: block;
+}
+
+.chapter-inline-table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
+    font-size: 8.5px;
+    text-align: left;
+}
+
+.chapter-inline-table th, .chapter-inline-table td {
+    padding: 3px 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.chapter-inline-table th {
+    font-weight: 700;
+    color: var(--primary);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.chapter-inline-table tr:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Navigator Table Styles */
+.virgo-table-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.virgo-table-summary .table-metadata {
+    font-size: 11px;
+    color: #94a3b8;
+    flex: 1;
+    text-align: left;
+}
+
+.virgo-table-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(10, 15, 26, 0.6);
+    backdrop-filter: blur(10px);
+    overflow: hidden;
+}
+
+.table-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.table-header-row .table-metadata {
+    font-size: 10px;
+    color: #94a3b8;
+    flex: 1;
+    text-align: left;
+    margin-left: 8px;
+}
+
+.table-scroll-area {
+    max-height: 150px; /* Constrain expanded table height */
+    overflow-y: auto;
+    overflow-x: auto;
+    padding: 4px;
+}
+
+.virgo-html-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    text-align: left;
+}
+
+.virgo-html-table th, .virgo-html-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    color: #cbd5e1;
+}
+
+.virgo-html-table th {
+    font-weight: 700;
+    color: var(--primary);
+    background: rgba(255, 255, 255, 0.02);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.virgo-html-table tr:hover {
+    background: rgba(56, 189, 248, 0.05);
+}
+
+.table-toggle-btn {
+    background: rgba(56, 189, 248, 0.15);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    color: var(--primary);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.table-toggle-btn:hover {
+    background: var(--primary);
+    color: white;
+}
+
+.table-cell-prefix {
+    color: var(--primary);
+    font-weight: 700;
+    margin-right: 4px;
+}
+
+.table-row-clickable {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.table-row-clickable:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.table-row-clickable.active {
+    background-color: rgba(56, 189, 248, 0.15) !important;
+    border-left: 2px solid var(--primary);
+}
+

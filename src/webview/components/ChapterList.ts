@@ -2,6 +2,7 @@ import { BaseComponent } from '../core/BaseComponent';
 import { WebviewStore } from '../core/WebviewStore';
 import { renderWithLinks } from '../utils';
 import { PlaybackController } from '../playbackController';
+import { OutgoingAction } from '../../common/types';
 
 export interface ChapterListElements extends Record<string, HTMLElement | null | (HTMLElement | null)[] | undefined> {
     container: HTMLElement | null;
@@ -18,6 +19,7 @@ export interface ChapterListElements extends Record<string, HTMLElement | null |
 export class ChapterList extends BaseComponent<ChapterListElements> {
     private lastRenderedChaptersJson: string = '';
     private itemElements: HTMLElement[] = [];
+    private expandedTables: string[] = [];
 
     constructor(elements: ChapterListElements) {
         super(elements);
@@ -34,6 +36,10 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
         this.subscribe((state) => state.currentChapterIndex, () => this.updateHighlights());
         this.subscribe((state) => state.currentSentenceIndex, () => this.updateHighlights());
         this.subscribeUI((state) => state.collapsedIndices, () => this.render());
+        this.subscribe((state) => state.expandedTables, (expanded) => {
+            this.expandedTables = expanded || [];
+            this.render();
+        });
     }
 
     protected onMount(): void {
@@ -44,8 +50,19 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
         this.registerEventListener(container, 'click', (e: Event) => {
             const target = e.target as HTMLElement;
             
-            // 1. Handle File Links (Exit early)
+            // 1. Handle File Links
             if (target.closest('.file-link')) {
+                return;
+            }
+
+            // 1b. Handle Table Row Click inside inline table
+            const tableRow = target.closest('.table-row-clickable') as HTMLElement;
+            if (tableRow) {
+                const sIdx = parseInt(tableRow.dataset.sentenceIndex || '-1', 10);
+                const cIdx = parseInt(tableRow.dataset.chapterIndex || '-1', 10);
+                if (sIdx !== -1 && cIdx !== -1) {
+                    PlaybackController.getInstance().jumpToSentence(sIdx, cIdx);
+                }
                 return;
             }
 
@@ -57,6 +74,20 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
 
             const index = parseInt(item.dataset.index || '-1', 10);
             if (index === -1) {return;}
+
+            // 2b. Handle Table Toggle Row click
+            const toggleRow = target.closest('.table-toggle-row') as HTMLElement;
+            if (toggleRow) {
+                if (target.classList.contains('chapter-play-icon') || target.closest('.chapter-play-icon')) {
+                    this.jumpToChapter(index);
+                    return;
+                }
+                const tableId = toggleRow.getAttribute('data-table-id');
+                if (tableId) {
+                    this.postAction(OutgoingAction.TOGGLE_TABLE_EXPANSION, { tableId });
+                }
+                return;
+            }
 
             // 3. Handle Chevron (Collapse/Expand)
             if (target.classList.contains('chevron') || target.closest('.chevron')) {
@@ -168,12 +199,59 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
 
             const chevronIcon = isParent ? '▼' : '';
 
-            item.innerHTML = `
-                <span class="chevron">${chevronIcon}</span>
-                <span class="chapter-title">${renderWithLinks(ch.title)}</span>
-                <span class="chapter-row-count">${ch.count || 0} rows</span>
-                <span class="chapter-play-icon">▶</span>
-            `;
+            // Generate table badges and inline table mockups if the chapter has tables
+            let inlineTablesHtml = '';
+            if (ch.tables && ch.tables.length > 0) {
+                item.classList.add('has-tables');
+                item.classList.add('table-chapter-item');
+                const table = ch.tables[0];
+                const tableKey = `${i}:${table.tableIndex}`;
+                const isExpanded = this.expandedTables.includes(tableKey);
+
+                if (isExpanded) {
+                    item.classList.add('expanded');
+                    inlineTablesHtml = `
+                        <div class="chapter-inline-table-container glassmorphic">
+                            <table class="chapter-inline-table">
+                                <thead>
+                                    <tr>
+                                        ${table.headers.map((h: string) => `<th>${h}</th>`).join('')}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${table.rows.map((row: string[], rowIndex: number) => {
+                                        const sentenceIndex = table.rowSentenceIndices?.[rowIndex] ?? -1;
+                                        return `
+                                            <tr class="table-row-clickable" data-sentence-index="${sentenceIndex}" data-chapter-index="${i}" data-table-id="${table.tableIndex}">
+                                                ${row.map(cell => `<td>${cell}</td>`).join('')}
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                }
+
+                item.innerHTML = `
+                    <div class="chapter-main-row table-toggle-row" data-table-id="${tableKey}">
+                        <span class="chevron">${isExpanded ? '▼' : '►'}</span>
+                        <span class="chapter-title" style="color: var(--primary);">📊 Table</span>
+                        <span class="chapter-row-count">${table.rows.length} rows, ${table.headers.length} cols</span>
+                        <span class="chapter-play-icon">▶</span>
+                    </div>
+                    ${inlineTablesHtml}
+                `;
+            } else {
+                item.innerHTML = `
+                    <div class="chapter-main-row">
+                        <span class="chevron">${chevronIcon}</span>
+                        <span class="chapter-title">${renderWithLinks(ch.title)}</span>
+                        <span class="chapter-row-count">${ch.count || 0} rows</span>
+                        <span class="chapter-play-icon">▶</span>
+                    </div>
+                `;
+            }
 
             container.appendChild(item);
             this.itemElements[i] = item;
@@ -238,11 +316,28 @@ export class ChapterList extends BaseComponent<ChapterListElements> {
             el.classList.toggle('now-playing', isNowPlaying);
 
             if (isNowPlaying) {
-                el.style.setProperty('--chapter-progress', `${progressPercentage}%`);
+                if (el.classList.contains('has-tables')) {
+                    el.style.removeProperty('--chapter-progress');
+                } else {
+                    el.style.setProperty('--chapter-progress', `${progressPercentage}%`);
+                }
             } else {
                 el.style.removeProperty('--chapter-progress');
             }
         });
+
+        // Highlight active table rows inside expanded tables
+        const container = this.els.container;
+        if (container) {
+            const tableRows = container.querySelectorAll('.table-row-clickable');
+            tableRows.forEach((row) => {
+                const tr = row as HTMLElement;
+                const sIdx = parseInt(tr.dataset.sentenceIndex || '-1', 10);
+                const cIdx = parseInt(tr.dataset.chapterIndex || '-1', 10);
+                const isActive = (cIdx === currentChapterIdx && sIdx === currentSentenceIdx);
+                tr.classList.toggle('active', isActive);
+            });
+        }
 
         // 3. Managed Scrolling (Smart)
         const activeIdx = currentChapterIdx;

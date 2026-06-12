@@ -1,6 +1,7 @@
 import { BaseComponent } from '../core/BaseComponent';
 import { renderWithLinks } from '../utils';
 import { PlaybackController } from '../playbackController';
+import { OutgoingAction } from '../../common/types';
 
 export interface SentenceNavigatorElements extends Record<string, HTMLElement | null> {
     navigator: HTMLElement | null;
@@ -27,6 +28,8 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
         isStalled: false,
         isSpeaking: false
     };
+    private currentChapterIndex: number = 0;
+    private expandedTables: string[] = [];
 
     constructor(elements: SentenceNavigatorElements) {
         super(elements);
@@ -51,18 +54,35 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
             this.state.isSpeaking = playback.isPlaying && !playback.isPaused;
             this.render();
         });
+
+        this.subscribe((state) => state.currentChapterIndex, (idx) => {
+            this.currentChapterIndex = idx || 0;
+            this.render();
+        });
+
+        this.subscribe((state) => state.expandedTables, (expanded) => {
+            this.expandedTables = expanded || [];
+            this.render();
+        });
     }
 
     /**
-     * Initializes event listeners for row-based jumping.
+     * Initializes event listeners for row-based jumping and table toggles.
      */
     protected onMount(): void {
         this.registerEventListener(this.els.prev, 'click', () => {
-            this.jump(this.state.currentIndex - 1);
+            const prevResult = this.getVisibleSentence('prev', this.state.currentIndex - 1);
+            if (prevResult.index !== -1) {
+                this.jump(prevResult.index);
+            }
         });
         this.registerEventListener(this.els.next, 'click', () => {
-            this.jump(this.state.currentIndex + 1);
+            const nextResult = this.getVisibleSentence('next', this.state.currentIndex + 1);
+            if (nextResult.index !== -1) {
+                this.jump(nextResult.index);
+            }
         });
+
     }
 
     /**
@@ -75,6 +95,44 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
 
         // [DELEGATION] All authority moved to PlaybackController
         PlaybackController.getInstance().jumpToSentence(index);
+    }
+
+    /**
+     * Helper to skip collapsed table cells and expanded table placeholders in UI prev/next previews.
+     */
+    private getVisibleSentence(dir: 'next' | 'prev', startIdx: number): { text: string; index: number } {
+        const sentences = this.state.sentences;
+        let idx = startIdx;
+        const expandedSet = new Set(this.expandedTables);
+
+        while (idx >= 0 && idx < sentences.length) {
+            const text = sentences[idx];
+            
+            // Cell check
+            const cellMatch = text.match(/^<!--VIRGO_TABLE_CELL:tableIndex=(\d+)/);
+            if (cellMatch) {
+                const tableIndex = cellMatch[1];
+                const key = `${this.currentChapterIndex}:${tableIndex}`;
+                if (!expandedSet.has(key)) {
+                    idx = (dir === 'next') ? idx + 1 : idx - 1;
+                    continue;
+                }
+            }
+
+            // Placeholder check
+            const tableMatch = text.match(/^<!--VIRGO_TABLE:{"tableIndex":(\d+)/);
+            if (tableMatch) {
+                const tableIndex = tableMatch[1];
+                const key = `${this.currentChapterIndex}:${tableIndex}`;
+                if (expandedSet.has(key)) {
+                    idx = (dir === 'next') ? idx + 1 : idx - 1;
+                    continue;
+                }
+            }
+
+            return { text, index: idx };
+        }
+        return { text: '', index: -1 };
     }
 
     /**
@@ -94,10 +152,10 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
 
         navigator.classList.toggle('stalled', this.state.isStalled);
 
-        const prevIdx = displayIndex - 1;
-        const nextIdx = displayIndex + 1;
+        const prevResult = this.getVisibleSentence('prev', displayIndex - 1);
+        const nextResult = this.getVisibleSentence('next', displayIndex + 1);
 
-        this.renderRow(prev, prevIdx >= 0 ? sentences[prevIdx] : '', prevIdx);
+        this.renderRow(prev, prevResult.text, prevResult.index);
         
         let currentText = displayIndex >= 0 ? sentences[displayIndex] : '';
         if (!currentText && sentences.length === 0) {
@@ -105,7 +163,7 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
         }
         
         this.renderRow(current, currentText, displayIndex, true);
-        this.renderRow(next, nextIdx < sentences.length ? sentences[nextIdx] : '', nextIdx);
+        this.renderRow(next, nextResult.text, nextResult.index);
     }
 
     private renderRow(el: HTMLElement | null, text: string, idx: number, isCurrent = false): void {
@@ -129,6 +187,14 @@ export class SentenceNavigator extends BaseComponent<SentenceNavigatorElements> 
         const isHebrew = /[\u0590-\u05FF]/.test(text);
         el.classList.toggle('rtl', isHebrew);
 
-        el.innerHTML = `<span>${renderWithLinks(text)}</span>`;
+        let cleanText = text;
+        if (text.includes('<!--VIRGO_TABLE:')) {
+            cleanText = text.replace(/^<!--VIRGO_TABLE:.*?-->/, '');
+        } else if (text.includes('<!--VIRGO_TABLE_CELL:')) {
+            cleanText = text.replace(/^<!--VIRGO_TABLE_CELL:.*?-->/, '');
+        }
+
+        el.innerHTML = `<span>${renderWithLinks(cleanText)}</span>`;
     }
 }
+
