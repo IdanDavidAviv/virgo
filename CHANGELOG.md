@@ -2,6 +2,14 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.13] - 2026-06-14
+
+### Added
+- **Smarter Segment Management (T-121)**: Introduced segment-state matrix in Webview PlaybackController to track segment lifecycles.
+- **Buffer Stall Recovery**: Added visual stall buffering indicators and priority retry triggers to resume playback seamlessly upon prefetch completion.
+- **Priority Lock Queue**: Implemented a priority queue-based mutex locking manager in vscode extension playback engine to prioritize interactive user requests over background prefetch requests.
+- **Late-Packet Ingestion**: Enabled late-packet ingestion matching active document context.
+
 ## [2.9.12] - 2026-06-14
 
 ### Added
