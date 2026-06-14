@@ -952,7 +952,7 @@ export class PlaybackController {
             const isNeural = engineMode === 'neural';
             const key = generateCacheKey(
                 s.text,
-                selectedVoice || 'default',
+                s.voice || selectedVoice || 'default',
                 rate,
                 activeDocumentUri,
                 isNeural
@@ -1019,7 +1019,7 @@ export class PlaybackController {
         const isNeural = state.engineMode === 'neural';
         const nextKey = generateCacheKey(
             nextSegment.text,
-            state.selectedVoice || 'default',
+            nextSegment.voice || state.selectedVoice || 'default',
             state.rate,
             state.activeDocumentUri,
             isNeural
@@ -1070,7 +1070,7 @@ export class PlaybackController {
         const isNeural = state.engineMode === 'neural';
         const nextKey = generateCacheKey(
             nextSegment.text,
-            state.selectedVoice || 'default',
+            nextSegment.voice || state.selectedVoice || 'default',
             state.rate,
             state.activeDocumentUri,
             isNeural
