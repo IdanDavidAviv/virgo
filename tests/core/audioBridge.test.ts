@@ -285,4 +285,39 @@ describe('AudioBridge', () => {
         // 3. Audio mirrored to the original oldKey
         expect(addToCacheSpy).toHaveBeenCalledWith(oldKey, 'base64audio', 1);
     });
+
+    describe('Language detection and voice selection filtering', () => {
+        it('should clean Windows paths, Unix paths, relative paths, and URLs before counting', () => {
+            const input = "הקוד נמצא ב-src/extension/core/audioBridge.ts והוא מעולה. תבדוק בבקשה את C:\\Program Files\\My App\\config.json or http://google.com/docs";
+            // After cleaning: "הקוד נמצא ב- והוא מעולה. תבדוק בבקשה את  or"
+            // Hebrew character count: "הקודנמצאבוהואמעולהתבדוקבבקשהאת" (29 chars)
+            // Total clean characters is 31 (including 'or'). Hebrew ratio is 29/31 = 93.5% (>= 30%).
+            // So it should resolve to Hebrew voice.
+            const voice = audioBridge['_resolveVoiceForSentence'](input, 'en-US-SteffanNeural');
+            expect(voice).toBe('he-IL-AvriNeural');
+        });
+
+        it('should resolve to English if there are paths and filenames but no Hebrew characters', () => {
+            const input = "Check out src/extension/core/audioBridge.ts or package.json for configuration.";
+            // After cleaning: "Check out or package.json for configuration." (mostly English)
+            const voice = audioBridge['_resolveVoiceForSentence'](input, 'he-IL-AvriNeural');
+            expect(voice).toBe('NeuralVoice');
+        });
+
+        it('should resolve to Hebrew if Hebrew is at least 30% of cleaned characters', () => {
+            const input = "Some English prefix here... אבל רוב המשפט הוא בעברית.";
+            // Clean characters: English (22 chars), Hebrew (18 chars). Total = 40. Hebrew ratio = 18/40 = 45% (>= 30%).
+            // So it should resolve to Hebrew voice.
+            const voice = audioBridge['_resolveVoiceForSentence'](input, 'en-US-SteffanNeural');
+            expect(voice).toBe('he-IL-AvriNeural');
+        });
+
+        it('should keep simple filenames in the cleaned text', () => {
+            const input = "תבדוק את package.json בבקשה";
+            // Clean characters: Hebrew "תבדוקאתבבקשה" (12 chars), English "packagejson" (11 chars). Total = 23. Hebrew ratio = 12/23 = 52.1% (>= 30%).
+            // So it should resolve to Hebrew voice.
+            const voice = audioBridge['_resolveVoiceForSentence'](input, 'en-US-SteffanNeural');
+            expect(voice).toBe('he-IL-AvriNeural');
+        });
+    });
 });

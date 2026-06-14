@@ -2,24 +2,20 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
-## [2.9.13] - 2026-06-14
+## [2.9.12] - 2026-06-14
 
 ### Added
 - **Dynamic Background Backoff Probe**: Implemented exponential backoff checks (5s, 15s, 30s, 60s, then capping at 5 minutes) when the neural connection is stalled.
-
-### Fixed
-- **Proactive Background Probing**: Decoupled the stall probe timer from the active playback state (`_isPlaying`) so that server health recovery is detected immediately in the background.
-- **Fail-Fast Watchdog Timeout**: Reduced the neural stream chunk watchdog timeout from 15 seconds to 4 seconds to fail fast and free synthesis locks on hangs.
-- **Corrected Probing Payload**: Changed probe text to "ping" to force real communication and prevent mock-success false positives.
-
-## [2.9.12] - 2026-06-12
-
-### Added
 - **Expandable Tables Support**: Markdown tables are now split into separate standalone chapters and rendered as inline collapsible tables.
 - **Interactive Row Navigation**: Clicking any table row in the inline table jumps playback directly to that row.
 - **Active Row Highlighting**: The currently playing table row is highlighted dynamically in the expanded table view.
 
 ### Fixed
+- **Prefetch Preservation on Transition**: Normal sentence-to-sentence advances (auto-advances) will no longer trigger an authoritative prefetch queue clear. Prefetch streams will continue synthesizing uninterrupted in the background.
+- **Priority Synthesis Debouncing (Fast Skipping)**: When clicking buttons or jumping sentences rapidly (less than 800ms apart), priority synthesis requests for cache misses will be debounced by 300ms. If the user skips to the next sentence within this window, the pending synthesis is discarded before ever hitting the server, keeping the lock queue clear. Cache hits will continue to play instantly without any delay.
+- **Proactive Background Probing**: Decoupled the stall probe timer from the active playback state (`_isPlaying`) so that server health recovery is detected immediately in the background.
+- **Fail-Fast Watchdog Timeout**: Reduced the neural stream chunk watchdog timeout from 15 seconds to 4 seconds to fail fast and free synthesis locks on hangs.
+- **Corrected Probing Payload**: Changed probe text to "ping" to force real communication and prevent mock-success false positives.
 - **Bilingual Prefetch Voice Resolution**: Dynamically resolves target voice and language for prefetch targets, preventing Edge-TTS socket stalls and playback hangs during Hebrew-English transitions.
 - **Speech Comment Sanitization**: Strips internal table syntax comments first during sanitization to prevent them from being spoken.
 - **Playback Jump Sync**: Resolved state clashing on playback jumps by ignoring programmatic pause events.

@@ -359,7 +359,7 @@ export class PlaybackEngine extends EventEmitter {
     }
 
 
-    public stop(intentId?: number, forceBatchReset: boolean = false, silent: boolean = false) {
+    public stop(intentId?: number, forceBatchReset: boolean = false, silent: boolean = false, keepPrefetch: boolean = false) {
         this.logger(`[ENGINE] Stop (Intent: ${intentId ?? this._stateStore.state.playbackIntentId} | ForceBatch: ${forceBatchReset}${silent ? ' | SILENT' : ''})`);
 
         this._isPlaying = false;
@@ -388,10 +388,12 @@ export class PlaybackEngine extends EventEmitter {
         if (this._batchAbortController) {
             this._batchAbortController.abort('Stop Action');
         }
-        for (const [key, controller] of this._prefetchAbortControllers) {
-            controller.abort('Stop Action');
+        if (!keepPrefetch) {
+            for (const [key, controller] of this._prefetchAbortControllers) {
+                controller.abort('Stop Action');
+            }
+            this._prefetchAbortControllers.clear();
         }
-        this._prefetchAbortControllers.clear();
     }
 
 

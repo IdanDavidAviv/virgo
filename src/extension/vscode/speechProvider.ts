@@ -1425,13 +1425,14 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             const metadata = this._docController.metadata;
             const chapters = this._docController.chapters;
 
-            // Detect dominant language (>50% clean characters check)
+            // Detect dominant language (>=30% clean characters check)
             let totalChars = 0;
             let hebrewChars = 0;
             for (const ch of chapters) {
                 if (ch.sentences) {
                     for (const s of ch.sentences) {
-                        const cleanStr = s.replace(/[\s\d\p{P}]/gu, '');
+                        const cleanS = cleanTextForLanguageDetection(s);
+                        const cleanStr = cleanS.replace(/[\s\d\p{P}]/gu, '');
                         totalChars += cleanStr.length;
                         const hebrewMatches = cleanStr.match(/[\u0590-\u05FF]/g);
                         if (hebrewMatches) {
@@ -1440,7 +1441,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     }
                 }
             }
-            const isHebrewDominant = totalChars > 0 && (hebrewChars / totalChars) > 0.5;
+            const isHebrewDominant = totalChars > 0 && (hebrewChars / totalChars) >= 0.3;
             const docLang = isHebrewDominant ? 'he' : 'en';
             this._logger(`[DOC_LOAD] Language detection: clean_chars=${totalChars}, hebrew_chars=${hebrewChars} | isHebrewDominant=${isHebrewDominant}`);
 
@@ -1720,4 +1721,21 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         }
         return undefined;
     }
+}
+
+function cleanTextForLanguageDetection(text: string): string {
+    // 1. Strip markdown image links first: ![alt](url)
+    let clean = text.replace(/!\[[^\]]*\]\([^)]*\)/g, '');
+    // 2. Strip standard markdown links: [text](url)
+    clean = clean.replace(/\[[^\]]*\]\([^)]*\)/g, '');
+    // 3. Strip raw URLs (HTTP/HTTPS/FILE)
+    clean = clean.replace(/(?:https?|file):\/\/[^\s]+/gi, '');
+    clean = clean.replace(/www\.[^\s]+/gi, '');
+    // 4. Strip Windows absolute paths
+    clean = clean.replace(/[a-zA-Z]:[\\/](?:[^"'\r\n\s]+|\s+(?=[^"'\r\n\s]*[\\/]))*/g, '');
+    // 5. Strip Unix absolute paths
+    clean = clean.replace(/(?<!\w)\/(?:[^"'\r\n\s]+|\s+(?=[^"'\r\n\s]*[\\/]))*/g, '');
+    // 6. Strip relative paths
+    clean = clean.replace(/\b[a-zA-Z0-9_\-\.]+(?:\/|\\)(?:[^"'\r\n\s]+|\s+(?=[^"'\r\n\s]*[\\/]))*/g, '');
+    return clean;
 }

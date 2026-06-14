@@ -46,6 +46,8 @@ export class AudioBridge extends EventEmitter {
     private _lastPlayAudioCacheKey: string = '';
     private _lastSentenceChangeTime: number = 0;
     private _prefetchTimeout: NodeJS.Timeout | null = null;
+    private _prioritySynthesisTimeout: NodeJS.Timeout | null = null;
+    private _isRapidSkipping: boolean = false;
 
     constructor(
         private readonly _stateStore: StateStore,
@@ -204,10 +206,20 @@ export class AudioBridge extends EventEmitter {
         this._latchedVoiceId = activeOptions.voice;
         this._latchedRate = activeOptions.rate;
 
+        if (this._prioritySynthesisTimeout) {
+            clearTimeout(this._prioritySynthesisTimeout);
+            this._prioritySynthesisTimeout = null;
+        }
+
+        const now = Date.now();
+        const timeSinceLastChange = now - this._lastSentenceChangeTime;
+        this._lastSentenceChangeTime = now;
+        this._isRapidSkipping = timeSinceLastChange > 0 && timeSinceLastChange < 800;
+
         // CRITICAL: Stop any in-flight synthesis or sequences before starting a new one.
         // We use silent=true here because we are about to setPlaying(true) in line 159,
         // and we want to avoid emitting a transient "isPlaying: false" state to the UI.
-        this._playbackEngine.stop(finalIntent, false, true);
+        this._playbackEngine.stop(finalIntent, false, true, true);
 
         // [UM-1] User Intent Gate: Only allow setPlaying(true) when a human gesture
         // has explicitly authorized it via authorizePlayback(). This prevents LOAD_DOCUMENT
@@ -318,9 +330,22 @@ export class AudioBridge extends EventEmitter {
             } else {
                 this._logger(`[BRIDGE] Sovereign Cache MISS: ${cacheKey}. Triggering direct synthesis.`);
                 this._stateStore.setLoadType('synth');
-                // [Handshake_v3] Instead of faking a ready signal, we trigger and await synthesis.
-                // This anchors the start() task until the engine has actually processed the segment.
-                await this.synthesize(cacheKey, activeOptions, finalIntent, resolutionBatch, true);
+                
+                if (this._isRapidSkipping) {
+                    const debounceDelay = 300;
+                    this._prioritySynthesisTimeout = setTimeout(async () => {
+                        this._prioritySynthesisTimeout = null;
+                        try {
+                            if (this._playbackEngine.playbackIntentId === finalIntent && this._playbackEngine.batchIntentId === resolutionBatch) {
+                                await this.synthesize(cacheKey, activeOptions, finalIntent, resolutionBatch, true);
+                            }
+                        } catch (e: any) {
+                            this._logger(`[BRIDGE] Debounced synthesis failed: ${e.message}`);
+                        }
+                    }, debounceDelay);
+                } else {
+                    await this.synthesize(cacheKey, activeOptions, finalIntent, resolutionBatch, true);
+                }
             }
 
             if (!this._stateStore.state.isPreviewing) {
@@ -487,6 +512,10 @@ export class AudioBridge extends EventEmitter {
     }
 
     public stop(intentId?: number, batchId?: number) {
+        if (this._prioritySynthesisTimeout) {
+            clearTimeout(this._prioritySynthesisTimeout);
+            this._prioritySynthesisTimeout = null;
+        }
         // [SINGLE-SINK] Clear active key so any late in-flight synthesis-complete
         // cannot match and will safely route to dataPush (harmless cache warm) instead of synthesisReady.
         this._activeCacheKey = '';
@@ -724,12 +753,8 @@ export class AudioBridge extends EventEmitter {
             this._prefetchTimeout = null;
         }
 
-        const now = Date.now();
-        const timeSinceLastChange = now - this._lastSentenceChangeTime;
-        this._lastSentenceChangeTime = now;
-
-        // Debounce delay: 1500ms if user is skipping rapidly (interval < 1000ms), otherwise default 200ms
-        const delay = timeSinceLastChange < 1000 ? 1500 : 200;
+        // Debounce delay: 1500ms if user is skipping rapidly, otherwise default 200ms
+        const delay = this._isRapidSkipping ? 1500 : 200;
 
         // DEBOUNCE & LIMIT PREFETCH (Prevents queue bloat during rapid clicking)
         this._prefetchTimeout = setTimeout(() => {
@@ -797,14 +822,15 @@ export class AudioBridge extends EventEmitter {
     }
 
     private _resolveVoiceForSentence(sentence: string, currentVoice: string): string {
-        const cleanStr = sentence.replace(/[\s\d\p{P}]/gu, '');
+        const cleanS = cleanTextForLanguageDetection(sentence);
+        const cleanStr = cleanS.replace(/[\s\d\p{P}]/gu, '');
         const totalChars = cleanStr.length;
         
         let sentenceLang = currentVoice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
         if (totalChars >= 8) {
             const hebrewMatches = cleanStr.match(/[\u0590-\u05FF]/g);
             const hebrewChars = hebrewMatches ? hebrewMatches.length : 0;
-            const isHebrew = (hebrewChars / totalChars) > 0.5;
+            const isHebrew = (hebrewChars / totalChars) >= 0.3;
             sentenceLang = isHebrew ? 'he' : 'en';
         }
 
@@ -825,4 +851,21 @@ export class AudioBridge extends EventEmitter {
             this._logger(`[BRIDGE] Sovereign Manifest Delta: +${delta.added.length}, -${delta.removed.length}. Total: ${this._webviewCacheManifest.size}`);
         }
     }
+}
+
+function cleanTextForLanguageDetection(text: string): string {
+    // 1. Strip markdown image links first: ![alt](url)
+    let clean = text.replace(/!\[[^\]]*\]\([^)]*\)/g, '');
+    // 2. Strip standard markdown links: [text](url)
+    clean = clean.replace(/\[[^\]]*\]\([^)]*\)/g, '');
+    // 3. Strip raw URLs (HTTP/HTTPS/FILE)
+    clean = clean.replace(/(?:https?|file):\/\/[^\s]+/gi, '');
+    clean = clean.replace(/www\.[^\s]+/gi, '');
+    // 4. Strip Windows absolute paths
+    clean = clean.replace(/[a-zA-Z]:[\\/](?:[^"'\r\n\s]+|\s+(?=[^"'\r\n\s]*[\\/]))*/g, '');
+    // 5. Strip Unix absolute paths
+    clean = clean.replace(/(?<!\w)\/(?:[^"'\r\n\s]+|\s+(?=[^"'\r\n\s]*[\\/]))*/g, '');
+    // 6. Strip relative paths
+    clean = clean.replace(/\b[a-zA-Z0-9_\-\.]+(?:\/|\\)(?:[^"'\r\n\s]+|\s+(?=[^"'\r\n\s]*[\\/]))*/g, '');
+    return clean;
 }
