@@ -56,10 +56,10 @@ describe('Sovereign Intent Alignment (Extension Side)', () => {
         // This is harder to test directly without mocking the internal _acquireLock,
         // but we can verify that multiple calls to _getNeuralAudio behave correctly.
         // For now, we'll verify the helper exists and behaves as a semaphore.
-        const release1 = await (engine as any)._acquireLock();
+        const release1 = await (engine as any)._acquireSynthesisLock(false);
         
         let lock2Acquired = false;
-        const lock2Promise = (engine as any)._acquireLock().then((release: any) => {
+        const lock2Promise = (engine as any)._acquireSynthesisLock(false).then((release: any) => {
             lock2Acquired = true;
             release();
         });

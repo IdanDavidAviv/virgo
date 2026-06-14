@@ -2,6 +2,7 @@ import { WebviewStore } from './WebviewStore';
 import { AudioEngineEvent, AudioEngineEventType, OutgoingAction } from '../../common/types';
 import { CacheManager } from '../cacheManager';
 import { MessageClient } from './MessageClient';
+import { PlaybackController } from '../playbackController';
 
 /**
  * WebviewAudioEngine: Simplified "Dumb Player" Worker (v2.3.2)
@@ -361,6 +362,7 @@ export class WebviewAudioEngine {
         const buffer = this._base64ToBuffer(base64);
         const blob = new Blob([buffer.buffer as ArrayBuffer], { type: 'audio/mpeg' });
         await CacheManager.getInstance().set(cacheKey, blob, intentId);
+        PlaybackController.getInstance().checkPlaybackStallRecovery();
     } catch (e: any) {
         // [UM-4 FIX] Extract the actual error message — passing Error objects to console.error
         // prints them as '{}' (no enumerable properties), hiding the root cause from logs.

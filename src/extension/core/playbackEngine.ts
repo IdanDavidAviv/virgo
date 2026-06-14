@@ -18,7 +18,8 @@ export class PlaybackEngine extends EventEmitter {
     private _ttsReady: Promise<void> | null = null;
     private _reinitCooldown: number = 0;
     private readonly REINIT_COOLDOWN_MS = 5000;
-    private _synthesisLock: Promise<void> = Promise.resolve();
+    private _synthesisQueue: { isPriority: boolean; resolve: () => void }[] = [];
+    private _activeSynthesisRunning: boolean = false;
 
     // Unified LRU Cache for all synthesized audio
     private _audioCache: Map<string, string> = new Map();
@@ -77,15 +78,66 @@ export class PlaybackEngine extends EventEmitter {
         this._logLevel = level;
     }
 
-    private async _acquireLock() {
-        let release: () => void;
-        const nextLock = new Promise<void>(resolve => {
-            release = resolve;
+    private _acquireSynthesisLock(isPriority: boolean, segmentSignal?: AbortSignal, batchSignal?: AbortSignal): Promise<() => void> {
+        return new Promise<() => void>((resolve, reject) => {
+            let queueItem: { isPriority: boolean; resolve: () => void } | null = null;
+
+            const onAbort = (reason: string) => {
+                if (queueItem) {
+                    const idx = this._synthesisQueue.indexOf(queueItem);
+                    if (idx !== -1) {
+                        this._synthesisQueue.splice(idx, 1);
+                    }
+                }
+                reject(new Error(reason));
+            };
+
+            if (batchSignal?.aborted) { return onAbort('Batch Synthesis Aborted'); }
+            if (segmentSignal?.aborted) { return onAbort('Segment Aborted'); }
+
+            const batchAbortHandler = () => onAbort('Batch Synthesis Aborted');
+            const segmentAbortHandler = () => onAbort('Segment Aborted');
+
+            batchSignal?.addEventListener('abort', batchAbortHandler, { once: true });
+            segmentSignal?.addEventListener('abort', segmentAbortHandler, { once: true });
+
+            queueItem = {
+                isPriority,
+                resolve: () => {
+                    batchSignal?.removeEventListener('abort', batchAbortHandler);
+                    segmentSignal?.removeEventListener('abort', segmentAbortHandler);
+                    resolve(() => {
+                        this._activeSynthesisRunning = false;
+                        this._processSynthesisQueue();
+                    });
+                }
+            };
+
+            if (isPriority) {
+                const insertIndex = this._synthesisQueue.findIndex(item => !item.isPriority);
+                if (insertIndex === -1) {
+                    this._synthesisQueue.push(queueItem);
+                } else {
+                    this._synthesisQueue.splice(insertIndex, 0, queueItem);
+                }
+            } else {
+                this._synthesisQueue.push(queueItem);
+            }
+
+            this._processSynthesisQueue();
         });
-        const currentLock = this._synthesisLock;
-        this._synthesisLock = nextLock;
-        await currentLock;
-        return release!;
+    }
+
+    private _processSynthesisQueue() {
+        if (this._activeSynthesisRunning || this._synthesisQueue.length === 0) {
+            return;
+        }
+
+        this._activeSynthesisRunning = true;
+        const nextItem = this._synthesisQueue.shift();
+        if (nextItem) {
+            nextItem.resolve();
+        }
     }
 
     public setCacheLimitMb(mb: number) {
@@ -622,9 +674,11 @@ export class PlaybackEngine extends EventEmitter {
         const segmentSignal = isPriority ? this._activeSegmentAbortController?.signal : prefetchController.signal;
         const batchSignal = this._abortController?.signal;
 
+        const targetDocUri = this._stateStore.state.activeDocumentUri?.toString();
+
         this._runNeuralSynthesis(
             text, cacheKey, options, isPriority, currentIntentId, currentBatchId,
-            segmentSignal, batchSignal, taskResolve, taskReject
+            segmentSignal, batchSignal, taskResolve, taskReject, targetDocUri
         );
 
         return task;
@@ -640,30 +694,23 @@ export class PlaybackEngine extends EventEmitter {
         segmentSignal: AbortSignal | undefined,
         batchSignal: AbortSignal | undefined,
         taskResolve: (val: string | null) => void,
-        taskReject: (err: any) => void
+        taskReject: (err: any) => void,
+        targetDocUri?: string
     ) {
-        const release = this._synthesisLock;
-        let resolveLock!: () => void;
-        this._synthesisLock = new Promise(r => resolveLock = r);
+        let release: (() => void) | undefined;
 
         try {
             this.logger(`[NEURAL] WAITING LOCK: ${cacheKey}`);
 
-            // Wait for existing lock OR early abort
-            await Promise.race([
-                release,
-                new Promise((_, reject) => {
-                    const onAbort = (msg: string) => reject(new Error(msg));
+            // Acquire synthesis lock (priority-aware queue)
+            release = await this._acquireSynthesisLock(isPriority, segmentSignal, batchSignal);
 
-                    if (batchSignal?.aborted) { return onAbort('Batch Synthesis Aborted'); }
-                    if (segmentSignal?.aborted) { return onAbort('Segment Aborted'); }
-                    if (currentBatchId !== this._stateStore.state.batchIntentId) { return onAbort('Stale Context'); }
-                    if (isPriority && currentIntentId !== this._stateStore.state.playbackIntentId) { return onAbort('Stale Intent'); }
-
-                    batchSignal?.addEventListener('abort', () => onAbort('Batch Synthesis Aborted'), { once: true });
-                    segmentSignal?.addEventListener('abort', () => onAbort('Segment Aborted'), { once: true });
-                })
-            ]);
+            if (currentBatchId !== this._stateStore.state.batchIntentId) {
+                throw new Error('Stale Context');
+            }
+            if (isPriority && currentIntentId !== this._stateStore.state.playbackIntentId) {
+                throw new Error('Stale Intent');
+            }
 
             // [Gate 3] Mark synthesis as active — _reinitTTS() will defer if called now
             this._synthesisActive++;
@@ -671,7 +718,7 @@ export class PlaybackEngine extends EventEmitter {
 
             const data = await this._getNeuralAudio(
                 text, options.voice, options.retryCount ?? this._retryAttempts,
-                currentIntentId, isPriority, currentBatchId, segmentSignal
+                currentIntentId, isPriority, currentBatchId, segmentSignal, targetDocUri
             );
 
             if (isPriority) { this._updateStatus(undefined, undefined, false); }
@@ -697,7 +744,10 @@ export class PlaybackEngine extends EventEmitter {
             this.emit('synthesis-failed', { cacheKey, error: msg, intentId: currentIntentId });
             taskReject(err);
         } finally {
-            this.logger(`[NEURAL] RELEASING LOCK: ${cacheKey}`);
+            if (release) {
+                this.logger(`[NEURAL] RELEASING LOCK: ${cacheKey}`);
+                release();
+            }
             this._synthesisActive = Math.max(0, this._synthesisActive - 1);
             // [Gate 3] Execute any deferred reinit now that the lock is released
             if (this._pendingReinit && this._synthesisActive === 0) {
@@ -705,17 +755,36 @@ export class PlaybackEngine extends EventEmitter {
                 this.logger('[NEURAL] ✅ Executing deferred re-init (lock released).');
                 this._executeReinit();
             }
-            resolveLock();
             this._pendingTasks.delete(cacheKey);
             this._prefetchAbortControllers.delete(cacheKey);
         }
     }
 
-    private async _getNeuralAudio(text: string, voiceId: string, retryCount = 1, intentId: number, isPriority: boolean, batchId: number, signal?: AbortSignal): Promise<string | null> {
-        // EXIT IMMEDIATELY IF BATCH IS STALE
-        if (batchId !== this._stateStore.state.batchIntentId) {
-            this.logger(`[NEURAL] EJECTED (Post-lock) - Batch ${batchId} is stale.`);
+    private async _getNeuralAudio(
+        text: string,
+        voiceId: string,
+        retryCount = 1,
+        intentId: number,
+        isPriority: boolean,
+        batchId: number,
+        signal?: AbortSignal,
+        targetDocUri?: string
+    ): Promise<string | null> {
+        // EXIT IMMEDIATELY IF DOCUMENT CONTEXT HAS CHANGED
+        const currentDocUri = this._stateStore.state.activeDocumentUri?.toString();
+        if (targetDocUri && currentDocUri !== targetDocUri) {
+            this.logger(`[NEURAL] EJECTED (Post-lock) - Document context changed.`);
             return null;
+        }
+
+        // EXIT IMMEDIATELY IF BATCH IS STALE AND DOCUMENT CHANGED
+        if (batchId !== this._stateStore.state.batchIntentId) {
+            if (targetDocUri && currentDocUri === targetDocUri) {
+                this.logger(`[NEURAL] LATE-PACKET ACCEPTED - Batch ${batchId} is older but matches active document context.`);
+            } else {
+                this.logger(`[NEURAL] EJECTED (Post-lock) - Batch ${batchId} is stale.`);
+                return null;
+            }
         }
 
         // EXIT IMMEDIATELY IF INTENT IS STALE (Only for priority tasks)

@@ -31,6 +31,7 @@ export class PlaybackController {
     private transitionExpiry: number = 0;
     private readonly TRANSITION_WINDOW_MS = 500; // [UI] 500ms window to ignore index syncs after a jump
     private synthesizingKeys: Set<string> = new Set();
+    private segmentStates: Map<string, 'PENDING' | 'SYNTHESIZING' | 'CACHED' | 'FAILED'> = new Map();
     private readonly MAX_CONCURRENT_SYNTHESIS = 3;
     /** [AUTOPLAY GUARD] True only after the user has explicitly clicked Play/Jump or interacted with the webview. */
     private _userHasInteracted: boolean = false;
@@ -95,6 +96,7 @@ export class PlaybackController {
         if (this.instance) {
             this.instance.clearIntent();
             this.instance.synthesizingKeys.clear();
+            this.instance.segmentStates.clear();
             this.instance.dispose();
         }
         if (typeof window !== 'undefined' && (window as any).__PLAYBACK_CONTROLLER__) {
@@ -527,7 +529,7 @@ export class PlaybackController {
                     isAwaitingSync: false
                 });
                 if (!store.getState().isSelectingVoice) {
-                    MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: event.intentId });
+                    this.handleSentenceEnded(event.intentId);
                 } else {
                     console.log('[PlaybackController] ⏸️ Suppression: Audio ended during voice selection. Auto-advance suppressed.');
                 }
@@ -912,6 +914,7 @@ export class PlaybackController {
     public flushQueue(): void {
         console.log('[PlaybackController] 🚽 Flushing FIFO Queue');
         this.synthesizingKeys.clear();
+        this.segmentStates.clear();
         WebviewStore.getInstance().setQueue([]);
         WebviewAudioEngine.getInstance().purgeMemory();
     }
@@ -968,6 +971,128 @@ export class PlaybackController {
                     batchId: store.getState().batchIntentId,
                     isPriority: s.cIdx === currentChapterIndex && s.sIdx === currentSentenceIndex
                 });
+            }
+        }
+    }
+
+    public markSegmentFailed(key: string): void {
+        console.log(`[PlaybackController] ❌ Marking segment failed: ${key}`);
+        this.segmentStates.set(key, 'FAILED');
+        this.checkPlaybackStallRecovery();
+    }
+
+    private getSegmentState(key: string): 'PENDING' | 'SYNTHESIZING' | 'CACHED' | 'FAILED' {
+        if (this.segmentStates.get(key) === 'FAILED') {
+            return 'FAILED';
+        }
+        if (WebviewAudioEngine.getInstance().isSegmentReady(key)) {
+            return 'CACHED';
+        }
+        if (this.synthesizingKeys.has(key)) {
+            return 'SYNTHESIZING';
+        }
+        return 'PENDING';
+    }
+
+    private handleSentenceEnded(endedIntentId?: number): void {
+        const store = WebviewStore.getInstance();
+        const state = store.getState();
+        const queue = store.getUIState().activeQueue || [];
+
+        if (queue.length === 0) {
+            MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: endedIntentId });
+            return;
+        }
+
+        const currIdx = queue.findIndex(s => s.cIdx === state.currentChapterIndex && s.sIdx === state.currentSentenceIndex);
+        if (currIdx === -1) {
+            MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: endedIntentId });
+            return;
+        }
+
+        const nextSegment = queue[currIdx + 1];
+        if (!nextSegment) {
+            MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: endedIntentId });
+            return;
+        }
+
+        const isNeural = state.engineMode === 'neural';
+        const nextKey = generateCacheKey(
+            nextSegment.text,
+            state.selectedVoice || 'default',
+            state.rate,
+            state.activeDocumentUri,
+            isNeural
+        );
+
+        const nextState = this.getSegmentState(nextKey);
+        console.log(`[PlaybackController] 🏁 Segment ended. Next segment state for ${nextKey.substring(0, 15)}... is ${nextState}`);
+
+        if (nextState === 'CACHED' || state.engineMode !== 'neural') {
+            MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: endedIntentId });
+        } else if (nextState === 'FAILED') {
+            console.warn(`[PlaybackController] ⚠️ Skipping failed segment: ${nextSegment.text}`);
+            ToastManager.show('Skipped offline/failed sentence', 'warning');
+            
+            const afterNextSegment = queue[currIdx + 2];
+            if (afterNextSegment) {
+                this.jumpToSentence(afterNextSegment.sIdx, afterNextSegment.cIdx);
+            } else {
+                MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: endedIntentId });
+            }
+        } else {
+            console.log(`[PlaybackController] ⏳ Next segment is not ready. Stalling playback.`);
+            store.patchState({ playbackStalled: true });
+            store.updateUIState({ isBuffering: true });
+
+            // Send priority synthesis request
+            MessageClient.getInstance().postAction(OutgoingAction.RETRY_SYNTHESIS, {
+                cacheKey: nextKey,
+                text: nextSegment.text,
+                intentId: store.getState().playbackIntentId,
+                batchId: store.getState().batchIntentId
+            });
+        }
+    }
+
+    public checkPlaybackStallRecovery(): void {
+        const store = WebviewStore.getInstance();
+        const state = store.getState();
+        if (!state.playbackStalled) { return; }
+
+        const queue = store.getUIState().activeQueue || [];
+        const currIdx = queue.findIndex(s => s.cIdx === state.currentChapterIndex && s.sIdx === state.currentSentenceIndex);
+        if (currIdx === -1) { return; }
+
+        const nextSegment = queue[currIdx + 1];
+        if (!nextSegment) { return; }
+
+        const isNeural = state.engineMode === 'neural';
+        const nextKey = generateCacheKey(
+            nextSegment.text,
+            state.selectedVoice || 'default',
+            state.rate,
+            state.activeDocumentUri,
+            isNeural
+        );
+
+        const nextState = this.getSegmentState(nextKey);
+        if (nextState === 'CACHED') {
+            console.log(`[PlaybackController] ⚡ Next segment is now CACHED. Recovering from stall.`);
+            store.patchState({ playbackStalled: false });
+            store.updateUIState({ isBuffering: false });
+            MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: state.playbackIntentId });
+        } else if (nextState === 'FAILED') {
+            console.log(`[PlaybackController] ⚡ Next segment FAILED. Recovering from stall by skipping.`);
+            store.patchState({ playbackStalled: false });
+            store.updateUIState({ isBuffering: false });
+            ToastManager.show('Skipped offline/failed sentence', 'warning');
+            
+            const afterNextSegment = queue[currIdx + 2];
+            if (afterNextSegment) {
+                this.jumpToSentence(afterNextSegment.sIdx, afterNextSegment.cIdx);
+            } else {
+                MessageClient.getInstance().postAction(OutgoingAction.SENTENCE_ENDED, { intentId: state.playbackIntentId });
             }
         }
     }
