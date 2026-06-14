@@ -52,6 +52,7 @@ export class PlaybackEngine extends EventEmitter {
     private _neuralHealth: 'HEALTHY' | 'DEGRADED' | 'STALLED' = 'HEALTHY';
     private _lastNeuralSuccessTime: number = Date.now();
     private _consecutiveNeuralErrors: number = 0;
+    private _consecutiveProbeFailures: number = 0;
     // [SOVEREIGN RESET] Removed legacy 5-minute fallback timer. 
     // Health is now governed by explicit manual intent and reactive success signals.
     // [Gate 3] Startup Orchestration — lock-aware TTS disposal.
@@ -185,6 +186,7 @@ export class PlaybackEngine extends EventEmitter {
         this._neuralHealth = 'HEALTHY';
         this._lastNeuralSuccessTime = Date.now();
         this._consecutiveNeuralErrors = 0;
+        this._consecutiveProbeFailures = 0;
         this._clearProbeTimer();
     }
 
@@ -205,18 +207,29 @@ export class PlaybackEngine extends EventEmitter {
         }
     }
 
-    private _startProbeTimer() {
+    private _getProbeDelayMs(): number {
+        // Backoff sequence based on consecutive failures:
+        // 1 failure: 5s, 2 failures: 15s, 3 failures: 30s, 4 failures: 60s, 5+ failures: 300s
+        if (this._consecutiveProbeFailures <= 1) { return 5000; }
+        if (this._consecutiveProbeFailures === 2) { return 15000; }
+        if (this._consecutiveProbeFailures === 3) { return 30000; }
+        if (this._consecutiveProbeFailures === 4) { return 60000; }
+        return 300000; // Cap at 5 minutes
+    }
+
+    private _startProbeTimer(immediate = false) {
         this._clearProbeTimer();
-        if (!this._isPlaying || this._neuralHealth !== 'STALLED') {
+        if (this._neuralHealth !== 'STALLED') {
             return;
         }
+        const delay = immediate ? 0 : this._getProbeDelayMs();
         this._probeTimer = setTimeout(async () => {
-            if (!this._isPlaying || this._neuralHealth !== 'STALLED') { return; }
+            if (this._neuralHealth !== 'STALLED') { return; }
             this.logger(`[NEURAL] 🩺 Running background active probe...`);
             this._probeAbortController = new AbortController();
             try {
                 const data = await this._getNeuralAudio(
-                    " ",
+                    "ping",
                     "en-US-SteffanNeural",
                     0,
                     this._stateStore.state.playbackIntentId,
@@ -225,16 +238,18 @@ export class PlaybackEngine extends EventEmitter {
                     this._probeAbortController.signal
                 );
                 if (data) {
-                    this.logger(`[NEURAL] ❤️‍🩹 Probe succeeded. Health restored.`);
+                    this.logger(`[NEURAL] ❤️‍\u05b5 Probe succeeded. Health restored.`);
                     this.resetNeuralHealth();
                 } else {
-                    this._startProbeTimer();
+                    this._consecutiveProbeFailures++;
+                    this._startProbeTimer(false);
                 }
             } catch (err: any) {
-                this.logger(`[NEURAL] 🩺 Probe failed: ${err.message}. Rescheduling in 30s.`);
-                this._startProbeTimer();
+                this._consecutiveProbeFailures++;
+                this.logger(`[NEURAL] 🩺 Probe failed: ${err.message}. Rescheduling in ${this._getProbeDelayMs() / 1000}s.`);
+                this._startProbeTimer(false);
             }
-        }, 30000);
+        }, delay);
     }
 
     /**
@@ -283,7 +298,9 @@ export class PlaybackEngine extends EventEmitter {
         if (intentId !== undefined) { this.adoptIntent(intentId); }
         this._updateStatus(!val ? this._isPlaying : false, val);
         if (val) {
-            this._clearProbeTimer();
+            if (this._neuralHealth !== 'STALLED') {
+                this._clearProbeTimer();
+            }
             for (const [key, controller] of this._prefetchAbortControllers) {
                 controller.abort('Playback Paused');
             }
@@ -349,7 +366,9 @@ export class PlaybackEngine extends EventEmitter {
         this._isPaused = false;
         this._isStalled = false;
 
-        this._clearProbeTimer();
+        if (this._neuralHealth !== 'STALLED') {
+            this._clearProbeTimer();
+        }
 
         if (!silent) {
             this._updateStatus();
@@ -823,7 +842,7 @@ export class PlaybackEngine extends EventEmitter {
                     }, timeoutMs);
                 };
 
-                startWatchdog(15000); // Wait 15s for first chunk
+                startWatchdog(4000); // Wait 4s for first chunk
 
                 const onAbort = () => {
                     this.logger(`[TTS STREAM] ABORT SIGNAL received.`);
@@ -840,7 +859,7 @@ export class PlaybackEngine extends EventEmitter {
                     if (hasErrored) { return; }
 
                     // Reset watchdog
-                    startWatchdog(15000);
+                    startWatchdog(4000);
 
                     if (chunks.length === 0) {
                         this.logger(`[TTS STREAM] STARTING (chunk 0)`);
@@ -889,7 +908,7 @@ export class PlaybackEngine extends EventEmitter {
                         controller.abort('Health Stalled (Offline)');
                     }
                     this._prefetchAbortControllers.clear();
-                    this._startProbeTimer();
+                    this._startProbeTimer(true);
                 } else {
                     this._consecutiveNeuralErrors++;
                     if (this._consecutiveNeuralErrors >= 3) {
@@ -899,7 +918,7 @@ export class PlaybackEngine extends EventEmitter {
                             controller.abort('Health Stalled (Errors)');
                         }
                         this._prefetchAbortControllers.clear();
-                        this._startProbeTimer();
+                        this._startProbeTimer(true);
                     } else {
                         this._neuralHealth = 'DEGRADED';
                         this.logger(`[NEURAL] ⚠️ Health degraded to DEGRADED (Consecutive errors: ${this._consecutiveNeuralErrors}/3).`);

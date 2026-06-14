@@ -88,7 +88,7 @@ describe('PlaybackEngine Stall Detection & Recovery', () => {
         expect(engine.neuralHealth).toBe('STALLED');
     });
 
-    it('should not schedule probe timer if player is paused or stopped', async () => {
+    it('should schedule background probe timer even if player is paused or stopped', async () => {
         mockTtsInstance.toStream.mockImplementation(() => {
             const stream = new EventEmitter() as any;
             stream.destroy = vi.fn();
@@ -106,12 +106,12 @@ describe('PlaybackEngine Stall Detection & Recovery', () => {
         // Stop the engine
         engine.stop();
 
-        // Verify no probe timer runs because isPlaying is false
+        // Verify background probe timer is still scheduled even when stopped
         expect(engine.isPlaying).toBe(false);
-        expect((engine as any)._probeTimer).toBeNull();
+        expect((engine as any)._probeTimer).not.toBeNull();
     });
 
-    it('should run probe timer when stalled and playing, recovering health on success', async () => {
+    it('should run background probe timer when stalled, recovering health on success', async () => {
         // Fast-stall
         mockTtsInstance.toStream.mockImplementation(() => {
             const stream = new EventEmitter() as any;
@@ -127,15 +127,7 @@ describe('PlaybackEngine Stall Detection & Recovery', () => {
         await vi.advanceTimersByTimeAsync(10);
         expect(engine.neuralHealth).toBe('STALLED');
 
-        // Set playing
-        engine.setPlaying(true);
-
-        // Mock a failure while playing to start the probe
-        const pPlay = engine.speakNeural('test 2', 'k2', { mode: 'neural', voice: 'v', rate: 0, volume: 50, retryCount: 0 }, true);
-        pPlay.catch(() => {});
-        await vi.advanceTimersByTimeAsync(10);
-
-        expect(engine.isPlaying).toBe(true);
+        // Verify probe timer is active immediately (rescheduled after the initial immediate failure)
         expect((engine as any)._probeTimer).not.toBeNull();
 
         // Now mock successful probe stream
@@ -143,8 +135,8 @@ describe('PlaybackEngine Stall Detection & Recovery', () => {
         stream.destroy = vi.fn();
         mockTtsInstance.toStream.mockReturnValue({ audioStream: stream });
 
-        // Advance timer by 30 seconds to trigger probe
-        vi.advanceTimersByTime(30000);
+        // Advance timer by 5 seconds to trigger the next probe
+        await vi.advanceTimersByTimeAsync(5000);
         
         // Let the probe complete successfully
         stream.emit('data', Buffer.from('data'));
