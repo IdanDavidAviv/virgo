@@ -2,6 +2,12 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.14] - 2026-06-14
+
+### Fixed
+- **Bilingual Cache Key Alignment (T-122)**: Resolved sentence-level voice resolution in lookahead window generation (Extension Host) and propagated it to the webview, ensuring symmetric cache key generation and preventing playback stalls during language transitions.
+- **Unit Testing**: Refactored AudioBridge tests to verify voice resolution via public APIs.
+
 ## [2.9.13] - 2026-06-14
 
 ### Added
