@@ -2,6 +2,16 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.9.13] - 2026-06-14
+
+### Added
+- **Dynamic Background Backoff Probe**: Implemented exponential backoff checks (5s, 15s, 30s, 60s, then capping at 5 minutes) when the neural connection is stalled.
+
+### Fixed
+- **Proactive Background Probing**: Decoupled the stall probe timer from the active playback state (`_isPlaying`) so that server health recovery is detected immediately in the background.
+- **Fail-Fast Watchdog Timeout**: Reduced the neural stream chunk watchdog timeout from 15 seconds to 4 seconds to fail fast and free synthesis locks on hangs.
+- **Corrected Probing Payload**: Changed probe text to "ping" to force real communication and prevent mock-success false positives.
+
 ## [2.9.12] - 2026-06-12
 
 ### Added

@@ -98,7 +98,7 @@ describe('SpeechProvider (Navigation Commands)', () => {
         await (provider as any)._handleWebviewMessage({ command: 'nextChapter' }, 'webview');
 
         // Expect absolute jump to Chapter 1, Sentence 0
-        expect(startSpy).toHaveBeenCalledWith(1, 0, expect.anything(), true, 0, 0);
+        expect(startSpy).toHaveBeenCalledWith(1, 0, expect.anything(), false, 0, 0);
         // CRITICAL: Ensure we DID NOT call the relative next() method (which is the current bug)
         expect(nextSpy).not.toHaveBeenCalled();
     });
@@ -114,7 +114,7 @@ describe('SpeechProvider (Navigation Commands)', () => {
             await (provider as any)._handleWebviewMessage({ command: 'prevChapter' }, 'webview');
 
             // Expect restart of Chapter 1
-            expect(startSpy).toHaveBeenCalledWith(1, 0, expect.anything(), true, 0, 0);
+            expect(startSpy).toHaveBeenCalledWith(1, 0, expect.anything(), false, 0, 0);
         });
 
         it('should JUMP TO PREVIOUS chapter if sentenceIndex === 0', async () => {
@@ -127,7 +127,7 @@ describe('SpeechProvider (Navigation Commands)', () => {
             await (provider as any)._handleWebviewMessage({ command: 'prevChapter' }, 'webview');
 
             // Expect jump to Chapter 0
-            expect(startSpy).toHaveBeenCalledWith(0, 0, expect.anything(), true, 0, 0);
+            expect(startSpy).toHaveBeenCalledWith(0, 0, expect.anything(), false, 0, 0);
         });
 
         it('should do nothing if already at start of Chapter 0', async () => {

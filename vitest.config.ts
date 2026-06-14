@@ -7,6 +7,9 @@ export default defineConfig({
     globals: true,
     include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
     setupFiles: ['./tests/vitest.setup.ts'],
+    pool: 'forks',
+    maxWorkers: process.env.CI ? 2 : (process.argv.includes('run') ? 12 : 4),
+    execArgv: ['--expose-gc', '--max-old-space-size=8192'],
     alias: {
       '@extension': path.resolve(__dirname, './src/extension'),
       '@core': path.resolve(__dirname, './src/extension/core'),
@@ -18,3 +21,4 @@ export default defineConfig({
     },
   },
 });
+
