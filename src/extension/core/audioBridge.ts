@@ -270,7 +270,7 @@ export class AudioBridge extends EventEmitter {
 
         let targetVoice = activeOptions.voice;
         if (finalMode === 'neural') {
-            targetVoice = this._resolveVoiceForSentence(sentence, activeOptions.voice);
+            targetVoice = this.resolveVoiceForSentence(sentence, activeOptions.voice);
 
             if (activeOptions.voice !== targetVoice) {
                 const sentenceLang = targetVoice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
@@ -481,7 +481,7 @@ export class AudioBridge extends EventEmitter {
         let actualCacheKey = cacheKey;
         const targetOptions = { ...options };
         if (options.mode === 'neural') {
-            const targetVoice = this._resolveVoiceForSentence(sentence, options.voice);
+            const targetVoice = this.resolveVoiceForSentence(sentence, options.voice);
             if (targetVoice !== options.voice) {
                 targetOptions.voice = targetVoice;
                 actualCacheKey = generateCacheKey(
@@ -796,7 +796,7 @@ export class AudioBridge extends EventEmitter {
             for (const target of targets) {
                 const text = chapters[target.cIdx].sentences[target.sIdx];
                 const isNeural = options.mode === 'neural';
-                const targetVoice = this._resolveVoiceForSentence(text, options.voice);
+                const targetVoice = this.resolveVoiceForSentence(text, options.voice);
                 
                 const targetOptions = {
                     ...options,
@@ -821,7 +821,7 @@ export class AudioBridge extends EventEmitter {
         }, delay);
     }
 
-    private _resolveVoiceForSentence(sentence: string, currentVoice: string): string {
+    public resolveVoiceForSentence(sentence: string, currentVoice: string): string {
         const cleanS = cleanTextForLanguageDetection(sentence);
         const cleanStr = cleanS.replace(/[\s\d\p{P}]/gu, '');
         const totalChars = cleanStr.length;

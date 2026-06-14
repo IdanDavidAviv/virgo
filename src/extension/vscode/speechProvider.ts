@@ -152,7 +152,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
         // 2. Initialize Core Services (SettingsManager already initialized early)
 
-        this._dashboardRelay = new DashboardRelay(this._stateStore, this._docController, this._playbackEngine, this._logger);
+        this._dashboardRelay = new DashboardRelay(
+            this._stateStore,
+            this._docController,
+            this._playbackEngine,
+            this._logger,
+            (sentence, voice) => this._audioBridge.resolveVoiceForSentence(sentence, voice)
+        );
         this._voiceManager = new VoiceManager(this._playbackEngine, this._stateStore, this._dashboardRelay, this._logger);
         this._syncManager = new SyncManager(this._stateStore, this._dashboardRelay, this._logger);
         this._syncManager.setSessionId(this._sessionId);

@@ -13,6 +13,7 @@ export interface WindowSentence {
     text: string;
     cIdx: number;
     sIdx: number;
+    voice?: string;
 }
 
 export enum LogLevel {

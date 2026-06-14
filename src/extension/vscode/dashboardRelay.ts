@@ -19,7 +19,8 @@ export class DashboardRelay {
         private readonly _stateStore: StateStore,
         private readonly _docController: DocumentLoadController,
         private readonly _playbackEngine: PlaybackEngine,
-        private readonly _logger: (msg: string) => void
+        private readonly _logger: (msg: string) => void,
+        private readonly _resolveVoiceForSentence?: (sentence: string, currentVoice: string) => string
     ) {}
 
     public setView(view: vscode.WebviewView | undefined) {
@@ -361,14 +362,18 @@ export class DashboardRelay {
             }
         }
 
+        const currentVoice = this._stateStore.state.selectedVoice || 'default';
+
         // 2. Add current
         const currentChapter = chapters[currC];
         const currentSentences = currentChapter ? (currentChapter.sentences || []) : [];
         if (currC >= 0 && currC < chapters.length && currS >= 0 && currS < currentSentences.length) {
+            const voice = this._resolveVoiceForSentence ? this._resolveVoiceForSentence(currentSentences[currS], currentVoice) : undefined;
             window.push({
                 text: currentSentences[currS],
                 cIdx: currC,
-                sIdx: currS
+                sIdx: currS,
+                voice
             });
         }
 
@@ -390,10 +395,12 @@ export class DashboardRelay {
                 fS = 0;
                 continue;
             }
+            const voice = this._resolveVoiceForSentence ? this._resolveVoiceForSentence(sentences[fS], currentVoice) : undefined;
             window.push({
                 text: sentences[fS],
                 cIdx: fC,
-                sIdx: fS
+                sIdx: fS,
+                voice
             });
             fS++;
             fCount++;
