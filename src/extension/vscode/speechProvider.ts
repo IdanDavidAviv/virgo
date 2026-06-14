@@ -992,6 +992,9 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case OutgoingAction.REQUEST_SYNTHESIS:
                 await this._audioBridge.synthesize(payload.cacheKey, this._getOptions(), payload.intentId, payload.batchId, payload.isPriority, payload.text);
                 break;
+            case OutgoingAction.RETRY_SYNTHESIS:
+                await this._audioBridge.synthesize(payload.cacheKey, this._getOptions(), payload.intentId, payload.batchId, true, payload.text);
+                break;
             case OutgoingAction.CLEAR_CACHE:
                 this._playbackEngine.clearCache();
                 // [SYNC_HARDENING] Explicitly zero out stats in the StateStore [ISSUE 26]
