@@ -54,7 +54,7 @@ export interface UISyncPacket {
     playbackStalled: boolean;
     volume: number;
     rate: number;
-    engineMode: 'local' | 'neural';
+    engineMode: 'local' | 'neural' | 'phonikud-tts';
     autoPlayMode: 'auto' | 'chapter' | 'row';
     selectedVoice?: string;
 

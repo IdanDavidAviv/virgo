@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import { cleanForSpeech } from './speechProcessor';
 import { StateStore } from './stateStore';
 
-export type EngineMode = 'local' | 'neural';
+export type EngineMode = 'local' | 'neural' | 'phonikud-tts';
 
 export interface PlaybackOptions {
     voice: string;

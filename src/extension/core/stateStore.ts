@@ -31,7 +31,7 @@ export interface StateMetadata {
     playbackStalled: boolean;
 
     // Engine & Options [ISSUE 17]
-    engineMode: 'local' | 'neural';
+    engineMode: 'local' | 'neural' | 'phonikud-tts';
     autoPlayMode: 'auto' | 'chapter' | 'row';
     selectedVoice?: string;
     availableVoices: { local: any[], neural: any[] };
@@ -229,7 +229,7 @@ export class StateStore extends EventEmitter {
     }
 
     public setOptions(options: { 
-        engineMode?: 'local' | 'neural', 
+        engineMode?: 'local' | 'neural' | 'phonikud-tts', 
         autoPlayMode?: 'auto' | 'chapter' | 'row',
         selectedVoice?: string,
         rate?: number,

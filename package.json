@@ -198,10 +198,16 @@
           "type": "string",
           "enum": [
             "neural",
-            "local"
+            "local",
+            "phonikud-tts"
           ],
           "default": "neural",
-          "description": "Switch between high-quality Cloud Neural voices (requires internet) and standard Local SAPI voices (offline)."
+          "description": "Switch between high-quality Cloud Neural voices (requires internet), standard Local SAPI voices (offline), and local Phonikud TTS (offline Hebrew/English)."
+        },
+        "virgo.playback.phonikudModelsDir": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the directory containing ONNX models for Phonikud G2P and TTS (e.g. tokenizer.json, shaul.onnx). Leave empty to use the default global storage."
         },
         "virgo.playback.autoPlayMode": {
           "type": "string",

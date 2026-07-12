@@ -50,7 +50,7 @@ export class SettingsManager {
             updatedOptions.rate = config.get<number>('playback.rate', 1.0);
             updatedOptions.volume = config.get<number>('playback.volume', 50);
             updatedOptions.selectedVoice = config.get<string>('playback.voice', 'en-US-SteffanNeural');
-            updatedOptions.engineMode = config.get<'local' | 'neural'>('playback.engineMode', 'neural');
+            updatedOptions.engineMode = config.get<'local' | 'neural' | 'phonikud-tts'>('playback.engineMode', 'neural');
             updatedOptions.autoPlayMode = config.get<'auto' | 'chapter' | 'row'>('playback.autoPlayMode', 'auto');
             updatedOptions.autoPlayOnInjection = config.get<boolean>('playback.autoPlayOnInjection', false);
             updatedOptions.autoPlayOnVoiceSelect = config.get<boolean>('playback.autoPlayOnVoiceSelect', true);

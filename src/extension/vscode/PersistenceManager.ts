@@ -8,7 +8,7 @@ export interface PersistentState {
     chapterIndex?: number;
     sentenceIndex?: number;
     options?: {
-        engineMode?: 'local' | 'neural';
+        engineMode?: 'local' | 'neural' | 'phonikud-tts';
         voice?: string;
         rate?: number;
         volume?: number;

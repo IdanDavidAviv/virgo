@@ -398,10 +398,7 @@ export class PlaybackController {
         this.debouncedRateEmit(rate);
     }
 
-    /**
-     * setEngineMode(): Switches between Local (SpeechKit) and Neural (OpenAI/Cloud).
-     */
-    public setEngineMode(mode: 'neural' | 'local'): void {
+    public setEngineMode(mode: 'neural' | 'local' | 'phonikud-tts'): void {
         console.log(`[PlaybackController] setEngineMode(${mode}) requested`);
         const store = WebviewStore.getInstance();
 
