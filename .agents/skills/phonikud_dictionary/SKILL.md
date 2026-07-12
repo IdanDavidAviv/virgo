@@ -55,6 +55,15 @@ When the user corrects a word's pronunciation or asks to add a custom word:
 
 ---
 
+## 🔗 Official References & Repositories
+
+For core library updates, implementation patterns, and phoneme reference guides:
+* **Phonikud G2P Engine**: [thewh1teagle/phonikud](https://github.com/thewh1teagle/phonikud)
+* **Phonikud TTS (Piper Wrapper)**: [thewh1teagle/phonikud-tts](https://github.com/thewh1teagle/phonikud-tts)
+
+
+---
+
 ## ⚠️ Known Model Limitations & Acoustic Constraints
 
 The underlying Hebrew Piper TTS voice model ("Shaul") has physical/acoustic training limitations that prevent certain sounds from being synthesized natively. Use the following guide to understand these constraints, how to proceed with workarounds, and what updates to wait for from upstream model training:

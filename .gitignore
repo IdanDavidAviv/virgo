@@ -29,3 +29,6 @@ socials/
 __pycache__/
 *.pyc
 phonikud_backend/test_outputs/
+
+# Temporary agent scratchpads
+scratch/
