@@ -161,7 +161,10 @@ export function bootstrap() {
         rateVal: document.getElementById('rate-val'),
         volumeVal: document.getElementById('volume-val'),
         cacheDebugTag: document.getElementById('cache-debug-tag') as HTMLElement,
-        stateDebugTag: document.getElementById('audio-settings-pill') as HTMLElement
+        stateDebugTag: document.getElementById('audio-settings-pill') as HTMLElement,
+        btnEngineNeural: document.getElementById('engine-neural') as HTMLButtonElement,
+        btnEngineLocal: document.getElementById('engine-local') as HTMLButtonElement,
+        btnEnginePhonikud: document.getElementById('engine-phonikud') as HTMLButtonElement,
     }));
     if (settings) {registry.push(settings);}
 

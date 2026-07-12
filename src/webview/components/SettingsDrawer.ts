@@ -16,6 +16,9 @@ export interface SettingsDrawerElements extends Record<string, HTMLElement | HTM
     volumeVal: HTMLElement | null;
     cacheDebugTag: HTMLElement;
     stateDebugTag: HTMLElement;
+    btnEngineNeural?: HTMLButtonElement | null;
+    btnEngineLocal?: HTMLButtonElement | null;
+    btnEnginePhonikud?: HTMLButtonElement | null;
 }
 
 /**
@@ -48,10 +51,19 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             }
         });
 
-        // 3. Engine Mode Sync - Simplified/Removed Toggle logic
+        // 3. Engine Mode Sync - Segmented Pills toggle
         this.subscribe((state) => state.engineMode, (mode) => {
             if (this.els.stateDebugTag) {
                 this.els.stateDebugTag.classList.toggle('neural-active', mode === 'neural');
+            }
+            if (this.els.btnEngineNeural) {
+                this.els.btnEngineNeural.classList.toggle('active', mode === 'neural');
+            }
+            if (this.els.btnEngineLocal) {
+                this.els.btnEngineLocal.classList.toggle('active', mode === 'local');
+            }
+            if (this.els.btnEnginePhonikud) {
+                this.els.btnEnginePhonikud.classList.toggle('active', mode === 'phonikud-tts');
             }
         });
 
@@ -163,12 +175,24 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             });
         }
 
-        // 5. Cache Management (Trigger Quick Controls)
-        if (cacheDebugTag) {
-            this.registerEventListener(cacheDebugTag, 'click', () => {
-                MessageClient.getInstance().postAction(OutgoingAction.EXECUTE_COMMAND, {
-                    commandId: 'virgo.show-quick-controls'
-                });
+        // 6. Engine Mode buttons click listeners
+        const { btnEngineNeural, btnEngineLocal, btnEnginePhonikud } = this.els;
+        if (btnEngineNeural) {
+            this.registerEventListener(btnEngineNeural, 'click', (e) => {
+                e.stopPropagation();
+                controller.setEngineMode('neural');
+            });
+        }
+        if (btnEngineLocal) {
+            this.registerEventListener(btnEngineLocal, 'click', (e) => {
+                e.stopPropagation();
+                controller.setEngineMode('local');
+            });
+        }
+        if (btnEnginePhonikud) {
+            this.registerEventListener(btnEnginePhonikud, 'click', (e) => {
+                e.stopPropagation();
+                controller.setEngineMode('phonikud-tts');
             });
         }
     }
