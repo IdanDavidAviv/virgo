@@ -162,8 +162,6 @@ export function bootstrap() {
         volumeVal: document.getElementById('volume-val'),
         cacheDebugTag: document.getElementById('cache-debug-tag') as HTMLElement,
         stateDebugTag: document.getElementById('audio-settings-pill') as HTMLElement,
-        btnEngineNeural: document.getElementById('engine-neural') as HTMLButtonElement,
-        btnEngineLocal: document.getElementById('engine-local') as HTMLButtonElement,
         togglePhonikudEnabled: document.getElementById('toggle-phonikud-enabled') as HTMLInputElement,
     }));
     if (settings) {registry.push(settings);}

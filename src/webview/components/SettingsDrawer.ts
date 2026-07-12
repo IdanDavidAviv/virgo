@@ -16,8 +16,6 @@ export interface SettingsDrawerElements extends Record<string, HTMLElement | HTM
     volumeVal: HTMLElement | null;
     cacheDebugTag: HTMLElement;
     stateDebugTag: HTMLElement;
-    btnEngineNeural?: HTMLButtonElement | null;
-    btnEngineLocal?: HTMLButtonElement | null;
     togglePhonikudEnabled?: HTMLInputElement | null;
 }
 
@@ -55,12 +53,6 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
         this.subscribe((state) => state.engineMode, (mode) => {
             if (this.els.stateDebugTag) {
                 this.els.stateDebugTag.classList.toggle('neural-active', mode === 'neural');
-            }
-            if (this.els.btnEngineNeural) {
-                this.els.btnEngineNeural.classList.toggle('active', mode === 'neural');
-            }
-            if (this.els.btnEngineLocal) {
-                this.els.btnEngineLocal.classList.toggle('active', mode === 'local');
             }
         });
 
@@ -179,20 +171,8 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             });
         }
 
-        // 6. Engine Mode buttons click listeners
-        const { btnEngineNeural, btnEngineLocal, togglePhonikudEnabled } = this.els;
-        if (btnEngineNeural) {
-            this.registerEventListener(btnEngineNeural, 'click', (e) => {
-                e.stopPropagation();
-                controller.setEngineMode('neural');
-            });
-        }
-        if (btnEngineLocal) {
-            this.registerEventListener(btnEngineLocal, 'click', (e) => {
-                e.stopPropagation();
-                controller.setEngineMode('local');
-            });
-        }
+        // 6. Phonikud toggle change listener
+        const { togglePhonikudEnabled } = this.els;
         if (togglePhonikudEnabled) {
             this.registerEventListener(togglePhonikudEnabled, 'change', (e) => {
                 const enabled = (e.target as HTMLInputElement).checked;

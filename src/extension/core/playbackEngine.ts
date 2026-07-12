@@ -509,28 +509,28 @@ export class PlaybackEngine extends EventEmitter {
     }
 
     public async getVoices() {
-        if (this._stateStore.state.engineMode === 'phonikud-tts') {
-            return [
-                {
-                    name: "Shaul (Local TTS)",
-                    id: "shaul",
-                    lang: "he-IL",
-                    gender: "Male"
-                }
-            ];
-        }
-
         // [HARDENING] Await the TTS warm-up gate
         await this._ttsReady;
 
         // [v2.3.1] Simplified: Native voices are now discovered via the Webview.
         // The extension only manages Neural voices.
-        return this._tts.getVoices().then(voices => voices.map(v => ({
+        const voices = await this._tts.getVoices().then(voices => voices.map(v => ({
             name: v.FriendlyName,
             id: v.ShortName,
             lang: v.Locale,
             gender: v.Gender
         })));
+
+        if (this._stateStore.state.phonikudEnabled || this._stateStore.state.engineMode === 'phonikud-tts') {
+            voices.unshift({
+                name: "Shaul (Local TTS)",
+                id: "shaul",
+                lang: "he-IL",
+                gender: "Male"
+            });
+        }
+
+        return voices;
     }
 
     private _getSegmentSizeBytes(base64: string): number {

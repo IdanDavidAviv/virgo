@@ -720,17 +720,18 @@ export class AudioBridge extends EventEmitter {
                 return;
             }
 
-            // [RESILIENCE] No more SAPI fallback for neural hangs.
-            // We tell the UI we are 'buffering' and trust the Engine's internal retry loop.
-            this._logger(`[BRIDGE] Neural synthesis stalled: ${errorMessage}. Retrying...`);
-            this._emitWithIntent('engineStatus', { status: 'buffering' });
+            // If the error persists after all internal retries, we finally give up on premium engines and fall back to Local SAPI!
+            if (options.mode === 'neural' || options.mode === 'phonikud-tts') {
+                this._logger(`[BRIDGE] ⚠️ Premium synthesis failed terminal: ${errorMessage}. Falling back to Local SAPI...`);
+                this._speakLocal(sentence, options);
+                return;
+            }
 
-            // If the error persists after all internal retries, we finally give up.
             const friendlyError = this._mapToFriendlyError(errorMessage);
             this._logger(`[BRIDGE] Neural synthesis stalled: ${errorMessage}. Final failure -> ${friendlyError}`);
             this._emitWithIntent('synthesisError', {
                 error: friendlyError,
-                isFallingBack: false, // Explicitly false to prevent UI from expecting SAPI
+                isFallingBack: false,
                 cacheKey,
                 chapterIndex: cIdx,
                 sentenceIndex: sIdx
