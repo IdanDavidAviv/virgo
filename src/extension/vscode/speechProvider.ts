@@ -892,6 +892,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                     const lang = this._detectLanguageFromVoice(payload.voice);
                     if (lang) {
                         this._settingsManager.saveVoiceHistory(lang, payload.voice);
+                        
+                        // Dynamically update phonikudEnabled toggle based on selected Hebrew voice
+                        if (lang === 'he') {
+                            const isPhonikud = payload.voice === 'shaul';
+                            this._settingsManager.saveSetting('phonikudEnabled', isPhonikud);
+                            this._stateStore.setOptions({ phonikudEnabled: isPhonikud });
+                        }
                     }
                 }
                 break;
@@ -925,8 +932,15 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
             case OutgoingAction.SET_PHONIKUD_ENABLED:
                 this._settingsManager.saveSetting('phonikudEnabled', payload.value);
                 this._stateStore.setOptions({ phonikudEnabled: payload.value });
-                this._voiceManager.broadcastVoices();
-                this._logger(`[ENGINE] Phonikud toggle committed: ${payload.value}`);
+                
+                // Keep selectedVoice and history synced when toggling Phonikud directly
+                const targetVoice = payload.value ? 'shaul' : (this._settingsManager.loadVoiceHistory('he') === 'shaul' ? 'he-IL-AvriNeural' : (this._settingsManager.loadVoiceHistory('he') || 'he-IL-AvriNeural'));
+                this._settingsManager.saveSetting('selectedVoice', targetVoice);
+                this._stateStore.setOptions({ selectedVoice: targetVoice });
+                this._settingsManager.saveVoiceHistory('he', targetVoice);
+
+                await this._voiceManager.scanAndSync();
+                this._logger(`[ENGINE] Phonikud toggle committed: ${payload.value} (Voice: ${targetVoice})`);
                 break;
 
             case OutgoingAction.SET_AUTOPLAY_VOICE_SELECT:
@@ -1729,6 +1743,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
     // getFileVersionSalt logic moved to DocumentLoadController
     private _detectLanguageFromVoice(voiceId: string): string | undefined {
         if (!voiceId) { return undefined; }
+        if (voiceId === 'shaul') { return 'he'; }
         const parts = voiceId.split('-');
         if (parts.length > 0) {
             const lang = parts[0].toLowerCase();

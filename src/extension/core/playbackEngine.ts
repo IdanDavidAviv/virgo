@@ -521,14 +521,13 @@ export class PlaybackEngine extends EventEmitter {
             gender: v.Gender
         })));
 
-        if (this._stateStore.state.phonikudEnabled || this._stateStore.state.engineMode === 'phonikud-tts') {
-            voices.unshift({
-                name: "Shaul (Local TTS)",
-                id: "shaul",
-                lang: "he-IL",
-                gender: "Male"
-            });
-        }
+        // Always include Shaul (Local TTS) at the top of the list so it is always selectable
+        voices.unshift({
+            name: "Shaul (Local TTS)",
+            id: "shaul",
+            lang: "he-IL",
+            gender: "Male"
+        });
 
         return voices;
     }

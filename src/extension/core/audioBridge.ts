@@ -173,23 +173,20 @@ export class AudioBridge extends EventEmitter {
 
     public getRoutingForSentence(sentence: string, baseMode: EngineMode, baseVoice: string): { finalMode: EngineMode, targetVoice: string } {
         const resolvedVoice = this.resolveVoiceForSentence(sentence, baseVoice);
-        const sentenceLang = resolvedVoice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
+        const sentenceLang = (resolvedVoice === 'shaul' || resolvedVoice.split('-')[0].toLowerCase() === 'he') ? 'he' : 'en';
 
-        const isNeuralSelected = baseMode === 'neural';
         const isNeuralViable   = this._playbackEngine.isNeuralViable();
-        const phonikudEnabled = this._stateStore.state.phonikudEnabled;
 
         let finalMode: EngineMode = 'local';
         let targetVoice = resolvedVoice;
 
-        if (sentenceLang === 'he' && phonikudEnabled) {
+        if (sentenceLang === 'he' && resolvedVoice === 'shaul') {
             finalMode = 'phonikud-tts';
             targetVoice = 'shaul';
         } else {
-            if (isNeuralSelected && isNeuralViable) {
+            const isAzureVoice = resolvedVoice.toLowerCase().includes('neural');
+            if (isAzureVoice && isNeuralViable) {
                 finalMode = 'neural';
-            } else if (isNeuralSelected && !isNeuralViable) {
-                finalMode = 'local'; // Neural degraded fallback
             } else {
                 finalMode = 'local';
             }
@@ -852,7 +849,7 @@ export class AudioBridge extends EventEmitter {
         const cleanStr = cleanS.replace(/[\s\d\p{P}]/gu, '');
         const totalChars = cleanStr.length;
         
-        let sentenceLang = currentVoice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
+        let sentenceLang = (currentVoice === 'shaul' || currentVoice.split('-')[0].toLowerCase() === 'he') ? 'he' : 'en';
         if (totalChars >= 8) {
             const hebrewMatches = cleanStr.match(/[\u0590-\u05FF]/g);
             const hebrewChars = hebrewMatches ? hebrewMatches.length : 0;
