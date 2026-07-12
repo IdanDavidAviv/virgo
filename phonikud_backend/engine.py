@@ -48,9 +48,18 @@ class PhonikudEngine:
             except Exception:
                 pass
                 
-        # Load override dictionary from models_dir parent (Virgo data directory) if exists
+        # Load override dictionary from models_dir parent (Virgo data directory)
         virgo_data_dir = os.path.dirname(self.models_dir)
         override_dict_path = os.path.join(virgo_data_dir, "phonikud_dictionary.json")
+        
+        # Auto-seed the override dictionary from the local shared template if it does not exist
+        if not os.path.exists(override_dict_path) and override_dict_path != local_dict_path:
+            try:
+                import shutil
+                shutil.copy(local_dict_path, override_dict_path)
+            except Exception:
+                pass
+
         if os.path.exists(override_dict_path) and override_dict_path != local_dict_path:
             try:
                 with open(override_dict_path, "r", encoding="utf-8") as f:

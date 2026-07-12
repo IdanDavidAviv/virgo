@@ -11,13 +11,13 @@ This skill governs the structure and lifecycle of the custom G2P pronunciation d
 
 The engine loads and merges two JSON dictionaries (with the user/host override dictionary having higher priority):
 
-1. **Shared Dictionary (Version-Controlled)**:
+1. **Shared Template (Version-Controlled)**:
    - Path: [phonikud_backend/phonikud_dictionary.json](file:///c:/Users/Idan4/Desktop/virgo/phonikud_backend/phonikud_dictionary.json)
-   - Purpose: Pre-defined developer terms, technologies, and shared abbreviations that are part of the codebase.
+   - Purpose: Codebase-level default overrides (seeding template).
 
-2. **User Override Dictionary (Persistent & Local)**:
-   - Path: `%VIRGO_DATA_DIR%/phonikud_dictionary.json` (or `%VIRGO_PATH%/phonikud_dictionary.json` / AppData global storage)
-   - Purpose: Custom pronunciations added by the user or dynamically updated via the extension host.
+2. **User Override Dictionary (Persistent & Local - Primary SSOT)**:
+   - Path: [phonikud_dictionary.json (Persistent Override)](file:///C:/Users/Idan4/.gemini/antigravity-ide/virgo/phonikud_dictionary.json)
+   - Purpose: The active, customizable pronunciation dictionary loaded by the engine. Auto-seeded from the shared template if missing.
 
 ---
 
@@ -28,8 +28,6 @@ The dictionary maps lowercase English words to their Hebrew-friendly IPA phoneme
 ```json
 {
   "react": "ʁi\u0294akt",
-  "github": "\u0261ithav",
-  "gitlab": "\u0261itlav",
   "vite": "vajt"
 }
 ```
@@ -50,11 +48,14 @@ The dictionary maps lowercase English words to their Hebrew-friendly IPA phoneme
 
 When the user corrects a word's pronunciation or asks to add a custom word:
 
-1. **Locate the target word**: Convert it to lowercase (e.g. `React` -> `react`).
-2. **Translate to IPA**: Formulate the phonetic representation using the character guide (e.g., `React` -> `ʁiˈʔakt`).
-3. **Write to Dictionary**:
-   - Use `replace_file_content` to add the mapping to [phonikud_backend/phonikud_dictionary.json](file:///c:/Users/Idan4/Desktop/virgo/phonikud_backend/phonikud_dictionary.json).
-4. **Validate**: Run the diagnostic test script `uv run phonikud_backend/diagnostic_test.py` to confirm the synthesis works and sounds correct.
+1. **Locate the User Override Dictionary**:
+   - The file is located at: [phonikud_dictionary.json](file:///C:/Users/Idan4/.gemini/antigravity-ide/virgo/phonikud_dictionary.json)
+2. **Retrieve current overrides**: Call `view_file` on the private override dictionary to see existing entries.
+3. **Translate to IPA**: Formulate the phonetic representation of the corrected word using the guide above.
+4. **Edit the Override Dictionary Directly**:
+   - Use `replace_file_content` to add, update, or remove entries in the user override dictionary [phonikud_dictionary.json](file:///C:/Users/Idan4/.gemini/antigravity-ide/virgo/phonikud_dictionary.json).
+5. **DO NOT print the dictionary contents in chat**: Proactively show only a clickable Markdown link to the file: `[phonikud_dictionary.json](file:///C:/Users/Idan4/.gemini/antigravity-ide/virgo/phonikud_dictionary.json)`, instructing the user to click and read it.
+6. **Validate**: Run the diagnostic test script `uv run phonikud_backend/diagnostic_test.py` to confirm the synthesis works and sounds correct.
 
 ---
 
