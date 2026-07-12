@@ -2,6 +2,14 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.10.0] - 2026-07-12
+
+### Added
+- **Local Phonikud Hebrew TTS (Shaul) Integration (T-123)**: Added native offline Hebrew Text-to-Speech support via a Python-based JSON-RPC local daemon utilizing Piper.
+- **Bilingual Hybrid Routing & Automatic Fallback**: Hebrew sentences are dynamically routed to local Phonikud TTS when enabled, while English defaults to Azure Neural. Added automatic transparent fallback to Local System SAPI when cloud/premium synthesis engines fail or run offline.
+- **Synchronized Voice Settings UI**: Pre-registered the `Shaul` voice at the top of the general voice selector list, enabling automatic two-way synchronization between voice selection and the Phonikud toggle checkbox.
+- **Startup Model Update Checking**: Introduced non-blocking check on startup to verify if a new voice model version is available on Hugging Face (`thewh1teagle/phonikud`), with interactive VS Code notification prompts and progress-tracked background updates.
+
 ## [2.9.14] - 2026-06-14
 
 ### Fixed
