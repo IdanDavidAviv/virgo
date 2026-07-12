@@ -1,7 +1,7 @@
 import { WebviewStore, StoreState } from './core/WebviewStore';
 import { MessageClient } from './core/MessageClient';
 import { WebviewAudioEngine } from './core/WebviewAudioEngine';
-import { OutgoingAction, IncomingCommand, AudioEngineEvent, AudioEngineEventType, UISyncPacket, WindowSentence } from '../common/types';
+import { OutgoingAction, IncomingCommand, AudioEngineEvent, AudioEngineEventType, UISyncPacket, WindowSentence, EngineMode } from '../common/types';
 import { generateCacheKey } from '../common/cachePolicy';
 import { debounce } from './utils';
 import { ToastManager } from './components/ToastManager';
@@ -398,7 +398,7 @@ export class PlaybackController {
         this.debouncedRateEmit(rate);
     }
 
-    public setEngineMode(mode: 'neural' | 'local' | 'phonikud-tts'): void {
+    public setEngineMode(mode: EngineMode): void {
         console.log(`[PlaybackController] setEngineMode(${mode}) requested`);
         const store = WebviewStore.getInstance();
 

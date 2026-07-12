@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { StateStore } from '@core/stateStore';
+import { StateStore } from '../core/stateStore';
+import { EngineMode } from '../../common/types';
 
 export interface PersistentState {
     uri?: string;
@@ -8,7 +9,7 @@ export interface PersistentState {
     chapterIndex?: number;
     sentenceIndex?: number;
     options?: {
-        engineMode?: 'local' | 'neural' | 'phonikud-tts';
+        engineMode?: EngineMode;
         voice?: string;
         rate?: number;
         volume?: number;

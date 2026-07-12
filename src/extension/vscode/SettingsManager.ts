@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { StateStore } from '@core/stateStore';
+import { StateStore } from '../core/stateStore';
+import { EngineMode } from '../../common/types';
 
 /**
  * Service responsible for managing VS Code configuration, legacy settings migration,
@@ -50,7 +51,7 @@ export class SettingsManager {
             updatedOptions.rate = config.get<number>('playback.rate', 1.0);
             updatedOptions.volume = config.get<number>('playback.volume', 50);
             updatedOptions.selectedVoice = config.get<string>('playback.voice', 'en-US-SteffanNeural');
-            updatedOptions.engineMode = config.get<'local' | 'neural' | 'phonikud-tts'>('playback.engineMode', 'neural');
+            updatedOptions.engineMode = config.get<EngineMode>('playback.engineMode', 'neural');
             updatedOptions.autoPlayMode = config.get<'auto' | 'chapter' | 'row'>('playback.autoPlayMode', 'auto');
             updatedOptions.autoPlayOnInjection = config.get<boolean>('playback.autoPlayOnInjection', false);
             updatedOptions.autoPlayOnVoiceSelect = config.get<boolean>('playback.autoPlayOnVoiceSelect', true);

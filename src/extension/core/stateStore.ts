@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { EventEmitter } from 'events';
-import { SnippetHistory } from '../../common/types';
+import { SnippetHistory, EngineMode } from '../../common/types';
 
 /**
  * Single Source of Truth for the extension and dashboard.
@@ -31,7 +31,7 @@ export interface StateMetadata {
     playbackStalled: boolean;
 
     // Engine & Options [ISSUE 17]
-    engineMode: 'local' | 'neural' | 'phonikud-tts';
+    engineMode: EngineMode;
     autoPlayMode: 'auto' | 'chapter' | 'row';
     selectedVoice?: string;
     availableVoices: { local: any[], neural: any[] };
@@ -229,7 +229,7 @@ export class StateStore extends EventEmitter {
     }
 
     public setOptions(options: { 
-        engineMode?: 'local' | 'neural' | 'phonikud-tts', 
+        engineMode?: EngineMode, 
         autoPlayMode?: 'auto' | 'chapter' | 'row',
         selectedVoice?: string,
         rate?: number,

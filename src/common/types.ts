@@ -21,6 +21,8 @@ export enum LogLevel {
     VERBOSE = 2
 }
 
+export type EngineMode = 'local' | 'neural' | 'phonikud-tts';
+
 export interface UISyncPacket {
     // FOCUSED (Passive Selection)
     focusedFileName: string;
@@ -54,7 +56,7 @@ export interface UISyncPacket {
     playbackStalled: boolean;
     volume: number;
     rate: number;
-    engineMode: 'local' | 'neural' | 'phonikud-tts';
+    engineMode: EngineMode;
     autoPlayMode: 'auto' | 'chapter' | 'row';
     selectedVoice?: string;
 
