@@ -1,3 +1,14 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "huggingface-hub",
+#     "onnxruntime",
+#     "phonikud",
+#     "phonikud-tts",
+#     "eng-to-ipa",
+# ]
+# ///
+
 import sys
 import os
 import json
