@@ -46,7 +46,8 @@ export const DEFAULT_SYNC_PACKET: UISyncPacket = {
   syncIntentId: 0,           // [T-101] Monotonic packet counter — starts at 0, reset per session
   autoPlayOnInjection: false,
   autoPlayOnVoiceSelect: true,
-  recentVoices: []
+  recentVoices: [],
+  phonikudEnabled: true
 };
 
 export type StoreState = UISyncPacket & {

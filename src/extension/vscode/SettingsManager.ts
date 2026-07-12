@@ -56,6 +56,7 @@ export class SettingsManager {
             updatedOptions.autoPlayOnInjection = config.get<boolean>('playback.autoPlayOnInjection', false);
             updatedOptions.autoPlayOnVoiceSelect = config.get<boolean>('playback.autoPlayOnVoiceSelect', true);
             updatedOptions.recentVoices = this._context.globalState.get<string[]>('virgo.recentVoices', []);
+            updatedOptions.phonikudEnabled = config.get<boolean>('playback.phonikudEnabled', true);
         }
 
         if (!event || event.affectsConfiguration('virgo.agent.autoInjectSITREP')) {

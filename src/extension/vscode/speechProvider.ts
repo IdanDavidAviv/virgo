@@ -922,6 +922,13 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
                 this._logger(`[AUTOPLAY] injection_auto_play temporary override: ${payload.value}`);
                 break;
 
+            case OutgoingAction.SET_PHONIKUD_ENABLED:
+                this._settingsManager.saveSetting('phonikudEnabled', payload.value);
+                this._stateStore.setOptions({ phonikudEnabled: payload.value });
+                this._voiceManager.broadcastVoices();
+                this._logger(`[ENGINE] Phonikud toggle committed: ${payload.value}`);
+                break;
+
             case OutgoingAction.SET_AUTOPLAY_VOICE_SELECT:
                 this._stateStore.setOptions({ autoPlayOnVoiceSelect: payload.value });
                 this._logger(`[AUTOPLAY] voice_select_auto_play temporary override: ${payload.value}`);

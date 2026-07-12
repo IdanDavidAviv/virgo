@@ -18,7 +18,7 @@ export interface SettingsDrawerElements extends Record<string, HTMLElement | HTM
     stateDebugTag: HTMLElement;
     btnEngineNeural?: HTMLButtonElement | null;
     btnEngineLocal?: HTMLButtonElement | null;
-    btnEnginePhonikud?: HTMLButtonElement | null;
+    togglePhonikudEnabled?: HTMLInputElement | null;
 }
 
 /**
@@ -62,8 +62,12 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
             if (this.els.btnEngineLocal) {
                 this.els.btnEngineLocal.classList.toggle('active', mode === 'local');
             }
-            if (this.els.btnEnginePhonikud) {
-                this.els.btnEnginePhonikud.classList.toggle('active', mode === 'phonikud-tts');
+        });
+
+        // 3.1 Phonikud Enabled Sync - Checkbox toggle
+        this.subscribe((state) => state.phonikudEnabled, (enabled) => {
+            if (this.els.togglePhonikudEnabled) {
+                this.els.togglePhonikudEnabled.checked = !!enabled;
             }
         });
 
@@ -176,7 +180,7 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
         }
 
         // 6. Engine Mode buttons click listeners
-        const { btnEngineNeural, btnEngineLocal, btnEnginePhonikud } = this.els;
+        const { btnEngineNeural, btnEngineLocal, togglePhonikudEnabled } = this.els;
         if (btnEngineNeural) {
             this.registerEventListener(btnEngineNeural, 'click', (e) => {
                 e.stopPropagation();
@@ -189,10 +193,10 @@ export class SettingsDrawer extends BaseComponent<SettingsDrawerElements> {
                 controller.setEngineMode('local');
             });
         }
-        if (btnEnginePhonikud) {
-            this.registerEventListener(btnEnginePhonikud, 'click', (e) => {
-                e.stopPropagation();
-                controller.setEngineMode('phonikud-tts');
+        if (togglePhonikudEnabled) {
+            this.registerEventListener(togglePhonikudEnabled, 'change', (e) => {
+                const enabled = (e.target as HTMLInputElement).checked;
+                controller.setPhonikudEnabled(enabled);
             });
         }
     }

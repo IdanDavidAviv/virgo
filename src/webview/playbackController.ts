@@ -409,6 +409,17 @@ export class PlaybackController {
         });
     }
 
+    public setPhonikudEnabled(enabled: boolean): void {
+        console.log(`[PlaybackController] setPhonikudEnabled(${enabled}) requested`);
+        const store = WebviewStore.getInstance();
+
+        store.patchState({ phonikudEnabled: enabled });
+        MessageClient.getInstance().postAction(OutgoingAction.SET_PHONIKUD_ENABLED, {
+            value: enabled,
+            intentId: store.getState().playbackIntentId
+        });
+    }
+
     /**
      * clearCache(): Explicitly wipes the local and remote cache.
      */

@@ -164,7 +164,7 @@ export function bootstrap() {
         stateDebugTag: document.getElementById('audio-settings-pill') as HTMLElement,
         btnEngineNeural: document.getElementById('engine-neural') as HTMLButtonElement,
         btnEngineLocal: document.getElementById('engine-local') as HTMLButtonElement,
-        btnEnginePhonikud: document.getElementById('engine-phonikud') as HTMLButtonElement,
+        togglePhonikudEnabled: document.getElementById('toggle-phonikud-enabled') as HTMLInputElement,
     }));
     if (settings) {registry.push(settings);}
 

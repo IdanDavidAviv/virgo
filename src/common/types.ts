@@ -80,6 +80,7 @@ export interface UISyncPacket {
     autoPlayOnInjection?: boolean;
     autoPlayOnVoiceSelect?: boolean;
     recentVoices?: string[];
+    phonikudEnabled?: boolean;
     // [T-102] Update Notification
     latestVersion?: string;       // Latest GitHub release tag (e.g. "2.9.5") — undefined until check completes
     updateAvailable?: boolean;    // True when latestVersion > extensionVersion
@@ -219,5 +220,6 @@ export enum OutgoingAction {
     GET_MCP_STATUS = 'GET_MCP_STATUS',
     SET_AUTOPLAY_VOICE_SELECT = 'SET_AUTOPLAY_VOICE_SELECT',
     REMOVE_RECENT_VOICE = 'REMOVE_RECENT_VOICE',
-    TOGGLE_TABLE_EXPANSION = 'TOGGLE_TABLE_EXPANSION'
+    TOGGLE_TABLE_EXPANSION = 'TOGGLE_TABLE_EXPANSION',
+    SET_PHONIKUD_ENABLED = 'setPhonikudEnabled'
 }

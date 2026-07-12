@@ -209,6 +209,11 @@
           "default": "",
           "description": "Custom path to the directory containing ONNX models for Phonikud G2P and TTS (e.g. tokenizer.json, shaul.onnx). Leave empty to use the default global storage."
         },
+        "virgo.playback.phonikudEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable local Phonikud TTS for Hebrew sentences (replaces Hebrew Azure/Local voices with high-quality local Hebrew synthesis)."
+        },
         "virgo.playback.autoPlayMode": {
           "type": "string",
           "enum": [

@@ -47,6 +47,7 @@ export interface StateMetadata {
     autoPlayOnInjection: boolean;
     autoPlayOnVoiceSelect: boolean;
     recentVoices: string[];
+    phonikudEnabled: boolean;
     isSelectingVoice: boolean; // [v2.4.0] Sampling mode for voice changes
 
     // Cache Stats [ISSUE 26]
@@ -114,6 +115,7 @@ export class StateStore extends EventEmitter {
             autoPlayOnInjection: false,
             autoPlayOnVoiceSelect: true,
             recentVoices: [],
+            phonikudEnabled: true,
             cacheCount: 0,
             cacheSizeBytes: 0,
             snippetHistory: [],
@@ -237,7 +239,8 @@ export class StateStore extends EventEmitter {
         autoPlayOnInjection?: boolean,
         autoPlayOnVoiceSelect?: boolean,
         recentVoices?: string[],
-        autoInjectSITREP?: boolean
+        autoInjectSITREP?: boolean,
+        phonikudEnabled?: boolean
     }) {
         if (options.engineMode) { this._state.engineMode = options.engineMode; }
         if (options.autoPlayMode) { this._state.autoPlayMode = options.autoPlayMode; }
@@ -248,6 +251,7 @@ export class StateStore extends EventEmitter {
         if (options.autoPlayOnVoiceSelect !== undefined) { this._state.autoPlayOnVoiceSelect = options.autoPlayOnVoiceSelect; }
         if (options.recentVoices !== undefined) { this._state.recentVoices = options.recentVoices; }
         if (options.autoInjectSITREP !== undefined) { this._state.autoInjectSITREP = options.autoInjectSITREP; }
+        if (options.phonikudEnabled !== undefined) { this._state.phonikudEnabled = options.phonikudEnabled; }
         this.emit('change', this.state);
     }
 

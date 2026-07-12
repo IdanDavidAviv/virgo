@@ -171,6 +171,33 @@ export class AudioBridge extends EventEmitter {
         return super.emit(event, ...args);
     }
 
+    public getRoutingForSentence(sentence: string, baseMode: EngineMode, baseVoice: string): { finalMode: EngineMode, targetVoice: string } {
+        const resolvedVoice = this.resolveVoiceForSentence(sentence, baseVoice);
+        const sentenceLang = resolvedVoice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
+
+        const isNeuralSelected = baseMode === 'neural';
+        const isNeuralViable   = this._playbackEngine.isNeuralViable();
+        const phonikudEnabled = this._stateStore.state.phonikudEnabled;
+
+        let finalMode: EngineMode = 'local';
+        let targetVoice = resolvedVoice;
+
+        if (sentenceLang === 'he' && phonikudEnabled) {
+            finalMode = 'phonikud-tts';
+            targetVoice = 'shaul';
+        } else {
+            if (isNeuralSelected && isNeuralViable) {
+                finalMode = 'neural';
+            } else if (isNeuralSelected && !isNeuralViable) {
+                finalMode = 'local'; // Neural degraded fallback
+            } else {
+                finalMode = 'local';
+            }
+        }
+
+        return { finalMode, targetVoice };
+    }
+
     /**
      * Start playing a specific chapter and sentence.
      */
@@ -264,43 +291,31 @@ export class AudioBridge extends EventEmitter {
         const sentence = chapter.sentences[sentenceIndex];
 
         // [v2.4.5] Autoradiant Routing: Tiered Engine Selection
-        const isNeuralSelected = activeOptions.mode === 'neural';
-        const isPhonikudSelected = activeOptions.mode === 'phonikud-tts';
-        const isNeuralViable   = this._playbackEngine.isNeuralViable();
-        
-        let finalMode: EngineMode = 'local';
-        if (isNeuralSelected && isNeuralViable) {
-            finalMode = 'neural';
-        } else if (isPhonikudSelected) {
-            finalMode = 'phonikud-tts';
-        } else if (isNeuralSelected && !isNeuralViable) {
-            finalMode = 'local'; // Neural degraded fallback
-        } else {
-            finalMode = 'local';
-        }
+        const { finalMode, targetVoice } = this.getRoutingForSentence(sentence, activeOptions.mode, activeOptions.voice);
+        const sentenceLang = targetVoice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
 
-        let targetVoice = activeOptions.voice;
         if (finalMode === 'neural') {
-            targetVoice = this.resolveVoiceForSentence(sentence, activeOptions.voice);
-
             if (activeOptions.voice !== targetVoice) {
-                const sentenceLang = targetVoice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
                 this._logger(`[BRIDGE] Sentence-level auto-switch voice: ${activeOptions.voice} -> ${targetVoice} for language: ${sentenceLang}`);
                 activeOptions.voice = targetVoice;
                 this._stateStore.setOptions({ selectedVoice: targetVoice });
             }
+        } else if (finalMode === 'phonikud-tts') {
+            activeOptions.voice = 'shaul'; // Force local voice for synthesis key
         }
 
-        this._logger(`[BRIDGE] Routing decision: Selected=${activeOptions.mode}, Viable=${isNeuralViable} -> Final=${finalMode}`);
+        this._logger(`[BRIDGE] Routing decision: Lang=${sentenceLang}, PhonikudEnabled=${this._stateStore.state.phonikudEnabled}, BaseMode=${activeOptions.mode} -> FinalMode=${finalMode}, Voice=${targetVoice}`);
 
-        if (isNeuralSelected && !isNeuralViable) {
+        const isNeuralSelected = activeOptions.mode === 'neural';
+        const isNeuralViable = this._playbackEngine.isNeuralViable();
+        if (isNeuralSelected && !isNeuralViable && finalMode !== 'phonikud-tts') {
             this._logger('[BRIDGE] ☢️ Neural stalled/degraded. Falling back to LOCAL.');
         }
 
         const isPreBaked = finalMode === 'neural' || finalMode === 'phonikud-tts';
         const cacheKey = generateCacheKey(
             sentence,
-            activeOptions.voice,
+            targetVoice,
             activeOptions.rate,
             this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
             isPreBaked
@@ -485,24 +500,22 @@ export class AudioBridge extends EventEmitter {
         const currentIntent = intentId ?? this._playbackEngine.playbackIntentId;
         const currentBatch = batchId ?? this._playbackEngine.batchIntentId;
 
-        // [v2.9.13] Bilingual prefetch voice resolution:
-        // Dynamically resolve target voice for the sentence before beginning synthesis
-        // to prevent mismatch stalls (stalling on Hebrew text with English voice) and
-        // ensure symmetric cache hit keys.
+        this._logger(`[BRIDGE] Request synthesis: "${sentence.substring(0, 30)}..." | Key: ${cacheKey}`);
+
+        const { finalMode: resolvedMode, targetVoice: resolvedVoice } = this.getRoutingForSentence(sentence, options.mode, options.voice);
         let actualCacheKey = cacheKey;
-        const targetOptions = { ...options };
-        if (options.mode === 'neural') {
-            const targetVoice = this.resolveVoiceForSentence(sentence, options.voice);
-            if (targetVoice !== options.voice) {
-                targetOptions.voice = targetVoice;
-                actualCacheKey = generateCacheKey(
-                    sentence,
-                    targetVoice,
-                    options.rate,
-                    this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
-                    true
-                );
-                this._logger(`[BRIDGE] [SYNTHESIZE-RESOLVE] Prefetch key rewritten: ${cacheKey} -> ${actualCacheKey} (Voice: ${targetVoice})`);
+        const targetOptions = { ...options, mode: resolvedMode, voice: resolvedVoice };
+
+        if (resolvedMode === 'neural' || resolvedMode === 'phonikud-tts') {
+            actualCacheKey = generateCacheKey(
+                sentence,
+                resolvedVoice,
+                options.rate,
+                this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
+                true
+            );
+            if (actualCacheKey !== cacheKey) {
+                this._logger(`[BRIDGE] [SYNTHESIZE-RESOLVE] Prefetch key rewritten: ${cacheKey} -> ${actualCacheKey} (Voice: ${resolvedVoice})`);
             }
         }
 
@@ -806,20 +819,21 @@ export class AudioBridge extends EventEmitter {
             let count = 0;
             for (const target of targets) {
                 const text = chapters[target.cIdx].sentences[target.sIdx];
-                const isNeural = options.mode === 'neural';
-                const targetVoice = this.resolveVoiceForSentence(text, options.voice);
+                const { finalMode: prefetchMode, targetVoice: prefetchVoice } = this.getRoutingForSentence(text, options.mode, options.voice);
                 
                 const targetOptions = {
                     ...options,
-                    voice: targetVoice
+                    mode: prefetchMode,
+                    voice: prefetchVoice
                 };
 
+                const isPreBaked = prefetchMode === 'neural' || prefetchMode === 'phonikud-tts';
                 const key = generateCacheKey(
                     text,
-                    targetVoice,
+                    prefetchVoice,
                     options.rate,
                     this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
-                    isNeural
+                    isPreBaked
                 );
 
                 // Skip prefetch if already in either cache

@@ -742,9 +742,21 @@ export class PlaybackEngine extends EventEmitter {
 
             let data: string | null = null;
             if (options.mode === 'phonikud-tts') {
-                data = await this._getPhonikudAudio(
-                    text, currentIntentId, isPriority, currentBatchId, segmentSignal, targetDocUri
-                );
+                try {
+                    data = await this._getPhonikudAudio(
+                        text, currentIntentId, isPriority, currentBatchId, segmentSignal, targetDocUri
+                    );
+                    if (!data) {
+                        throw new Error("Phonikud local synthesis returned empty data");
+                    }
+                } catch (e: any) {
+                    this.logger(`[PHONIKUD FALLBACK] local synthesis failed: ${e.message || e}. Falling back to Azure Hebrew voice...`);
+                    const fallbackVoice = (options.voice && options.voice !== 'shaul') ? options.voice : 'he-IL-AvriNeural';
+                    data = await this._getNeuralAudio(
+                        text, fallbackVoice, options.retryCount ?? this._retryAttempts,
+                        currentIntentId, isPriority, currentBatchId, segmentSignal, targetDocUri
+                    );
+                }
             } else {
                 data = await this._getNeuralAudio(
                     text, options.voice, options.retryCount ?? this._retryAttempts,
