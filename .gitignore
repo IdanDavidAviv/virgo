@@ -24,3 +24,8 @@ tests/mcp/new_active-session/
 
 # Social networks content - local dir
 socials/
+
+# Python cache & outputs
+__pycache__/
+*.pyc
+phonikud_backend/test_outputs/
