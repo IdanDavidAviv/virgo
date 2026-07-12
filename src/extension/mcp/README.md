@@ -1,16 +1,11 @@
 # virgo-mcp
 
-> Standalone Model Context Protocol (MCP) server for **Virgo** — the Neural Narration Extension for VS Code.
+Standalone Model Context Protocol (MCP) server for the **Virgo** VS Code Extension (audio narration engine).
 
----
+This server connects AI coding agents (like Antigravity, Claude Desktop, or Cursor) to the Virgo extension, enabling them to send audio narration requests.
 
-## 🏛️ Part of the Virgo Ecosystem
-This package is the bridge that connects AI coding agents (such as Antigravity, Claude Desktop, Cursor, or Roo) directly to the **Virgo** VS Code extension. 
-
-**Virgo** is an audio narration engine that gives your IDE a voice, allowing coding agents to speak directly to you, provide SITREPs, and narrate their progress verbatim.
-
-*   **Main Extension Repository**: [https://github.com/IdanDavidAviv/virgo](https://github.com/IdanDavidAviv/virgo)
-*   **VS Code Marketplace**: Search for **Virgo** by `IdanDavidAviv`
+*   **Repository**: [https://github.com/IdanDavidAviv/virgo](https://github.com/IdanDavidAviv/virgo)
+*   **VS Code Marketplace**: [Virgo Extension](https://marketplace.visualstudio.com/items?itemName=IdanDavidAviv.virgo)
 
 ---
 
