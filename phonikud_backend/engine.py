@@ -38,31 +38,22 @@ class PhonikudEngine:
         self.diacritizer = Phonikud(self.diacritizer_path)
         self.tts = phonikud_tts.Piper(model_path=self.tts_model_path, config_path=self.tts_config_path)
         
-        # Load local package dictionary
+        # Load custom dictionary from models_dir parent (Virgo data directory)
         self.dictionary = {}
-        local_dict_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "phonikud_dictionary.json")
-        if os.path.exists(local_dict_path):
-            try:
-                with open(local_dict_path, "r", encoding="utf-8") as f:
-                    self.dictionary.update(json.load(f))
-            except Exception:
-                pass
-                
-        # Load override dictionary from models_dir parent (Virgo data directory)
         virgo_data_dir = os.path.dirname(self.models_dir)
-        override_dict_path = os.path.join(virgo_data_dir, "phonikud_dictionary.json")
+        dict_path = os.path.join(virgo_data_dir, "phonikud_dictionary.json")
         
-        # Auto-initialize the override dictionary file as a clean empty JSON object if it does not exist
-        if not os.path.exists(override_dict_path) and override_dict_path != local_dict_path:
+        # Auto-initialize the custom dictionary file as a clean empty JSON object if it does not exist
+        if not os.path.exists(dict_path):
             try:
-                with open(override_dict_path, "w", encoding="utf-8") as f:
+                with open(dict_path, "w", encoding="utf-8") as f:
                     json.dump({}, f, indent=2)
             except Exception:
                 pass
 
-        if os.path.exists(override_dict_path) and override_dict_path != local_dict_path:
+        if os.path.exists(dict_path):
             try:
-                with open(override_dict_path, "r", encoding="utf-8") as f:
+                with open(dict_path, "r", encoding="utf-8") as f:
                     self.dictionary.update(json.load(f))
             except Exception:
                 pass

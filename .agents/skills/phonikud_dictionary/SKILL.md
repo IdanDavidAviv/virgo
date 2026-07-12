@@ -7,17 +7,13 @@ description: Protocol for managing custom pronunciations and G2P dictionary over
 
 This skill governs the structure and lifecycle of the custom G2P pronunciation dictionary for Virgo's local Hebrew/English text-to-speech engine.
 
-## 📁 Dictionary File Locations
+## 📁 Dictionary File Location
 
-The engine loads and merges two JSON dictionaries (with the user/host override dictionary having higher priority):
+The engine loads a single persistent JSON dictionary containing custom pronunciation overrides:
 
-1. **Shared Template (Version-Controlled)**:
-   - Path: [phonikud_backend/phonikud_dictionary.json](file:///c:/Users/Idan4/Desktop/virgo/phonikud_backend/phonikud_dictionary.json)
-   - Purpose: Codebase-level default overrides (seeding template).
-
-2. **User Override Dictionary (Persistent & Local - Primary SSOT)**:
-   - Path: [phonikud_dictionary.json (Persistent Override)](file:///C:/Users/Idan4/.gemini/antigravity-ide/virgo/phonikud_dictionary.json)
-   - Purpose: The active, customizable pronunciation dictionary loaded by the engine. Auto-initialized as an empty JSON file (`{}`) if missing.
+- **User Override Dictionary (Persistent & Local - Primary SSOT)**:
+  - Path: [phonikud_dictionary.json (Persistent Override)](file:///C:/Users/Idan4/.gemini/antigravity-ide/virgo/phonikud_dictionary.json)
+  - Purpose: The active, customizable pronunciation dictionary loaded by the engine. Auto-initialized as an empty JSON file (`{}`) if missing.
 
 ---
 
