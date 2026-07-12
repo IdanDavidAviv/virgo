@@ -925,7 +925,7 @@ export class PlaybackController {
         const queue = store.getUIState().activeQueue;
         const { engineMode, selectedVoice, rate, currentChapterIndex, currentSentenceIndex, activeDocumentUri } = store.getState();
 
-        if (engineMode !== 'neural' || queue.length === 0 || !(store.getState().playbackAuthorized || this._userHasInteracted)) { return; }
+        if ((engineMode !== 'neural' && engineMode !== 'phonikud-tts') || queue.length === 0 || !(store.getState().playbackAuthorized || this._userHasInteracted)) { return; }
 
         // Find current index in window
         const currIdx = queue.findIndex(s => s.cIdx === currentChapterIndex && s.sIdx === currentSentenceIndex);
@@ -943,16 +943,16 @@ export class PlaybackController {
         for (const s of candidates) {
             if (this.synthesizingKeys.size >= this.MAX_CONCURRENT_SYNTHESIS) { break; }
 
-            // [SCHEMA-FIX] Pass isNeural so the key matches the extension's cache key exactly.
-            // Neural audio is always synthesized at rate=1.0 regardless of the UI rate slider;
+            // [SCHEMA-FIX] Pass isPreBaked so the key matches the extension's cache key exactly.
+            // Neural and Phonikud audio are always synthesized at rate=1.0 regardless of the UI rate slider;
             // omitting this flag caused a hash mismatch (RC-2) that bypassed all dedup guards.
-            const isNeural = engineMode === 'neural';
+            const isPreBaked = engineMode === 'neural' || engineMode === 'phonikud-tts';
             const key = generateCacheKey(
                 s.text,
                 s.voice || selectedVoice || 'default',
                 rate,
                 activeDocumentUri,
-                isNeural
+                isPreBaked
             );
 
             if (!engine.isSegmentReady(key) && !this.synthesizingKeys.has(key)) {

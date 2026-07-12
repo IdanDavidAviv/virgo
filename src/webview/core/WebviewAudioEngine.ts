@@ -532,7 +532,7 @@ export class WebviewAudioEngine {
     const engineMode = state.engineMode;
     
     // [LOCAL SYNTH] Browsers handle absolute rate for speechSynthesis natively.
-    if (engineMode !== 'neural') {
+    if (engineMode !== 'neural' && engineMode !== 'phonikud-tts') {
         this._audio.playbackRate = rate;
         return;
     }
