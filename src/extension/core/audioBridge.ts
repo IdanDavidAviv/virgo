@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { StateStore } from '@core/stateStore';
 import { DocumentLoadController } from '@core/documentLoadController';
-import { PlaybackEngine, PlaybackOptions } from '@core/playbackEngine';
+import { PlaybackEngine, PlaybackOptions, EngineMode } from './playbackEngine';
 import { SequenceManager } from '@core/sequenceManager';
 import { EventEmitter } from 'events';
 import { generateCacheKey } from '../../common/cachePolicy';
@@ -265,8 +265,19 @@ export class AudioBridge extends EventEmitter {
 
         // [v2.4.5] Autoradiant Routing: Tiered Engine Selection
         const isNeuralSelected = activeOptions.mode === 'neural';
+        const isPhonikudSelected = activeOptions.mode === 'phonikud-tts';
         const isNeuralViable   = this._playbackEngine.isNeuralViable();
-        const finalMode        = (isNeuralSelected && isNeuralViable) ? 'neural' : 'local';
+        
+        let finalMode: EngineMode = 'local';
+        if (isNeuralSelected && isNeuralViable) {
+            finalMode = 'neural';
+        } else if (isPhonikudSelected) {
+            finalMode = 'phonikud-tts';
+        } else if (isNeuralSelected && !isNeuralViable) {
+            finalMode = 'local'; // Neural degraded fallback
+        } else {
+            finalMode = 'local';
+        }
 
         let targetVoice = activeOptions.voice;
         if (finalMode === 'neural') {
@@ -286,19 +297,19 @@ export class AudioBridge extends EventEmitter {
             this._logger('[BRIDGE] ☢️ Neural stalled/degraded. Falling back to LOCAL.');
         }
 
-        const isNeural = finalMode === 'neural';
+        const isPreBaked = finalMode === 'neural' || finalMode === 'phonikud-tts';
         const cacheKey = generateCacheKey(
             sentence,
             activeOptions.voice,
             activeOptions.rate,
             this._docController.metadata.uri?.toString() || this._docController.metadata.fileName,
-            isNeural
+            isPreBaked
         );
         // [SINGLE-SINK] Commit this key as the active sentence. The synthesis-complete handler
         // reads this to suppress redundant synthesisReady (Path B) when Path C is handling delivery.
         this._activeCacheKey = cacheKey;
 
-        if (finalMode === 'neural') {
+        if (finalMode === 'neural' || finalMode === 'phonikud-tts') {
 
             // [Law 7.2] Reinforce early warming signal to the webview
             this.emitSynthesisStarting(cacheKey, finalIntent);
@@ -321,7 +332,7 @@ export class AudioBridge extends EventEmitter {
                     chapterIndex,
                     sentenceIndex,
                     totalSentences: chapter.sentences.length,
-                    bakedRate: isNeural ? 1.0 : activeOptions.rate
+                    bakedRate: isPreBaked ? 1.0 : activeOptions.rate
                 });
 
                 // If it's in Extension cache, we already pushed data.
@@ -438,8 +449,8 @@ export class AudioBridge extends EventEmitter {
                 this._logger(`[BRIDGE] [FIX-B] Stale FETCH_AUDIO fast-path: Batch ${batchId} < Engine ${latestBatch}. Dropping playAudio.`);
                 return;
             }
-            const isNeural = options.mode === 'neural';
-            this._emitWithIntent('playAudio', { cacheKey, data: '', bakedRate: isNeural ? 1.0 : options.rate });
+            const isPreBaked = options.mode === 'neural' || options.mode === 'phonikud-tts';
+            this._emitWithIntent('playAudio', { cacheKey, data: '', bakedRate: isPreBaked ? 1.0 : options.rate });
             return;
         }
 
@@ -679,7 +690,7 @@ export class AudioBridge extends EventEmitter {
                     data, // Restore Push Mode for performance
                     text: sentence,
                     chapterIndex: cIdx,
-                    bakedRate: options.mode === 'neural' ? 1.0 : options.rate,
+                    bakedRate: (options.mode === 'neural' || options.mode === 'phonikud-tts') ? 1.0 : options.rate,
                     totalSentences: this._docController.chapters[cIdx].sentences.length,
                     sentences: this._docController.chapters[cIdx].sentences
                 });

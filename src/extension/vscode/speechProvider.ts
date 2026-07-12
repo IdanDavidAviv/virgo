@@ -440,6 +440,7 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
 
 
     public dispose() {
+        this._playbackEngine?.dispose();
         this._voiceManager?.dispose();
         this._settingsManager?.dispose();
         this._syncManager?.dispose();

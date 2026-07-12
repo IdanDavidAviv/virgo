@@ -1,9 +1,10 @@
+import * as vscode from 'vscode';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { EventEmitter } from 'events';
 import { cleanForSpeech } from './speechProcessor';
 import { StateStore } from './stateStore';
-
 import { EngineMode } from '../../common/types';
+import { PhonikudIPCManager } from './PhonikudIPCManager';
 export { EngineMode };
 
 export interface PlaybackOptions {
@@ -64,6 +65,8 @@ export class PlaybackEngine extends EventEmitter {
     // [Gate 4] Startup Orchestration — TTS warm-up gate.
     // Removed _resolveTtsReady - we no longer pre-warm the WebSocket.
 
+    private _phonikudManager: PhonikudIPCManager;
+
     constructor(
         private readonly _stateStore: StateStore,
         private readonly logger: (msg: string) => void, 
@@ -73,6 +76,16 @@ export class PlaybackEngine extends EventEmitter {
         this._ttsReady = Promise.resolve(); // No longer pre-warming
         this._tts = new MsEdgeTTS();
         this._onCacheUpdate = onCacheUpdate;
+        
+        this._phonikudManager = new PhonikudIPCManager({
+            info: (msg) => this.logger(`[PHONIKUD] [INFO] ${msg}`),
+            error: (msg) => this.logger(`[PHONIKUD] [ERROR] ${msg}`)
+        });
+    }
+
+    public async dispose() {
+        this.logger('[ENGINE] Disposing PlaybackEngine...');
+        await this._phonikudManager.stop();
     }
 
     public setLogLevel(level: number) {
@@ -496,8 +509,18 @@ export class PlaybackEngine extends EventEmitter {
     }
 
     public async getVoices() {
-        // [HARDENING] Await the TTS warm-up gate to ensure WebSocket transport is open.
-        // This resolves the race condition where discovery fires during the handshake.
+        if (this._stateStore.state.engineMode === 'phonikud-tts') {
+            return [
+                {
+                    name: "Shaul (Local TTS)",
+                    id: "shaul",
+                    lang: "he-IL",
+                    gender: "Male"
+                }
+            ];
+        }
+
+        // [HARDENING] Await the TTS warm-up gate
         await this._ttsReady;
 
         // [v2.3.1] Simplified: Native voices are now discovered via the Webview.
@@ -552,7 +575,7 @@ export class PlaybackEngine extends EventEmitter {
     }
 
     public triggerPrefetch(text: string, cacheKey: string, options: PlaybackOptions, batchId: number) {
-        if (options.mode !== 'neural') { return; }
+        if (options.mode !== 'neural' && options.mode !== 'phonikud-tts') { return; }
 
         if (!this.isNeuralViable()) {
             return;
@@ -713,14 +736,21 @@ export class PlaybackEngine extends EventEmitter {
                 throw new Error('Stale Intent');
             }
 
-            // [Gate 3] Mark synthesis as active — _reinitTTS() will defer if called now
+            // [Gate 3] Mark synthesis as active
             this._synthesisActive++;
-            this.logger(`[NEURAL] LOCK ACQUIRED: ${cacheKey}`);
+            this.logger(`[SYNTHESIS] LOCK ACQUIRED: ${cacheKey} | Mode: ${options.mode}`);
 
-            const data = await this._getNeuralAudio(
-                text, options.voice, options.retryCount ?? this._retryAttempts,
-                currentIntentId, isPriority, currentBatchId, segmentSignal, targetDocUri
-            );
+            let data: string | null = null;
+            if (options.mode === 'phonikud-tts') {
+                data = await this._getPhonikudAudio(
+                    text, currentIntentId, isPriority, currentBatchId, segmentSignal, targetDocUri
+                );
+            } else {
+                data = await this._getNeuralAudio(
+                    text, options.voice, options.retryCount ?? this._retryAttempts,
+                    currentIntentId, isPriority, currentBatchId, segmentSignal, targetDocUri
+                );
+            }
 
             if (isPriority) { this._updateStatus(undefined, undefined, false); }
 
@@ -1084,6 +1114,72 @@ export class PlaybackEngine extends EventEmitter {
                 this._reinitTTS(true);
             }
 
+            throw err;
+        }
+    }
+
+    private async _getPhonikudAudio(
+        text: string,
+        intentId: number,
+        isPriority: boolean,
+        batchId: number,
+        signal?: AbortSignal,
+        targetDocUri?: string
+    ): Promise<string | null> {
+        const currentDocUri = this._stateStore.state.activeDocumentUri?.toString();
+        if (targetDocUri && currentDocUri !== targetDocUri) {
+            this.logger(`[PHONIKUD] EJECTED (Post-lock) - Document context changed.`);
+            return null;
+        }
+
+        if (batchId !== this._stateStore.state.batchIntentId) {
+            this.logger(`[PHONIKUD] EJECTED (Post-lock) - Batch ${batchId} is stale.`);
+            return null;
+        }
+
+        if (isPriority && intentId !== this._stateStore.state.playbackIntentId) {
+            this.logger(`[PHONIKUD] EJECTED (Post-lock) - Intent ${intentId} is stale.`);
+            return null;
+        }
+
+        if (!this._isPlaying && !this._isPaused && isPriority) {
+            this.logger(`[PHONIKUD] Ignoring synthesis request: Engine is stopped.`);
+            return null;
+        }
+
+        try {
+            if (signal?.aborted) {
+                this.logger(`[PHONIKUD] ABORTED (Pre-flight) - Task cancelled before start.`);
+                return null;
+            }
+
+            const cleanText = cleanForSpeech(text);
+            if (!cleanText || !cleanText.trim()) {
+                this.logger(`[PHONIKUD] Empty speech text detected. Returning silent placeholder.`);
+                return "//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACQgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/uQxADAAAAAAAAAAAAAAAAppbXAAA=";
+            }
+
+            const modelsDir = vscode.workspace.getConfiguration('virgo').get<string>('playback.phonikudModelsDir', '');
+
+            this.logger(`[PHONIKUD REQ] text:"${cleanText.substring(0, 30)}..." | Intent:${intentId}`);
+
+            const synthesisPromise = this._phonikudManager.synthesize(cleanText, modelsDir);
+
+            const result = await Promise.race([
+                synthesisPromise,
+                new Promise<null>((_, reject) => {
+                    if (signal?.aborted) { return reject(new Error("Synthesis Aborted")); }
+                    signal?.addEventListener('abort', () => reject(new Error("Synthesis Aborted")), { once: true });
+                })
+            ]);
+
+            return result;
+        } catch (err: any) {
+            const msg = err?.message || String(err);
+            if (msg.includes('Aborted')) {
+                this.logger(`[PHONIKUD] Synthesis aborted.`);
+                return null;
+            }
             throw err;
         }
     }
