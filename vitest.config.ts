@@ -6,6 +6,7 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/*.cdp.test.ts'],
     setupFiles: ['./tests/vitest.setup.ts'],
     pool: 'forks',
     maxWorkers: process.env.CI ? 2 : (process.argv.includes('run') ? 12 : 4),

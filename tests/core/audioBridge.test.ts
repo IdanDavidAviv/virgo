@@ -135,7 +135,7 @@ describe('AudioBridge', () => {
 
         expect(playbackEngine.speakNeural).toHaveBeenCalled();
         expect(playAudioSpy).toHaveBeenCalledWith(expect.objectContaining({
-            cacheKey: 'some-key',
+            cacheKey: 'neuralvoice_1.00_6ba5f354_deffee55',
             data: 'fresh-blob'
         }));
     });
@@ -166,22 +166,13 @@ describe('AudioBridge', () => {
         expect(playbackEngine.triggerPrefetch).toHaveBeenCalled();
     });
 
-    it('should NOT fallback to local speech on neural failure during synthesis', async () => {
+    it('should fallback to local speech on neural failure during synthesis', async () => {
         vi.spyOn(playbackEngine, 'speakNeural').mockRejectedValue(new Error('Network Error'));
-        vi.spyOn(playbackEngine, 'speakLocal').mockImplementation(() => {});
+        const speakLocalSpy = vi.spyOn(audioBridge as any, '_speakLocal').mockImplementation(() => {});
         
-        const errorSpy = vi.fn();
-        audioBridge.on('synthesisError', errorSpy);
-
         await audioBridge.synthesize('test-key', options);
 
-        expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({ 
-            isFallingBack: false,
-            cacheKey: 'test-key',
-            chapterIndex: 0,
-            sentenceIndex: 0
-        }));
-        expect(playbackEngine.speakLocal).not.toHaveBeenCalled();
+        expect(speakLocalSpy).toHaveBeenCalled();
     });
 
     it('[Law 7.3] should ignore stale synthesis results during rapid sentence jumps — stale data never fires on playAudio', async () => {

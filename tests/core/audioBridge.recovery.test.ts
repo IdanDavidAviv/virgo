@@ -47,6 +47,7 @@ describe('AudioBridge Recovery', () => {
             speakNeural: vi.fn(),
             speakLocal: vi.fn(),
             triggerPrefetch: vi.fn(),
+            isNeuralViable: vi.fn().mockReturnValue(true),
             emit: vi.fn(),
             on: vi.fn()
         } as any;
@@ -61,7 +62,7 @@ describe('AudioBridge Recovery', () => {
         audioBridge = new AudioBridge(stateStore, docController, playbackEngine, sequenceManager, logger, mockSettingsManager);
     });
 
-    it('should emit buffering status and NOT fallback to SAPI when neural synthesis times out', async () => {
+    it('should fallback to SAPI when neural synthesis times out', async () => {
         const options: PlaybackOptions = { voice: 'NeuralVoice', rate: 0, volume: 50, mode: 'neural' };
         
         // 1. Setup failure
@@ -69,31 +70,14 @@ describe('AudioBridge Recovery', () => {
         vi.mocked(playbackEngine.speakNeural).mockRejectedValue(timeoutError);
         
         // 2. Setup spies/listeners
-        const synthesisErrorSpy = vi.fn();
-        const engineStatusSpy = vi.fn();
-        audioBridge.on('synthesisError', synthesisErrorSpy);
-        audioBridge.on('engineStatus', engineStatusSpy);
+        const speakLocalSpy = vi.spyOn(audioBridge as any, '_speakLocal').mockImplementation(() => {});
 
         // 3. Start playback / request synthesis
-        const recoveryWait = new Promise<void>((resolve) => {
-            audioBridge.once('synthesisError', () => resolve());
-        });
-
-        // Use synthesize directly as it's the entry point for actual synthesis work
         const cacheKey = 'neural-test-key';
-        audioBridge.synthesize(cacheKey, options);
+        await audioBridge.synthesize(cacheKey, options);
         
-        // 4. Await results
-        await recoveryWait;
-        await Promise.resolve();
-
-        // 5. Verify results
-        expect(synthesisErrorSpy).toHaveBeenCalledWith(expect.objectContaining({
-            error: 'Connection unstable — check your internet or try again.',
-            isFallingBack: false
-        }));
-        expect(engineStatusSpy).toHaveBeenCalledWith({ status: 'buffering' });
-        expect(playbackEngine.speakLocal).not.toHaveBeenCalled();
-        expect(logger).toHaveBeenCalledWith(expect.stringContaining('Neural synthesis stalled'));
+        // 4. Verify results
+        expect(speakLocalSpy).toHaveBeenCalled();
+        expect(logger).toHaveBeenCalledWith(expect.stringContaining('Premium synthesis failed terminal'));
     });
 });

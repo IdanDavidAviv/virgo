@@ -74,7 +74,12 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._docController = new DocumentLoadController(this._logger);
         this._sequenceManager = new SequenceManager();
         this._stateStore = new StateStore(this._logger);
-        this._playbackEngine = new PlaybackEngine(this._stateStore, _logger, () => this._broadcastCacheStats());
+        this._playbackEngine = new PlaybackEngine(
+            this._stateStore,
+            _logger,
+            () => this._broadcastCacheStats(),
+            () => vscode.workspace.getConfiguration('virgo').get<string>('playback.phonikudModelsDir', '')
+        );
         
         // Instantiate SettingsManager early so it can be passed as a dependency to AudioBridge
         this._settingsManager = new SettingsManager(

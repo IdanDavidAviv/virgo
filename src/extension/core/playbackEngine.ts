@@ -1,4 +1,3 @@
-import * as vscode from 'vscode';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { EventEmitter } from 'events';
 import { cleanForSpeech } from './speechProcessor';
@@ -70,7 +69,8 @@ export class PlaybackEngine extends EventEmitter {
     constructor(
         private readonly _stateStore: StateStore,
         private readonly logger: (msg: string) => void, 
-        onCacheUpdate?: () => void
+        onCacheUpdate?: () => void,
+        private readonly _getPhonikudModelsDir?: () => string
     ) {
         super();
         this._ttsReady = Promise.resolve(); // No longer pre-warming
@@ -84,12 +84,12 @@ export class PlaybackEngine extends EventEmitter {
     }
 
     public async checkForPhonikudUpdates(): Promise<any> {
-        const customDir = vscode.workspace.getConfiguration('virgo').get<string>('playback.phonikudModelsDir', '') || undefined;
+        const customDir = this._getPhonikudModelsDir?.() || undefined;
         return this._phonikudManager.checkForUpdates(customDir);
     }
 
     public async updatePhonikudModels(): Promise<any> {
-        const customDir = vscode.workspace.getConfiguration('virgo').get<string>('playback.phonikudModelsDir', '') || undefined;
+        const customDir = this._getPhonikudModelsDir?.() || undefined;
         const result = await this._phonikudManager.updateModels(customDir);
         if (result && result.success) {
             await this._phonikudManager.stop();
@@ -1185,7 +1185,7 @@ export class PlaybackEngine extends EventEmitter {
                 return "//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACQgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/uQxADAAAAAAAAAAAAAAAAppbXAAA=";
             }
 
-            const modelsDir = vscode.workspace.getConfiguration('virgo').get<string>('playback.phonikudModelsDir', '');
+            const modelsDir = this._getPhonikudModelsDir?.() || '';
 
             this.logger(`[PHONIKUD REQ] text:"${cleanText.substring(0, 30)}..." | Intent:${intentId}`);
 
