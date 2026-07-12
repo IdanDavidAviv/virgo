@@ -153,6 +153,7 @@ class PhonikudEngine:
         res = res.replace('æ', 'a').replace('ʊ', 'u').replace('ʌ', 'a').replace('ə', 'e')
         res = res.replace('ɪ', 'i').replace('ɛ', 'e').replace('ɔ', '\u0254').replace('ɑ', '\u0254')  # Map O-vowels to open-O (ɔ) for Doker/Docker clarity
         res = res.replace('iː', 'i').replace('uː', 'u')
+        res = res.replace('θ', 't').replace('ð', 'd')  # Map soft/hard th sounds to standard Hebrew dental plosives t and d
         
         # Dynamic stress assignment for multi-syllable word lacking explicit G2P stress
         if 'ˈ' not in res and 'ˌ' not in res:

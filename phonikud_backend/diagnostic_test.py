@@ -34,7 +34,11 @@ def main():
             ("מערכת ה-Daemon החדשה תרוץ בתוך Docker ותבצע פונמיזציה מהירה של משפטים משולבים.", "daemon_docker.wav"),
             ("משתמשי Virgo יוכלו לבחור ב-Piper TTS בהגדרות התוסף כדי לשפר את איכות ההקראה המקומית.", "virgo_piper_tts.wav"),
             ("בזכות התמיכה של DictaBERT בניקוד, הקשר בין עברית לאנגלית ב-API הופך להרבה יותר חלק.", "dictabert_api.wav"),
-            ("אל תשכח לעשות GitPush לאחר הטמעת ה-PhonikudEngine כדי שהבדיקות ב-CI יעברו בהצלחה.", "gitpush_ci.wav")
+            ("אל תשכח לעשות GitPush לאחר הטמעת ה-PhonikudEngine כדי שהבדיקות ב-CI יעברו בהצלחה.", "gitpush_ci.wav"),
+            ("אפליקציית NextJS מריצה בדיקות מהירות בעזרת Vitest.", "nextjs_vitest.wav"),
+            ("קובץ ה-middleware מבצע Oauth מול שרת ה-Auth.", "middleware_auth.wav"),
+            ("שימוש ב-TypeScript מונע שגיאות runtime בזמן ה-build.", "typescript_build.wav"),
+            ("נבדוק את הקישור ל-GitHub וכן את פריסת הקוד ב-GitLab.", "github_gitlab.wav")
         ]
         
         output_dir = os.path.join(base_dir, "test_outputs")
