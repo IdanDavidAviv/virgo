@@ -109,6 +109,86 @@ class PhonikudEngine:
                     local_dir_use_symlinks=False
                 )
 
+            # Record baseline commit hash
+            try:
+                # pyrefly: ignore [missing-import]
+                from huggingface_hub import HfApi
+                api = HfApi()
+                refs = api.list_repo_refs(repo_id)
+                latest_commit = next(b.commit for b in refs.branches if b.name == "main")
+                metadata_path = os.path.join(self.models_dir, "models_metadata.json")
+                with open(metadata_path, "w", encoding="utf-8") as f:
+                    json.dump({"commit": latest_commit}, f, indent=2)
+            except Exception:
+                pass
+
+    def check_for_updates(self):
+        metadata_path = os.path.join(self.models_dir, "models_metadata.json")
+        saved_commit = None
+        if os.path.exists(metadata_path):
+            try:
+                with open(metadata_path, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+                    saved_commit = metadata.get("commit")
+            except Exception:
+                pass
+
+        try:
+            # pyrefly: ignore [missing-import]
+            from huggingface_hub import HfApi
+            api = HfApi()
+            refs = api.list_repo_refs("thewh1teagle/phonikud")
+            latest_commit = next(b.commit for b in refs.branches if b.name == "main")
+            
+            if not saved_commit:
+                try:
+                    with open(metadata_path, "w", encoding="utf-8") as f:
+                        json.dump({"commit": latest_commit}, f, indent=2)
+                except Exception:
+                    pass
+                return {"update_available": False, "latest_commit": latest_commit}
+
+            return {
+                "update_available": saved_commit != latest_commit,
+                "current_commit": saved_commit,
+                "latest_commit": latest_commit
+            }
+        except Exception as e:
+            return {"error": f"Failed to check updates: {str(e)}"}
+
+    def update_models(self):
+        try:
+            # pyrefly: ignore [missing-import]
+            from huggingface_hub import HfApi, hf_hub_download
+            api = HfApi()
+            refs = api.list_repo_refs("thewh1teagle/phonikud")
+            latest_commit = next(b.commit for b in refs.branches if b.name == "main")
+            
+            repo_id = "thewh1teagle/phonikud"
+            mapping = {
+                "phonikud-1.0.int8.onnx": "phonikud-1.0.int8.onnx",
+                "tokenizer.json": "tokenizer.json",
+                "shaul.onnx": "shaul.onnx",
+                "model.config.json": "model.config.json"
+            }
+            
+            for filename, repo_filename in mapping.items():
+                hf_hub_download(
+                    repo_id=repo_id,
+                    filename=repo_filename,
+                    local_dir=self.models_dir,
+                    local_dir_use_symlinks=False,
+                    force_download=True
+                )
+                
+            metadata_path = os.path.join(self.models_dir, "models_metadata.json")
+            with open(metadata_path, "w", encoding="utf-8") as f:
+                json.dump({"commit": latest_commit}, f, indent=2)
+                
+            return {"success": True, "commit": latest_commit}
+        except Exception as e:
+            return {"error": f"Failed to update models: {str(e)}"}
+
     def _phonemize_word(self, w):
         # pyrefly: ignore [missing-import]
         import eng_to_ipa as ipa

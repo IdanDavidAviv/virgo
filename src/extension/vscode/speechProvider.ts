@@ -273,6 +273,41 @@ export class SpeechProvider implements vscode.WebviewViewProvider {
         this._logger(`[SYNC] ROOT_SESSION_PIVOT_COMPLETE: root=${root} | session=${sessionId}`);
     }
 
+    public async checkPhonikudUpdates() {
+        try {
+            this._logger('[UPDATE] Checking for Phonikud model updates...');
+            const updateResult = await this._playbackEngine.checkForPhonikudUpdates();
+            if (updateResult && updateResult.update_available) {
+                this._logger(`[UPDATE] New Phonikud model version available: ${updateResult.latest_commit}`);
+                const selection = await vscode.window.showInformationMessage(
+                    'A new version of the Phonikud Hebrew voice model (Shaul) is available. Would you like to update?',
+                    'Update Now',
+                    'Later'
+                );
+
+                if (selection === 'Update Now') {
+                    await vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        title: 'Updating Phonikud voice models...',
+                        cancellable: false
+                    }, async (progress) => {
+                        progress.report({ message: 'Downloading ONNX files from Hugging Face...' });
+                        const result = await this._playbackEngine.updatePhonikudModels();
+                        if (result && result.success) {
+                            vscode.window.showInformationMessage('Phonikud voice models updated successfully!');
+                        } else {
+                            throw new Error(result?.error || 'Unknown error');
+                        }
+                    });
+                }
+            } else {
+                this._logger('[UPDATE] Phonikud models are up to date.');
+            }
+        } catch (err: any) {
+            this._logger(`[UPDATE] Failed to check for Phonikud model updates: ${err.message}`);
+        }
+    }
+
     private _ensureSessionState() {
         const sessionPath = path.join(this._virgoRoot, this._sessionId);
         const stateFile = path.join(sessionPath, 'extension_state.json');

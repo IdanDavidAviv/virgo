@@ -118,6 +118,10 @@ def main():
                         raise ValueError("Missing parameters: text or output_wav_path")
                     vocalized, phonemes = engine.text_to_speech(text, output_wav_path, length_scale)
                     result = {"vocalized": vocalized, "phonemes": phonemes}
+                elif method == "check_for_updates":
+                    result = engine.check_for_updates()
+                elif method == "update_models":
+                    result = engine.update_models()
                 else:
                     response = {
                         "jsonrpc": "2.0",

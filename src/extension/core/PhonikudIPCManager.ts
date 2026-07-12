@@ -168,6 +168,38 @@ export class PhonikudIPCManager {
         });
     }
 
+    public async checkForUpdates(modelsDir?: string): Promise<any> {
+        await this.start(modelsDir);
+        const id = this._nextId++;
+        const request = {
+            jsonrpc: '2.0',
+            method: 'check_for_updates',
+            params: {},
+            id
+        };
+
+        return new Promise<any>((resolve, reject) => {
+            this._pendingRequests.set(id, { resolve, reject });
+            this._process!.stdin!.write(JSON.stringify(request) + '\n');
+        });
+    }
+
+    public async updateModels(modelsDir?: string): Promise<any> {
+        await this.start(modelsDir);
+        const id = this._nextId++;
+        const request = {
+            jsonrpc: '2.0',
+            method: 'update_models',
+            params: {},
+            id
+        };
+
+        return new Promise<any>((resolve, reject) => {
+            this._pendingRequests.set(id, { resolve, reject });
+            this._process!.stdin!.write(JSON.stringify(request) + '\n');
+        });
+    }
+
     private _handleResponse(line: string) {
         try {
             const response = JSON.parse(line.trim());

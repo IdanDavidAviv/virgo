@@ -83,6 +83,21 @@ export class PlaybackEngine extends EventEmitter {
         });
     }
 
+    public async checkForPhonikudUpdates(): Promise<any> {
+        const customDir = vscode.workspace.getConfiguration('virgo').get<string>('playback.phonikudModelsDir', '') || undefined;
+        return this._phonikudManager.checkForUpdates(customDir);
+    }
+
+    public async updatePhonikudModels(): Promise<any> {
+        const customDir = vscode.workspace.getConfiguration('virgo').get<string>('playback.phonikudModelsDir', '') || undefined;
+        const result = await this._phonikudManager.updateModels(customDir);
+        if (result && result.success) {
+            await this._phonikudManager.stop();
+            await this._phonikudManager.start(customDir);
+        }
+        return result;
+    }
+
     public async dispose() {
         this.logger('[ENGINE] Disposing PlaybackEngine...');
         await this._phonikudManager.stop();

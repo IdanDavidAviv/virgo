@@ -163,6 +163,11 @@ export async function activate(context: vscode.ExtensionContext) {
     log('--- PORTLESS SYNC ACTIVE (Filesystem Watcher) ---');
     log(`[ANTIGRAVITY] Session: ${sessionId} | Root: ${sessionsRoot}`);
     
+    // Check for Phonikud model updates asynchronously on startup
+    speechProvider.checkPhonikudUpdates().catch(err => {
+        log(`[UPDATE] Startup update check failed: ${err.message}`);
+    });
+    
 
     // --- MCP (Agentic Integration) ---
     // [T-023] McpBridge removed. MCP runs via dist/mcp-standalone.js (pure stdio).
