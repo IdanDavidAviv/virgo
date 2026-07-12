@@ -17,7 +17,7 @@ The engine loads and merges two JSON dictionaries (with the user/host override d
 
 2. **User Override Dictionary (Persistent & Local - Primary SSOT)**:
    - Path: [phonikud_dictionary.json (Persistent Override)](file:///C:/Users/Idan4/.gemini/antigravity-ide/virgo/phonikud_dictionary.json)
-   - Purpose: The active, customizable pronunciation dictionary loaded by the engine. Auto-seeded from the shared template if missing.
+   - Purpose: The active, customizable pronunciation dictionary loaded by the engine. Auto-initialized as an empty JSON file (`{}`) if missing.
 
 ---
 

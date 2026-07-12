@@ -52,11 +52,11 @@ class PhonikudEngine:
         virgo_data_dir = os.path.dirname(self.models_dir)
         override_dict_path = os.path.join(virgo_data_dir, "phonikud_dictionary.json")
         
-        # Auto-seed the override dictionary from the local shared template if it does not exist
+        # Auto-initialize the override dictionary file as a clean empty JSON object if it does not exist
         if not os.path.exists(override_dict_path) and override_dict_path != local_dict_path:
             try:
-                import shutil
-                shutil.copy(local_dict_path, override_dict_path)
+                with open(override_dict_path, "w", encoding="utf-8") as f:
+                    json.dump({}, f, indent=2)
             except Exception:
                 pass
 
