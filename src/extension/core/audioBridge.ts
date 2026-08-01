@@ -287,13 +287,13 @@ export class AudioBridge extends EventEmitter {
         const { finalMode, targetVoice } = this.getRoutingForSentence(sentence, activeOptions.mode, activeOptions.voice);
         const sentenceLang = targetVoice.split('-')[0].toLowerCase() === 'he' ? 'he' : 'en';
 
-        if (finalMode === 'neural') {
-            if (activeOptions.voice !== targetVoice) {
-                this._logger(`[BRIDGE] Sentence-level auto-switch voice: ${activeOptions.voice} -> ${targetVoice} for language: ${sentenceLang}`);
-                activeOptions.voice = targetVoice;
-                this._stateStore.setOptions({ selectedVoice: targetVoice });
-            }
-        } else if (finalMode === 'phonikud-tts') {
+        if (targetVoice && this._stateStore.state.selectedVoice !== targetVoice) {
+            this._logger(`[BRIDGE] Sentence-level auto-switch voice: ${this._stateStore.state.selectedVoice} -> ${targetVoice} for language: ${sentenceLang}`);
+            activeOptions.voice = targetVoice;
+            this._stateStore.setOptions({ selectedVoice: targetVoice });
+        }
+
+        if (finalMode === 'phonikud-tts') {
             activeOptions.voice = 'shaul'; // Force local voice for synthesis key
         }
 
