@@ -306,25 +306,36 @@ class PhonikudEngine:
         
         return phonemes
 
-    def synthesize(self, phonemes: str, output_wav_path: str, length_scale: float = 0.85):
+    def synthesize(self, phonemes: str, output_wav_path: str = None, length_scale: float = 0.85) -> bytes:
         # Run Piper TTS model inference
         samples, sample_rate = self.tts.create(phonemes, is_phonemes=True, length_scale=length_scale)
         
         import wave
+        import io
         # pyrefly: ignore [missing-import]
         import numpy as np
         
         # Convert float32 [-1.0, 1.0] to 16-bit PCM int16
         int16_samples = (samples * 32767.0).astype(np.int16)
         
-        with wave.open(output_wav_path, "wb") as wav_file:
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, "wb") as wav_file:
             wav_file.setnchannels(1) # mono
             wav_file.setsampwidth(2) # 16-bit
             wav_file.setframerate(sample_rate)
             wav_file.writeframes(int16_samples.tobytes())
             
-    def text_to_speech(self, text: str, output_wav_path: str, length_scale: float = 0.85) -> tuple[str, str]:
+        wav_bytes = wav_buffer.getvalue()
+        if output_wav_path:
+            with open(output_wav_path, "wb") as f:
+                f.write(wav_bytes)
+                
+        return wav_bytes
+            
+    def text_to_speech(self, text: str, output_wav_path: str = None, length_scale: float = 0.85) -> tuple[str, str, str]:
+        import base64
         vocalized = self.vocalize(text)
         phonemes = self.g2p(vocalized)
-        self.synthesize(phonemes, output_wav_path, length_scale)
-        return vocalized, phonemes
+        wav_bytes = self.synthesize(phonemes, output_wav_path, length_scale)
+        audio_b64 = base64.b64encode(wav_bytes).decode('ascii')
+        return vocalized, phonemes, audio_b64

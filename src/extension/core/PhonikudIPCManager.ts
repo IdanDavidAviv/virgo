@@ -125,15 +125,11 @@ export class PhonikudIPCManager {
         await this.start(modelsDir);
 
         const id = this._nextId++;
-        const tempFilename = `virgo_phonikud_${Date.now()}_${Math.random().toString(36).substring(7)}.wav`;
-        const tempWavPath = path.join(os.tmpdir(), tempFilename);
-
         const request = {
             jsonrpc: '2.0',
             method: 'text_to_speech',
             params: {
                 text,
-                output_wav_path: tempWavPath,
                 length_scale: 0.85
             },
             id
@@ -141,27 +137,14 @@ export class PhonikudIPCManager {
 
         return new Promise<string>((resolve, reject) => {
             this._pendingRequests.set(id, {
-                resolve: async (result) => {
-                    try {
-                        if (!fs.existsSync(tempWavPath)) {
-                            reject(new Error(`Daemon reported success but WAV file was not found at ${tempWavPath}`));
-                            return;
-                        }
-                        const wavBuffer = await fs.promises.readFile(tempWavPath);
-                        const base64Audio = wavBuffer.toString('base64');
-                        
-                        // Clean up temporary WAV file
-                        await fs.promises.unlink(tempWavPath).catch(() => {});
-                        resolve(base64Audio);
-                    } catch (err: any) {
-                        reject(err);
+                resolve: (result) => {
+                    if (result && typeof result.audio_b64 === 'string') {
+                        resolve(result.audio_b64);
+                    } else {
+                        reject(new Error('Phonikud daemon response missing audio_b64 payload'));
                     }
                 },
-                reject: async (err) => {
-                    await fs.promises.unlink(tempWavPath).catch(() => {});
-                    reject(err);
-                },
-                tempWavPath
+                reject
             });
 
             this._process!.stdin!.write(JSON.stringify(request) + '\n');

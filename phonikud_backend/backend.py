@@ -114,10 +114,10 @@ def main():
                     text = params.get("text")
                     output_wav_path = params.get("output_wav_path")
                     length_scale = params.get("length_scale", 0.85)
-                    if text is None or output_wav_path is None:
-                        raise ValueError("Missing parameters: text or output_wav_path")
-                    vocalized, phonemes = engine.text_to_speech(text, output_wav_path, length_scale)
-                    result = {"vocalized": vocalized, "phonemes": phonemes}
+                    if text is None:
+                        raise ValueError("Missing parameter: text")
+                    vocalized, phonemes, audio_b64 = engine.text_to_speech(text, output_wav_path, length_scale)
+                    result = {"vocalized": vocalized, "phonemes": phonemes, "audio_b64": audio_b64}
                 elif method == "check_for_updates":
                     result = engine.check_for_updates()
                 elif method == "update_models":
