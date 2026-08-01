@@ -156,32 +156,14 @@ export class WebviewAudioEngine {
     });
     this.pendingResolvers.add(resolveNext!);
 
-    // [FIX-2] Hoist watchdog handle outside the race so the catch (abort-reject) path
-    // can also cancel it. Previously, the catch block resolved the mutex but never cleared
-    // the 3s timeout — causing ghost "⚠️ Mutex Safety Timeout (intent=N)" warnings to fire
-    // 3s after abort for every queued acquireLock that was preempted by a newer intent.
-    let watchdog: any;
     try {
       await Promise.race([
           previousMutex,
           new Promise((_, reject) => {
               if (currentAbortSignal?.aborted) { return reject(new Error('Aborted')); }
               currentAbortSignal?.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
-          }),
-          new Promise((_, reject) => {
-              // [FIX-MUTEX] Timeout REJECTS (aborts waiter) instead of resolving (granting lock).
-              // Previously r(null) let the waiter proceed while the active holder was still
-              // running — two callers owned the HTMLAudioElement simultaneously, each calling
-              // this._audio.src = url and triggering a duplicate loadstart + canplay event.
-              // Rejecting here means: "the previous holder is stuck, give up rather than steal."
-              watchdog = setTimeout(() => {
-                  console.warn(`[AUDIO] ⚠️ Mutex Safety Timeout — aborting waiter (intent=${intentId})`);
-                  reject(new Error('MutexTimeout'));
-              }, 3000);
           })
       ]);
-      
-      if (watchdog) { clearTimeout(watchdog); }
       
       if (currentSequence !== this.activeSequence || (currentAbortSignal && currentAbortSignal.aborted)) {
           this.pendingResolvers.delete(resolveNext!);
@@ -196,9 +178,6 @@ export class WebviewAudioEngine {
         resolveNext!();
       };
     } catch (err: any) {
-      // [FIX-2] Clear the watchdog in the abort/error path — previously missing,
-      // causing the 3s timer to fire as a ghost warning after the lock was already released.
-      if (watchdog) { clearTimeout(watchdog); }
       this.pendingResolvers.delete(resolveNext!);
       resolveNext!();
       return null;
