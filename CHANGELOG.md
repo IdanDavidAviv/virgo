@@ -2,6 +2,20 @@
 
 All notable changes to the "Virgo" extension will be documented in this file.
 
+## [2.10.1] - 2026-08-01
+
+### Added
+- **Per-Voice Volume & Rate Preferences**: Each voice now retains its own custom volume and playback rate settings (`voiceSettings` dictionary). Switching voices automatically restores that voice's saved volume and speed in 0ms across both the extension host and UI sliders.
+- **Zero-Disk Phonikud Hebrew TTS Streaming (T-124)**: Replaced disk temporary WAV files with raw JSON-RPC base64 IPC buffer streaming for ultra-fast, zero-I/O Hebrew voice synthesis.
+
+### Fixed
+- **Instant Document Voice & Settings Auto-Routing**: Sentence-level language detection now automatically synchronizes `selectedVoice` in `StateStore` and updates active synthesis/playback options when opening a document or switching languages.
+- **Emoji + Number List Sentence Splitting Bug**: Protected numbered list items starting with emojis (e.g. `🔥 1. Item`) from being split into truncated sentence fragments.
+
+### Refactored
+- **Event-Driven Webview Audio Mutex (T-126)**: Removed fixed 3-second watchdog timeouts in `WebviewAudioEngine` in favor of a pure FIFO promise-queue mutex.
+- **Microtask Synthesis Delivery (T-125)**: Replaced legacy 200ms batching delays with instant microtask event dispatching in `AudioBridge`.
+
 ## [2.10.0] - 2026-07-12
 
 ### Added
