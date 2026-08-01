@@ -146,6 +146,7 @@ export class DashboardRelay {
             engineMode: s.engineMode || 'local',
             autoPlayMode: s.autoPlayMode || 'auto',
             selectedVoice: s.selectedVoice,
+            voiceSettings: s.voiceSettings || {},
 
             // Data Windows
             currentSentences: currentChapter ? currentChapter.sentences : [],

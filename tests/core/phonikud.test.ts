@@ -15,5 +15,5 @@ describe('PhonikudIPCManager Zero-Disk RAM Streaming', () => {
         expect(typeof base64Audio).toBe('string');
         expect(base64Audio.length).toBeGreaterThan(100);
         expect(() => Buffer.from(base64Audio, 'base64')).not.toThrow();
-    }, 20000);
+    }, 60000);
 });

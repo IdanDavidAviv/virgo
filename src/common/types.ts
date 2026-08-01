@@ -59,6 +59,7 @@ export interface UISyncPacket {
     engineMode: EngineMode;
     autoPlayMode: 'auto' | 'chapter' | 'row';
     selectedVoice?: string;
+    voiceSettings?: Record<string, { volume: number; rate: number }>;
 
     // Data Windows
     currentSentences: string[];

@@ -14,6 +14,7 @@ export interface PersistentState {
         rate?: number;
         volume?: number;
         autoPlayMode?: 'auto' | 'chapter' | 'row';
+        voiceSettings?: Record<string, { volume: number; rate: number }>;
     };
 }
 
@@ -46,7 +47,8 @@ export class PersistenceManager {
             selectedVoice: saved.options?.voice ?? '',
             rate: saved.options?.rate ?? 1.0,
             volume: saved.options?.volume ?? 1,
-            autoPlayMode: saved.options?.autoPlayMode ?? 'auto'
+            autoPlayMode: saved.options?.autoPlayMode ?? 'auto',
+            voiceSettings: saved.options?.voiceSettings ?? {}
         });
 
         // If there's a URI, we also set the active document (which triggers loading in docController)
@@ -86,7 +88,8 @@ export class PersistenceManager {
                 voice: state.selectedVoice,
                 rate: state.rate,
                 volume: state.volume,
-                autoPlayMode: state.autoPlayMode
+                autoPlayMode: state.autoPlayMode,
+                voiceSettings: state.voiceSettings
             }
         };
 

@@ -37,6 +37,7 @@ export interface StateMetadata {
     availableVoices: { local: any[], neural: any[] };
     rate: number;
     volume: number;
+    voiceSettings: Record<string, { volume: number; rate: number }>;
 
     // UI Flags
     isPreviewing: boolean;
@@ -106,6 +107,7 @@ export class StateStore extends EventEmitter {
             availableVoices: { local: [], neural: [] },
             rate: 1.0,
             volume: 50,
+            voiceSettings: {},
 
             isPreviewing: false,
             isRefreshing: false,
@@ -240,13 +242,51 @@ export class StateStore extends EventEmitter {
         autoPlayOnVoiceSelect?: boolean,
         recentVoices?: string[],
         autoInjectSITREP?: boolean,
-        phonikudEnabled?: boolean
+        phonikudEnabled?: boolean,
+        voiceSettings?: Record<string, { volume: number; rate: number }>
     }) {
         if (options.engineMode) { this._state.engineMode = options.engineMode; }
         if (options.autoPlayMode) { this._state.autoPlayMode = options.autoPlayMode; }
-        if (options.selectedVoice !== undefined) { this._state.selectedVoice = options.selectedVoice; }
-        if (options.rate !== undefined) { this._state.rate = options.rate; }
-        if (options.volume !== undefined) { this._state.volume = options.volume; }
+        if (options.voiceSettings !== undefined) {
+            this._state.voiceSettings = { ...this._state.voiceSettings, ...options.voiceSettings };
+        }
+
+        // 1. If voice is changing, store current volume & rate for previous voice, then hydrate for new voice
+        if (options.selectedVoice !== undefined && options.selectedVoice !== this._state.selectedVoice) {
+            if (this._state.selectedVoice) {
+                this._state.voiceSettings[this._state.selectedVoice] = {
+                    volume: this._state.volume,
+                    rate: this._state.rate
+                };
+            }
+            this._state.selectedVoice = options.selectedVoice;
+            const savedVoiceConfig = this._state.voiceSettings[options.selectedVoice];
+            if (savedVoiceConfig) {
+                this._state.volume = savedVoiceConfig.volume;
+                this._state.rate = savedVoiceConfig.rate;
+            }
+        }
+
+        // 2. If rate or volume changed directly, update state and commit to voiceSettings for active voice
+        if (options.rate !== undefined) {
+            this._state.rate = options.rate;
+            if (this._state.selectedVoice) {
+                this._state.voiceSettings[this._state.selectedVoice] = {
+                    volume: this._state.volume,
+                    rate: this._state.rate
+                };
+            }
+        }
+        if (options.volume !== undefined) {
+            this._state.volume = options.volume;
+            if (this._state.selectedVoice) {
+                this._state.voiceSettings[this._state.selectedVoice] = {
+                    volume: this._state.volume,
+                    rate: this._state.rate
+                };
+            }
+        }
+
         if (options.autoPlayOnInjection !== undefined) { this._state.autoPlayOnInjection = options.autoPlayOnInjection; }
         if (options.autoPlayOnVoiceSelect !== undefined) { this._state.autoPlayOnVoiceSelect = options.autoPlayOnVoiceSelect; }
         if (options.recentVoices !== undefined) { this._state.recentVoices = options.recentVoices; }

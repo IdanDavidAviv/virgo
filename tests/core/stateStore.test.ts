@@ -88,4 +88,23 @@ describe('StateStore', () => {
         
         expect(store.state.activeContentHash).toBe(hash);
     });
+
+    it('should save and hydrate per-voice volume and rate settings', () => {
+        // Set initial voice 'shaul' and adjust volume/rate
+        store.setOptions({ selectedVoice: 'shaul', volume: 90, rate: 1.2 });
+        expect(store.state.volume).toBe(90);
+        expect(store.state.rate).toBe(1.2);
+        expect(store.state.voiceSettings['shaul']).toEqual({ volume: 90, rate: 1.2 });
+
+        // Switch to a new voice 'en-US-AriaNeural' and set different volume/rate
+        store.setOptions({ selectedVoice: 'en-US-AriaNeural', volume: 60, rate: 1.0 });
+        expect(store.state.volume).toBe(60);
+        expect(store.state.rate).toBe(1.0);
+        expect(store.state.voiceSettings['en-US-AriaNeural']).toEqual({ volume: 60, rate: 1.0 });
+
+        // Switch back to 'shaul' — should automatically restore 90% volume and 1.2x rate!
+        store.setOptions({ selectedVoice: 'shaul' });
+        expect(store.state.volume).toBe(90);
+        expect(store.state.rate).toBe(1.2);
+    });
 });
