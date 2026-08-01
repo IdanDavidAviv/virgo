@@ -325,12 +325,13 @@ export function splitIntoSentences(text: string): string[] {
             const lastWordMatch = precedingText.match(/\b(\d+|[a-zA-Z])$/);
             
             if (lastWordMatch) {
-                const isAtStart = precedingText.length === lastWordMatch[0].length;
+                const cleanedPreceding = precedingText.replace(/^[\p{Extended_Pictographic}\s\p{Emoji_Presentation}\u200d\uFE0F]+/u, '');
+                const isAtStart = precedingText.length === lastWordMatch[0].length || cleanedPreceding.length === lastWordMatch[0].length;
                 const followsNewline = text.slice(0, matchPos).includes('\n');
-                const followsSentenceEnd = /[.!?]\s+$/.test(text.slice(0, matchPos - lastWordMatch[0].length));
+                const followsSentenceEnd = /[.!?][\p{Extended_Pictographic}\s\p{Emoji_Presentation}\u200d\uFE0F]+$/u.test(text.slice(0, matchPos - lastWordMatch[0].length));
                 
                 if (isAtStart || followsNewline || followsSentenceEnd) {
-                    shouldSplit = false; // Protected index: "1. Item" or "Ref. 1. Item"
+                    shouldSplit = false; // Protected index: "1. Item" or "🔥 1. Item"
                 } else {
                     shouldSplit = true; // Prose count: "is 42. Next"
                 }

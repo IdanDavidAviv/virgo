@@ -59,4 +59,13 @@ describe('documentParser', () => {
         const sentences = splitIntoSentences(text);
         expect(sentences).toEqual(['It is.', 'It was.', 'We go.']);
     });
+
+    it('should protect numbered list items starting with emojis from being split', () => {
+        const text = '🔥 1. הנה משפט ראשון. ⚡ 2. הנה משפט שני.';
+        const sentences = splitIntoSentences(text);
+        expect(sentences).toEqual([
+            '🔥 1. הנה משפט ראשון.',
+            '⚡ 2. הנה משפט שני.'
+        ]);
+    });
 });
