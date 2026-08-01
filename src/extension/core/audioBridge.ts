@@ -108,10 +108,6 @@ export class AudioBridge extends EventEmitter {
 
             if (pushTimeout) { return; }
             pushTimeout = setTimeout(() => {
-                // [FIX-A] Exclude the active HEAD key from the batch flush.
-                // If the HEAD key's synthesis completes while the timer is still running,
-                // the flush would emit a redundant synthesisReady → FETCH_AUDIO → playAudio,
-                // producing an audible duplicate ~350ms after the real PLAY_AUDIO.
                 const results = pushQueue.filter(p =>
                     p.intentId === this._playbackEngine.playbackIntentId &&
                     p.cacheKey !== this._activeCacheKey
@@ -119,10 +115,10 @@ export class AudioBridge extends EventEmitter {
                 pushQueue = [];
                 pushTimeout = null;
                 if (results.length > 0) {
-                    this._logger(`[BRIDGE] Batch NOTIFYing ${results.length} valid segments.`);
+                    this._logger(`[BRIDGE] Microtask NOTIFYing ${results.length} valid segments.`);
                     results.forEach(p => this._emitWithIntent('synthesisReady', { cacheKey: p.cacheKey, isPriority: false }));
                 }
-            }, this._pushDelayMs);
+            }, 0);
         });
 
         this._playbackEngine.on('synthesis-failed', (payload: { cacheKey: string, error: string, intentId: number }) => {
