@@ -291,6 +291,8 @@ export class AudioBridge extends EventEmitter {
             this._logger(`[BRIDGE] Sentence-level auto-switch voice: ${this._stateStore.state.selectedVoice} -> ${targetVoice} for language: ${sentenceLang}`);
             activeOptions.voice = targetVoice;
             this._stateStore.setOptions({ selectedVoice: targetVoice });
+            activeOptions.rate = this._stateStore.state.rate;
+            activeOptions.volume = this._stateStore.state.volume;
         }
 
         if (finalMode === 'phonikud-tts') {
